@@ -16,6 +16,11 @@ pub struct PrepareContext {
     pub snapshot_id: String,
     pub instruction: String,
     pub mandatory_handles: Vec<String>,
+    /// The original caller-selected handles for discussion retries. Generic
+    /// preparation leaves this absent; persistent AuthorRoom pins are loaded
+    /// again when a linked retry starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transient_mandatory_handles: Option<Vec<String>>,
     pub scope: Option<ScopeGrant>,
     pub budget: MockContextBudget,
 }
@@ -262,7 +267,11 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
             "The prepared request does not match its operation receipt.",
         ));
     }
-    let packet: CompiledPacket = serde_json::from_str(&stored.json)?;
+    let packet_json: serde_json::Value = serde_json::from_str(&stored.json)?;
+    let has_mandatory_annotation = packet_json["receipt"]
+        .as_object()
+        .is_some_and(|receipt| receipt.contains_key("mandatorySourceHandles"));
+    let packet: CompiledPacket = serde_json::from_value(packet_json)?;
     let receipt = &packet.receipt;
     let input = serialized_input(&packet.messages, &packet.options).map_err(packet_error)?;
     if receipt.packet_id != stored.id
@@ -301,7 +310,7 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
         .iter()
         .map(|source| story_context::read_source(db, &frozen, &source.handle))
         .collect::<CoreResult<Vec<_>>>()?;
-    let expected = compile_packet(&PacketRequest {
+    let mut expected = compile_packet(&PacketRequest {
         packet_id: receipt.packet_id.clone(),
         session_id: receipt.session_id.clone(),
         invocation_ordinal: receipt.invocation_ordinal.clone(),
@@ -318,6 +327,12 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
             &format!("The stored request cannot reproduce its packet: {error}"),
         )
     })?;
+    // Older exact packets predate this optional inspector annotation. Rebuild
+    // from the original immutable request, never from receipt metadata, then
+    // compare the historical representation without inventing a new receipt.
+    if !has_mandatory_annotation && request.transient_mandatory_handles.is_none() {
+        expected.receipt.mandatory_source_handles.clear();
+    }
     if expected != packet {
         return Err(CoreError::new(
             "InvalidContextPacket",

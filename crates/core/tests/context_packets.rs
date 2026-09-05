@@ -117,6 +117,7 @@ fn prepare_request(
         snapshot_id: snapshot_id.into(),
         instruction: "Keep the selected target grounded in the supplied evidence.".into(),
         mandatory_handles: Vec::new(),
+        transient_mandatory_handles: None,
         scope: None,
         budget,
     }
@@ -193,6 +194,57 @@ fn rewrite_packet(project: &ProjectSession, packet_id: &str, mutate: impl FnOnce
             ],
         )
         .expect("rewrite packet receipt coherently");
+}
+
+#[test]
+fn legacy_packet_without_mandatory_annotation_retains_exact_input_and_replays() {
+    let temp = TempDir::new("legacy-mandatory-annotation");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "legacy-source-create".into(),
+            document_id: "legacy-source".into(),
+            title: "Original evidence".into(),
+            kind: "note".into(),
+            body: body("The pendant belonged to her mother."),
+        })
+        .unwrap();
+    let frozen = freeze(&project, &access, &document);
+    let mandatory = frozen
+        .snapshot
+        .sources
+        .iter()
+        .find(|source| source.source.document_id == "legacy-source")
+        .unwrap()
+        .handle
+        .clone();
+    let mut request = prepare_request(
+        &access,
+        &frozen.snapshot.snapshot_id,
+        "legacy-packet",
+        budget(),
+    );
+    request.mandatory_handles = vec![mandatory.clone()];
+    let original = prepared(project.prepare_context(request.clone()).unwrap());
+    assert_eq!(original.receipt.mandatory_source_handles, vec![mandatory]);
+    rewrite_packet(&project, &original.receipt.packet_id, |packet| {
+        packet["receipt"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mandatorySourceHandles");
+    });
+    let historical = project
+        .prepared_context(access, original.receipt.packet_id.clone())
+        .unwrap();
+    assert_eq!(historical.messages, original.messages);
+    assert_eq!(historical.receipt.input_hash, original.receipt.input_hash);
+    assert!(historical.receipt.mandatory_source_handles.is_empty());
+    assert_eq!(
+        prepared(project.prepare_context(request).unwrap()),
+        historical
+    );
+    create_backup(&project, &temp.child("legacy.wnsbackup")).unwrap();
 }
 
 #[test]
@@ -495,6 +547,12 @@ fn packet_insert_failure_rolls_back_without_a_durable_packet_row() {
 #[test]
 fn coherent_packet_tampering_is_rejected_by_reads_and_transfer() {
     for (label, mutate) in [
+        (
+            "mandatory-annotation-change",
+            Box::new(|packet: &mut Value| {
+                packet["receipt"]["mandatorySourceHandles"] = json!([]);
+            }) as Box<dyn FnOnce(&mut Value)>,
+        ),
         (
             "mandatory-source-omission",
             Box::new(|packet: &mut Value| {

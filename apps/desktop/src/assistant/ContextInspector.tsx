@@ -11,9 +11,11 @@ function message(reason: unknown): string {
 }
 
 /** Reads the immutable receipt; never reconstructs a past request from current prose. */
-export function ContextInspector({ access, packetId, delivered, refreshKey, onPin }: {
+export function ContextInspector({ access, packetId, delivered, refreshKey, onPin, onKeepSource, pinDisabled = false }: {
   access: ProjectAccess; packetId: string; delivered: boolean; refreshKey: string;
   onPin?: (documentId: string, title: string) => void;
+  onKeepSource?: (documentId: string) => void;
+  pinDisabled?: boolean;
 }) {
   const [state, setState] = useState<{ packet: CompiledPacket; frozen: FrozenContext; current: boolean } | null>(null);
   const [source, setSource] = useState<SourceRead | null>(null);
@@ -89,7 +91,9 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
     return <li key={item.handle}>
       <button className="text-button" onClick={() => void read(item)}>{item.displayName}</button>
       {coverage && <span className="context-detail">{coverage.label === 'fullText' ? 'Full text' : coverage.label === 'wholeBlocks' ? 'Selected passages' : coverage.detail === 'digest' ? 'Summary' : 'Source reference'}</span>}
-      {onPin && <button className="quiet-button" onClick={() => onPin(item.source.documentId, item.displayName)} aria-label={`Include ${item.displayName} in the next request`}>Include next time</button>}
+      {state?.packet.receipt.mandatorySourceHandles?.includes(item.handle) && <span className="context-detail">Required source</span>}
+      {onPin && <button className="quiet-button" disabled={pinDisabled} onClick={() => onPin(item.source.documentId, item.displayName)} aria-label={`Include ${item.displayName} in the next request`}>Include next time</button>}
+      {onKeepSource && <button className="quiet-button" disabled={pinDisabled} onClick={() => onKeepSource(item.source.documentId)} aria-label={`Keep ${item.displayName} for future discussions`}>Keep source…</button>}
     </li>;
   }
   return <details className="context-inspector">

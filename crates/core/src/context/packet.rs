@@ -686,6 +686,7 @@ fn finish_packet(
         snapshot_id: request.frozen.snapshot.snapshot_id.clone(),
         invocation_ordinal: request.invocation_ordinal.clone(),
         source_handles,
+        mandatory_source_handles: request.mandatory_handles.clone(),
         guidance_handles: request
             .frozen
             .guidance

@@ -29,6 +29,17 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('historical context inspection', () => {
+  it('labels required sources from the receipt and offers a separate persistent-source action', async () => {
+    const keep = vi.fn(); const next = vi.fn();
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, mandatorySourceHandles: ['first'] } });
+    await act(async () => root.render(<ContextInspector access={access} packetId="packet" delivered refreshKey="1" onPin={next} onKeepSource={keep} />));
+    expect(host.querySelector('.context-inspector details[open] li')?.textContent).toContain('Required source');
+    const keepButton = host.querySelector('[aria-label="Keep The promise for future discussions"]') as HTMLButtonElement;
+    await act(async () => keepButton.click());
+    expect(keep).toHaveBeenCalledWith('first'); expect(next).not.toHaveBeenCalled();
+    await act(async () => root.render(<ContextInspector access={access} packetId="packet" delivered refreshKey="1" onPin={next} onKeepSource={keep} pinDisabled />));
+    await act(async () => keepButton.click()); expect(keep).toHaveBeenCalledOnce(); expect(keepButton.disabled).toBe(true);
+  });
   it('shows exact prior exchanges separately from guidance and reports history omissions', async () => {
     const conversation: context.FrozenConversation = { projectId: access.projectId, operationNamespace: access.operationNamespace, documentId: first.source.documentId, threadId: 'thread', omittedTurns: 2, turns: [{ runId: 'run', packetId: 'prior-packet', sourceSnapshotId: 'prior-snapshot', policyVersion: '0', user: { id: 'user-message', content: 'Keep the question open for now.', scope: null }, assistant: { id: 'assistant-message', content: 'An unadopted possibility.\nThe pendant could be a clue.', scope: null } }] };
     vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, conversationMessageIds: ['user-message', 'assistant-message'], omittedDiscussionTurns: 2 } });

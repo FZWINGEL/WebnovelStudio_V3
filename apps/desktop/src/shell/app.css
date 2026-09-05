@@ -197,6 +197,17 @@ input::placeholder { color: #637083; }
 .context-source h3 { margin: 0; }
 .source-pins { padding: 8px 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .source-pins button { padding: 4px 8px; background: #edf1f8; font-size: 11px; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.persistent-source-pins { margin-bottom: 21px; padding-bottom: 17px; border-bottom: 1px solid var(--line); }
+.persistent-source-pins summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.persistent-source-pins .small-copy { font-size: 12px; line-height: 1.5; }
+.persistent-source-list { padding: 0; margin: 12px 0; list-style: none; }
+.persistent-source-list li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-block: 8px; font-size: 13px; }
+.persistent-source-list li>span { min-width: 0; overflow-wrap: anywhere; }
+.persistent-source-list small { display: block; color: var(--muted); margin-top: 3px; }
+.source-pin-form { display: grid; gap: 7px; }
+.source-pin-form label { font-size: 12px; font-weight: 600; margin-top: 6px; }
+.source-pin-form select { min-width: 0; width: 100%; padding: 8px; border: 1px solid #aebccc; border-radius: 5px; color: inherit; background: #fff; }
+.source-pin-form button { justify-self: end; margin-top: 5px; }
 .writing-guidance { margin: 0 0 21px; padding: 0 0 17px; border-bottom: 1px solid var(--line); }
 .guidance-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .writing-guidance-details { flex: 1; min-width: 0; }

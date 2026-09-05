@@ -20,6 +20,7 @@ use crate::projects::story_context::{FreezeStory, FrozenContext};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeSet;
 
 mod retry;
 
@@ -525,8 +526,44 @@ impl OwnedProject {
             retry_guidance.as_deref(),
         )?;
         let target = read_revision(&tx, &frozen_context.snapshot.target.revision_id)?;
-        let mandatory_handles =
+        let persistent_ids = source_pins::persistent_for_discussion(
+            &tx,
+            &request.access,
+            &request.expected.document_id,
+            request.intent.is_discuss(),
+        )?;
+        let merged_document_ids =
+            merge_pinned_document_ids(&persistent_ids, &request.pinned_document_ids)?;
+        let transient_handles =
             resolve_pinned_handles(&frozen_context, &request.pinned_document_ids)?;
+        let all_mandatory_handles = resolve_pinned_handles(&frozen_context, &merged_document_ids)?;
+        let target_handle = frozen_context
+            .snapshot
+            .sources
+            .iter()
+            .find(|source| source.source == frozen_context.snapshot.target)
+            .map(|source| source.handle.clone())
+            .ok_or_else(|| {
+                CoreError::new(
+                    "InvalidContext",
+                    "The frozen discussion target is missing from its source manifest.",
+                )
+            })?;
+        // A transient target selection keeps the existing compiler refusal.
+        // A persistent target selection needs no additional source entry:
+        // the compiler already reserves the complete target itself.
+        let mandatory_handles = if transient_handles
+            .iter()
+            .any(|handle| handle == &target_handle)
+        {
+            all_mandatory_handles.clone()
+        } else {
+            all_mandatory_handles
+                .iter()
+                .filter(|handle| *handle != &target_handle)
+                .cloned()
+                .collect()
+        };
         let source_reads = frozen_context
             .snapshot
             .sources
@@ -546,7 +583,14 @@ impl OwnedProject {
             budget: request.budget.clone(),
         })
         .map_err(packet_error)?;
-        insert_packet(&tx, &packet, &request, &mandatory_handles, scope.as_ref())?;
+        insert_packet(
+            &tx,
+            &packet,
+            &request,
+            &mandatory_handles,
+            Some(transient_handles),
+            scope.as_ref(),
+        )?;
         if retry_guidance.is_none() {
             guidance::consume_request_guidance_at(
                 &tx,
@@ -1236,6 +1280,31 @@ fn resolve_pinned_handles(
     Ok(handles)
 }
 
+fn merge_pinned_document_ids(
+    persistent: &[String],
+    transient: &[String],
+) -> CoreResult<Vec<String>> {
+    let mut transient_seen = std::collections::HashSet::new();
+    for id in transient {
+        if !transient_seen.insert(id) {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A transient source document was pinned more than once.",
+            ));
+        }
+    }
+    let mut merged = BTreeSet::new();
+    merged.extend(persistent.iter().cloned());
+    merged.extend(transient.iter().cloned());
+    if merged.len() > MAX_PINNED_DOCUMENTS {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A discussion may use at most 64 source documents after persistent pins are merged.",
+        ));
+    }
+    Ok(merged.into_iter().collect())
+}
+
 fn capture_discussion_scope(
     input: Option<&DiscussionScopeInput>,
     target: &Value,
@@ -1277,6 +1346,7 @@ fn insert_packet(
     packet: &CompiledPacket,
     request: &StartDiscussion,
     mandatory_handles: &[String],
+    transient_handles: Option<Vec<String>>,
     scope: Option<&ScopeGrant>,
 ) -> CoreResult<()> {
     // context_packets is validated on packet reads and transfers. Persist its
@@ -1288,6 +1358,7 @@ fn insert_packet(
         snapshot_id: packet.receipt.snapshot_id.clone(),
         instruction: request.instruction.clone(),
         mandatory_handles: mandatory_handles.to_vec(),
+        transient_mandatory_handles: transient_handles,
         scope: scope.cloned(),
         budget: request.budget.clone(),
     };

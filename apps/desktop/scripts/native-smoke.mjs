@@ -377,6 +377,15 @@ try {
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
   await page.getByRole('heading', { name: 'Ending to protect', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.querySelector('.tiptap').editor.state.selection.anchor), 7);
+  await page.locator('.persistent-source-pins>summary').click();
+  await page.getByRole('combobox', { name: 'Story source', exact: true }).selectOption({ label: "Mei's voice" });
+  await page.getByRole('button', { name: 'Keep source', exact: true }).click();
+  await page.locator('.persistent-source-list li').filter({ hasText: "Mei's voice" }).waitFor();
+  await page.getByRole('combobox', { name: 'Story source', exact: true }).selectOption({ label: 'Ending to protect' });
+  await page.getByRole('combobox', { name: 'Use in discussions for', exact: true }).selectOption('project');
+  await page.getByRole('button', { name: 'Keep source', exact: true }).click();
+  await page.locator('.persistent-source-list li').filter({ hasText: 'Ending to protectThis project' }).waitFor();
+  await page.screenshot({ path: resolve(output, 'persistent-source-pins.png') });
   const beforeDiscussion = await page.evaluate(() => { window.discussionEditor = document.querySelector('.tiptap').editor; window.discussionEditor.commands.setTextSelection({ from: 10, to: 23 }); return window.discussionEditor.getJSON(); });
   await page.getByRole('button', { name: 'Discuss selection', exact: true }).click();
   await page.locator('.persistent-feedback .quoted-scope blockquote').filter({ hasText: /^final lantern$/ }).waitFor();
@@ -387,6 +396,10 @@ try {
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeDiscussion);
   await page.locator('.context-inspector>summary').click();
   await page.locator('.context-inspector summary').filter({ hasText: /^Used/ }).waitFor();
+  await page.waitForFunction(() => [...document.querySelectorAll('.context-inspector details[open] .context-detail')].filter(item => item.textContent === 'Required source').length === 1);
+  await page.locator('.context-inspector details[open]').getByRole('button', { name: "Keep Mei's voice for future discussions", exact: true }).click();
+  assert.equal(await page.getByRole('combobox', { name: 'Story source', exact: true }).evaluate(element => element.selectedOptions[0].text), "Mei's voice");
+  assert.equal(await page.locator('.persistent-source-list li').count(), 2, 'Opening source confirmation must not save another pin');
   await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).fill('Remember the promise from this scene.');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
@@ -400,6 +413,10 @@ try {
   await page.locator('.persistent-feedback article').filter({ hasText: 'This test confirms discussion and context handling' }).waitFor();
   await page.screenshot({ path: resolve(output, 'persistent-discussion.png') });
   checks.push('Native selected discussion retains its exact quote, mock response and context receipt without replacing prose; unsent composer and conversation survive switching and renderer reload');
+  await page.locator('.persistent-source-pins>summary').click();
+  await page.locator('.persistent-source-list li').filter({ hasText: "Mei's voiceThis document" }).waitFor();
+  await page.locator('.persistent-source-list li').filter({ hasText: 'Ending to protectThis project' }).waitFor();
+  checks.push('Persistent document/project source choices survive native navigation/reload and are marked required in the frozen discussion packet without changing prose');
   const beforeGuidance = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
   await page.locator('.persistent-feedback article').filter({ hasText: /^You/ }).filter({ hasText: 'Keep this image, but make its meaning less obvious.' }).getByRole('button', { name: 'Keep as guidance', exact: true }).click();
   await page.getByRole('textbox', { name: 'Direction', exact: true }).fill('Preserve the final lantern image and keep the ending intact.');

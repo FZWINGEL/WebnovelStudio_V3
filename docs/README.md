@@ -1,6 +1,6 @@
 # V3 documentation index
 
-Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The default Tauri application has a persistent Library/Workspace, manual writing, mock discussions, scoped guidance, an inspectable context packet, selected-passage Apply/Reject, and saved-version restore. Current work adds exact Markdown/TXT export previews and Windows installer configuration. Reviewed-story authority, richer memory, live providers, and full release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
+Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The default Tauri application has a persistent Library/Workspace, manual writing, mock discussions, scoped guidance, saved discussion sources, an inspectable context packet, selected-passage Apply/Reject, and saved-version restore. Current work adds exact Markdown/TXT export previews and Windows installer configuration. Reviewed-story authority, richer memory, live providers, and full release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
 
 | Read | Document | Responsibility |
 | --- | --- | --- |
@@ -16,6 +16,7 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6d | [Proposal and Apply ADR](ADR_0004_PROPOSAL_APPLY.md) | Explicit feedback intent, restricted proposal context, immutable review records, and atomic author Apply/Reject |
 | 6e | [Document history ADR](ADR_0005_DOCUMENT_HISTORY.md) | Saved-version comparison and explicit restore development contract |
 | 6f | [Draft export ADR](ADR_0006_DRAFT_EXPORT.md) | Exact frozen Markdown/TXT previews, explicit native save, immutable export records, and partial-failure boundary |
+| 6g | [Discussion source pins ADR](ADR_0007_DISCUSSION_SOURCE_PINS.md) | Persistent source choices, explicit confirmation, mandatory packet binding, retry and recovery boundaries |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |

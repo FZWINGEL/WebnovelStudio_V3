@@ -14,6 +14,7 @@ mod export_commands;
 mod guidance_commands;
 mod library_commands;
 mod project_commands;
+mod source_pin_commands;
 
 #[cfg(debug_assertions)]
 #[tauri::command]
@@ -125,6 +126,8 @@ fn main() {
             context_commands::revoke_story_context,
             context_commands::rebuild_story_index,
             context_commands::capture_story_scope,
+            source_pin_commands::read_source_pins,
+            source_pin_commands::save_source_pins,
             #[cfg(debug_assertions)]
             validate_snapshot,
             runtime_info,

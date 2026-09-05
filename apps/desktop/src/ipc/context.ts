@@ -55,7 +55,7 @@ export interface MockContextBudget {
 }
 export interface PacketReceipt {
   packetId: string; sessionId: string; snapshotId: string; invocationOrdinal: string;
-  sourceHandles: string[]; coverage: Array<{ handle: string; label: string; detail: CoverageDetail }>;
+  sourceHandles: string[]; mandatorySourceHandles?: string[]; coverage: Array<{ handle: string; label: string; detail: CoverageDetail }>;
   guidanceHandles?: string[];
   conversationMessageIds?: string[];
   omittedDiscussionTurns?: number;

@@ -24,6 +24,7 @@ vi.mock('../ipc/proposals', () => ({
 }));
 vi.mock('./ContextInspector', () => ({ ContextInspector: () => <div data-testid="context-inspector" /> }));
 vi.mock('./GuidancePanel', () => ({ GuidancePanel: () => <div data-testid="guidance-panel" /> }));
+vi.mock('./SourcePinsPanel', () => ({ SourcePinsPanel: () => <div data-testid="source-pins-panel" /> }));
 
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 const emptyBody: WnsDocument = { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'paragraph-1' }, content: [{ type: 'text', text: 'A quiet chapter.' }] }] } };

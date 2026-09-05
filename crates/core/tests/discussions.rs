@@ -1755,7 +1755,11 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE export_records;
+            "DROP TRIGGER source_pin_receipts_no_update;
+             DROP TRIGGER source_pin_receipts_no_delete;
+             DROP TABLE source_pin_receipts;
+             DROP TABLE source_pin_sets;
+             DROP TABLE export_records;
              DROP TRIGGER command_receipts_no_proposal_collision;
              DROP TABLE proposal_receipts; DROP TABLE proposal_decisions; DROP TABLE proposal_versions; DROP TABLE proposals;
              ALTER TABLE discussion_drafts DROP COLUMN intent;
@@ -1774,7 +1778,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema9-")
+            .starts_with("schema6-before-schema10-")
     }));
 }
 

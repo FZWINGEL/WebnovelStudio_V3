@@ -5,6 +5,7 @@
 //! Restore always creates a new project identity; it never replaces the source
 //! project or reuses its active operation namespace.
 
+use crate::projects::source_pins::AUTHOR_ROOM_AUDIENCE;
 use crate::projects::{
     CheckpointReason, CheckpointRequest, CoreError, CoreResult, CreationOrigin, Head,
     ProjectAccess, ProjectInfo, ProjectSession, StoredResult, read_creation_origin,
@@ -576,6 +577,7 @@ fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<
             format!("The export records are invalid: {error}"),
         )
     })?;
+    validate_source_pin_storage(&connection, &info)?;
     let mut documents = Vec::new();
     let mut statement = connection.prepare(
         "SELECT id,working_version,body_hash,last_checkpoint_id,body_json,schema_version \
@@ -688,6 +690,198 @@ fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<
         documents,
         revisions,
     })
+}
+
+const MAX_SOURCE_PIN_DOCUMENTS: usize = 64;
+
+/// Validate the durable source-pin state before a database can be backed up
+/// or recovered.  Mutable sets belong to the database's current identity;
+/// their receipts deliberately do not, because recovery retains receipts as
+/// historical evidence under their original namespace.
+fn validate_source_pin_storage(connection: &Connection, info: &ProjectInfo) -> CoreResult<()> {
+    let mut sets = connection.prepare(
+        "SELECT project_id,operation_namespace,scope,target_document_id,version,
+                source_document_ids_json,audience
+         FROM source_pin_sets
+         ORDER BY project_id,operation_namespace,scope,target_document_id",
+    )?;
+    let rows = sets.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, String>(6)?,
+        ))
+    })?;
+    for row in rows {
+        let (project_id, namespace, scope, target, version, ids_json, audience) = row?;
+        if project_id != info.project_id || namespace != info.operation_namespace {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "A source-pin set does not belong to the current project identity.",
+            ));
+        }
+        validate_source_pin_set_fields(&scope, &target, version, &ids_json, &audience)?;
+    }
+
+    // Receipt rows are immutable historical records.  A recovery rotates the
+    // live set identity but keeps these original project and namespace values
+    // so an audit can still establish where the decision came from.
+    let mut receipts = connection.prepare(
+        "SELECT project_id,operation_namespace,operation_id,scope,target_document_id,
+                expected_version,payload_hash,operation_kind,result_json
+         FROM source_pin_receipts
+         ORDER BY operation_namespace,operation_id",
+    )?;
+    let rows = receipts.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, i64>(5)?,
+            row.get::<_, String>(6)?,
+            row.get::<_, String>(7)?,
+            row.get::<_, String>(8)?,
+        ))
+    })?;
+    for row in rows {
+        let (
+            project_id,
+            namespace,
+            operation_id,
+            scope,
+            target,
+            expected_version,
+            payload_hash,
+            operation_kind,
+            result_json,
+        ) = row?;
+        if !valid_id(&project_id)
+            || !valid_id(&namespace)
+            || !valid_id(&operation_id)
+            || !valid_hash(&payload_hash)
+            || operation_kind != "saveSourcePins"
+        {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "A source-pin receipt has invalid identity or operation metadata.",
+            ));
+        }
+        if expected_version < 0 {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "A source-pin receipt has a negative expected version.",
+            ));
+        }
+        let result: crate::projects::source_pins::SourcePinSet = serde_json::from_str(&result_json)
+            .map_err(|_| {
+                transfer_error(
+                    "InvalidBackup",
+                    "A source-pin receipt result is not a valid source-pin set.",
+                )
+            })?;
+        validate_source_pin_result(&scope, &target, &result)?;
+        let result_version = result.version.parse::<i64>().map_err(|_| {
+            transfer_error(
+                "InvalidBackup",
+                "A source-pin receipt has an invalid result version.",
+            )
+        })?;
+        if result_version != expected_version
+            && Some(result_version) != expected_version.checked_add(1)
+        {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "A source-pin receipt version does not follow its request.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_source_pin_result(
+    scope: &str,
+    target: &str,
+    result: &crate::projects::source_pins::SourcePinSet,
+) -> CoreResult<()> {
+    let expected_scope = match scope {
+        "project" => crate::projects::source_pins::SourcePinScope::Project,
+        "document" => crate::projects::source_pins::SourcePinScope::Document,
+        _ => {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "A source-pin receipt has an invalid scope.",
+            ));
+        }
+    };
+    let target_matches = match scope {
+        "project" => target.is_empty() && result.target_document_id.is_none(),
+        "document" => valid_id(target) && result.target_document_id.as_deref() == Some(target),
+        _ => false,
+    };
+    if result.scope != expected_scope
+        || !target_matches
+        || result.audience != AUTHOR_ROOM_AUDIENCE
+        || !valid_version_string(&result.version)
+        || result.source_document_ids.iter().any(|id| !valid_id(id))
+        || result.source_document_ids.len() > MAX_SOURCE_PIN_DOCUMENTS
+        || result
+            .source_document_ids
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return Err(transfer_error(
+            "InvalidBackup",
+            "A source-pin receipt result does not match its recorded request.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_source_pin_set_fields(
+    scope: &str,
+    target: &str,
+    version: i64,
+    ids_json: &str,
+    audience: &str,
+) -> CoreResult<()> {
+    if audience != AUTHOR_ROOM_AUDIENCE || version < 0 {
+        return Err(transfer_error(
+            "InvalidBackup",
+            "A source-pin set has invalid audience or version metadata.",
+        ));
+    }
+    match scope {
+        "project" if target.is_empty() => {}
+        "document" if valid_id(target) => {}
+        _ => {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "A source-pin set has an invalid scope or target.",
+            ));
+        }
+    }
+    let ids: Vec<String> = serde_json::from_str(ids_json)
+        .map_err(|_| transfer_error("InvalidBackup", "A source-pin set contains invalid JSON."))?;
+    if ids.len() > MAX_SOURCE_PIN_DOCUMENTS
+        || ids.iter().any(|id| !valid_id(id))
+        || ids.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(transfer_error(
+            "InvalidBackup",
+            "A source-pin set must contain at most 64 sorted unique document IDs.",
+        ));
+    }
+    // A source may have been trashed after the pin was saved.  Such an ID is
+    // retained so the author can remove it; discussion preparation refuses it
+    // when it is no longer resolvable.  Structural ID validation above keeps
+    // the transfer boundary bounded without destroying repairable state.
+    Ok(())
 }
 
 fn manifest_for(database: &DatabaseHeads, hash: String) -> BackupManifest {
@@ -994,6 +1188,19 @@ fn rotate_identity(path: &Path, old: &ProjectInfo, new: &ProjectInfo) -> CoreRes
             "The recovered project identity could not be rotated.",
         ));
     }
+    // Mutable source-pin sets follow the recovered live identity.  Receipts
+    // are intentionally left untouched: their original namespace is the
+    // historical authority and cannot authorize writes in the new copy.
+    tx.execute(
+        "UPDATE source_pin_sets SET project_id=?,operation_namespace=?
+         WHERE project_id=? AND operation_namespace=?",
+        rusqlite::params![
+            new.project_id,
+            new.operation_namespace,
+            old.project_id,
+            old.operation_namespace
+        ],
+    )?;
     tx.commit().map_err(CoreError::uncertain)?;
     Ok(())
 }

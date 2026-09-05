@@ -66,8 +66,10 @@ fn original(
         |row| row.get(0),
     )?;
     let prepared: PrepareContext = serde_json::from_str(&request_json)?;
-    let pins = prepared
-        .mandatory_handles
+    let retry_handles = prepared
+        .transient_mandatory_handles
+        .unwrap_or(prepared.mandatory_handles.clone());
+    let pins = retry_handles
         .iter()
         .map(|handle| {
             frozen

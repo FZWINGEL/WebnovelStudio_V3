@@ -19,6 +19,7 @@ pub mod exports;
 pub mod guidance;
 pub mod history;
 pub mod proposals;
+pub mod source_pins;
 pub mod story_context;
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -279,6 +280,7 @@ enum Command {
     History(Box<history::HistoryCommand>),
     Proposal(Box<proposals::ProposalCommand>),
     Export(Box<exports::ExportCommand>),
+    SourcePins(Box<source_pins::SourcePinCommand>),
     Attach(String, Reply<ProjectAccess>),
     AttachSnapshot(String, Reply<AttachedProject>),
     Create(CreateDocument, Reply<DocumentRecord>),
@@ -421,6 +423,7 @@ impl ProjectSession {
                             Command::History(command) => project.handle_history(*command),
                             Command::Proposal(command) => project.handle_proposal(*command),
                             Command::Export(command) => project.handle_export(*command),
+                            Command::SourcePins(command) => project.handle_source_pins(*command),
                             Command::Attach(session, reply) => {
                                 let _ = reply.send(project.attach(session));
                             }

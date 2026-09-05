@@ -11,9 +11,10 @@ import { captureSelection, prepareScopedReplacement, type Scope } from '../edito
 import { prepareProposal, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { FeedbackPanel } from '../assistant/FeedbackPanel';
 import { HistoryPanel } from './HistoryPanel';
+import type { SourceChoice } from '../ipc/sourcePins';
 
 const Manuscript = memo(({ editor }: { editor: Editor }) => <EditorContent editor={editor} />);
-export function Writer({ active, onError, onRename }: { active: { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null }; onError: (message: string) => void; onRename: () => void }) {
+export function Writer({ active, sources, onError, onRename }: { active: { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null }; sources: SourceChoice[]; onError: (message: string) => void; onRename: () => void }) {
   const { session, record } = active;
   const [state, setState] = useState(session.state);
   const [, redraw] = useState(0);
@@ -190,7 +191,7 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
     <div className="manuscript-scroll" onContextMenu={event => { if (!editor.state.selection.empty && state.editable) { event.preventDefault(); setMenu({ x: Math.min(event.clientX, window.innerWidth - 270), y: Math.min(event.clientY, window.innerHeight - 60) }); } }} onPaste={event => { if (/<(?:table|img|ul|ol|pre|video|iframe|script|blockquote|code|s|strike|del|u|sub|sup|h[4-6])\b/iu.test(event.clipboardData.getData('text/html'))) setPasteNotice('Pasted text with supported formatting. Other formatting or embedded content was omitted.'); }}><div className="manuscript-page"><Manuscript editor={editor} /></div></div>
     <footer className="writing-status"><span>{pasteNotice || 'Writing on this computer'}</span><span>Offline writing</span></footer>
   </main>
-  <FeedbackPanel session={session} state={state} title={record.title} documentKind={record.kind} selection={discussionSelection} visible={discussionVisible && !historyVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} onPrepareProposal={prepare} onApplyProposal={apply} />
+  <FeedbackPanel session={session} state={state} title={record.title} documentKind={record.kind} sources={sources} selection={discussionSelection} visible={discussionVisible && !historyVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} onPrepareProposal={prepare} onApplyProposal={apply} />
   <HistoryPanel access={session.projectAccess} documentId={state.head.documentId} body={session.body} visible={historyVisible} disabled={!state.editable} onClose={() => { setHistoryVisible(false); historyButton.current?.focus(); }} onRestore={restore} />
   {menu && <><div className="menu-dismiss" onClick={() => setMenu(null)} /><div className="selection-menu" role="menu" aria-label="Selected passage" style={{ left: menu.x, top: menu.y }} onKeyDown={event => { if (event.key === 'Escape') { setMenu(null); editor.commands.focus(); } }}><button role="menuitem" autoFocus onMouseDown={event => event.preventDefault()} onClick={() => discuss.current()}>Discuss selection · Ctrl+Shift+F</button></div></>}
   </>;

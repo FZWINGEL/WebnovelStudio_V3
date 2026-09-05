@@ -179,6 +179,11 @@ pub struct PacketReceipt {
     pub snapshot_id: String,
     pub invocation_ordinal: String,
     pub source_handles: Vec<String>,
+    /// Exact story sources made mandatory by the caller. This deliberately
+    /// excludes the target unless the target was explicitly pinned; the
+    /// compiler may still reserve the target for every packet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mandatory_source_handles: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub guidance_handles: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
