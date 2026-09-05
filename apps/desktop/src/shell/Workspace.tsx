@@ -10,6 +10,7 @@ import { prepareDraftExport, exportPreparedDraft, type DraftExportPreview, type 
 import { App as EditorTrial } from './App';
 import { Writer } from './Writer';
 import { ExportDialog } from './ExportDialog';
+import { runtimeInfo } from '../ipc/native';
 
 type ActiveDocument = { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null };
 const emptyLibrary: LibrarySnapshot = { entries: [], pending: [] };
@@ -38,6 +39,7 @@ export function Workspace() {
   const [documentTitle, setDocumentTitle] = useState('');
   const [kind, setKind] = useState('chapter');
   const [trial, setTrial] = useState(false);
+  const [trialAvailable, setTrialAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
   const [notice, setNotice] = useState('');
@@ -51,6 +53,11 @@ export function Workspace() {
 
   async function refreshLibrary() { setLibrary(await librarySnapshot()); }
   useEffect(() => { void refreshLibrary().catch(reason => setError(errorText(reason))).finally(() => setLoading(false)); }, []);
+  useEffect(() => {
+    let disposed = false;
+    if (isTauri()) void runtimeInfo().then(info => { if (!disposed) setTrialAvailable(info.editorTrial === true); }).catch(() => {});
+    return () => { disposed = true; };
+  }, []);
   useEffect(() => {
     if (!isTauri()) return;
     const attached = getCurrentWindow().onCloseRequested(event => {
@@ -314,7 +321,7 @@ export function Workspace() {
     } finally { running.current = false; setBusy(false); }
   }
 
-  if (trial) return <><button className="trial-return" onClick={() => setTrial(false)}>Back to library</button><EditorTrial /></>;
+  if (trial && trialAvailable) return <><button className="trial-return" onClick={() => setTrial(false)}>Back to library</button><EditorTrial /></>;
   const entries = library.entries.filter(entry => entry.archived === archived && entry.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const documents = project?.documents.filter(document => document.title.toLocaleLowerCase().includes(search.toLocaleLowerCase())) ?? [];
   return <div className="app persistent-workspace">
@@ -331,7 +338,7 @@ export function Workspace() {
       {loading ? <p role="status">Opening your library…</p> : entries.length ? <ul className="project-list">{entries.map(entry => <li key={entry.projectId}><button className="project-open" disabled={busy || entry.missing} onClick={() => open(entry.path)}><strong>{entry.title}</strong><span>{entry.missing ? 'Folder moved or unavailable' : `Last opened ${new Date(entry.lastOpened).toLocaleDateString()}`}</span></button>{entry.missing && <button disabled={busy} onClick={() => open(null)}>Locate</button>}<button disabled={busy} aria-label={`${entry.archived ? 'Unarchive' : 'Archive'} ${entry.title}`} onClick={() => void perform(async () => { await libraryArchive(entry.projectId, !entry.archived); await refreshLibrary(); })}>{entry.archived ? 'Unarchive' : 'Archive'}</button></li>)}</ul>
         : <div className="library-empty"><h2>{search ? 'No matching projects' : archived ? 'No archived projects' : 'A place for your next story'}</h2><p>{search ? 'Try a different title.' : archived ? 'Archived projects stay on your computer.' : 'Create a project, then add a character, a world, a chapter, or a simple note. There is no required order.'}</p></div>}
       {!!library.pending.length && <section className="pending-projects" aria-label="Unfinished project operations"><h2>Unfinished setup</h2>{library.pending.map(pending => <div key={pending.origin.operationId}><span>{pending.title}</span>{pending.kind === 'create' && <button disabled={busy} onClick={() => create(pending.title, pending.origin.operationId)}>Resume creation</button>}{pending.kind === 'duplicate' && <button disabled={busy} onClick={() => resumeDuplicate(pending.origin.operationId, pending.title)}>Resume copy</button>}{pending.kind === 'recover' && <button disabled={busy} onClick={() => recover(pending.origin.operationId, pending.title)}>Resume recovery</button>}</div>)}</section>}
-      <footer className="library-footer"><span>Projects are saved on this computer.</span><div className="header-actions"><button disabled={busy} onClick={() => recover()}>Recover backup</button><button disabled={busy} onClick={() => setTrial(true)}>Open editor trial</button></div></footer>
+      <footer className="library-footer"><span>Projects are saved on this computer.</span><div className="header-actions"><button disabled={busy} onClick={() => recover()}>Recover backup</button>{trialAvailable && <button disabled={busy} onClick={() => setTrial(true)}>Open editor trial</button>}</div></footer>
     </main> : <div className="workspace">
       <aside className="document-sidebar" aria-label="Project documents"><div className="sidebar-heading"><h2>Writing & ideas</h2><button disabled={busy} onClick={() => setNewDocument(true)}>Add</button></div><input aria-label="Find a document" type="search" placeholder="Find a document" value={search} onChange={event => setSearch(event.target.value)} />
         {newDocument && <form className="inline-form document-form" onSubmit={addDocument}><label htmlFor="document-kind">Start with</label><select id="document-kind" value={kind} onChange={event => setKind(event.target.value)}>{kinds.map(kind => <option key={kind} value={kind}>{kind.charAt(0).toUpperCase() + kind.slice(1)}</option>)}</select><label htmlFor="document-title">Title</label><input id="document-title" autoFocus value={documentTitle} onChange={event => setDocumentTitle(event.target.value)} maxLength={160} /><div><button type="button" onClick={() => setNewDocument(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy}>Create</button></div></form>}

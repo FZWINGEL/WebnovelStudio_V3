@@ -39,6 +39,10 @@ An isolated Windows Sandbox trial was attempted at 18:47 UTC with networking and
 
 ## Evidence to record
 
+The tracked `windows-package-smoke.yml` workflow and `scripts/windows-package-qualification.ps1` provide an opt-in hosted-runner lifecycle. They require a fresh runner-owned directory and an absent release data root, build the pinned package, record source/lock/installer identities, then exercise synthetic write/reopen, normal root-process close, default uninstall, and same-version reinstall retention. Partial results and forced cleanup cannot pass. PowerShell parsing and source checks have passed; the workflow has not yet supplied installed-release evidence. This narrow smoke does not qualify an offline machine without WebView2, a true version upgrade, or descendant cleanup after normal root exit.
+
+The installed release hides the session-only editor trial and omits its `validate_snapshot` IPC command. Debug builds retain both for native qualification. The package smoke checks the release Library for absence of the trial action; its executed result is still pending.
+
 Record the exact source commit, Cargo/npm locks, installer SHA-256, bundled WebView2 installer identity, OS/WebView versions, and installation target. Verify the installer and its included runtime separately from the debug CDP harness.
 
 The remaining package trial must exercise:

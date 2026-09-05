@@ -6,6 +6,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 #[cfg(debug_assertions)]
 use std::path::PathBuf;
 use tauri::Manager;
+#[cfg(debug_assertions)]
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
 mod context_commands;
 mod discussion_commands;
@@ -14,6 +15,7 @@ mod guidance_commands;
 mod library_commands;
 mod project_commands;
 
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn validate_snapshot(snapshot_json: String) -> Result<SnapshotReceipt, String> {
     validate_snapshot_json(&snapshot_json)
@@ -26,6 +28,7 @@ struct RuntimeInfo {
     app_version: &'static str,
     webview_version: String,
     persistence: bool,
+    editor_trial: bool,
 }
 
 #[tauri::command]
@@ -35,6 +38,7 @@ fn runtime_info() -> RuntimeInfo {
         app_version: env!("CARGO_PKG_VERSION"),
         webview_version: tauri::webview_version().unwrap_or_else(|error| error.to_string()),
         persistence: true,
+        editor_trial: cfg!(debug_assertions),
     }
 }
 
@@ -121,6 +125,7 @@ fn main() {
             context_commands::revoke_story_context,
             context_commands::rebuild_story_index,
             context_commands::capture_story_scope,
+            #[cfg(debug_assertions)]
             validate_snapshot,
             runtime_info,
             project_commands::create_project,

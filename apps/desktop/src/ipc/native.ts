@@ -1,7 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { bodyHash, canonicalJson, type SnapshotReceipt, type WnsDocument } from '../editor/document';
 
-export interface RuntimeInfo { host: string; appVersion: string; webviewVersion: string; persistence: boolean }
+export interface RuntimeInfo { host: string; appVersion: string; webviewVersion: string; persistence: boolean; editorTrial: boolean }
 export async function runtimeInfo(): Promise<RuntimeInfo> {
   if (!isTauri()) throw new Error('Open the desktop app to validate with Rust.');
   return invoke<RuntimeInfo>('runtime_info');

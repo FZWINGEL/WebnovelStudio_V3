@@ -28,6 +28,8 @@ The V2 Codex adapter/model-picker remains an authorized reference for integratio
 
 ## Explicit W0 trial
 
+The trial action and its validation IPC are available only in development builds. Installed release builds open the persistent Library without a session-only trial entry point.
+
 The implemented W0 surface is a native Tauri/WebView2 editor trial. It opens a built-in sample chapter, supports paragraph and heading styles, bold and italic marks, links, scene breaks, clipboard text/formatting notice, undo/redo, whole-chapter or selected-passage feedback notes, replacement preview/reject, a local replacement transaction, and Rust snapshot validation over IPC. The editor stays mounted while feedback state changes, and stale captured selections are refused after intervening edits.
 
 The trial is not a product release or the persistent author-data path. Its sample text and feedback are session-only and disappear when the window closes. The W0 trial itself does not connect a provider or AI response, and its snapshot command does not persist the sample. The remaining English native author trial, minimum-window behavior, external Word paste, screen-reader use, broader native qualification, live providers, and installed-package qualification remain future gates. Unicode edge cases such as accents, emoji, and names are internal robustness fixtures, not a Chinese authoring feature. See the [W0 qualification record](docs/W0_QUALIFICATION.md) for executed evidence.
