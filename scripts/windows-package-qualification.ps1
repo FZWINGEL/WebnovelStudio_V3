@@ -438,17 +438,19 @@ function Find-ProjectOpener {
         [Parameter(Mandatory = $true)][string]$Title
     )
     $elements = $Root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
-    $matches = [System.Collections.Generic.List[object]]::new()
+    # Keep this separate from PowerShell's automatic $Matches variable, which
+    # the -match check below populates with the matched text.
+    $projectOpeners = [System.Collections.Generic.List[object]]::new()
     foreach ($element in $elements) {
         try {
             $name = [string]$element.Current.Name
             if ($name.StartsWith($Title, [StringComparison]::OrdinalIgnoreCase) -and $name -match '\bLast opened\b' -and $element.Current.IsEnabled) {
                 $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) | Out-Null
-                [void]$matches.Add($element)
+                [void]$projectOpeners.Add($element)
             }
         } catch { }
     }
-    if ($matches.Count -eq 1) { return $matches[0] }
+    if ($projectOpeners.Count -eq 1) { return $projectOpeners[0] }
     return $null
 }
 
