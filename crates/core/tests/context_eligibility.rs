@@ -1,8 +1,8 @@
 use serde_json::Value;
 use webnovel_core::context::{
     Audience, BasisKind, CharacterGrant, ContextPurpose, Disclosure, EligibilityErrorCode,
-    EligibilityRequest, InformationPolicy, SourceDescriptor, SourceKind, SourceRef, StorySnapshot,
-    StoryTime, evaluate_eligibility,
+    EligibilityRequest, InformationPolicy, ReviewedBasisManifest, ReviewedBasisMember,
+    SourceDescriptor, SourceKind, SourceRef, StorySnapshot, StoryTime, evaluate_eligibility,
 };
 
 const PROJECT: &str = "project-a";
@@ -52,6 +52,7 @@ fn snapshot(basis: BasisKind, sources: Vec<SourceDescriptor>) -> StorySnapshot {
         ordering_epoch: "4".into(),
         disclosure_policy_version: "1".into(),
         sources,
+        reviewed_basis: None,
     }
 }
 
@@ -116,22 +117,7 @@ fn working_basis_accepts_current_draft_and_keeps_apply_separate() {
 }
 
 #[test]
-fn reviewed_basis_accepts_reviewed_authority_and_adopted_guidance_only() {
-    let authority = source(
-        PROJECT,
-        "reviewed",
-        SourceKind::ReviewedAuthority,
-        true,
-        Some("3"),
-        Vec::new(),
-    );
-    let accepted = request(
-        snapshot(BasisKind::Reviewed, vec![authority]),
-        policy(Audience::AuthorRoom),
-        &["reviewed"],
-    );
-    assert!(evaluate_eligibility(&accepted).is_ok());
-
+fn reviewed_basis_accepts_only_a_current_target_and_exact_authority_prefix() {
     let draft = source(
         PROJECT,
         "draft",
@@ -140,12 +126,43 @@ fn reviewed_basis_accepts_reviewed_authority_and_adopted_guidance_only() {
         Some("3"),
         Vec::new(),
     );
+    let authority = source(
+        PROJECT,
+        "reviewed",
+        SourceKind::ReviewedAuthority,
+        true,
+        Some("3"),
+        Vec::new(),
+    );
+    let mut accepted_snapshot = snapshot(BasisKind::Reviewed, vec![draft.clone(), authority]);
+    accepted_snapshot.target = draft.source.clone();
+    accepted_snapshot.reviewed_basis = Some(ReviewedBasisManifest {
+        project_id: PROJECT.into(),
+        operation_namespace: "review-test".into(),
+        prefix: vec![ReviewedBasisMember {
+            document_id: "doc-reviewed".into(),
+            bundle_id: "bundle-reviewed".into(),
+            revision_id: "revision-reviewed".into(),
+            version: "1".into(),
+            body_hash: "a".repeat(64),
+        }],
+    });
+    let accepted = request(
+        accepted_snapshot,
+        InformationPolicy {
+            reader_frontier: Some("3".into()),
+            ..policy(Audience::RestrictedWriting)
+        },
+        &["draft", "reviewed"],
+    );
+    assert!(evaluate_eligibility(&accepted).is_ok());
+
     let rejected = request(
         snapshot(BasisKind::Reviewed, vec![draft]),
         policy(Audience::AuthorRoom),
         &["draft"],
     );
-    assert_eq!(error(&rejected), EligibilityErrorCode::BasisMismatch);
+    assert_eq!(error(&rejected), EligibilityErrorCode::InvalidPolicy);
 
     let guidance = source(
         PROJECT,
@@ -160,7 +177,10 @@ fn reviewed_basis_accepts_reviewed_authority_and_adopted_guidance_only() {
         policy(Audience::AuthorRoom),
         &["guidance"],
     );
-    assert!(evaluate_eligibility(&guidance_request).is_ok());
+    assert_eq!(
+        error(&guidance_request),
+        EligibilityErrorCode::InvalidPolicy
+    );
 }
 
 #[test]
@@ -436,7 +456,7 @@ fn dependency_cycles_and_unknown_dependencies_are_rejected() {
 }
 
 #[test]
-fn character_specific_sources_require_membership_and_an_explicit_grant() {
+fn reviewed_continuation_rejects_character_specific_grants() {
     let mut character_source = source(
         PROJECT,
         "character-memory",
@@ -459,10 +479,7 @@ fn character_specific_sources_require_membership_and_an_explicit_grant() {
         wrong_character,
         &["character-memory"],
     );
-    assert_eq!(
-        error(&wrong_request),
-        EligibilityErrorCode::DisclosureDenied
-    );
+    assert_eq!(error(&wrong_request), EligibilityErrorCode::InvalidPolicy);
 
     let mut missing_grant = policy(Audience::RestrictedWriting);
     missing_grant.character_id = Some("mei".into());
@@ -471,10 +488,7 @@ fn character_specific_sources_require_membership_and_an_explicit_grant() {
         missing_grant,
         &["character-memory"],
     );
-    assert_eq!(
-        error(&missing_request),
-        EligibilityErrorCode::DisclosureDenied
-    );
+    assert_eq!(error(&missing_request), EligibilityErrorCode::InvalidPolicy);
 
     let mut granted = policy(Audience::RestrictedWriting);
     granted.character_id = Some("mei".into());
@@ -488,7 +502,7 @@ fn character_specific_sources_require_membership_and_an_explicit_grant() {
         granted,
         &["character-memory"],
     );
-    assert!(evaluate_eligibility(&granted_request).is_ok());
+    assert_eq!(error(&granted_request), EligibilityErrorCode::InvalidPolicy);
 }
 
 #[test]
@@ -540,7 +554,7 @@ fn stale_source_directory_only_and_reviewed_digest_are_rejected() {
         policy(Audience::AuthorRoom),
         &["unreviewed-digest"],
     );
-    assert_eq!(error(&digest_request), EligibilityErrorCode::BasisMismatch);
+    assert_eq!(error(&digest_request), EligibilityErrorCode::InvalidPolicy);
 }
 
 #[test]

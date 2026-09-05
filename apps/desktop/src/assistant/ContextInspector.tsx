@@ -90,6 +90,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
     const coverage = state?.packet.receipt.coverage.find(entry => entry.handle === item.handle);
     return <li key={item.handle}>
       <button className="text-button" onClick={() => void read(item)}>{item.displayName}</button>
+      {state?.frozen.snapshot.basis === 'reviewed' && <span className="context-detail">{item.kind === 'reviewedAuthority' ? 'Author-reviewed chapter' : 'Working chapter'}</span>}
       {coverage && <span className="context-detail">{coverage.label === 'fullText' ? 'Full text' : coverage.label === 'wholeBlocks' ? 'Selected passages' : coverage.detail === 'digest' ? 'Summary' : 'Source reference'}</span>}
       {state?.packet.receipt.mandatorySourceHandles?.includes(item.handle) && <span className="context-detail">Required source</span>}
       {onPin && <button className="quiet-button" disabled={pinDisabled} onClick={() => onPin(item.source.documentId, item.displayName)} aria-label={`Include ${item.displayName} in the next request`}>Include next time</button>}
@@ -102,6 +103,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
     {!state && !error && <p role="status">Reading saved context…</p>}
     {state && <>
       {!state.current && <p className="stale-notice">Needs refresh. The story changed after this request. These sources show the earlier version.</p>}
+      {state.frozen.snapshot.basis === 'reviewed' && <p className="small-copy context-reviewed-basis">The earlier chapters use your reviewed versions. The current chapter is still a working draft. These reviews did not run AI checks.</p>}
       <p className="small-copy">{delivered ? state.packet.options.providerBinding ? 'The complete prepared packet was written to Codex for this response. This confirms local delivery, not that the model understood every source.' : 'Sources supplied for this response.' : 'Prepared sources. Delivery has not been confirmed.'} Opening a source reads its saved version.</p>
       {state.packet.options.providerBinding && <p className="small-copy">This packet uses {Number(state.packet.receipt.inputTokens).toLocaleString()} bytes of the app’s {Number(state.packet.options.providerBinding.inputLimitBytes).toLocaleString()}-byte input allowance. This is not a model token count or context-window limit. The full prepared input is preserved; mandatory text is never shortened to fit.</p>}
       {state.packet.receipt.safeBrief && <section className="context-safe-brief" aria-label="Approved writing brief"><strong>Author-approved writing brief</strong><p>{state.packet.receipt.safeBrief.text}</p><p className="small-copy">Exact directions shared for this edit request. The originating discussion was not added as context.</p></section>}

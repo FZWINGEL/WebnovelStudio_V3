@@ -135,6 +135,7 @@ fn main() {
             discussion_commands::reject_proposal,
             context_commands::context_epochs,
             context_commands::freeze_story_context,
+            context_commands::freeze_reviewed_continuation,
             context_commands::story_context_snapshot,
             context_commands::read_story_context_source,
             context_commands::search_story_context,

@@ -5,7 +5,8 @@ use webnovel_core::context::packet::CompiledPacket;
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
 use webnovel_core::projects::story_context::{
-    ContextEpochs, FreezeStory, FrozenContext, SearchResult, SearchStory, SourceRead,
+    ContextEpochs, FreezeReviewedContinuation, FreezeStory, FrozenContext, SearchResult,
+    SearchStory, SourceRead,
 };
 use webnovel_core::projects::{CoreResult, ProjectAccess};
 
@@ -25,6 +26,15 @@ pub async fn freeze_story_context(
 ) -> CoreResult<FrozenContext> {
     let project = state.project(&request.access.project_id)?;
     execute(move || project.freeze_story(request)).await
+}
+
+#[tauri::command]
+pub async fn freeze_reviewed_continuation(
+    request: FreezeReviewedContinuation,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<FrozenContext> {
+    let project = state.project(&request.access.project_id)?;
+    execute(move || project.freeze_reviewed_continuation(request)).await
 }
 
 #[tauri::command]

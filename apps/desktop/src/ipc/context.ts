@@ -28,10 +28,15 @@ export interface SourceDescriptor {
   storyTime: { label: string; position: string | null } | null;
   dependencies: SourceRef[];
 }
+export interface ReviewedBasisManifest {
+  projectId: string; operationNamespace: string;
+  prefix: Array<{ documentId: string; bundleId: string; revisionId: string; version: string; bodyHash: string }>;
+}
 export interface StorySnapshot {
   snapshotId: string; projectId: string; basis: ContextBasis; target: SourceRef;
   contextSourceEpoch: string; orderingEpoch: string; disclosurePolicyVersion: string;
   sources: SourceDescriptor[];
+  reviewedBasis?: ReviewedBasisManifest;
 }
 export interface FrozenContext {
   snapshot: StorySnapshot; policy: InformationPolicy; purpose: ContextPurpose;
@@ -82,6 +87,9 @@ export const contextEpochs = (access: ProjectAccess): Promise<{ source: string; 
 export const freezeStoryContext = (request: {
   access: ProjectAccess; operationId: string; expected: Head; basis: ContextBasis; purpose: ContextPurpose; policy: InformationPolicy;
 }): Promise<FrozenContext> => invoke('freeze_story_context', { request });
+export const freezeReviewedContinuation = (request: {
+  access: ProjectAccess; operationId: string; expected: Head; policy: InformationPolicy;
+}): Promise<FrozenContext> => invoke('freeze_reviewed_continuation', { request });
 export const storyContextSnapshot = (access: ProjectAccess, snapshotId: string): Promise<FrozenContext> => invoke('story_context_snapshot', { access, snapshotId });
 export const readStoryContextSource = (access: ProjectAccess, snapshotId: string, handle: string): Promise<SourceRead> => invoke('read_story_context_source', { access, snapshotId, handle });
 export const searchStoryContext = (request: {

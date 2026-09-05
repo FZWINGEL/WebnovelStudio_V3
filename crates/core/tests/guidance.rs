@@ -376,7 +376,8 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let connection = Connection::open(&database).expect("open current database");
     connection
         .execute_batch(
-            "DROP TRIGGER review_stages_no_update;
+            "ALTER TABLE snapshot_sources DROP COLUMN reader_position;
+             DROP TRIGGER review_stages_no_update;
              DROP TRIGGER review_stages_no_delete;
              DROP TRIGGER ready_bundles_no_update;
              DROP TRIGGER ready_bundles_no_delete;
@@ -415,7 +416,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 14);
+    assert_eq!(version, 15);
     for table in [
         "author_guidance_versions",
         "author_guidance_heads",

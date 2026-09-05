@@ -10,6 +10,7 @@ use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPol
 use webnovel_core::documents::Endpoint;
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
 use webnovel_core::projects::discussions::SaveDiscussionDraft;
+use webnovel_core::projects::reviewed_story::{MarkReady, ReviewState, StageAuthorReview};
 use webnovel_core::projects::story_context::FreezeStory;
 use webnovel_core::projects::{
     CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
@@ -50,6 +51,86 @@ fn body(text: &str) -> Value {
             }]
         }
     })
+}
+
+#[test]
+fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots() {
+    let temp = TempDir::new("reviewed-reader-floor");
+    let path = temp.child("project");
+    let (project, access, document, saved) = setup_project(&path);
+    let stage = project
+        .stage_author_review(StageAuthorReview {
+            access: access.clone(),
+            operation_id: "legacy-stage".into(),
+            expected: saved.head.clone(),
+        })
+        .unwrap();
+    let bundle = project
+        .mark_ready(MarkReady {
+            access: access.clone(),
+            operation_id: "legacy-review".into(),
+            stage_id: stage.id,
+        })
+        .unwrap();
+    let frozen = project
+        .freeze_story(FreezeStory {
+            access,
+            operation_id: "legacy-context".into(),
+            expected: saved.head.clone(),
+            basis: BasisKind::Working,
+            purpose: ContextPurpose::StoryQuestion,
+            policy: InformationPolicy {
+                version: "0".into(),
+                audience: Audience::AuthorRoom,
+                reader_frontier: None,
+                character_id: None,
+                character_grants: vec![],
+                allow_alternatives: false,
+                allow_historical: false,
+            },
+        })
+        .unwrap();
+    let original_json = serde_json::to_string(&frozen).unwrap();
+    assert!(!original_json.contains("reviewedBasis"));
+    drop(project);
+    let db = Connection::open(path.join("project.sqlite3")).unwrap();
+    db.execute_batch("ALTER TABLE snapshot_sources DROP COLUMN reader_position")
+        .unwrap();
+    db.pragma_update(None, "user_version", 14).unwrap();
+    drop(db);
+
+    let reopened = ProjectSession::open(&path).unwrap();
+    let access = reopened.attach("new-reader".into()).unwrap();
+    let restored = reopened
+        .story_snapshot(access.clone(), frozen.snapshot.snapshot_id)
+        .unwrap();
+    assert_eq!(serde_json::to_string(&restored).unwrap(), original_json);
+    let status = reopened
+        .chapter_review_status(access.clone(), document.head.document_id.clone())
+        .unwrap();
+    assert_eq!(status.state, ReviewState::Ready);
+    assert_eq!(status.active_bundle_id, Some(bundle.id));
+    assert_eq!(
+        reopened
+            .document(access, document.head.document_id)
+            .unwrap()
+            .head,
+        saved.head
+    );
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 15);
+    let backups: Vec<_> = fs::read_dir(path.join("migrations"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(backups.len(), 1);
+    assert!(
+        backups[0]
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("schema14-before-schema15-")
+    );
+    assert_eq!(schema_version(&backups[0]), 14);
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -231,7 +312,8 @@ fn schema_version(path: &Path) -> i64 {
 fn remove_post_schema14_tables(connection: &Connection) {
     connection
         .execute_batch(
-            "DROP TRIGGER review_stages_no_update;
+            "ALTER TABLE snapshot_sources DROP COLUMN reader_position;
+             DROP TRIGGER review_stages_no_update;
              DROP TRIGGER review_stages_no_delete;
              DROP TRIGGER ready_bundles_no_update;
              DROP TRIGGER ready_bundles_no_delete;
@@ -297,7 +379,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 14);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 15);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -362,9 +444,9 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 14);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 15);
     let connection =
-        Connection::open(path.join("project.sqlite3")).expect("open migrated schema14 database");
+        Connection::open(path.join("project.sqlite3")).expect("open migrated schema15 database");
     let discussion_tables: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='discussion_runs'",
@@ -468,7 +550,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 14);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 15);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     let safe_brief_column: i64 = connection
         .query_row(
@@ -601,7 +683,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 14);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 15);
     assert_eq!(
         recovered
             .context_source_epoch()

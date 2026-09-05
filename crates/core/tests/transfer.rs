@@ -1084,7 +1084,8 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
     let connection = Connection::open(source.join("project.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "DROP TRIGGER review_stages_no_update;
+            "ALTER TABLE snapshot_sources DROP COLUMN reader_position;
+             DROP TRIGGER review_stages_no_update;
              DROP TRIGGER review_stages_no_delete;
              DROP TRIGGER ready_bundles_no_update;
              DROP TRIGGER ready_bundles_no_delete;
@@ -1116,7 +1117,7 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
         .unwrap()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 14);
+    assert_eq!(version, 15);
     let table: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row(
@@ -1264,5 +1265,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 14);
+    assert_eq!(version, 15);
 }

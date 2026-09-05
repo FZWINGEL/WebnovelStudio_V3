@@ -152,6 +152,28 @@ pub struct SourceDescriptor {
     pub dependencies: Vec<SourceRef>,
 }
 
+/// Exact immutable author-reviewed authority selected for a reviewed
+/// continuation. The source descriptors still carry the prose references;
+/// this manifest preserves the selected bundle identity so a later snapshot
+/// cannot be mistaken for a different reaffirmation of the same revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReviewedBasisManifest {
+    pub project_id: String,
+    pub operation_namespace: String,
+    pub prefix: Vec<ReviewedBasisMember>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReviewedBasisMember {
+    pub document_id: String,
+    pub bundle_id: String,
+    pub revision_id: String,
+    pub version: String,
+    pub body_hash: String,
+}
+
 /// Immutable source and policy basis for one context request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -165,6 +187,10 @@ pub struct StorySnapshot {
     pub disclosure_policy_version: String,
     /// These descriptors are Rust-resolved and frozen with the snapshot.
     pub sources: Vec<SourceDescriptor>,
+    /// Present only for the explicit reviewed-continuation route. Old working
+    /// and historical snapshots remain wire-compatible when this is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewed_basis: Option<ReviewedBasisManifest>,
 }
 
 /// Inputs to the pure eligibility kernel. The snapshot and policy are

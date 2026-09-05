@@ -6,6 +6,7 @@
 //! bundles and stages remain historical evidence after the selection changes.
 
 use super::*;
+use crate::context::{ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -272,7 +273,7 @@ impl OwnedProject {
                 state: ReviewState::ChangedProse,
                 active_bundle_id: Some(active_id),
                 pending_stage_id: pending_stage_id.clone(),
-                reason: Some("The chapter changed after it was marked ready.".into()),
+                reason: Some("The chapter changed after it was marked reviewed.".into()),
                 can_stage,
             });
         }
@@ -794,7 +795,7 @@ fn bundle_to_dto(bundle: BundleRow) -> ReadyBundle {
     }
 }
 
-fn selected_prefix(
+pub(super) fn selected_prefix(
     db: &Connection,
     access: &ProjectAccess,
     target_document_id: &str,
@@ -837,7 +838,7 @@ fn selected_prefix(
         let bundle_id = active_bundle_id(db, access, &document_id)?.ok_or_else(|| {
             CoreError::new(
                 "ReviewBasisUnavailable",
-                "Every earlier chapter must be marked ready first.",
+                "Every earlier chapter must be marked reviewed first.",
             )
         })?;
         let bundle = read_bundle(db, &bundle_id)?.ok_or_else(|| {
@@ -854,7 +855,7 @@ fn selected_prefix(
         {
             return Err(CoreError::new(
                 "ReviewBasisUnavailable",
-                "An earlier chapter needs review before this chapter can be marked ready.",
+                "An earlier chapter needs review before this chapter can be marked reviewed.",
             ));
         }
         if !same_prefix_basis(&bundle.prefix, &result) {
@@ -872,6 +873,119 @@ fn selected_prefix(
         });
     }
     Ok(result)
+}
+
+/// Validate the immutable bundle provenance retained by a frozen reviewed
+/// snapshot. This intentionally does not consult `ready_heads`: old
+/// snapshots remain readable evidence after a later review supersedes a
+/// selected head. New continuation requests use `selected_prefix` instead.
+pub(super) fn validate_reviewed_snapshot_manifest(
+    db: &Connection,
+    snapshot_project_id: &str,
+    snapshot_namespace: &str,
+    snapshot_policy_epoch: &str,
+    manifest: &ReviewedBasisManifest,
+    sources: &[SourceDescriptor],
+) -> CoreResult<()> {
+    if manifest.project_id != snapshot_project_id
+        || manifest.operation_namespace != snapshot_namespace
+        || manifest.operation_namespace.is_empty()
+        || manifest.prefix.is_empty()
+        || manifest.prefix.len() > MAX_REVIEW_CHAPTERS
+    {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The reviewed snapshot has an invalid authority manifest.",
+        ));
+    }
+    check_id(&manifest.project_id)?;
+    check_id(&manifest.operation_namespace)?;
+    let policy_epoch = parse_version(snapshot_policy_epoch)?;
+    let mut documents = HashSet::new();
+    let mut bundles = HashSet::new();
+    let mut revisions = HashSet::new();
+    for (index, member) in manifest.prefix.iter().enumerate() {
+        check_id(&member.document_id)?;
+        check_id(&member.bundle_id)?;
+        check_id(&member.revision_id)?;
+        parse_version(&member.version)?;
+        if !valid_hash(&member.body_hash)
+            || !documents.insert(&member.document_id)
+            || !bundles.insert(&member.bundle_id)
+            || !revisions.insert(&member.revision_id)
+        {
+            return Err(CoreError::new(
+                "InvalidContext",
+                "The reviewed snapshot authority manifest is not canonical.",
+            ));
+        }
+        let bundle = read_bundle(db, &member.bundle_id)?.ok_or_else(|| {
+            CoreError::new(
+                "InvalidContext",
+                "The reviewed snapshot references a missing immutable bundle.",
+            )
+        })?;
+        if bundle.project_id != manifest.project_id
+            || bundle.operation_namespace != manifest.operation_namespace
+            || bundle.policy_epoch != policy_epoch
+            || bundle.document_id != member.document_id
+            || bundle.revision_id != member.revision_id
+            || bundle.target.version != member.version
+            || bundle.target.body_hash != member.body_hash
+            || !same_manifest_prefix(&bundle.prefix, &manifest.prefix[..index])
+        {
+            return Err(CoreError::new(
+                "InvalidContext",
+                "The reviewed snapshot bundle does not match its exact source.",
+            ));
+        }
+        let revision = read_revision(db, &member.revision_id)?;
+        if revision.head.document_id != member.document_id
+            || revision.head.version != member.version
+            || revision.head.body_hash != member.body_hash
+        {
+            return Err(CoreError::new(
+                "InvalidContext",
+                "The reviewed snapshot revision does not match its authority manifest.",
+            ));
+        }
+        let matches_source = sources.iter().any(|source| {
+            source.kind == SourceKind::ReviewedAuthority
+                && source.current
+                && source.source.project_id == manifest.project_id
+                && source.source.document_id == member.document_id
+                && source.source.revision_id == member.revision_id
+                && source.source.body_hash == member.body_hash
+        });
+        if !matches_source {
+            return Err(CoreError::new(
+                "InvalidContext",
+                "The reviewed snapshot source manifest omits an authority member.",
+            ));
+        }
+    }
+    let authority_count = sources
+        .iter()
+        .filter(|source| source.kind == SourceKind::ReviewedAuthority)
+        .count();
+    if authority_count != manifest.prefix.len() {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The reviewed snapshot has unbound authority sources.",
+        ));
+    }
+    Ok(())
+}
+
+fn same_manifest_prefix(actual: &[ReviewPrefixItem], expected: &[ReviewedBasisMember]) -> bool {
+    actual.len() == expected.len()
+        && actual.iter().zip(expected).all(|(actual, expected)| {
+            actual.document_id == expected.document_id
+                && actual.bundle_id == expected.bundle_id
+                && actual.revision_id == expected.revision_id
+                && actual.head.version == expected.version
+                && actual.head.body_hash == expected.body_hash
+        })
 }
 
 fn same_prefix_basis(left: &[ReviewPrefixItem], right: &[ReviewPrefixItem]) -> bool {

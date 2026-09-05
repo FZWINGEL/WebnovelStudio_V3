@@ -29,6 +29,28 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('historical context inspection', () => {
+  it('distinguishes author-reviewed earlier prose from the unfinished target without claiming delivery', async () => {
+    const reviewedEarlier = { ...second, kind: 'reviewedAuthority' as const };
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen,
+      snapshot: { ...frozen.snapshot, basis: 'reviewed', sources: [first, reviewedEarlier], reviewedBasis: {
+        projectId: access.projectId, operationNamespace: access.operationNamespace,
+        prefix: [{ documentId: second.source.documentId, bundleId: 'bundle', revisionId: second.source.revisionId,
+          version: '1', bodyHash: second.source.bodyHash }],
+      } },
+      purpose: 'continue', policy: { ...frozen.policy, audience: 'restrictedWriting', readerFrontier: '1' },
+    });
+    await render('packet', '1', false);
+    expect(host.querySelector('.context-reviewed-basis')?.textContent).toContain('current chapter is still a working draft');
+    expect(host.textContent).toContain('These reviews did not run AI checks');
+    expect(host.textContent).toContain('Author-reviewed chapter');
+    expect(host.textContent).toContain('Working chapter');
+    expect(host.textContent).toContain('Delivery has not been confirmed');
+    vi.mocked(context.preparedStoryContextIsCurrent).mockResolvedValue(false);
+    await render('packet', 'source-changed', false);
+    expect(host.textContent).toContain('Needs refresh');
+    expect(host.textContent).toContain('The separation');
+    expect(context.readStoryContextSource).not.toHaveBeenCalled();
+  });
   it('distinguishes Codex stdin delivery and byte allowances from model understanding', async () => {
     const providerBinding = { providerId:'codex',modelId:'gpt-5.6-luna',reasoning:'max',serviceTier:'priority',profileVersion:'0.153.3',inputLimitBytes:'24576',reservedOutputBytes:'0',reservedProtocolBytes:'0',outputLimitBytes:'65536',accountingMethod:'utf8-byte-count/codex-stdin-application-cap-v1' };
     vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet,options:{ ...packet.options,modelId:providerBinding.modelId,providerBinding } });

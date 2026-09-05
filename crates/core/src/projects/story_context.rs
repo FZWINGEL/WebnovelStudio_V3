@@ -5,7 +5,8 @@ use crate::context::conversation::{FrozenConversation, validate_conversation};
 use crate::context::guidance::{FrozenGuidance, validate_frozen_guidance};
 use crate::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
-    SourceDescriptor, SourceKind, SourceRef, StorySnapshot, evaluate_sources,
+    ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind, SourceRef,
+    StorySnapshot, evaluate_sources,
 };
 use std::collections::{BTreeMap, HashSet};
 
@@ -24,6 +25,18 @@ pub struct FreezeStory {
     pub expected: Head,
     pub basis: BasisKind,
     pub purpose: ContextPurpose,
+    pub policy: InformationPolicy,
+}
+
+/// Explicit reviewed-story continuation preparation. The target is the
+/// current working chapter where output would be placed; only its earlier
+/// selected author-reviewed prefix supplies reviewed authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FreezeReviewedContinuation {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub expected: Head,
     pub policy: InformationPolicy,
 }
 
@@ -103,6 +116,7 @@ pub struct SearchResult {
 pub(super) enum ContextCommand {
     Epochs(ProjectAccess, Reply<ContextEpochs>),
     Freeze(FreezeStory, Reply<FrozenContext>),
+    FreezeReviewed(FreezeReviewedContinuation, Reply<FrozenContext>),
     Snapshot(ProjectAccess, String, Reply<FrozenContext>),
     Read(ProjectAccess, String, String, Reply<SourceRead>),
     Search(SearchStory, Reply<SearchResult>),
@@ -124,6 +138,14 @@ impl ProjectSession {
     }
     pub fn freeze_story(&self, request: FreezeStory) -> CoreResult<FrozenContext> {
         self.request(|reply| Command::Context(Box::new(ContextCommand::Freeze(request, reply))))
+    }
+    pub fn freeze_reviewed_continuation(
+        &self,
+        request: FreezeReviewedContinuation,
+    ) -> CoreResult<FrozenContext> {
+        self.request(|reply| {
+            Command::Context(Box::new(ContextCommand::FreezeReviewed(request, reply)))
+        })
     }
     pub fn story_snapshot(&self, access: ProjectAccess, id: String) -> CoreResult<FrozenContext> {
         self.request(|reply| {
@@ -221,6 +243,9 @@ impl OwnedProject {
                 self.check_access(&access).and_then(|()| epochs(self.db()?))
             ),
             ContextCommand::Freeze(request, reply) => respond!(reply, self.freeze_story(request)),
+            ContextCommand::FreezeReviewed(request, reply) => {
+                respond!(reply, self.freeze_reviewed_continuation(request))
+            }
             ContextCommand::Snapshot(access, id, reply) => {
                 respond!(reply, self.context_snapshot(&access, &id))
             }
@@ -301,6 +326,56 @@ impl OwnedProject {
             ));
         }
         let frozen = freeze_story_at(&tx, &request, &payload)?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(frozen)
+    }
+
+    fn freeze_reviewed_continuation(
+        &mut self,
+        request: FreezeReviewedContinuation,
+    ) -> CoreResult<FrozenContext> {
+        self.check_access(&request.access)?;
+        check_id(&request.operation_id)?;
+        check_id(&request.expected.document_id)?;
+        parse_version(&request.expected.version)?;
+        if request.policy.audience != Audience::RestrictedWriting {
+            return Err(CoreError::new(
+                "BoundaryConflict",
+                "Reviewed continuation needs a restricted writing policy.",
+            ));
+        }
+        if request.policy.character_id.is_some() || !request.policy.character_grants.is_empty() {
+            return Err(CoreError::new(
+                "CharacterPolicyUnavailable",
+                "Character-specific reviewed continuation needs reviewed knowledge grants.",
+            ));
+        }
+        let payload = logical_hash(&request)?;
+        let tx = self
+            .db_mut()?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let previous: Option<(String, String)> = tx.query_row(
+            "SELECT id,payload_hash FROM story_snapshots WHERE operation_namespace=? AND operation_id=?",
+            params![request.access.operation_namespace, request.operation_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional()?;
+        if let Some((id, saved_payload)) = previous {
+            if payload != saved_payload {
+                return Err(CoreError::new(
+                    "OperationIdReusedWithDifferentPayload",
+                    "This context operation was already used for a different request.",
+                ));
+            }
+            return load_snapshot(&tx, &request.access, &id);
+        }
+        let current_epochs = epochs(&tx)?;
+        if request.policy.version != current_epochs.policy {
+            return Err(CoreError::new(
+                "ContextPolicyChanged",
+                "Prepare a new request using the current source permissions.",
+            ));
+        }
+        let frozen = freeze_reviewed_continuation_at(&tx, &request, &payload)?;
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(frozen)
     }
@@ -507,6 +582,235 @@ pub(super) fn freeze_story_at(
     freeze_story_impl(tx, request, payload_hash, false, None)
 }
 
+/// Freeze the explicit reviewed-continuation basis without treating the
+/// current target chapter as reviewed authority. The target is the saved
+/// working location for the eventual continuation; every earlier source is
+/// an exact member of the currently selected author-reviewed prefix.
+pub(super) fn freeze_reviewed_continuation_at(
+    tx: &Connection,
+    request: &FreezeReviewedContinuation,
+    payload_hash: &str,
+) -> CoreResult<FrozenContext> {
+    let current_epochs = epochs(tx)?;
+    if request.policy.version != current_epochs.policy {
+        return Err(CoreError::new(
+            "ContextPolicyChanged",
+            "Prepare a new request using the current source permissions.",
+        ));
+    }
+    let document = read_document(tx, &request.expected.document_id)?;
+    if document.kind != "chapter" {
+        return Err(CoreError::new(
+            "InvalidDocument",
+            "Reviewed continuation needs an active chapter target.",
+        ));
+    }
+    require_head(&document.head, &request.expected)?;
+    let target_position: i64 = tx.query_row(
+        "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0",
+        [&request.expected.document_id],
+        |row| row.get(0),
+    )?;
+    if target_position < 0 {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The chapter target has an invalid ordering position.",
+        ));
+    }
+    let frontier = request.policy.reader_frontier.as_deref().ok_or_else(|| {
+        CoreError::new(
+            "InvalidPolicy",
+            "Reviewed continuation needs a reader frontier equal to its target chapter.",
+        )
+    })?;
+    if parse_version(frontier)? != target_position {
+        return Err(CoreError::new(
+            "BoundaryConflict",
+            "Reviewed continuation cannot use a broader future reader frontier.",
+        ));
+    }
+    let prefix = reviewed_story::selected_prefix(
+        tx,
+        &request.access,
+        &request.expected.document_id,
+        parse_version(&current_epochs.policy)?,
+    )?;
+    if prefix.is_empty() {
+        return Err(CoreError::new(
+            "BasisUnavailable",
+            "There is no earlier reviewed chapter. Use working-draft continuation for the first chapter.",
+        ));
+    }
+    for item in &prefix {
+        if active_review_fence(tx, &request.access, &item.document_id, &item.bundle_id)? {
+            return Err(CoreError::new(
+                "BasisUnavailable",
+                "An earlier selected reviewed chapter has an unresolved review fence.",
+            ));
+        }
+    }
+
+    let target_revision = checkpoint_at(tx, &document, "reviewedContext")?;
+    let source_ref = |revision: &Revision| SourceRef {
+        project_id: request.access.project_id.clone(),
+        document_id: revision.head.document_id.clone(),
+        revision_id: revision.id.clone(),
+        body_hash: revision.head.body_hash.clone(),
+    };
+    let target_ref = source_ref(&target_revision);
+    let mut reviewed_members = Vec::with_capacity(prefix.len());
+    let mut reviewed_sources = Vec::with_capacity(prefix.len());
+    for item in &prefix {
+        let revision = read_revision(tx, &item.revision_id)?;
+        if revision.head != item.head {
+            return Err(CoreError::new(
+                "ReviewBasisUnavailable",
+                "An earlier reviewed chapter no longer matches its selected revision.",
+            ));
+        }
+        let position: i64 = tx.query_row(
+            "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0",
+            [&item.document_id],
+            |row| row.get(0),
+        )?;
+        if position < 0
+            || position > target_position
+            || (position == target_position && item.document_id >= request.expected.document_id)
+        {
+            return Err(CoreError::new(
+                "ReviewBasisUnavailable",
+                "The reviewed prefix is not ordered before its continuation target.",
+            ));
+        }
+        let source = source_ref(&revision);
+        reviewed_members.push(ReviewedBasisMember {
+            document_id: item.document_id.clone(),
+            bundle_id: item.bundle_id.clone(),
+            revision_id: item.revision_id.clone(),
+            version: item.head.version.clone(),
+            body_hash: item.head.body_hash.clone(),
+        });
+        reviewed_sources.push(SourceDescriptor {
+            handle: format!("reviewed-{}", item.bundle_id),
+            source,
+            display_name: item.title.clone(),
+            kind: SourceKind::ReviewedAuthority,
+            current: true,
+            coverage: CoverageLabel::Verbatim,
+            disclosure: Disclosure {
+                reader_position: Some(position.to_string()),
+                visible_to_characters: Vec::new(),
+                author_only: false,
+                future_private: false,
+            },
+            story_time: None,
+            dependencies: Vec::new(),
+        });
+    }
+    let mut sources = Vec::with_capacity(prefix.len() + 1);
+    sources.push(SourceDescriptor {
+        handle: target_revision.id.clone(),
+        source: target_ref.clone(),
+        display_name: document.title.clone(),
+        kind: SourceKind::CurrentDraft,
+        current: true,
+        coverage: CoverageLabel::Verbatim,
+        disclosure: Disclosure {
+            reader_position: Some(target_position.to_string()),
+            visible_to_characters: Vec::new(),
+            author_only: false,
+            future_private: false,
+        },
+        story_time: None,
+        // The target is working prose, not a derived digest of the entire
+        // prefix. Reviewed authority is recorded in the basis manifest and
+        // remains eligible for optional packing under the request budget.
+        dependencies: Vec::new(),
+    });
+    sources.extend(reviewed_sources);
+    let snapshot = StorySnapshot {
+        snapshot_id: new_id(),
+        project_id: request.access.project_id.clone(),
+        basis: BasisKind::Reviewed,
+        target: target_ref,
+        context_source_epoch: current_epochs.source.clone(),
+        ordering_epoch: current_epochs.source,
+        disclosure_policy_version: current_epochs.policy,
+        sources,
+        reviewed_basis: Some(ReviewedBasisManifest {
+            project_id: request.access.project_id.clone(),
+            operation_namespace: request.access.operation_namespace.clone(),
+            prefix: reviewed_members,
+        }),
+    };
+    let handles = snapshot
+        .sources
+        .iter()
+        .map(|source| source.handle.clone())
+        .collect::<Vec<_>>();
+    eligibility(
+        &snapshot,
+        &request.policy,
+        ContextPurpose::Continue,
+        &handles,
+    )
+    .map_err(eligibility_error)?;
+    let frozen = FrozenContext {
+        snapshot,
+        policy: request.policy.clone(),
+        purpose: ContextPurpose::Continue,
+        aliases: BTreeMap::new(),
+        excluded_source_count: 0,
+        guidance: Vec::new(),
+        conversation: None,
+    };
+    let json = serde_json::to_string(&frozen)?;
+    tx.execute(
+        "INSERT INTO story_snapshots(id,project_id,operation_namespace,operation_id,payload_hash,context_source_epoch,disclosure_policy_epoch,manifest_json,manifest_hash) VALUES(?,?,?,?,?,?,?,?,?)",
+        params![
+            frozen.snapshot.snapshot_id,
+            request.access.project_id,
+            request.access.operation_namespace,
+            request.operation_id,
+            payload_hash,
+            parse_version(&frozen.snapshot.context_source_epoch)?,
+            parse_version(&frozen.policy.version)?,
+            json,
+            sha256_hex(json.as_bytes())
+        ],
+    )?;
+    insert_snapshot_sources(tx, &frozen)?;
+    Ok(frozen)
+}
+
+fn active_review_fence(
+    db: &Connection,
+    access: &ProjectAccess,
+    document_id: &str,
+    bundle_id: &str,
+) -> CoreResult<bool> {
+    db.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM review_fences f
+            JOIN ready_bundles b ON b.id=f.affected_bundle_id
+            JOIN ready_heads h ON h.project_id=f.project_id
+                AND h.operation_namespace=f.operation_namespace
+                AND h.document_id=b.document_id
+                AND h.bundle_id=f.affected_bundle_id
+            WHERE f.project_id=? AND f.operation_namespace=?
+              AND f.affected_bundle_id=? AND h.document_id=?
+        )",
+        params![
+            access.project_id,
+            access.operation_namespace,
+            bundle_id,
+            document_id
+        ],
+        |row| row.get(0),
+    )
+    .map_err(CoreError::from)
+}
+
 pub(super) fn freeze_discussion_story_at(
     tx: &Connection,
     request: &FreezeStory,
@@ -572,6 +876,7 @@ fn freeze_story_impl(
         ordering_epoch: current_epochs.source,
         disclosure_policy_version: current_epochs.policy,
         sources: Vec::new(),
+        reviewed_basis: None,
     };
     let ids = ordered_documents(tx)?;
     for (id, position) in ids {
@@ -688,11 +993,36 @@ fn freeze_story_impl(
         "INSERT INTO story_snapshots(id,project_id,operation_namespace,operation_id,payload_hash,context_source_epoch,disclosure_policy_epoch,manifest_json,manifest_hash) VALUES(?,?,?,?,?,?,?,?,?)",
         params![frozen.snapshot.snapshot_id, request.access.project_id, request.access.operation_namespace, request.operation_id, payload_hash, parse_version(&frozen.snapshot.context_source_epoch)?, parse_version(&frozen.policy.version)?, json, sha256_hex(json.as_bytes())],
     )?;
-    for source in &frozen.snapshot.sources {
-        tx.execute("INSERT INTO snapshot_sources(snapshot_id,handle,document_id,revision_id,body_hash) VALUES(?,?,?,?,?)", params![frozen.snapshot.snapshot_id, source.handle, source.source.document_id, source.source.revision_id, source.source.body_hash])?;
-    }
+    insert_snapshot_sources(tx, &frozen)?;
     guidance::pin_guidance_at(tx, &frozen.snapshot.snapshot_id, &frozen.guidance)?;
     Ok(frozen)
+}
+
+fn insert_snapshot_sources(db: &Connection, frozen: &FrozenContext) -> CoreResult<()> {
+    for source in &frozen.snapshot.sources {
+        let reader_position = if frozen.snapshot.basis == BasisKind::Reviewed {
+            source
+                .disclosure
+                .reader_position
+                .as_deref()
+                .map(parse_version)
+                .transpose()?
+        } else {
+            None
+        };
+        db.execute(
+            "INSERT INTO snapshot_sources(snapshot_id,handle,document_id,revision_id,body_hash,reader_position) VALUES(?,?,?,?,?,?)",
+            params![
+                frozen.snapshot.snapshot_id,
+                source.handle,
+                source.source.document_id,
+                source.source.revision_id,
+                source.source.body_hash,
+                reader_position,
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 fn epochs(db: &Connection) -> CoreResult<ContextEpochs> {
@@ -783,7 +1113,7 @@ pub(super) fn validated_snapshot_record(
             "The context identity does not match its manifest.",
         ));
     }
-    validate_pins(db, &frozen)?;
+    validate_pins(db, &frozen, &namespace)?;
     Ok((frozen, namespace))
 }
 
@@ -847,7 +1177,21 @@ pub(super) fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContex
     Ok(frozen)
 }
 
-fn validate_pins(db: &Connection, frozen: &FrozenContext) -> CoreResult<()> {
+fn validate_pins(
+    db: &Connection,
+    frozen: &FrozenContext,
+    snapshot_namespace: &str,
+) -> CoreResult<()> {
+    if let Some(manifest) = frozen.snapshot.reviewed_basis.as_ref() {
+        reviewed_story::validate_reviewed_snapshot_manifest(
+            db,
+            &frozen.snapshot.project_id,
+            snapshot_namespace,
+            &frozen.policy.version,
+            manifest,
+            &frozen.snapshot.sources,
+        )?;
+    }
     conversation_context::validate_conversation_at(db, frozen)?;
     let has_guidance: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='snapshot_guidance')", [], |row| row.get(0))?;
     if has_guidance {
@@ -863,6 +1207,17 @@ fn validate_pins(db: &Connection, frozen: &FrozenContext) -> CoreResult<()> {
             "The pinned author guidance is missing.",
         ));
     }
+    let has_reader_position: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('snapshot_sources') WHERE name='reader_position')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_reader_position {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The project is missing immutable reviewed reader-position pins.",
+        ));
+    }
     let count: i64 = db.query_row(
         "SELECT COUNT(*) FROM snapshot_sources WHERE snapshot_id=?",
         [&frozen.snapshot.snapshot_id],
@@ -875,11 +1230,33 @@ fn validate_pins(db: &Connection, frozen: &FrozenContext) -> CoreResult<()> {
         ));
     }
     for source in &frozen.snapshot.sources {
-        let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM snapshot_sources s JOIN revisions r ON r.document_id=s.document_id AND r.id=s.revision_id WHERE s.snapshot_id=? AND s.handle=? AND s.document_id=? AND s.revision_id=? AND s.body_hash=? AND r.body_hash=s.body_hash)", params![frozen.snapshot.snapshot_id, source.handle, source.source.document_id, source.source.revision_id, source.source.body_hash], |row| row.get(0))?;
-        if !exists {
+        let pin: Option<Option<i64>> = db
+            .query_row(
+                "SELECT s.reader_position FROM snapshot_sources s JOIN revisions r ON r.document_id=s.document_id AND r.id=s.revision_id WHERE s.snapshot_id=? AND s.handle=? AND s.document_id=? AND s.revision_id=? AND s.body_hash=? AND r.body_hash=s.body_hash",
+                params![
+                    frozen.snapshot.snapshot_id,
+                    source.handle,
+                    source.source.document_id,
+                    source.source.revision_id,
+                    source.source.body_hash
+                ],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let expected_reader_position = if frozen.snapshot.basis == BasisKind::Reviewed {
+            source
+                .disclosure
+                .reader_position
+                .as_deref()
+                .map(parse_version)
+                .transpose()?
+        } else {
+            None
+        };
+        if pin != Some(expected_reader_position) {
             return Err(CoreError::new(
                 "InvalidContext",
-                "A pinned source no longer matches its exact revision.",
+                "A pinned source no longer matches its exact revision or reader position.",
             ));
         }
     }
@@ -1001,6 +1378,18 @@ fn literal_spans(text: &str, query: &str) -> Vec<(u32, u32)> {
 /// immutable manifests and revision pins before installing an independent copy.
 pub(crate) fn validate_context_storage(db: &Connection) -> CoreResult<()> {
     epochs(db)?;
+    let schema: i64 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let has_reader_position: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('snapshot_sources') WHERE name='reader_position')",
+        [],
+        |row| row.get(0),
+    )?;
+    if schema >= 15 && !has_reader_position {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The project is missing immutable reviewed reader-position pins.",
+        ));
+    }
     let mut statement = db.prepare("SELECT id,project_id,operation_namespace,operation_id,payload_hash,context_source_epoch,disclosure_policy_epoch,manifest_json,manifest_hash FROM story_snapshots")?;
     let rows = statement.query_map([], |row| {
         Ok((
@@ -1038,7 +1427,7 @@ pub(crate) fn validate_context_storage(db: &Connection) -> CoreResult<()> {
                 "The context manifest does not match its stored identity or epochs.",
             ));
         }
-        validate_pins(db, &frozen)?;
+        validate_pins(db, &frozen, &namespace)?;
     }
     Ok(())
 }

@@ -302,6 +302,165 @@ try {
   assert.equal(contextProof.oldEvidence.hits.length, 1);
   assert.equal(contextProof.revoked.code, 'ContextPolicyChanged');
   checks.push('Native context IPC freezes exact sources, persists a mock-only packet receipt, marks it stale after editing and revokes further reads on policy change');
+
+  // F2-B reviewed continuation stays an explicit restricted-writing basis:
+  // the current target remains working prose, while only the exact earlier
+  // reviewed prefix can enter the frozen manifest. Keep this fixture outside
+  // the visible writer/library flow so it cannot change the UI document count.
+  const reviewedContinuation = await page.evaluate(async ({ reviewedPath }) => {
+    const invoke = (command, args) => window.__TAURI_INTERNALS__.invoke(command, args);
+    const body = (blockId, text) => ({ schemaVersion: 1, body: { type: 'doc', content: [{
+      type: 'paragraph', attrs: { id: blockId }, content: text ? [{ type: 'text', text }] : [],
+    }] } });
+    const create = (access, operationId, documentId, title, kind, text) => invoke('create_document', { request: {
+      access, operationId, documentId, title, kind, body: body(documentId, text),
+    } });
+    const opened = await invoke('create_project', {
+      path: reviewedPath, title: 'Native reviewed continuation fixture', session: 'reviewed-continuation-session',
+    });
+    const first = await create(opened.access, 'reviewed-create-first', 'reviewed-first', 'First reviewed chapter', 'chapter', 'First reviewed prose.');
+    const firstStage = await invoke('stage_author_review', { request: {
+      access: opened.access, operationId: 'reviewed-stage-first', expected: first.head,
+    } });
+    const firstBundle = await invoke('mark_ready', { request: {
+      access: opened.access, operationId: 'reviewed-ready-first', stageId: firstStage.id,
+    } });
+    const target = await create(opened.access, 'reviewed-create-target', 'reviewed-target', 'Current continuation', 'chapter', 'Current target prose.');
+    const future = await create(opened.access, 'reviewed-create-future', 'reviewed-future', 'Future private chapter', 'chapter', 'Future chapter prose must stay private.');
+    const privateNote = await create(opened.access, 'reviewed-create-note', 'reviewed-private-note', 'Private author note', 'note', 'Author room note must stay private.');
+    const epochs = await invoke('context_epochs', { access: opened.access });
+    const policy = {
+      version: epochs.policy, audience: 'restrictedWriting', readerFrontier: '1', characterId: null,
+      characterGrants: [], allowAlternatives: false, allowHistorical: false,
+    };
+    const frozen = await invoke('freeze_reviewed_continuation', { request: {
+      access: opened.access, operationId: 'reviewed-freeze-target', expected: target.head, policy,
+    } });
+    const byDocument = new Map(frozen.snapshot.sources.map(source => [source.source.documentId, source]));
+    const targetDescriptor = byDocument.get(target.head.documentId);
+    const earlierDescriptor = byDocument.get(first.head.documentId);
+    const futureDescriptor = byDocument.get(future.head.documentId) ?? null;
+    const privateDescriptor = byDocument.get(privateNote.head.documentId) ?? null;
+    const prefix = frozen.snapshot.reviewedBasis?.prefix ?? [];
+    const scope = await invoke('capture_story_scope', {
+      access: opened.access, snapshotId: frozen.snapshot.snapshotId, kind: 'wholeDocument', start: null, end: null,
+    });
+    const prepared = await invoke('prepare_story_context', { request: {
+      access: opened.access, operationId: 'reviewed-prepare-target', snapshotId: frozen.snapshot.snapshotId,
+      instruction: 'Continue the current chapter from the reviewed earlier story.', mandatoryHandles: [], scope,
+      budget: { modelId: 'mock-story-context', contextWindowTokens: '20000', reservedOutputTokens: '1000', reservedProtocolTokens: '1000' },
+    } });
+    if (prepared.status !== 'prepared') throw new Error(JSON.stringify(prepared));
+    const preparedCurrentBeforeEdit = await invoke('prepared_story_context_is_current', {
+      access: opened.access, packetId: prepared.packet.receipt.packetId,
+    });
+    const editedFirst = await invoke('save_snapshot', { request: {
+      access: opened.access, operationId: 'reviewed-edit-first', expected: first.head, localGeneration: '1', cause: 'typing',
+      body: body(first.head.documentId, 'Changed first prose makes the old reviewed basis stale.'),
+    } });
+    const oldPacket = await invoke('prepared_story_context', {
+      access: opened.access, packetId: prepared.packet.receipt.packetId,
+    });
+    const staleCurrent = await invoke('prepared_story_context_is_current', {
+      access: opened.access, packetId: prepared.packet.receipt.packetId,
+    });
+    const oldEvidence = await invoke('search_story_context', { request: {
+      access: opened.access, snapshotId: frozen.snapshot.snapshotId, query: 'First reviewed prose.', mode: 'literal', limit: 10,
+    } });
+    let staleFreeze;
+    try {
+      await invoke('freeze_reviewed_continuation', { request: {
+        access: opened.access, operationId: 'reviewed-freeze-after-edit', expected: target.head, policy,
+      } });
+    } catch (error) { staleFreeze = error; }
+    const revokedEpochs = await invoke('revoke_story_context', {
+      access: opened.access, expectedPolicy: policy.version,
+    });
+    let revokedRead;
+    try {
+      await invoke('prepared_story_context', {
+        access: opened.access, packetId: prepared.packet.receipt.packetId,
+      });
+    } catch (error) { revokedRead = error; }
+    return {
+      projectId: opened.project.projectId,
+      firstBundle,
+      targetHead: target.head,
+      editedFirstHead: editedFirst.head,
+      snapshotBasis: frozen.snapshot.basis,
+      snapshotTarget: frozen.snapshot.target,
+      snapshotSources: frozen.snapshot.sources.map(source => ({
+        documentId: source.source.documentId, handle: source.handle, source: source.source,
+        kind: source.kind, current: source.current,
+      })),
+      policy: frozen.policy,
+      targetDescriptor: targetDescriptor ? {
+        handle: targetDescriptor.handle, source: targetDescriptor.source,
+        kind: targetDescriptor.kind, current: targetDescriptor.current,
+      } : null,
+      earlierDescriptor: earlierDescriptor ? {
+        handle: earlierDescriptor.handle, source: earlierDescriptor.source,
+        kind: earlierDescriptor.kind, current: earlierDescriptor.current,
+      } : null,
+      futureDescriptor: futureDescriptor ? { kind: futureDescriptor.kind, current: futureDescriptor.current } : null,
+      privateDescriptor: privateDescriptor ? { kind: privateDescriptor.kind, current: privateDescriptor.current } : null,
+      prefix,
+      scopeKind: scope.kind,
+      scopeSourceHash: scope.sourceHash,
+      preparedCurrentBeforeEdit,
+      preparedPacketId: prepared.packet.receipt.packetId,
+      preparedSourceHandles: prepared.packet.receipt.sourceHandles,
+      oldPacketId: oldPacket.receipt.packetId,
+      oldEvidenceHits: oldEvidence.hits.length,
+      oldEvidenceText: oldEvidence.hits[0]?.passage?.text ?? null,
+      staleCurrent,
+      staleFreeze,
+      revokedPolicy: revokedEpochs.policy,
+      revokedRead,
+    };
+  }, { reviewedPath: resolve(data, 'reviewed-continuation-project') });
+  assert.equal(reviewedContinuation.snapshotBasis, 'reviewed');
+  assert.equal(reviewedContinuation.policy.audience, 'restrictedWriting');
+  assert.equal(reviewedContinuation.policy.readerFrontier, '1');
+  const sortedSnapshotSources = [...reviewedContinuation.snapshotSources].sort((left, right) => left.documentId.localeCompare(right.documentId));
+  assert.deepEqual(sortedSnapshotSources.map(({ documentId, kind, current }) => ({ documentId, kind, current })), [
+    { documentId: 'reviewed-first', kind: 'reviewedAuthority', current: true },
+    { documentId: 'reviewed-target', kind: 'currentDraft', current: true },
+  ]);
+  assert.equal(reviewedContinuation.targetDescriptor.kind, 'currentDraft');
+  assert.equal(reviewedContinuation.earlierDescriptor.kind, 'reviewedAuthority');
+  assert.deepEqual(
+    reviewedContinuation.snapshotSources.find(source => source.documentId === 'reviewed-target'),
+    reviewedContinuation.targetDescriptor && {
+      documentId: 'reviewed-target', handle: reviewedContinuation.targetDescriptor.handle,
+      source: reviewedContinuation.targetDescriptor.source, kind: 'currentDraft', current: true,
+    },
+  );
+  assert.deepEqual(
+    reviewedContinuation.snapshotSources.find(source => source.documentId === 'reviewed-first'),
+    reviewedContinuation.earlierDescriptor && {
+      documentId: 'reviewed-first', handle: reviewedContinuation.earlierDescriptor.handle,
+      source: reviewedContinuation.earlierDescriptor.source, kind: 'reviewedAuthority', current: true,
+    },
+  );
+  assert.equal(reviewedContinuation.futureDescriptor, null);
+  assert.equal(reviewedContinuation.privateDescriptor, null);
+  assert.equal(reviewedContinuation.prefix.length, 1);
+  assert.equal(reviewedContinuation.prefix[0].documentId, 'reviewed-first');
+  assert.equal(reviewedContinuation.prefix[0].bundleId, reviewedContinuation.firstBundle.id);
+  assert.equal(reviewedContinuation.scopeKind, 'wholeDocument');
+  assert.equal(reviewedContinuation.scopeSourceHash, reviewedContinuation.targetHead.bodyHash);
+  assert.equal(reviewedContinuation.preparedCurrentBeforeEdit, true);
+  assert(reviewedContinuation.preparedSourceHandles.includes(reviewedContinuation.targetDescriptor.handle));
+  assert(reviewedContinuation.preparedSourceHandles.includes(reviewedContinuation.earlierDescriptor.handle));
+  assert.equal(reviewedContinuation.oldPacketId, reviewedContinuation.preparedPacketId);
+  assert.equal(reviewedContinuation.oldEvidenceHits, 1);
+  assert.equal(reviewedContinuation.oldEvidenceText, 'First reviewed prose.');
+  assert.equal(reviewedContinuation.staleCurrent, false);
+  assert.equal(reviewedContinuation.staleFreeze?.code, 'ReviewBasisUnavailable');
+  assert.equal(reviewedContinuation.revokedPolicy, '1');
+  assert.equal(reviewedContinuation.revokedRead?.code, 'ContextPolicyChanged');
+  checks.push('Native reviewed continuation freezes the current target separately from its exact reviewed prefix, excludes future/private sources, preserves stale evidence read-only, and revokes old reads after policy change');
   await page.getByRole('button', { name: 'Back to library', exact: true }).click();
   async function fillManuscript(text) {
     await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill(text);

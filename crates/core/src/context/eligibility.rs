@@ -158,6 +158,22 @@ pub fn evaluate_sources(
         ));
     }
 
+    if snapshot.basis == BasisKind::Reviewed {
+        if purpose != ContextPurpose::Continue || policy.audience != Audience::RestrictedWriting {
+            return Err(EligibilityError::new(
+                EligibilityErrorCode::InvalidPolicy,
+                "Reviewed authority is available only for restricted continuation.",
+            ));
+        }
+        if policy.character_id.is_some() || !policy.character_grants.is_empty() {
+            return Err(EligibilityError::new(
+                EligibilityErrorCode::InvalidPolicy,
+                "Reviewed continuation has no character-specific knowledge grants.",
+            ));
+        }
+    }
+    validate_basis_manifest(snapshot, policy, purpose)?;
+
     let mut by_handle = HashMap::with_capacity(snapshot.sources.len());
     let mut by_source = HashMap::with_capacity(snapshot.sources.len());
     for descriptor in &snapshot.sources {
@@ -227,16 +243,16 @@ pub fn evaluate_sources(
 
     let mut visits = HashMap::with_capacity(snapshot.sources.len());
     let mut ordered_handles = Vec::new();
+    let walk_context = WalkContext {
+        by_handle: &by_handle,
+        policy,
+        basis: snapshot.basis,
+        by_source: &by_source,
+        target_handle: &target_handle,
+        purpose,
+    };
     for handle in &selected {
-        walk(
-            handle,
-            &by_handle,
-            policy,
-            snapshot.basis,
-            &mut visits,
-            &mut ordered_handles,
-            &by_source,
-        )?;
+        walk(handle, &walk_context, &mut visits, &mut ordered_handles)?;
     }
 
     let eligible = ordered_handles
@@ -441,14 +457,20 @@ fn validate_descriptor(
     Ok(())
 }
 
+struct WalkContext<'a> {
+    by_handle: &'a HashMap<String, &'a SourceDescriptor>,
+    policy: &'a InformationPolicy,
+    basis: BasisKind,
+    by_source: &'a HashMap<SourceRef, String>,
+    target_handle: &'a str,
+    purpose: ContextPurpose,
+}
+
 fn walk(
     handle: &str,
-    by_handle: &HashMap<String, &SourceDescriptor>,
-    policy: &InformationPolicy,
-    basis: BasisKind,
+    context: &WalkContext<'_>,
     visits: &mut HashMap<String, Visit>,
     ordered_handles: &mut Vec<String>,
-    by_source: &HashMap<SourceRef, String>,
 ) -> Result<(), EligibilityError> {
     if visits.get(handle) == Some(&Visit::Visiting) {
         return Err(EligibilityError::for_handle(
@@ -460,7 +482,7 @@ fn walk(
     if visits.get(handle) == Some(&Visit::Done) {
         return Ok(());
     }
-    let descriptor = by_handle.get(handle).ok_or_else(|| {
+    let descriptor = context.by_handle.get(handle).ok_or_else(|| {
         EligibilityError::for_handle(
             EligibilityErrorCode::UnknownSource,
             handle,
@@ -468,10 +490,17 @@ fn walk(
         )
     })?;
     visits.insert(handle.to_owned(), Visit::Visiting);
-    apply_basis_policy(descriptor, policy, basis)?;
-    apply_disclosure_policy(descriptor, policy)?;
+    apply_basis_policy(
+        descriptor,
+        context.policy,
+        context.basis,
+        context.purpose,
+        handle == context.target_handle,
+    )?;
+    apply_disclosure_policy(descriptor, context.policy)?;
     for dependency in &descriptor.dependencies {
-        let dependency_handle = by_source
+        let dependency_handle = context
+            .by_source
             .get(dependency)
             .map(String::as_str)
             .ok_or_else(|| {
@@ -482,15 +511,7 @@ fn walk(
                     "A dependency has no resolved source handle.",
                 )
             })?;
-        walk(
-            dependency_handle,
-            by_handle,
-            policy,
-            basis,
-            visits,
-            ordered_handles,
-            by_source,
-        )?;
+        walk(dependency_handle, context, visits, ordered_handles)?;
     }
     visits.insert(handle.to_owned(), Visit::Done);
     ordered_handles.push(handle.to_owned());
@@ -501,6 +522,8 @@ fn apply_basis_policy(
     descriptor: &SourceDescriptor,
     policy: &InformationPolicy,
     basis: BasisKind,
+    purpose: ContextPurpose,
+    is_target: bool,
 ) -> Result<(), EligibilityError> {
     match basis {
         BasisKind::Working => {
@@ -530,16 +553,19 @@ fn apply_basis_policy(
                     "A reviewed-basis source is not current in the selected authority basis.",
                 ));
             }
-            if !matches!(
-                descriptor.kind,
-                SourceKind::ReviewedAuthority
-                    | SourceKind::ExplicitRule
-                    | SourceKind::AdoptedGuidance
-            ) {
+            let allowed_target = is_target
+                && purpose == ContextPurpose::Continue
+                && descriptor.kind == SourceKind::CurrentDraft;
+            let allowed_authority = !is_target && descriptor.kind == SourceKind::ReviewedAuthority;
+            if !allowed_target && !allowed_authority {
                 return Err(EligibilityError::for_handle(
                     EligibilityErrorCode::BasisMismatch,
                     &descriptor.handle,
-                    "This source is not active reviewed or adopted authority.",
+                    if is_target {
+                        "A reviewed continuation target must be the current draft."
+                    } else {
+                        "Reviewed continuation sources must be selected reviewed authority."
+                    },
                 ));
             }
         }
@@ -561,6 +587,136 @@ fn apply_basis_policy(
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_basis_manifest(
+    snapshot: &StorySnapshot,
+    policy: &InformationPolicy,
+    purpose: ContextPurpose,
+) -> Result<(), EligibilityError> {
+    if snapshot.basis != BasisKind::Reviewed {
+        if snapshot.reviewed_basis.is_some() {
+            return Err(EligibilityError::new(
+                EligibilityErrorCode::InvalidSnapshot,
+                "A reviewed basis manifest requires a reviewed snapshot basis.",
+            ));
+        }
+        return Ok(());
+    }
+    let manifest = snapshot.reviewed_basis.as_ref().ok_or_else(|| {
+        EligibilityError::new(
+            EligibilityErrorCode::BasisMismatch,
+            "A reviewed snapshot needs an exact reviewed basis manifest.",
+        )
+    })?;
+    if manifest.project_id != snapshot.project_id || manifest.operation_namespace.is_empty() {
+        return Err(EligibilityError::new(
+            EligibilityErrorCode::CrossProjectSource,
+            "The reviewed basis manifest belongs to another project namespace.",
+        ));
+    }
+    if manifest.prefix.is_empty() {
+        return Err(EligibilityError::new(
+            EligibilityErrorCode::BasisMismatch,
+            "A reviewed continuation needs at least one earlier reviewed chapter.",
+        ));
+    }
+    if manifest.prefix.len() > 4096 {
+        return Err(EligibilityError::new(
+            EligibilityErrorCode::InvalidSnapshot,
+            "The reviewed basis prefix is too large.",
+        ));
+    }
+    let mut documents = std::collections::HashSet::new();
+    let mut bundles = std::collections::HashSet::new();
+    let mut revisions = std::collections::HashSet::new();
+    for member in &manifest.prefix {
+        nonempty(
+            &member.document_id,
+            EligibilityErrorCode::InvalidSnapshot,
+            "reviewedBasis.prefix.documentId",
+        )?;
+        nonempty(
+            &member.bundle_id,
+            EligibilityErrorCode::InvalidSnapshot,
+            "reviewedBasis.prefix.bundleId",
+        )?;
+        nonempty(
+            &member.revision_id,
+            EligibilityErrorCode::InvalidSnapshot,
+            "reviewedBasis.prefix.revisionId",
+        )?;
+        decimal(&member.version).map_err(|message| {
+            EligibilityError::new(
+                EligibilityErrorCode::InvalidSnapshot,
+                format!("reviewed basis head version is invalid: {message}"),
+            )
+        })?;
+        validate_source_ref(
+            &SourceRef {
+                project_id: manifest.project_id.clone(),
+                document_id: member.document_id.clone(),
+                revision_id: member.revision_id.clone(),
+                body_hash: member.body_hash.clone(),
+            },
+            &snapshot.project_id,
+        )?;
+        if !documents.insert(&member.document_id)
+            || !bundles.insert(&member.bundle_id)
+            || !revisions.insert(&member.revision_id)
+        {
+            return Err(EligibilityError::new(
+                EligibilityErrorCode::DuplicateSource,
+                "The reviewed basis prefix contains duplicate or mismatched members.",
+            ));
+        }
+    }
+    let target = snapshot
+        .sources
+        .iter()
+        .find(|source| source.source == snapshot.target)
+        .ok_or_else(|| {
+            EligibilityError::new(
+                EligibilityErrorCode::InvalidSnapshot,
+                "The reviewed target is missing from its source manifest.",
+            )
+        })?;
+    if purpose == ContextPurpose::Continue
+        && (target.kind != SourceKind::CurrentDraft || !target.current)
+    {
+        return Err(EligibilityError::new(
+            EligibilityErrorCode::BasisMismatch,
+            "A reviewed continuation target must be the current draft.",
+        ));
+    }
+    if purpose == ContextPurpose::Continue
+        && target.disclosure.reader_position.as_deref() != policy.reader_frontier.as_deref()
+    {
+        return Err(EligibilityError::new(
+            EligibilityErrorCode::InvalidPolicy,
+            "A reviewed continuation target must match the reader frontier exactly.",
+        ));
+    }
+    let authority_sources = snapshot
+        .sources
+        .iter()
+        .filter(|source| source.kind == SourceKind::ReviewedAuthority)
+        .collect::<Vec<_>>();
+    if authority_sources.len() != manifest.prefix.len()
+        || manifest.prefix.iter().any(|member| {
+            !authority_sources.iter().any(|source| {
+                source.source.document_id == member.document_id
+                    && source.source.revision_id == member.revision_id
+                    && source.source.body_hash == member.body_hash
+            })
+        })
+    {
+        return Err(EligibilityError::new(
+            EligibilityErrorCode::InvalidSnapshot,
+            "Every reviewed authority source must be bound to the exact basis manifest.",
+        ));
     }
     Ok(())
 }

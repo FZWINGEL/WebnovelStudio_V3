@@ -96,6 +96,7 @@ fn frozen(
         ordering_epoch: "1".into(),
         disclosure_policy_version: "1".into(),
         sources: descriptors,
+        reviewed_basis: None,
     }
     .pipe(|snapshot| FrozenContext {
         snapshot,
