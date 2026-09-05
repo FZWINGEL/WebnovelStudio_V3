@@ -29,6 +29,15 @@ jobs:
           rustup toolchain install 1.98.1 --profile minimal
           rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1
 
+      - name: Cache package Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: v3-package-release-${{ runner.os }}-x86_64-pc-windows-msvc-rust-1.98.1
+          workspaces: |
+            . -> target
+          cache-on-failure: true
+          cache-bin: false
+
       - name: Install locked frontend dependencies
         working-directory: apps/desktop
         run: npm ci

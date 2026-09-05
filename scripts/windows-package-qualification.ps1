@@ -422,6 +422,50 @@ function Find-UiaByNameContains {
     return $null
 }
 
+function Find-ProjectOpener {
+    param(
+        [Parameter(Mandatory = $true)]$Root,
+        [Parameter(Mandatory = $true)][string]$Title
+    )
+    $elements = $Root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+    $matches = [System.Collections.Generic.List[object]]::new()
+    foreach ($element in $elements) {
+        try {
+            $name = [string]$element.Current.Name
+            if ($name.StartsWith($Title, [StringComparison]::OrdinalIgnoreCase) -and $name -match '\bLast opened\b' -and $element.Current.IsEnabled) {
+                $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) | Out-Null
+                [void]$matches.Add($element)
+            }
+        } catch { }
+    }
+    if ($matches.Count -eq 1) { return $matches[0] }
+    return $null
+}
+
+function Get-ProjectOpenerSnapshot {
+    param(
+        [Parameter(Mandatory = $true)]$Root,
+        [Parameter(Mandatory = $true)][string]$Title
+    )
+    $elements = $Root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+    $records = [System.Collections.Generic.List[string]]::new()
+    foreach ($element in $elements) {
+        try {
+            $name = [string]$element.Current.Name
+            if ($name.IndexOf($Title, [StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
+            $displayName = if ($name.Length -gt 160) { $name.Substring(0, 160) } else { $name }
+            $controlType = [string]$element.Current.ControlType.ProgrammaticName
+            $enabled = [bool]$element.Current.IsEnabled
+            $invokable = $false
+            try { $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) | Out-Null; $invokable = $true } catch { }
+            [void]$records.Add(("name='{0}', type='{1}', enabled={2}, invoke={3}" -f $displayName, $controlType, $enabled, $invokable))
+            if ($records.Count -ge 12) { break }
+        } catch { }
+    }
+    if ($records.Count -eq 0) { return 'no UIA elements contained the expected project title' }
+    return ($records -join ' | ')
+}
+
 function Assert-NoEditorTrial {
     param([Parameter(Mandatory = $true)]$Window)
     $trial = Find-UiaByName $Window 'Open editor trial'
@@ -805,7 +849,13 @@ try {
         try { Wait-Until { Find-UiaByName $window 'Saved' } 30 'Saved status' | Out-Null } catch { Write-Event 'first-launch' 'Saved status was not exposed through UIAutomation before timeout.' 'warning' }
 
         Invoke-Uia (Wait-Until { Find-UiaByName $window 'All projects' } 20 'All projects button')
-        $projectButton = Wait-Until { Find-UiaByNameContains $window $projectTitle ([System.Windows.Automation.ControlType]::Button) } 20 'created project in the Library'
+        Wait-Until { Find-UiaByName $window 'Library' } 30 'the Library after closing the editor' | Out-Null
+        try {
+            $projectButton = Wait-Until { Find-ProjectOpener $window $projectTitle } 30 'created project opener in the Library'
+        } catch {
+            Write-Event 'uia' ("Project opener UIA snapshot at timeout: {0}" -f (Get-ProjectOpenerSnapshot $window $projectTitle)) 'warning'
+            throw
+        }
         Invoke-Uia $projectButton
         $reopenedEditor = Wait-Until { Find-UiaByName $window 'Manuscript' } 30 'reopened Manuscript editor'
         $reopenedText = Get-UiaText $reopenedEditor
@@ -834,7 +884,12 @@ try {
         $library = Wait-Until { Find-UiaByName $window 'Library' } 60 'the Library label after same-version reinstall'
         $script:result.sameVersionReinstall.libraryVisible = $null -ne $library
         Assert-NoEditorTrial $window
-        $retained = Find-UiaByNameContains $window $projectTitle ([System.Windows.Automation.ControlType]::Button)
+        try {
+            $retained = Wait-Until { Find-ProjectOpener $window $projectTitle } 30 'retained project opener after same-version reinstall'
+        } catch {
+            Write-Event 'uia' ("Reinstall project opener UIA snapshot at timeout: {0}" -f (Get-ProjectOpenerSnapshot $window $projectTitle)) 'warning'
+            $retained = $null
+        }
         $script:result.sameVersionReinstall.projectRetained = $null -ne $retained
         if ($null -ne $retained) {
             try {
