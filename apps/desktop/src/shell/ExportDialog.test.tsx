@@ -21,7 +21,13 @@ async function render(props: Partial<React.ComponentProps<typeof ExportDialog>> 
 }
 function button(label: string) { return [...host.querySelectorAll('button')].find(item => item.textContent === label)!; }
 async function click(label: string) { await act(async () => button(label).click()); }
-async function waitFor(assertion: () => void) { await vi.waitFor(async () => { await act(async () => {}); assertion(); }); }
+async function waitFor(assertion: () => void) {
+  await vi.waitFor(async () => {
+    await act(async () => { await new Promise<void>(resolve => setTimeout(resolve, 0)); });
+    assertion();
+  }, { interval: 10, timeout: 2000 });
+  await act(async () => { await new Promise<void>(resolve => setTimeout(resolve, 0)); });
+}
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });

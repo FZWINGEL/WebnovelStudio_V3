@@ -49,6 +49,8 @@ The successful normal-home run used the native executable's existing managed log
 
 No tool event was observed in any of the three generation streams. This is observation evidence only and does not qualify universal no-tools or filesystem isolation. The first run's single-process cleanup and the later harness's owned-process exit do not qualify descendant containment, Windows Job Object behavior, or cleanup after a tool or cancellation path. The normal-home run also left a separately pre-existing native Codex process, so no global process-absence claim is made.
 
+The separate Windows process foundation now documents the bounded child-tree, stdin/stdout, Job Object, partial-output, cancellation, and Drop contracts in [Windows child-process contract](WINDOWS_PROCESS_CONTRACT.md). It is not connected to this Codex adapter or production discussions; the provider remains mock-only and live Codex qualification is unchanged.
+
 ## Subsequent unexecuted correction
 
 After the normal-home run, the ignored harness was corrected to use the supported top-level `web_search = "disabled"` setting and to remove the deprecated `[features].web_search` alias. The normal run itself emitted the upstream deprecation warning for that old alias; the corrected harness was not reexecuted, so the correction has no live qualification result. It does not change the three-dispatch ledger above.

@@ -14,6 +14,7 @@ pub mod context;
 pub mod documents;
 pub mod library;
 pub mod projects;
+pub mod providers;
 mod storage;
 pub mod transfer;
 
