@@ -4,7 +4,7 @@ use super::*;
 use crate::context::BudgetError;
 use crate::context::packet::{
     CompiledPacket, MOCK_MODEL_ID, MOCK_TOKEN_ACCOUNTING_METHOD, MockContextBudget, PacketError,
-    PacketRequest, compile_packet, packet_input_hash, serialized_input,
+    PacketRequest, ProviderBinding, compile_packet, packet_input_hash, serialized_input,
 };
 use crate::documents::ScopeGrant;
 
@@ -25,6 +25,10 @@ pub struct PrepareContext {
     pub safe_brief: Option<crate::context::SafeBriefInput>,
     pub scope: Option<ScopeGrant>,
     pub budget: MockContextBudget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_binding: Option<ProviderBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_contract: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +109,12 @@ impl OwnedProject {
                 "An approved writing brief must be committed by a restricted discussion start.",
             ));
         }
+        if request.response_contract.is_some() {
+            return Err(CoreError::new(
+                "ResponseContractRequiresDiscussion",
+                "A provider response contract is reserved for an internal live discussion start.",
+            ));
+        }
         let payload = logical_hash(&request)?;
         let existing: Option<(String, String)> = self.db()?.query_row(
             "SELECT id,payload_hash FROM context_packets WHERE operation_namespace=? AND operation_id=?",
@@ -164,6 +174,8 @@ impl OwnedProject {
             safe_brief: request.safe_brief.clone(),
             scope: request.scope.clone(),
             budget: request.budget.clone(),
+            provider_binding: request.provider_binding.clone(),
+            response_contract: request.response_contract.clone(),
         };
         let packet = match compile_packet(&compile_request) {
             Ok(packet) => packet,
@@ -283,6 +295,16 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
     let packet: CompiledPacket = serde_json::from_value(packet_json)?;
     let receipt = &packet.receipt;
     let input = serialized_input(&packet.messages, &packet.options).map_err(packet_error)?;
+    let expected_model = request
+        .provider_binding
+        .as_ref()
+        .map_or(MOCK_MODEL_ID, |binding| binding.model_id.as_str());
+    let expected_accounting = request
+        .provider_binding
+        .as_ref()
+        .map_or(MOCK_TOKEN_ACCOUNTING_METHOD, |binding| {
+            binding.accounting_method.as_str()
+        });
     if receipt.packet_id != stored.id
         || receipt.snapshot_id != stored.snapshot_id
         || receipt.session_id != stored.session_id
@@ -291,9 +313,10 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
         || packet_input_hash(&packet.messages, &packet.options).map_err(packet_error)?
             != stored.input_hash
         || receipt.input_tokens != input.len().to_string()
-        || receipt.token_accounting_method != MOCK_TOKEN_ACCOUNTING_METHOD
-        || packet.options.model_id != MOCK_MODEL_ID
-        || packet.options.token_accounting_method != MOCK_TOKEN_ACCOUNTING_METHOD
+        || receipt.token_accounting_method != expected_accounting
+        || packet.options.model_id != expected_model
+        || packet.options.token_accounting_method != expected_accounting
+        || packet.options.provider_binding != request.provider_binding
     {
         return Err(CoreError::new(
             "InvalidContextPacket",
@@ -330,6 +353,8 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
         scope: request.scope,
         safe_brief: request.safe_brief,
         budget: request.budget,
+        provider_binding: request.provider_binding,
+        response_contract: request.response_contract,
     })
     .map_err(|error| {
         CoreError::new(

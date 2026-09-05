@@ -1,5 +1,7 @@
 # WebnovelStudio V3 — first-slice implementation plan
 
+**Current provider choice:** the user authorized the V2 Codex reference and real LLM requests. The first integrated live development path is Codex GPT-5.6-Luna/Max/Fast on the exact checked Windows executable. This supersedes earlier provider ordering in W8 without changing its qualification gates. See [ADR 0011](ADR_0011_LIVE_CODEX.md) and [implementation status](IMPLEMENTATION_STATUS.md).
+
 **5 September 2026 · W0 is implemented as a native editor spike; W1/W2 implementation work has landed at the stated boundaries and W3 registry/transfer work is active. Remaining author qualification and later gates are open.**
 
 **Language scope:** English authoring, UI, and export. Wuxia, xianxia, cultivation, and translated-Chinese-webnovel register/terminology are optional English writing styles. Chinese-language authoring and Pinyin qualification are not product requirements. Unicode regression fixtures remain internal correctness checks.

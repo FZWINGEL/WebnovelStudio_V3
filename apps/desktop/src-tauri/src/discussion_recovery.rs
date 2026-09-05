@@ -14,6 +14,7 @@ pub struct DiscussionRecovery(Arc<Mutex<HashMap<OwnerKey, PendingSave>>>);
 
 #[derive(Clone)]
 pub(super) enum SaveOutcome {
+    Provider(Box<ProviderTerminalReport>),
     Complete(DiscussionFinish),
     Fail,
     Stop,
@@ -62,6 +63,18 @@ impl PendingSave {
         current: &DiscussionRun,
     ) -> CoreResult<()> {
         if !active(current) {
+            return Ok(());
+        }
+        if let SaveOutcome::Provider(report) = &self.outcome {
+            if !report.assistant_text.starts_with(&current.output_text) {
+                return Err(CoreError::new(
+                    "ProviderOutputMismatch",
+                    "The saved response does not match the retained provider result.",
+                ));
+            }
+            let mut report = report.as_ref().clone();
+            report.expected_sequence = current.sequence.clone();
+            project.settle_provider_discussion(report)?;
             return Ok(());
         }
         if current.status == DiscussionRunStatus::Stopping {

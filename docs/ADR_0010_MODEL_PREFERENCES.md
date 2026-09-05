@@ -1,5 +1,7 @@
 # Model preferences and dispatch
 
+**Historical slice:** this ADR records the original mock-only preference implementation. [ADR 0011](ADR_0011_LIVE_CODEX.md) extends dispatch with an explicit checked Codex connection, immutable live request binding, and provider settlement. Preference writes and picker reads still never probe a CLI or start generation. Author projects now use schema 13.
+
 The native header keeps the active model visible in Library and Workspace. Search and keyboard navigation browse the offline reference catalog; clicking a model, Enter, or Ctrl/Command+1–9 commits the choice. Favorites are stored independently. Settings contains supported reasoning and response-speed choices; traits do not appear inside model rows. Choosing Codex Luna initially selects Max and Fast (`priority`) from the verified reference options. Choosing an unavailable model remains an explicit saved preference and blocks generation. Manual writing stays available.
 
 Rust owns app-local preferences in Library schema 2, separate from project schema 11. One strict `app_preferences` row stores a decimal revision and nonsecret JSON containing provider/model IDs, optional reasoning/service tier, and unique favorite keys. Schema 1 migrates transactionally. Writes compare the expected revision and reject unknown models, unsupported traits, malformed revisions, and duplicate favorites. Empty optional traits serialize as JSON null. There are no credentials, live discovery probes, or provider requests in this slice.

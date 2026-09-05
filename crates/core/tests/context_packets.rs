@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
-use webnovel_core::context::packet::MockContextBudget;
+use webnovel_core::context::packet::{MockContextBudget, PROPOSAL_RESPONSE_CONTRACT};
 use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
@@ -154,6 +154,8 @@ fn prepare_request(
         safe_brief: None,
         scope: None,
         budget,
+        provider_binding: None,
+        response_contract: None,
     }
 }
 
@@ -207,6 +209,23 @@ fn generic_prepare_rejects_safe_brief_before_snapshot_lookup() {
         .prepare_context(request)
         .expect_err("generic packet preparation must not authorize a safe brief");
     assert_eq!(error.code, "SafeBriefRequiresDiscussion");
+}
+
+#[test]
+fn generic_prepare_rejects_renderer_supplied_response_contract() {
+    let temp = TempDir::new("response-contract-generic");
+    let (project, access, _document) = setup_project(&temp.child("project"));
+    let mut request = prepare_request(
+        &access,
+        "missing-snapshot",
+        "generic-response-contract",
+        budget(),
+    );
+    request.response_contract = Some(PROPOSAL_RESPONSE_CONTRACT.into());
+    let error = project
+        .prepare_context(request)
+        .expect_err("generic preparation must not choose a live response contract");
+    assert_eq!(error.code, "ResponseContractRequiresDiscussion");
 }
 
 fn rewrite_packet(project: &ProjectSession, packet_id: &str, mutate: impl FnOnce(&mut Value)) {
@@ -336,6 +355,7 @@ fn safe_brief_receipt_tampering_is_rejected_by_read_and_backup_validation() {
                 confirmed: true,
             }),
             budget: budget(),
+            provider_binding: None,
             previous_run_id: None,
         })
         .expect("prepare safe brief packet");
@@ -798,6 +818,7 @@ fn generic_preparation_rejects_consumed_discussion_request_guidance() {
         pinned_document_ids: Vec::new(),
         safe_brief: None,
         budget: budget(),
+        provider_binding: None,
         previous_run_id: None,
     };
     let original = project

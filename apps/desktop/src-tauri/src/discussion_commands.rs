@@ -4,8 +4,11 @@ use crate::discussion_recovery::{
 };
 use crate::library_commands::DesktopLibrary;
 use crate::project_commands::{DesktopProjects, execute};
+use crate::provider_runtime::{DesktopProviders, is_supported_choice};
 use tauri::State;
-use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, packet_input_hash};
+use webnovel_core::context::packet::{
+    CompiledPacket, MOCK_MODEL_ID, ProviderBinding, packet_input_hash,
+};
 use webnovel_core::projects::discussions::*;
 use webnovel_core::projects::proposals::*;
 use webnovel_core::projects::{CoreError, CoreResult, ProjectAccess, ProjectSession};
@@ -60,9 +63,32 @@ pub async fn stop_discussion(
     access: ProjectAccess,
     run_id: String,
     state: State<'_, DesktopProjects>,
+    runtime: State<'_, DesktopProviders>,
 ) -> CoreResult<DiscussionStop> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.stop_discussion(access, run_id)).await
+    let runtime = runtime.inner().clone();
+    execute(move || {
+        let owner = RunOwner {
+            project_id: access.project_id.clone(),
+            operation_namespace: access.operation_namespace.clone(),
+            run_id: run_id.clone(),
+        };
+        match project.stop_discussion(access, run_id) {
+            Ok(stopped) => {
+                runtime.stop(&stopped.run.owner);
+                Ok(stopped)
+            }
+            Err(error) => {
+                // An uncertain commit has already passed core ownership
+                // validation. Stop local work even if its acknowledgment was lost.
+                if error.code == "UncertainOutcome" {
+                    runtime.stop(&owner);
+                }
+                Err(error)
+            }
+        }
+    })
+    .await
 }
 
 #[tauri::command]
@@ -104,16 +130,30 @@ pub async fn reject_proposal(
 
 #[tauri::command]
 pub async fn start_discussion(
-    request: StartDiscussion,
+    mut request: StartDiscussion,
     model_selection: Option<ModelSelection>,
     state: State<'_, DesktopProjects>,
     recovery: State<'_, DiscussionRecovery>,
     library: State<'_, DesktopLibrary>,
+    runtime: State<'_, DesktopProviders>,
 ) -> CoreResult<DiscussionStart> {
     let project = state.project(&request.access.project_id)?;
     let recovery = recovery.inner().clone();
     let library = library.inner().clone();
+    let runtime = runtime.inner().clone();
     execute(move || {
+        let selected = model_selection
+            .clone()
+            .unwrap_or_else(ModelSelection::local_mock);
+        // Native code supplies the trusted binding, never renderer budgets or
+        // arbitrary command options. Existing mock payloads stay unchanged.
+        request.provider_binding = if is_supported_choice(&selected) {
+            Some(ProviderBinding::codex_luna())
+        } else {
+            None
+        };
+        #[cfg(windows)]
+        let connection = runtime.connection().ok();
         let started = {
             // Preference acceptance and new request acceptance are serialized.
             // Subsequent setting changes cannot redirect this frozen request.
@@ -123,8 +163,62 @@ pub async fn start_discussion(
                 .map_err(|_| crate::provider_commands::unavailable())?;
             let active = library.provider_state()?.settings.active;
             check_model_choice(&project, &request, model_selection.as_ref(), &active)?;
+            if request.provider_binding.is_some() {
+                #[cfg(windows)]
+                let available = connection.is_some();
+                #[cfg(not(windows))]
+                let available = false;
+                if !available && !has_saved_request(&project, &request)? {
+                    return Err(CoreError::new(
+                        "ProviderUnavailable",
+                        "Check the Codex connection in Settings before sending this request.",
+                    ));
+                }
+            }
             project.start_discussion(request)?
         };
+        if started.run.status == DiscussionRunStatus::Queued
+            && started.packet.options.provider_binding.is_some()
+        {
+            #[cfg(windows)]
+            {
+                let stop = match runtime.register(&started.run.owner) {
+                    Ok(stop) => stop,
+                    Err(error) if error.code == "RunAlreadyStarted" => return Ok(started),
+                    Err(error) => return Err(error),
+                };
+                if let Some(dispatch) = recovery.claim(&project, &started.run) {
+                    let failure_project = project.clone();
+                    let failure_run = dispatch.run.clone();
+                    let worker_runtime = runtime.clone();
+                    let worker_recovery = recovery.clone();
+                    if std::thread::Builder::new()
+                        .name("webnovel-codex-response".into())
+                        .spawn(move || {
+                            crate::live_discussion::run_live(
+                                project,
+                                worker_recovery,
+                                worker_runtime,
+                                connection,
+                                dispatch,
+                                stop,
+                            )
+                        })
+                        .is_err()
+                    {
+                        runtime.release(&failure_run.owner);
+                        crate::live_discussion::worker_unavailable(
+                            &failure_project,
+                            &recovery,
+                            failure_run,
+                        );
+                    }
+                } else {
+                    runtime.release(&started.run.owner);
+                }
+            }
+            return Ok(started);
+        }
         if started.run.status == DiscussionRunStatus::Queued {
             // A duplicate lost-ack retry can reach here. Only one worker can
             // claim the durable queued run. Claim before spawning, so failure
@@ -164,10 +258,13 @@ fn check_model_choice(
     let local = ModelSelection::local_mock();
     // Older native callers have an explicit mock-only packet contract.
     let requested = requested.unwrap_or(&local);
-    if requested != &local {
+    if requested != &local
+        && !(is_supported_choice(requested)
+            && request.provider_binding.as_ref() == Some(&ProviderBinding::codex_luna()))
+    {
         return Err(CoreError::new(
             "ProviderUnavailable",
-            "The selected model is not connected in this preview. Choose the local test model to try the discussion flow.",
+            "This model or its selected settings are unavailable. Check Settings before sending.",
         ));
     }
     if active == requested {
@@ -176,19 +273,25 @@ fn check_model_choice(
     // An old uncertain acknowledgment must still be resolvable after a model
     // preference change. Core verifies the immutable operation payload before
     // returning its receipt; a new operation cannot use this exception.
-    let view =
-        project.read_discussion(request.access.clone(), request.expected.document_id.clone())?;
-    if view.runs.iter().any(|run| {
-        run.operation_id == request.operation_id
-            && run.owner.operation_namespace == request.access.operation_namespace
-            && run.owner.project_id == request.access.project_id
-    }) {
+    if has_saved_request(project, request)? {
         return Ok(());
     }
     Err(CoreError::new(
         "ModelChoiceChanged",
         "The selected model changed before this request started. Check the model selector and send again.",
     ))
+}
+
+fn has_saved_request(project: &ProjectSession, request: &StartDiscussion) -> CoreResult<bool> {
+    Ok(project
+        .read_discussion(request.access.clone(), request.expected.document_id.clone())?
+        .runs
+        .iter()
+        .any(|run| {
+            run.operation_id == request.operation_id
+                && run.owner.operation_namespace == request.access.operation_namespace
+                && run.owner.project_id == request.access.project_id
+        }))
 }
 
 fn run_mock(project: ProjectSession, recovery: DiscussionRecovery, dispatch: DiscussionDispatch) {
@@ -429,6 +532,7 @@ mod tests {
                 safe_brief: None,
                 previous_run_id: None,
                 budget: MockContextBudget::new("100000", "4096", "1024"),
+                provider_binding: None,
             })
             .unwrap();
         (project, access, started)
@@ -448,6 +552,7 @@ mod tests {
             safe_brief: None,
             previous_run_id: None,
             budget: MockContextBudget::new("100000", "4096", "1024"),
+            provider_binding: None,
         };
         let local = ModelSelection::local_mock();
         let codex = ModelSelection {
@@ -938,6 +1043,7 @@ mod tests {
             model_id: MOCK_MODEL_ID.into(),
             max_output_tokens: "4096".into(),
             token_accounting_method: "mock".into(),
+            provider_binding: None,
         };
         let input_hash = packet_input_hash(&messages, &options).unwrap();
         CompiledPacket {

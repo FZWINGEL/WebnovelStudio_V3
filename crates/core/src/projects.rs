@@ -18,6 +18,7 @@ pub mod discussions;
 pub mod exports;
 pub mod guidance;
 pub mod history;
+pub mod import;
 pub mod proposals;
 pub mod source_pins;
 pub mod story_context;
@@ -1953,6 +1954,7 @@ mod tests {
                 pinned_document_ids: vec![],
                 safe_brief: None,
                 budget: MockContextBudget::new("100000", "1000", "100"),
+                provider_binding: None,
                 previous_run_id: None,
             })
             .unwrap();

@@ -81,7 +81,13 @@ async function renderPanel(session: DocumentSession) {
 }
 
 async function waitFor<T>(assertion: () => T, timeout = 1000) {
-  await act(async () => { await vi.waitFor(assertion, { timeout }); });
+  // Let each asynchronous receipt/save finish an act boundary before checking
+  // the DOM. Holding one act open around polling can defer the very render it
+  // waits for, especially while native crypto hashing is still in flight.
+  await vi.waitFor(async () => {
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    return assertion();
+  }, { timeout });
 }
 
 async function typeInstruction(text: string) {
@@ -125,6 +131,25 @@ describe('persistent FeedbackPanel safeguards', () => {
     await act(async () => host.querySelector('form.feedback-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
     expect(discussions.startDiscussion).not.toHaveBeenCalled(); expect(session.body).toEqual(emptyBody);
     expect((host.querySelector('#discussion-composer') as HTMLTextAreaElement).disabled).toBe(false);
+  });
+  it('sends the connected choice and keeps the saved response identity after model changes', async () => {
+    const session = await makeSession(); const connected = providerState(true); connected.dispatch.kind = 'codexCli';
+    connected.catalog.models[0].ready = true; vi.mocked(providerIpc.readProviderState).mockResolvedValue(connected);
+    const binding = { providerId:'codex',modelId:'gpt-5.6-luna',reasoning:'max',serviceTier:'priority',profileVersion:'0.153.3',inputLimitBytes:'24576',reservedOutputBytes:'0',reservedProtocolBytes:'0',outputLimitBytes:'65536',accountingMethod:'utf8-byte-count/codex-stdin-application-cap-v1' };
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => {
+      const response = startResult(session,'live-run',request.operationId);
+      response.packet.options = { ...response.packet.options, modelId:binding.modelId,providerBinding:binding };
+      response.run = { ...response.run,providerBinding:binding,status:'completed',providerResult:{binding,status:'completed',confirmedStdinBytes:'100',usage:null,cleanup:'settled',error:null,effectiveIdentity:null} };
+      vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'),runs:[response.run],messages:[response.userMessage,{ ...response.userMessage,id:'live-answer',role:'assistant',content:'The promise can deepen this scene.' }] });
+      return response;
+    });
+    await renderWithProvider(session); await typeInstruction('Discuss the promise.'); await click('Send');
+    await waitFor(() => expect(host.textContent).toContain('The promise can deepen this scene.'));
+    expect(vi.mocked(discussions.startDiscussion).mock.calls[0][0].modelSelection).toEqual(connected.settings.active);
+    vi.mocked(providerIpc.readProviderState).mockResolvedValue(providerState(false)); await click('Reload model choice');
+    await waitFor(() => expect(host.querySelector('.scope-controls')?.textContent).toContain('Local test model'));
+    expect(host.querySelectorAll('.feedback-note')[1].textContent).toContain('GPT-5.6-Luna');
+    expect(host.textContent).toContain('did not report usage'); expect(session.body).toEqual(emptyBody);
   });
   it('keeps an uncertain request bound to its original model after the active choice changes', async () => {
     const session = await makeSession(); vi.mocked(providerIpc.readProviderState).mockResolvedValue(providerState(false));
@@ -408,7 +433,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, messages: [started.userMessage, { ...started.userMessage, id: 'assistant-message', role: 'assistant', content: run.outputText }], runs: [run] });
     await renderPanel(session);
     expect(host.textContent).not.toContain('{"suggestions"');
-    expect(host.textContent).toContain('No valid suggestions were retained');
+    expect(host.textContent).toContain('did not return a usable edit');
     expect(host.textContent).not.toContain('Suggestions are ready');
     const details = host.querySelector('.feedback-note details') as HTMLDetailsElement;
     await act(async () => { details.open = true; details.dispatchEvent(new Event('toggle')); });

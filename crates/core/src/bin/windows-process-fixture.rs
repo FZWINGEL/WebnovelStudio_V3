@@ -27,7 +27,73 @@ fn main() {
         "--ignore-stdin" => ignore_stdin(),
         "--exit-with-descendant" => exit_with_descendant(),
         "--check-sentinel" => check_sentinel(),
+        "--codex-jsonl" => codex_jsonl(),
         _ => root(),
+    }
+}
+
+fn codex_jsonl() {
+    let mode = std::env::args().nth(2).unwrap_or_default();
+    let mut packet = Vec::new();
+    io::stdin().read_to_end(&mut packet).expect("fixture stdin");
+    if mode == "flood" {
+        announce_pid("root");
+        let release = PathBuf::from(std::env::args_os().nth(3).expect("flood release marker"));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !release.exists() {
+            assert!(Instant::now() < deadline, "flood fixture was not released");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+    let emit = |value: serde_json::Value| {
+        println!("{value}");
+        io::stdout().flush().expect("fixture stdout");
+    };
+    emit(serde_json::json!({"type":"thread.started","thread_id":"fixture-thread"}));
+    emit(serde_json::json!({"type":"turn.started"}));
+    emit(
+        serde_json::json!({"type":"item.started","item":{"id":"answer","type":"agent_message","text":"The promise"}}),
+    );
+    if mode == "wait" {
+        loop {
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
+    if mode == "tool" {
+        emit(
+            serde_json::json!({"type":"item.started","item":{"id":"tool","type":"command_execution","command":"INERT_FIXTURE_NEVER_EXECUTED"}}),
+        );
+        loop {
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
+    if mode == "broken" {
+        println!("{{malformed fixture record");
+        return;
+    }
+    if mode == "flood" {
+        let mut text = "The promise".to_owned();
+        for _ in 0..300 {
+            text.push('.');
+            emit(
+                serde_json::json!({"type":"item.updated","item":{"id":"answer","type":"agent_message","text":text}}),
+            );
+        }
+        // Only process containment ends this fixture. A stalled consumer must
+        // stop the provider, independent of machine startup/scheduling speed.
+        loop {
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
+    emit(
+        serde_json::json!({"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"The promise matters."}}),
+    );
+    emit(
+        serde_json::json!({"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":7,"reasoning_output_tokens":2}}),
+    );
+    eprintln!("PRIVATE_DIAGNOSTIC_FIXTURE_DO_NOT_EXPOSE");
+    if mode == "nonzero" {
+        std::process::exit(2);
     }
 }
 

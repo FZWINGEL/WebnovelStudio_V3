@@ -64,8 +64,13 @@ export interface PacketReceipt {
 }
 export interface CompiledPacket {
   messages: Array<{ role: string; content: string }>;
-  options: { modelId: string; maxOutputTokens: string; tokenAccountingMethod: string };
+  options: { modelId: string; maxOutputTokens?: string; tokenAccountingMethod: string; providerBinding?: ProviderBinding };
   receipt: PacketReceipt;
+}
+export interface ProviderBinding {
+  providerId: string; modelId: string; reasoning: string | null; serviceTier: string | null;
+  profileVersion: string; inputLimitBytes: string; reservedOutputBytes: string;
+  reservedProtocolBytes: string; outputLimitBytes: string; accountingMethod: string;
 }
 export interface ContextBudgetError {
   code: 'mandatoryContextTooLarge' | 'budgetExhausted' | 'invalidBudget';

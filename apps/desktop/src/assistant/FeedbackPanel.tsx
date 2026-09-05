@@ -20,11 +20,22 @@ function sameAccess(left: { projectId: string; operationNamespace: string; sessi
   return left.projectId === right.projectId && left.operationNamespace === right.operationNamespace && left.session === right.session && left.writerLease === right.writerLease;
 }
 const activeRun = (run: DiscussionRun) => ['queued', 'running', 'stopping'].includes(run.status);
+function assistantName(run?: DiscussionRun): string { return run?.providerBinding?.modelId === 'gpt-5.6-luna' ? 'GPT-5.6-Luna' : run?.providerBinding ? run.providerBinding.modelId : 'Test assistant'; }
+
+function ResponseDetails({ run }: { run: DiscussionRun }) {
+  const result = run.providerResult;
+  if (!result) return null;
+  return <details className="response-details"><summary>Response details</summary>
+    <p className="small-copy">Requested {assistantName(run)} · Max reasoning · Fast. {result.effectiveIdentity === null ? 'The provider did not confirm its effective model settings.' : result.effectiveIdentity}</p>
+    <p className="small-copy">{result.usage ? `Provider-reported usage: ${result.usage.inputTokens.toLocaleString()} input tokens and ${result.usage.outputTokens.toLocaleString()} output tokens, including ${result.usage.reasoningOutputTokens.toLocaleString()} reasoning tokens.` : 'The provider did not report usage for this response.'}</p>
+    <p className="small-copy">{result.cleanup === 'settled' ? 'The local provider process has finished.' : 'Local process cleanup could not be confirmed.'} {result.status === 'stopped' && 'Stopping locally does not confirm that the upstream service stopped processing or charging.'}</p>
+  </details>;
+}
 
 function ProposalResponse({ run, content, hasCandidates }: { run: DiscussionRun; content: string; hasCandidates: boolean }) {
   const [expanded, setExpanded] = useState(false);
   return <>
-    <p className="discussion-state">{run.status === 'completed' && hasCandidates ? 'Suggestions are ready to review below.' : run.status === 'completed' ? 'No valid suggestions were retained.' : `The suggestion response is ${run.status} and cannot be applied.`}</p>
+    <p className="discussion-state">{run.status === 'completed' && hasCandidates ? 'Suggestions are ready to review below.' : run.status === 'completed' ? 'The assistant did not return a usable edit. Your writing is unchanged.' : `The suggestion response is ${run.status} and cannot be applied.`}</p>
     <details onToggle={event => setExpanded(event.currentTarget.open)}>
       <summary>View saved response</summary>
       {expanded && <p>{content}</p>}
@@ -41,7 +52,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
 }) {
   const providers = useProviders();
   const model = providers.state?.catalog.models.find(model => sameModel(model.key, providers.state!.settings.active));
-  const modelReady = !providers.busy && providers.state?.dispatch.kind === 'localMock';
+  const modelReady = !providers.busy && !!providers.state && providers.state.dispatch.kind !== 'blocked';
   const [view, setView] = useState<DiscussionView | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [body, setBody] = useState<ComposerBody>(emptyComposer);
@@ -179,6 +190,11 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
         setPending(request);
         const result = await startDiscussion({ ...request, access: session.projectAccess });
         if (result.run.owner.projectId !== request.access.projectId || result.run.owner.operationNamespace !== request.access.operationNamespace || result.run.target.documentId !== documentId || result.run.operationId !== request.operationId) throw new Error('The discussion response did not match this request.');
+        const binding = result.packet.options.providerBinding;
+        if (request.modelSelection?.providerId === 'codex') {
+          if (!binding || binding.providerId !== request.modelSelection.providerId || binding.modelId !== request.modelSelection.modelId || binding.reasoning !== request.modelSelection.reasoning || binding.serviceTier !== request.modelSelection.serviceTier
+            || JSON.stringify(result.run.providerBinding) !== JSON.stringify(binding)) throw new Error('The response did not confirm the model settings for this request.');
+        } else if (binding || result.run.providerBinding) throw new Error('The local test request unexpectedly returned a live provider binding.');
         const brief = result.packet.receipt.safeBrief;
         if (request.safeBrief ? !brief || brief.text !== request.safeBrief.text || brief.textHash !== await bodyHash(request.safeBrief.text)
           || (brief.originMessageId ?? null) !== (request.safeBrief.originMessageId ?? null) : !!brief) throw new Error('The response did not confirm the approved writing brief.');
@@ -247,8 +263,8 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   return <aside className="feedback persistent-feedback" aria-label="Document discussion" style={visible ? undefined : { display: 'none' }}>
     <div className="feedback-heading"><h2>Discussion</h2><button onClick={onClose} aria-label="Hide discussion">Hide</button></div>
     <p className="panel-intro">Talk through {title}. Select text to focus on a passage.</p>
-    <div className="scope-controls"><span>{model?.label ?? 'Model unavailable'}</span><span className="session-tag">{modelReady ? 'No live AI connected' : providers.busy ? 'Checking model…' : 'Not connected'}</span></div>
-    {!modelReady && <p className="discussion-state">{providers.busy ? 'Checking your saved model choice…' : 'Choose the local test model in the app header to try discussion, or check Settings. Your writing and feedback stay saved.'}</p>}
+    <div className="scope-controls"><span>{model?.label ?? 'Model unavailable'}</span><span className="session-tag">{modelReady ? providers.state?.dispatch.kind === 'codexCli' ? 'Live AI connected' : 'No live AI connected' : providers.busy ? 'Checking model…' : 'Not connected'}</span></div>
+    {!modelReady && <p className="discussion-state">{providers.busy ? 'Checking your saved model choice…' : providers.state?.dispatch.detail || 'Check Settings before sending. Your writing and feedback stay saved.'}</p>}
     {view?.workerIssues?.map(issue => <div key={issue.runId} className="discussion-error response-save-notice" role="alert"><p>{issue.detail}</p><button disabled={locked} onClick={() => void checkSavedResponse(issue.runId)}>Retry saving response</button></div>)}
     <div className="feedback-scroll">
       {currentIntent === 'proposeEdits' && body.safeBrief && <SafeBriefEditor value={body.safeBrief} disabled={locked} focusKey={briefFocus}
@@ -261,11 +277,11 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
         const run = view.runs.find(run => run.id === item.runId);
         const isProposalOutput = item.role === 'assistant' && run?.intent === 'proposeEdits';
         const canAdaptBrief = documentKind === 'chapter' && run && run.intent !== 'proposeEdits' && run.owner.projectId === session.projectAccess.projectId && run.owner.operationNamespace === session.projectAccess.operationNamespace;
-        return <article className="feedback-note" key={item.id}><div>{item.role === 'user' ? 'You' : 'Test assistant'}{item.role === 'assistant' && run && run.status !== 'completed' && <span>{run.status} · incomplete</span>}</div>{item.scope && <blockquote>{item.scope.quote}</blockquote>}{isProposalOutput && run ? <ProposalResponse run={run} content={item.content} hasCandidates={proposals.some(proposal => proposal.runId === run.id)} /> : <p>{item.content}</p>}{!isProposalOutput && <button className="text-button" disabled={locked} onClick={() => setGuidanceAdoption(previous => ({ text: item.content, originMessageId: item.id, nonce: (previous?.nonce ?? 0) + 1 }))}>Keep as guidance</button>}{canAdaptBrief && <button className="quiet-button" disabled={locked} onClick={() => openBrief(item)}>Adapt as writing brief</button>}</article>;
+        return <article className="feedback-note" key={item.id}><div>{item.role === 'user' ? 'You' : assistantName(run)}{item.role === 'assistant' && run && run.status !== 'completed' && <span>{run.status} · incomplete</span>}</div>{item.scope && <blockquote>{item.scope.quote}</blockquote>}{isProposalOutput && run ? <ProposalResponse run={run} content={item.content} hasCandidates={proposals.some(proposal => proposal.runId === run.id)} /> : <p>{item.content}</p>}{!isProposalOutput && <button className="text-button" disabled={locked} onClick={() => setGuidanceAdoption(previous => ({ text: item.content, originMessageId: item.id, nonce: (previous?.nonce ?? 0) + 1 }))}>Keep as guidance</button>}{canAdaptBrief && <button className="quiet-button" disabled={locked} onClick={() => openBrief(item)}>Adapt as writing brief</button>}{item.role === 'assistant' && run && <ResponseDetails run={run} />}</article>;
       })}
       {view?.runs.filter(run => activeRun(run)).map(run => {
         const issue = view.workerIssues?.find(issue => issue.runId === run.id);
-        return <section key={run.id} className="feedback-note"><div>Test assistant <span>{issue ? 'Response needs saving' : run.status === 'stopping' ? 'Stopping…' : run.status === 'queued' ? 'Preparing…' : 'Responding…'}</span></div>{!issue && run.status === 'stopping' && <p className="discussion-state" role="status">Finishing the stop request. Your partial response stays saved.</p>}{run.intent === 'proposeEdits' ? !issue && run.status !== 'stopping' && <p className="discussion-state">Preparing suggestions for the selected passage…</p> : run.outputText && <p>{run.outputText}</p>}{!issue && <button disabled={run.status === 'stopping' || savingResponse} onClick={() => void stop(run)}>Stop response</button>}</section>;
+        return <section key={run.id} className="feedback-note"><div>{assistantName(run)} <span>{issue ? 'Response needs saving' : run.status === 'stopping' ? 'Stopping…' : run.status === 'queued' ? 'Preparing…' : 'Responding…'}</span></div>{!issue && run.status === 'stopping' && <p className="discussion-state" role="status">Finishing the stop request. Your partial response stays saved.</p>}{run.intent === 'proposeEdits' ? !issue && run.status !== 'stopping' && <p className="discussion-state">Preparing suggestions for the selected passage…</p> : run.outputText && <p>{run.outputText}</p>}{!issue && <button disabled={run.status === 'stopping' || savingResponse} onClick={() => void stop(run)}>Stop response</button>}</section>;
       })}
       {proposals.length > 0 && <ProposalPanel key={`${session.projectAccess.projectId}/${session.projectAccess.operationNamespace}/${documentId}`} access={session.projectAccess} proposals={proposals} disabled={!session.state.editable} onPrepareProposal={onPrepareProposal} onApplyProposal={onApplyProposal} onRefresh={refresh} />}
       {latest && !activeRun(latest) && latest.status !== 'completed' && <p className="discussion-state">This response is {latest.status}. {latest.stopReason === 'context_stale' ? 'The story changed before it could start.' : ''}<button disabled={locked || !latestIsCurrentProject} onClick={() => void prepareRetry(latest)}>Prepare another attempt</button></p>}

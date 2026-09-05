@@ -9,4 +9,5 @@ export const libraryOpen = (path: string | null, session: string): Promise<Opene
 export const libraryArchive = (projectId: string, archived: boolean): Promise<void> => invoke('library_archive', { projectId, archived });
 export const libraryRecover = (operationId: string, title: string, session: string): Promise<OpenedProject | null> => invoke('library_recover', { operationId, title, session });
 export const libraryDuplicate = (operationId: string, access: ProjectAccess | null, title: string, session: string): Promise<OpenedProject> => invoke('library_duplicate', { operationId, access, title, session });
+export const libraryResumeImport = (operationId: string, session: string): Promise<OpenedProject> => invoke('library_resume_import', { operationId, session });
 export const projectBackup = (access: ProjectAccess): Promise<string | null> => invoke('project_backup', { access });

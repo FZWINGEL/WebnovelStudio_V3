@@ -1,5 +1,9 @@
 //! Rebuildable app-local project index and narrowly scoped staged-file receipts.
 //! Manuscripts remain in portable project folders, never in this database.
+use crate::projects::import::{
+    V2ImportRequest, V2ImportResult, decode_import_operation, encode_import_operation,
+    read_import_result, recover_import_staging, request_fingerprint, stage_v2_import,
+};
 use crate::projects::{
     CoreError, CoreResult, CreationOrigin, ProjectSession, read_creation_origin,
 };
@@ -10,6 +14,7 @@ use crate::providers::{
         StoredModelSettings, parse_revision, provider_state as build_provider_state,
     },
 };
+use crate::v2_import::preview_v2_import;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
@@ -264,11 +269,18 @@ impl Library {
     pub fn register(&mut self, project: &ProjectSession) -> CoreResult<()> {
         let metadata = project.project_metadata()?;
         let path = std::fs::canonicalize(&project.path)?;
+        self.register_metadata(&path, &metadata)
+    }
+    fn register_metadata(
+        &mut self,
+        path: &Path,
+        metadata: &crate::projects::ProjectMetadata,
+    ) -> CoreResult<()> {
         let previous: Option<String> = self
             .connection
             .query_row(
                 "SELECT path FROM entries WHERE project_id=?",
-                [&project.info.project_id],
+                [&metadata.project.project_id],
                 |r| r.get(0),
             )
             .optional()?;
@@ -283,7 +295,7 @@ impl Library {
         }
         self.connection.execute("INSERT INTO entries(project_id,title,path,last_opened) VALUES(?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             ON CONFLICT(project_id) DO UPDATE SET title=excluded.title,path=excluded.path,last_opened=excluded.last_opened",
-            params![metadata.project.project_id, metadata.project.title, path_string(&path)?])?;
+            params![metadata.project.project_id, metadata.project.title, path_string(path)?])?;
         Ok(())
     }
     pub fn archive(&mut self, project_id: &str, archived: bool) -> CoreResult<()> {
@@ -316,7 +328,7 @@ impl Library {
             || title.trim().is_empty()
             || title.len() > 512
             || title.chars().any(char::is_control)
-            || !["create", "duplicate", "recover"].contains(&kind)
+            || !["create", "duplicate", "recover", "import"].contains(&kind)
             || (kind == "create") != source.is_none()
         {
             return Err(CoreError::new(
@@ -325,7 +337,13 @@ impl Library {
             ));
         }
         let source_path = source
-            .map(|(path, _)| std::fs::canonicalize(path))
+            .map(|(path, _)| match std::fs::canonicalize(path) {
+                Ok(path) => Ok(path),
+                // Completed imports can be reconciled from their retained
+                // receipt even after the reviewed source was deleted.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(path.to_owned()),
+                Err(error) => Err(error),
+            })
             .transpose()?;
         let source_fingerprint = source.map(|(_, fingerprint)| fingerprint.to_owned());
         if let Some(previous) = self.operation(operation_id)? {
@@ -408,6 +426,250 @@ impl Library {
         )?;
         self.finish(operation_id, &project)?;
         Ok(project)
+    }
+
+    /// Import a reviewed V2 source into a fresh staged project. The source is
+    /// previewed before the library operation is recorded and re-read by the
+    /// staging layer, so the reviewed source fingerprint and body choices are
+    /// part of the durable operation identity.
+    pub fn import_v2(&mut self, request: V2ImportRequest) -> CoreResult<V2ImportResult> {
+        // A completed import is its own immutable receipt. Reconcile it from
+        // the retained project before touching the original V2 source again;
+        // the source may have moved or changed after the first acknowledgment
+        // was lost. Incomplete operations still revalidate the source below.
+        let expected_request_sha256 =
+            request_fingerprint(&request, &request.expected_source_sha256)?;
+        let existing = self.operation(&request.operation_id)?;
+        let pending = if let Some(previous) = existing {
+            if previous.kind != "import" || previous.title != request.title {
+                return Err(CoreError::new(
+                    "OperationIdReuse",
+                    "This project operation was already used for a different request.",
+                ));
+            }
+            let request_source_path = operation_source_path(&request.source_path)?;
+            if previous.source_path.as_ref() != Some(&request_source_path) {
+                return Err(CoreError::new(
+                    "OperationIdReuse",
+                    "This project operation was already used for a different source.",
+                ));
+            }
+            let legacy_incomplete = match previous.source_fingerprint.as_deref() {
+                Some(stored) if stored == expected_request_sha256 => !previous.completed,
+                Some(stored) => {
+                    let decoded = decode_import_operation(
+                        stored,
+                        &request.operation_id,
+                        request_source_path.clone(),
+                        request.title.clone(),
+                    )?;
+                    if decoded.source_project_id != request.source_project_id
+                        || decoded.expected_source_sha256 != request.expected_source_sha256
+                        || request_fingerprint(&request, &request.expected_source_sha256)?
+                            != request_fingerprint(&decoded, &decoded.expected_source_sha256)?
+                    {
+                        return Err(CoreError::new(
+                            "OperationIdReuse",
+                            "This project operation was already used for a different request.",
+                        ));
+                    }
+                    false
+                }
+                None => !previous.completed,
+            };
+            previous.require_available()?;
+            // Keep this marker in the operation identity check while allowing
+            // the receipt/staging reconciliation below to recover a committed
+            // artifact without the original source or body choices.
+            if legacy_incomplete && !previous.final_path.exists() && !previous.staging_path.exists()
+            {
+                return Err(CoreError::new(
+                    "ImportRecoveryUnavailable",
+                    "This incomplete import has no retained request choices.",
+                ));
+            }
+            previous
+        } else {
+            let preview = preview_v2_import(&request.source_path, &request.source_project_id)?;
+            if preview.source.source_sha256 != request.expected_source_sha256 {
+                return Err(CoreError::new(
+                    "SourceVersionChanged",
+                    "The V2 source fingerprint no longer matches the reviewed import.",
+                ));
+            }
+            let operation_fingerprint =
+                encode_import_operation(&request, &expected_request_sha256)?;
+            self.begin(
+                &request.operation_id,
+                "import",
+                &request.title,
+                Some((&request.source_path, &operation_fingerprint)),
+            )?
+        };
+        pending.require_available()?;
+        if pending.completed {
+            return read_import_result(
+                &pending.final_path,
+                &request.operation_id,
+                &request.expected_source_sha256,
+                &expected_request_sha256,
+            );
+        }
+
+        // A valid final folder or sealed staging folder is enough to recover a
+        // lost library acknowledgment.  These paths intentionally do not
+        // reread the source database and do not open a project writer.
+        if pending.final_path.exists()
+            && crate::projects::read_creation_origin(&pending.final_path)
+                .ok()
+                .as_ref()
+                == Some(&pending.origin)
+        {
+            let result = read_import_result(
+                &pending.final_path,
+                &request.operation_id,
+                &request.expected_source_sha256,
+                &expected_request_sha256,
+            )?;
+            self.finish_import_receipt(&request.operation_id, &pending.final_path, &result)?;
+            return Ok(result);
+        }
+        if pending.staging_path.exists()
+            && crate::projects::read_creation_origin(&pending.staging_path)
+                .ok()
+                .as_ref()
+                == Some(&pending.origin)
+        {
+            let result = recover_import_staging(
+                &pending.staging_path,
+                &pending.final_path,
+                &request.title,
+                &pending.origin,
+                &request.operation_id,
+                &request.expected_source_sha256,
+                &expected_request_sha256,
+            )?;
+            self.finish_import_receipt(&request.operation_id, &pending.final_path, &result)?;
+            return Ok(result);
+        }
+        if pending.source_fingerprint.as_deref() == Some(expected_request_sha256.as_str())
+            || pending.source_fingerprint.is_none()
+        {
+            let incomplete = !pending.completed;
+            if incomplete {
+                return Err(CoreError::new(
+                    "ImportRecoveryUnavailable",
+                    "This incomplete import has no retained request choices.",
+                ));
+            }
+        }
+        let preview = preview_v2_import(&request.source_path, &request.source_project_id)?;
+        if preview.source.source_sha256 != request.expected_source_sha256 {
+            return Err(CoreError::new(
+                "SourceVersionChanged",
+                "The V2 source fingerprint no longer matches the reviewed import.",
+            ));
+        }
+        let request_sha256 = request_fingerprint(&request, &preview.source.source_sha256)?;
+        if request_sha256 != expected_request_sha256 {
+            return Err(CoreError::new(
+                "ImportRequestChanged",
+                "The import choices no longer match the reviewed operation.",
+            ));
+        }
+        let _staged = stage_v2_import(
+            &request,
+            &request_sha256,
+            &pending.staging_path,
+            &pending.final_path,
+            &pending.origin,
+        )?;
+        let result = read_import_result(
+            &pending.final_path,
+            &request.operation_id,
+            &request.expected_source_sha256,
+            &expected_request_sha256,
+        )?;
+        self.finish_import_receipt(&request.operation_id, &pending.final_path, &result)?;
+        Ok(result)
+    }
+
+    /// Reconstruct and retry an incomplete import from its durable operation
+    /// record.  The source picker and body-choice UI are deliberately absent.
+    pub fn resume_v2_import(&mut self, operation_id: &str) -> CoreResult<V2ImportResult> {
+        let pending = self
+            .operation(operation_id)?
+            .ok_or_else(|| CoreError::new("InvalidRequest", "Unknown import operation."))?;
+        if pending.kind != "import" {
+            return Err(CoreError::new(
+                "OperationIdReuse",
+                "This operation is not a V2 import.",
+            ));
+        }
+        pending.require_available()?;
+        let source_path = pending.source_path.clone().ok_or_else(|| {
+            CoreError::new(
+                "ImportRecoveryUnavailable",
+                "The incomplete import has no retained source path.",
+            )
+        })?;
+        let fingerprint = pending.source_fingerprint.clone().ok_or_else(|| {
+            CoreError::new(
+                "ImportRecoveryUnavailable",
+                "The incomplete import has no retained request choices.",
+            )
+        })?;
+        let request =
+            decode_import_operation(&fingerprint, operation_id, source_path, pending.title)?;
+        self.import_v2(request)
+    }
+
+    fn finish_import_receipt(
+        &mut self,
+        operation_id: &str,
+        path: &Path,
+        result: &V2ImportResult,
+    ) -> CoreResult<()> {
+        let pending = self
+            .operation(operation_id)?
+            .ok_or_else(|| CoreError::new("InvalidRequest", "Unknown project operation."))?;
+        if pending.kind != "import"
+            || std::fs::canonicalize(path)? != std::fs::canonicalize(&pending.final_path)?
+            || crate::projects::read_creation_origin(path)? != pending.origin
+            || result.operation_id != operation_id
+        {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "This folder does not match the pending import operation.",
+            ));
+        }
+        let metadata = result.project.clone();
+        self.register_metadata(
+            path,
+            &crate::projects::ProjectMetadata {
+                project: metadata,
+                metadata_version: "0".into(),
+            },
+        )?;
+        self.connection.execute(
+            "UPDATE operations SET completed=1 WHERE operation_id=?",
+            [operation_id],
+        )?;
+        Ok(())
+    }
+}
+fn operation_source_path(path: &Path) -> CoreResult<PathBuf> {
+    match std::fs::canonicalize(path) {
+        Ok(path) => Ok(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let (Some(parent), Some(file_name)) = (path.parent(), path.file_name())
+                && let Ok(parent) = std::fs::canonicalize(parent)
+            {
+                return Ok(parent.join(file_name));
+            }
+            Ok(path.to_owned())
+        }
+        Err(error) => Err(error.into()),
     }
 }
 fn path_string(path: &Path) -> CoreResult<&str> {

@@ -1,8 +1,9 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use webnovel_core::context::packet::{
-    CompiledPacket, MockContextBudget, PacketError, PacketMessage, PacketOptions, PacketRequest,
-    compile_packet, packet_input_hash, serialized_input,
+    CompiledPacket, MockContextBudget, PROPOSAL_RESPONSE_CONTRACT, PacketError, PacketMessage,
+    PacketOptions, PacketRequest, ProviderBinding, compile_packet, packet_input_hash,
+    serialized_input,
 };
 use webnovel_core::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
@@ -134,6 +135,8 @@ fn request(frozen: FrozenContext, reads: Vec<SourceRead>) -> PacketRequest {
         scope: None,
         safe_brief: None,
         budget: MockContextBudget::new("100000", "100", "100"),
+        provider_binding: None,
+        response_contract: None,
     }
 }
 
@@ -684,6 +687,126 @@ fn full_text_packet_preserves_instruction_target_and_receipt_hash() {
 }
 
 #[test]
+fn codex_binding_uses_exact_utf8_byte_packet_and_keeps_model_limit_unknown() {
+    let target_body = body(&[("target-1", "A short scene for the bounded live packet.")]);
+    let target = source("target", "target-doc", &target_body);
+    let mut request = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Discuss,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    request.provider_binding = Some(ProviderBinding::codex_luna());
+    let packet = compile(request).clone();
+    let input = serialized_input(&packet.messages, &packet.options).unwrap();
+    assert_eq!(packet.receipt.input_tokens, input.len().to_string());
+    assert_eq!(packet.options.model_id, "gpt-5.6-luna");
+    assert_eq!(packet.options.max_output_tokens, "");
+    assert_eq!(
+        packet
+            .options
+            .provider_binding
+            .as_ref()
+            .unwrap()
+            .output_limit_bytes,
+        "65536"
+    );
+    let serialized = serde_json::to_string(&packet.options).unwrap();
+    assert!(!serialized.contains("maxOutputTokens"));
+}
+
+#[test]
+fn codex_binding_rejects_mandatory_context_over_application_input_cap() {
+    let target_body = body(&[("target-1", &"A".repeat(40_000))]);
+    let target = source("target", "target-doc", &target_body);
+    let mut request = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Discuss,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    request.provider_binding = Some(ProviderBinding::codex_luna());
+    let error = compile_packet(&request).expect_err("oversized mandatory target");
+    assert!(
+        matches!(error, PacketError::Budget(error) if error.code == webnovel_core::context::BudgetErrorCode::MandatoryContextTooLarge)
+    );
+}
+
+#[test]
+fn live_proposal_contract_is_frozen_into_system_message_and_preserves_author_bytes() {
+    let target_body = body(&[("target-1", "A selected passage for revision.")]);
+    let target = source("target", "target-doc", &target_body);
+    let instruction = "Keep the author's exact wording constraints: use a quieter ending.";
+    let mut request = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Revise,
+            Audience::RestrictedWriting,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    request.instruction = instruction.into();
+    request.scope = Some(passage_scope(&target_body));
+    request.provider_binding = Some(ProviderBinding::codex_luna());
+    request.response_contract = Some(PROPOSAL_RESPONSE_CONTRACT.into());
+
+    let with_contract = compile(request.clone());
+    assert!(
+        with_contract.messages[0]
+            .content
+            .contains(PROPOSAL_RESPONSE_CONTRACT)
+    );
+    assert!(
+        with_contract.messages[0]
+            .content
+            .contains("replacementText")
+    );
+    assert_eq!(with_contract.messages[2].content, instruction);
+
+    request.response_contract = None;
+    let without_contract = compile(request);
+    assert!(
+        !without_contract.messages[0]
+            .content
+            .contains(PROPOSAL_RESPONSE_CONTRACT)
+    );
+    assert_ne!(
+        with_contract.receipt.input_hash,
+        without_contract.receipt.input_hash
+    );
+}
+
+#[test]
+fn proposal_contract_rejects_mock_or_unscoped_requests() {
+    let target_body = body(&[("target-1", "A selected passage.")]);
+    let target = source("target", "target-doc", &target_body);
+    let mut request = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Revise,
+            Audience::RestrictedWriting,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    request.response_contract = Some(PROPOSAL_RESPONSE_CONTRACT.into());
+    assert!(matches!(
+        compile_packet(&request),
+        Err(PacketError::InvalidRequest { .. })
+    ));
+
+    request.provider_binding = Some(ProviderBinding::codex_luna());
+    request.scope = None;
+    assert!(matches!(
+        compile_packet(&request),
+        Err(PacketError::InvalidRequest { .. })
+    ));
+}
+
+#[test]
 fn mandatory_target_and_pin_reject_tiny_budget_without_truncation() {
     let target_body = body(&[("target-1", "A target that must remain whole.")]);
     let pin_body = body(&[("pin-1", "A pinned rule that must remain whole.")]);
@@ -983,6 +1106,7 @@ fn packet_message_and_options_serialization_is_stable() {
         model_id: "mock-story-context".into(),
         max_output_tokens: "10".into(),
         token_accounting_method: "utf8-byte-count/mock-story-context-v1".into(),
+        provider_binding: None,
     };
     let first = serialized_input(&messages, &options).unwrap();
     let second = serialized_input(&messages, &options).unwrap();

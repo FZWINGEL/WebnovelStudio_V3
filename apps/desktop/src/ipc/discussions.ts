@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { CompiledPacket, MockContextBudget, ScopeGrant } from './context';
+import type { CompiledPacket, MockContextBudget, ProviderBinding, ScopeGrant } from './context';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { ModelSelection } from './providers';
 
@@ -17,6 +17,12 @@ export interface DiscussionRun {
   operationId: string; intent?: FeedbackIntent; payloadHash: string; target: Head; packetId: string; previousRunId: string | null;
   status: 'queued' | 'running' | 'stopping' | 'completed' | 'stopped' | 'failed' | 'interrupted';
   dispatchState: string; sequence: string; outputText: string; stopReason: string | null; createdAt: string; updatedAt: string;
+  providerBinding?: ProviderBinding; providerResult?: ProviderResult;
+}
+export interface ProviderResult {
+  binding: ProviderBinding; status: 'completed' | 'stopped' | 'timedOut' | 'outputLimit' | 'failed';
+  confirmedStdinBytes: string; cleanup: 'settled' | 'unresolved'; error: string | null; effectiveIdentity: string | null;
+  usage: { inputTokens: number; cachedInputTokens: number; cacheWriteInputTokens: number; outputTokens: number; reasoningOutputTokens: number } | null;
 }
 export interface DiscussionView { documentId: string; threadId: string | null; messages: DiscussionMessage[]; runs: DiscussionRun[]; draft: DiscussionDraft | null; workerIssues?: Array<{ runId: string; detail: string }> }
 export interface StartDiscussion {

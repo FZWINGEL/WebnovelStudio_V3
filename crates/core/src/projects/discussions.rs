@@ -9,7 +9,9 @@
 
 use super::*;
 use crate::context::packet::{
-    CompiledPacket, MockContextBudget, PacketError, PacketRequest, compile_packet,
+    CODEX_INPUT_LIMIT_BYTES, CODEX_OUTPUT_LIMIT_BYTES, CompiledPacket, MockContextBudget,
+    PROPOSAL_RESPONSE_CONTRACT, PacketError, PacketRequest, ProviderBinding, compile_packet,
+    serialized_input,
 };
 use crate::context::{
     Audience, BasisKind, ContextPurpose, InformationPolicy, MAX_SAFE_BRIEF_BYTES,
@@ -121,6 +123,8 @@ pub struct StartDiscussion {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub safe_brief: Option<SafeBriefInput>,
     pub budget: MockContextBudget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_binding: Option<ProviderBinding>,
     pub previous_run_id: Option<String>,
 }
 
@@ -218,6 +222,127 @@ pub struct DiscussionMessage {
     pub created_at: String,
 }
 
+/// The provider-side outcome is kept separate from the discussion lifecycle.
+/// For example, a timed-out provider request with settled cleanup becomes a
+/// durable failed discussion while retaining any validated prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderOutcomeStatus {
+    Completed,
+    Stopped,
+    TimedOut,
+    OutputLimit,
+    Failed,
+}
+
+impl ProviderOutcomeStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Stopped => "stopped",
+            Self::TimedOut => "timed_out",
+            Self::OutputLimit => "output_limit",
+            Self::Failed => "failed",
+        }
+    }
+
+    fn parse(value: &str) -> CoreResult<Self> {
+        match value {
+            "completed" => Ok(Self::Completed),
+            "stopped" => Ok(Self::Stopped),
+            "timed_out" => Ok(Self::TimedOut),
+            "output_limit" => Ok(Self::OutputLimit),
+            "failed" => Ok(Self::Failed),
+            _ => Err(CoreError::new(
+                "InvalidProject",
+                "The saved provider result has an unknown outcome.",
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderCleanup {
+    Settled,
+    Unresolved,
+}
+
+impl ProviderCleanup {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Settled => "settled",
+            Self::Unresolved => "unresolved",
+        }
+    }
+
+    fn parse(value: &str) -> CoreResult<Self> {
+        match value {
+            "settled" => Ok(Self::Settled),
+            "unresolved" => Ok(Self::Unresolved),
+            _ => Err(CoreError::new(
+                "InvalidProject",
+                "The saved provider result has an unknown cleanup state.",
+            )),
+        }
+    }
+}
+
+/// Raw provider usage is optional. Missing usage is an explicit unknown value;
+/// no estimate is substituted from the packet's byte accounting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderUsage {
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub cache_write_input_tokens: u64,
+    pub output_tokens: u64,
+    pub reasoning_output_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderTerminalReport {
+    pub owner: RunOwner,
+    pub expected_sequence: String,
+    pub event_id: String,
+    pub assistant_text: String,
+    pub binding: ProviderBinding,
+    pub status: ProviderOutcomeStatus,
+    pub confirmed_stdin_bytes: String,
+    pub usage: Option<ProviderUsage>,
+    pub cleanup: ProviderCleanup,
+    pub error: Option<String>,
+    /// The adapter cannot establish an effective identity in this slice. Keep
+    /// this optional so a later qualified adapter can report one explicitly.
+    pub effective_identity: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderResult {
+    pub run_id: String,
+    pub packet_id: String,
+    pub event_id: String,
+    pub expected_sequence: String,
+    pub assistant_text: String,
+    pub binding: ProviderBinding,
+    pub status: ProviderOutcomeStatus,
+    pub confirmed_stdin_bytes: String,
+    pub usage: Option<ProviderUsage>,
+    pub cleanup: ProviderCleanup,
+    pub error: Option<String>,
+    pub effective_identity: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderDiscussionSettlement {
+    pub run: DiscussionRun,
+    pub provider_result: ProviderResult,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionRun {
@@ -229,6 +354,10 @@ pub struct DiscussionRun {
     pub payload_hash: String,
     pub target: Head,
     pub packet_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_binding: Option<ProviderBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_result: Option<ProviderResult>,
     pub previous_run_id: Option<String>,
     pub status: DiscussionRunStatus,
     pub dispatch_state: String,
@@ -368,6 +497,7 @@ pub struct DiscussionBegin {
     pub owner: RunOwner,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub(super) enum DiscussionCommand {
     Start(StartDiscussion, Reply<DiscussionStart>),
     Begin(DiscussionBegin, Reply<DiscussionDispatch>),
@@ -377,6 +507,8 @@ pub(super) enum DiscussionCommand {
     Fail(DiscussionFail, Reply<DiscussionRun>),
     Stop(ProjectAccess, String, Reply<DiscussionStop>),
     SettleStop(DiscussionStopSettled, Reply<DiscussionRun>),
+    SettleProvider(ProviderTerminalReport, Reply<ProviderDiscussionSettlement>),
+    ReadRun(RunOwner, Reply<DiscussionRun>),
     Read(ProjectAccess, String, Reply<DiscussionView>),
     Retry(ProjectAccess, String, Reply<DiscussionRetry>),
     SaveDraft(SaveDiscussionDraft, Reply<DiscussionDraft>),
@@ -449,6 +581,26 @@ impl ProjectSession {
         })
     }
 
+    /// Atomically settle a bounded provider result and its discussion run.
+    /// The report must carry the exact binding and sequence captured before
+    /// dispatch; retries with the same event are idempotent.
+    pub fn settle_provider_discussion(
+        &self,
+        request: ProviderTerminalReport,
+    ) -> CoreResult<ProviderDiscussionSettlement> {
+        self.request(|reply| {
+            Command::Discussion(Box::new(DiscussionCommand::SettleProvider(request, reply)))
+        })
+    }
+
+    /// Read an owned run for a worker or recovery actor. This deliberately
+    /// does not require a renderer session or writer lease.
+    pub fn read_discussion_run(&self, owner: RunOwner) -> CoreResult<DiscussionRun> {
+        self.request(|reply| {
+            Command::Discussion(Box::new(DiscussionCommand::ReadRun(owner, reply)))
+        })
+    }
+
     pub fn read_discussion(
         &self,
         access: ProjectAccess,
@@ -506,6 +658,18 @@ impl OwnedProject {
             }
             DiscussionCommand::SettleStop(request, reply) => {
                 mutate!(reply, self.settle_discussion_stop(request));
+            }
+            DiscussionCommand::SettleProvider(request, reply) => {
+                mutate!(reply, self.settle_provider_discussion(request));
+            }
+            DiscussionCommand::ReadRun(owner, reply) => {
+                let result = validate_runtime_owner(self, &owner).and_then(|()| {
+                    read_run(self.db()?, &owner.run_id).and_then(|run| {
+                        validate_owner(&run, &owner)?;
+                        Ok(run)
+                    })
+                });
+                let _ = reply.send(result);
             }
             DiscussionCommand::Read(access, document_id, reply) => {
                 let _ = reply.send(self.read_discussion(access, document_id));
@@ -618,6 +782,12 @@ impl OwnedProject {
             .map(|source| story_context::read_source(&tx, &frozen_context, &source.handle))
             .collect::<CoreResult<Vec<_>>>()?;
         let scope = capture_discussion_scope(request.scope.as_ref(), &target.body)?;
+        // The response contract is derived here from trusted intent and the
+        // immutable live binding. It is never accepted from the renderer, so
+        // old mock packets and old live packets remain contract-free.
+        let response_contract = (request.intent == FeedbackIntent::ProposeEdits
+            && request.provider_binding.is_some())
+        .then(|| PROPOSAL_RESPONSE_CONTRACT.to_owned());
         let packet = compile_packet(&PacketRequest {
             packet_id: new_id(),
             session_id: new_id(),
@@ -629,6 +799,8 @@ impl OwnedProject {
             scope: scope.clone(),
             safe_brief: request.safe_brief.clone(),
             budget: request.budget.clone(),
+            provider_binding: request.provider_binding.clone(),
+            response_contract: response_contract.clone(),
         })
         .map_err(packet_error)?;
         insert_packet(
@@ -841,6 +1013,12 @@ impl OwnedProject {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current = read_run(&tx, &owner.run_id)?;
         validate_owner(&current, &owner)?;
+        if current.provider_binding.is_some() {
+            return Err(CoreError::new(
+                "ProviderResultRequired",
+                "A live discussion can be delivered only through its typed provider result.",
+            ));
+        }
         if current.status == DiscussionRunStatus::Stopping {
             return Err(CoreError::new(
                 "RunStopping",
@@ -871,6 +1049,12 @@ impl OwnedProject {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current = read_run(&tx, &request.owner.run_id)?;
         validate_owner(&current, &request.owner)?;
+        if current.provider_binding.is_some() {
+            return Err(CoreError::new(
+                "ProviderResultRequired",
+                "A live discussion can be completed only through its typed provider result.",
+            ));
+        }
         if let Some((kind, text, event_sequence)) =
             existing_event(&tx, &request.owner.run_id, &request.event_id)?
         {
@@ -1160,6 +1344,195 @@ impl OwnedProject {
         Ok(result)
     }
 
+    /// Persist the terminal result returned by the bounded provider worker.
+    /// The packet, output sequence, terminal event, assistant message, and
+    /// provider receipt commit together. A receipt already present for the run
+    /// is treated as the reconciliation authority after a lost acknowledgment.
+    pub(super) fn settle_provider_discussion(
+        &mut self,
+        request: ProviderTerminalReport,
+    ) -> CoreResult<ProviderDiscussionSettlement> {
+        validate_provider_report_shape(&request)?;
+        validate_runtime_owner(self, &request.owner)?;
+        let expected = parse_version(&request.expected_sequence)?;
+        let confirmed_stdin_bytes = parse_decimal_u64(&request.confirmed_stdin_bytes)?;
+        let tx = self
+            .db_mut()?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = read_run(&tx, &request.owner.run_id)?;
+        validate_owner(&current, &request.owner)?;
+        if let Some(saved) = read_provider_result(&tx, &current.id, &current.packet_id)? {
+            if provider_result_matches_report(&saved, &request) {
+                tx.commit().map_err(CoreError::uncertain)?;
+                return Ok(ProviderDiscussionSettlement {
+                    run: current,
+                    provider_result: saved,
+                });
+            }
+            return Err(CoreError::new(
+                "ProviderResultConflict",
+                "A provider result is already durably recorded for this run.",
+            ));
+        }
+        if !matches!(
+            current.status,
+            DiscussionRunStatus::Running | DiscussionRunStatus::Stopping
+        ) {
+            return Err(CoreError::new(
+                "RunNotStarted",
+                "Claim the queued discussion before settling a provider result.",
+            ));
+        }
+        let packet = context_packets::validated_packet_record(&tx, &current.packet_id)?;
+        let binding = packet.options.provider_binding.as_ref().ok_or_else(|| {
+            CoreError::new(
+                "ProviderBindingMissing",
+                "This discussion was prepared for the local mock and cannot accept a live result.",
+            )
+        })?;
+        if binding != &request.binding {
+            return Err(CoreError::new(
+                "ProviderBindingMismatch",
+                "The provider result does not match the immutable packet binding.",
+            ));
+        }
+        let serialized =
+            serialized_input(&packet.messages, &packet.options).map_err(packet_error)?;
+        if confirmed_stdin_bytes > serialized.len() as u64
+            || (request.status == ProviderOutcomeStatus::Completed
+                && confirmed_stdin_bytes != serialized.len() as u64)
+        {
+            return Err(CoreError::new(
+                "ProviderInputMismatch",
+                "The provider reported more stdin than the frozen packet, or a completed run did not consume the exact packet.",
+            ));
+        }
+        let output_limit = binding
+            .output_limit()
+            .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
+        if request.assistant_text.len() > output_limit {
+            return Err(CoreError::new(
+                "OutputTooLarge",
+                "The provider output exceeds the application byte cap.",
+            ));
+        }
+        validate_final_output(&current.output_text, &request.assistant_text, true)?;
+        if request.status == ProviderOutcomeStatus::Completed && request.assistant_text.is_empty() {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A completed provider result must include assistant output.",
+            ));
+        }
+        if request.status == ProviderOutcomeStatus::Completed && request.error.is_some() {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A completed provider result cannot include a provider error.",
+            ));
+        }
+        let sequence = parse_version(&current.sequence)?;
+        if expected != sequence {
+            return Err(CoreError::new(
+                "SequenceConflict",
+                "The provider result sequence is stale; reconcile the run before retrying.",
+            ));
+        }
+        if existing_event(&tx, &current.id, &request.event_id)?.is_some() {
+            return Err(CoreError::new(
+                "EventIdReused",
+                "The provider terminal event ID is already used by another event.",
+            ));
+        }
+        let status = provider_discussion_status(current.status, request.status, request.cleanup);
+        let reason = provider_stop_reason(current.status, request.status, request.cleanup);
+        let terminal_message = provider_terminal_message(&request, status)?;
+        let next = sequence
+            .checked_add(1)
+            .ok_or_else(|| CoreError::new("InvalidRequest", "The output sequence is exhausted."))?;
+        tx.execute(
+            "INSERT INTO discussion_output_events(run_id,sequence,event_id,kind,chunk) VALUES(?,?,?,?,?)",
+            params![current.id, next, request.event_id, "terminal", terminal_message],
+        )?;
+        let changed = tx.execute(
+            "UPDATE discussion_runs SET status=?,sequence=?,output_text=?,stop_reason=?,dispatch_state=CASE WHEN ? THEN 'delivered' ELSE dispatch_state END,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND project_id=? AND operation_namespace=? AND status IN ('queued','running','stopping') AND sequence=?",
+            params![
+                status.as_str(),
+                next,
+                request.assistant_text,
+                reason,
+                confirmed_stdin_bytes == serialized.len() as u64,
+                current.id,
+                current.owner.project_id,
+                current.owner.operation_namespace,
+                sequence
+            ],
+        )?;
+        if changed != 1 {
+            return Err(CoreError::new(
+                "SequenceConflict",
+                "The discussion changed before its provider result was committed.",
+            ));
+        }
+        let message = if status == DiscussionRunStatus::Completed {
+            request.assistant_text.clone()
+        } else if request.assistant_text.is_empty() {
+            terminal_message.clone()
+        } else {
+            format!("{}\n\n[{}]", request.assistant_text, terminal_message)
+        };
+        tx.execute(
+            "INSERT INTO discussion_messages(id,thread_id,run_id,role,content,packet_id) VALUES(?,?,?,?,?,?)",
+            params![
+                new_id(),
+                current.thread_id,
+                current.id,
+                DiscussionMessageRole::Assistant.as_str(),
+                message,
+                current.packet_id
+            ],
+        )?;
+        let binding_json = serde_json::to_string(binding)?;
+        let usage_json = request
+            .usage
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        tx.execute(
+            "INSERT INTO provider_results(run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            params![
+                current.id,
+                current.packet_id,
+                request.event_id,
+                expected,
+                binding_json,
+                request.assistant_text,
+                request.status.as_str(),
+                i64::try_from(confirmed_stdin_bytes).map_err(|_| {
+                    CoreError::new("InvalidRequest", "The provider stdin byte count is too large.")
+                })?,
+                usage_json,
+                request.cleanup.as_str(),
+                request.error,
+                request.effective_identity,
+            ],
+        )?;
+        if status == DiscussionRunStatus::Completed {
+            proposals::retain_candidates_at(&tx, &current, &request.assistant_text)?;
+        }
+        let result =
+            read_provider_result(&tx, &current.id, &current.packet_id)?.ok_or_else(|| {
+                CoreError::new(
+                    "PersistenceUnavailable",
+                    "The provider receipt could not be read.",
+                )
+            })?;
+        let run = read_run(&tx, &current.id)?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(ProviderDiscussionSettlement {
+            run,
+            provider_result: result,
+        })
+    }
+
     /// The open path calls this once after migration. Active jobs are not
     /// replayed; they become inspectable interrupted history.
     pub(super) fn recover_interrupted_discussions(&mut self) -> CoreResult<u32> {
@@ -1338,6 +1711,11 @@ fn validate_start(request: &StartDiscussion) -> CoreResult<()> {
     }
     if let Some(run_id) = &request.previous_run_id {
         check_id(run_id)?;
+    }
+    if let Some(binding) = &request.provider_binding {
+        binding
+            .validate()
+            .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
     }
     if let Some(scope) = &request.scope
         && (scope.quote.len() > MAX_SCOPE_QUOTE_BYTES
@@ -1671,6 +2049,13 @@ fn insert_packet(
         safe_brief: request.safe_brief.clone(),
         scope: scope.cloned(),
         budget: request.budget.clone(),
+        provider_binding: request.provider_binding.clone(),
+        response_contract: packet
+            .options
+            .provider_binding
+            .as_ref()
+            .filter(|_| request.intent == FeedbackIntent::ProposeEdits)
+            .map(|_| PROPOSAL_RESPONSE_CONTRACT.to_owned()),
     };
     let payload_hash = logical_hash(&prepared)?;
     let request_json = serde_json::to_string(&prepared)?;
@@ -1771,6 +2156,23 @@ fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
     );
     let row: RunRow = db.query_row("SELECT id,thread_id,project_id,operation_namespace,operation_id,payload_hash,target_document_id,target_version,target_body_hash,packet_id,previous_run_id,status,dispatch_state,sequence,output_text,stop_reason,created_at,updated_at FROM discussion_runs WHERE id=?", [run_id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?,row.get(10)?,row.get(11)?,row.get(12)?,row.get(13)?,row.get(14)?,row.get(15)?,row.get(16)?,row.get(17)?))).optional()?.ok_or_else(|| CoreError::new("DiscussionRunNotFound", "The discussion run is not available."))?;
     let intent = intent_for_packet(db, &row.9)?;
+    let packet = context_packets::validated_packet_record(db, &row.9)?;
+    let provider_binding = packet.options.provider_binding;
+    let provider_result = read_provider_result(db, &row.0, &row.9)?;
+    if let Some(result) = &provider_result {
+        let packet_binding = provider_binding.as_ref().ok_or_else(|| {
+            CoreError::new(
+                "InvalidProject",
+                "A provider result exists for a packet without a provider binding.",
+            )
+        })?;
+        if &result.binding != packet_binding || result.packet_id != row.9 {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "The saved provider result does not match its immutable packet binding.",
+            ));
+        }
+    }
     Ok(DiscussionRun {
         id: row.0.clone(),
         thread_id: row.1,
@@ -1788,6 +2190,8 @@ fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
             body_hash: row.8,
         },
         packet_id: row.9,
+        provider_binding,
+        provider_result,
         previous_run_id: row.10,
         status: DiscussionRunStatus::parse(&row.11)?,
         dispatch_state: row.12,
@@ -1797,6 +2201,260 @@ fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
         created_at: row.16,
         updated_at: row.17,
     })
+}
+
+type ProviderResultRow = (
+    String,
+    String,
+    String,
+    i64,
+    String,
+    String,
+    String,
+    i64,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+);
+
+fn read_provider_result(
+    db: &Connection,
+    run_id: &str,
+    packet_id: &str,
+) -> CoreResult<Option<ProviderResult>> {
+    let row: Option<ProviderResultRow> = db
+        .query_row(
+            "SELECT run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,created_at FROM provider_results WHERE run_id=?",
+            [run_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                    row.get(11)?,
+                    row.get(12)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((
+        saved_run_id,
+        saved_packet_id,
+        event_id,
+        expected_sequence,
+        binding_json,
+        assistant_text,
+        outcome,
+        confirmed_stdin_bytes,
+        usage_json,
+        cleanup,
+        error,
+        effective_identity,
+        created_at,
+    )) = row
+    else {
+        return Ok(None);
+    };
+    if saved_run_id != run_id || saved_packet_id != packet_id {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The saved provider result belongs to a different run or packet.",
+        ));
+    }
+    let binding: ProviderBinding = serde_json::from_str(&binding_json)?;
+    binding
+        .validate()
+        .map_err(|message| CoreError::new("InvalidProject", &message))?;
+    let confirmed_stdin_bytes = u64::try_from(confirmed_stdin_bytes).map_err(|_| {
+        CoreError::new(
+            "InvalidProject",
+            "The saved provider stdin byte count is negative.",
+        )
+    })?;
+    let expected_sequence = parse_stored_version(expected_sequence)?;
+    let usage = usage_json
+        .map(|json| serde_json::from_str(&json))
+        .transpose()?;
+    let input_limit = binding
+        .input_limit()
+        .map_err(|message| CoreError::new("InvalidProject", &message))?;
+    if assistant_text.len() > CODEX_OUTPUT_LIMIT_BYTES
+        || confirmed_stdin_bytes > input_limit as u64
+        || (status_is_completed(&outcome) && assistant_text.is_empty())
+        || (status_is_completed(&outcome) && error.is_some())
+        || error.as_deref().is_some_and(|value| {
+            value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control)
+        })
+        || effective_identity.is_some()
+    {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The saved provider result violates the bounded terminal contract.",
+        ));
+    }
+    Ok(Some(ProviderResult {
+        run_id: saved_run_id,
+        packet_id: saved_packet_id,
+        event_id,
+        expected_sequence,
+        assistant_text,
+        binding,
+        status: ProviderOutcomeStatus::parse(&outcome)?,
+        confirmed_stdin_bytes: confirmed_stdin_bytes.to_string(),
+        usage,
+        cleanup: ProviderCleanup::parse(&cleanup)?,
+        error,
+        effective_identity,
+        created_at,
+    }))
+}
+
+fn status_is_completed(value: &str) -> bool {
+    value == "completed"
+}
+
+/// Validate immutable provider receipts when opening or transferring a
+/// project. This checks the receipt's local fences and packet binding; it does
+/// not claim that the external process itself can be reconstructed.
+pub(crate) fn validate_provider_results(db: &Connection) -> CoreResult<()> {
+    let mut statement = db.prepare("SELECT run_id,packet_id FROM provider_results")?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (run_id, packet_id) in rows {
+        let result = read_provider_result(db, &run_id, &packet_id)?.ok_or_else(|| {
+            CoreError::new(
+                "InvalidProject",
+                "A provider result disappeared during validation.",
+            )
+        })?;
+        let packet = context_packets::validated_packet_record(db, &packet_id)?;
+        if packet.options.provider_binding.as_ref() != Some(&result.binding) {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A provider result does not match its immutable packet binding.",
+            ));
+        }
+        let input_len = serialized_input(&packet.messages, &packet.options)
+            .map_err(packet_error)?
+            .len() as u64;
+        let confirmed = parse_decimal_u64(&result.confirmed_stdin_bytes)?;
+        if confirmed > input_len
+            || (result.status == ProviderOutcomeStatus::Completed && confirmed != input_len)
+        {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A provider result has an invalid frozen-packet byte count.",
+            ));
+        }
+        let (status, sequence, output_text): (String, i64, String) = db.query_row(
+            "SELECT status,sequence,output_text FROM discussion_runs WHERE id=? AND packet_id=?",
+            params![run_id, packet_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        let status = DiscussionRunStatus::parse(&status)?;
+        if status.active() || output_text != result.assistant_text {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A provider result does not match its terminal discussion run.",
+            ));
+        }
+        let expected_sequence = parse_version(&result.expected_sequence)?;
+        if expected_sequence.checked_add(1) != Some(sequence) {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A provider result has an invalid terminal sequence.",
+            ));
+        }
+        let event: Option<(String, i64)> = db
+            .query_row(
+                "SELECT kind,sequence FROM discussion_output_events WHERE run_id=? AND event_id=?",
+                params![run_id, result.event_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if event != Some(("terminal".to_owned(), sequence)) {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A provider result has no matching immutable terminal event.",
+            ));
+        }
+        let allowed = if result.cleanup == ProviderCleanup::Unresolved {
+            status == DiscussionRunStatus::Interrupted
+        } else {
+            match result.status {
+                ProviderOutcomeStatus::Completed => {
+                    matches!(
+                        status,
+                        DiscussionRunStatus::Completed | DiscussionRunStatus::Stopped
+                    )
+                }
+                ProviderOutcomeStatus::Stopped => status == DiscussionRunStatus::Stopped,
+                ProviderOutcomeStatus::TimedOut
+                | ProviderOutcomeStatus::OutputLimit
+                | ProviderOutcomeStatus::Failed => {
+                    matches!(
+                        status,
+                        DiscussionRunStatus::Failed | DiscussionRunStatus::Stopped
+                    )
+                }
+            }
+        };
+        if !allowed {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A provider result outcome does not match its terminal run status.",
+            ));
+        }
+    }
+    let mut live_statement = db.prepare(
+        "SELECT dr.id,dr.packet_id,dr.status
+         FROM discussion_runs dr
+         ORDER BY dr.id",
+    )?;
+    let live_runs = live_statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (run_id, packet_id, status) in live_runs {
+        if status != DiscussionRunStatus::Completed.as_str() {
+            continue;
+        }
+        let packet = context_packets::validated_packet_record(db, &packet_id)?;
+        if packet.options.provider_binding.is_some() {
+            let receipt: Option<String> = db
+                .query_row(
+                    "SELECT run_id FROM provider_results WHERE run_id=?",
+                    [&run_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if receipt.is_none() {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "A completed live discussion is missing its immutable provider result.",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Discussion intent is part of the immutable context contract. Keeping it
@@ -2069,6 +2727,146 @@ fn validate_settlement_request(request: &DiscussionStopSettled) -> CoreResult<()
         ));
     }
     Ok(())
+}
+
+fn parse_decimal_u64(value: &str) -> CoreResult<u64> {
+    if value.is_empty()
+        || (value.len() > 1 && value.starts_with('0'))
+        || !value.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "Provider counters must be canonical nonnegative decimal strings.",
+        ));
+    }
+    value.parse::<u64>().map_err(|_| {
+        CoreError::new(
+            "InvalidRequest",
+            "Provider counters exceed the supported range.",
+        )
+    })
+}
+
+fn validate_provider_report_shape(request: &ProviderTerminalReport) -> CoreResult<()> {
+    check_id(&request.owner.project_id)?;
+    check_id(&request.owner.operation_namespace)?;
+    check_id(&request.owner.run_id)?;
+    check_id(&request.event_id)?;
+    request
+        .binding
+        .validate()
+        .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
+    let bytes = parse_decimal_u64(&request.confirmed_stdin_bytes)?;
+    if bytes > CODEX_INPUT_LIMIT_BYTES as u64 {
+        return Err(CoreError::new(
+            "InputTooLarge",
+            "The provider stdin exceeds the application byte cap.",
+        ));
+    }
+    if request.assistant_text.len() > CODEX_OUTPUT_LIMIT_BYTES {
+        return Err(CoreError::new(
+            "OutputTooLarge",
+            "The provider output exceeds the application byte cap.",
+        ));
+    }
+    if let Some(error) = &request.error
+        && (error.is_empty() || error.len() > 4096 || error.chars().any(char::is_control))
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The provider error must be sanitized and at most 4 KiB.",
+        ));
+    }
+    if request.effective_identity.is_some() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The current provider boundary cannot confirm an effective identity.",
+        ));
+    }
+    Ok(())
+}
+
+fn provider_result_matches_report(saved: &ProviderResult, report: &ProviderTerminalReport) -> bool {
+    saved.run_id == report.owner.run_id
+        && saved.event_id == report.event_id
+        && saved.expected_sequence == report.expected_sequence
+        && saved.assistant_text == report.assistant_text
+        && saved.binding == report.binding
+        && saved.status == report.status
+        && saved.confirmed_stdin_bytes == report.confirmed_stdin_bytes
+        && saved.usage == report.usage
+        && saved.cleanup == report.cleanup
+        && saved.error == report.error
+        && saved.effective_identity == report.effective_identity
+}
+
+fn provider_discussion_status(
+    current: DiscussionRunStatus,
+    outcome: ProviderOutcomeStatus,
+    cleanup: ProviderCleanup,
+) -> DiscussionRunStatus {
+    if cleanup == ProviderCleanup::Unresolved {
+        DiscussionRunStatus::Interrupted
+    } else if current == DiscussionRunStatus::Stopping || outcome == ProviderOutcomeStatus::Stopped
+    {
+        DiscussionRunStatus::Stopped
+    } else if outcome == ProviderOutcomeStatus::Completed {
+        DiscussionRunStatus::Completed
+    } else {
+        DiscussionRunStatus::Failed
+    }
+}
+
+fn provider_stop_reason(
+    current: DiscussionRunStatus,
+    outcome: ProviderOutcomeStatus,
+    cleanup: ProviderCleanup,
+) -> Option<&'static str> {
+    if cleanup == ProviderCleanup::Unresolved {
+        Some("provider_cleanup_unresolved")
+    } else if current == DiscussionRunStatus::Stopping {
+        Some("author_stopped")
+    } else {
+        match outcome {
+            ProviderOutcomeStatus::Completed => None,
+            ProviderOutcomeStatus::Stopped => Some("provider_stopped"),
+            ProviderOutcomeStatus::TimedOut => Some("provider_timed_out"),
+            ProviderOutcomeStatus::OutputLimit => Some("provider_output_limit"),
+            ProviderOutcomeStatus::Failed => Some("provider_failed"),
+        }
+    }
+}
+
+fn provider_terminal_message(
+    request: &ProviderTerminalReport,
+    status: DiscussionRunStatus,
+) -> CoreResult<String> {
+    if status == DiscussionRunStatus::Completed {
+        return Ok(request.assistant_text.clone());
+    }
+    let message = if let Some(error) = request.error.as_deref() {
+        format!("Provider request failed: {error}")
+    } else {
+        match status {
+            DiscussionRunStatus::Stopped => STOP_SETTLED_MESSAGE.to_owned(),
+            DiscussionRunStatus::Interrupted => STOP_UNRESOLVED_MESSAGE.to_owned(),
+            DiscussionRunStatus::Failed => match request.status {
+                ProviderOutcomeStatus::TimedOut => "The provider request timed out.".to_owned(),
+                ProviderOutcomeStatus::OutputLimit => {
+                    "The provider output reached the application limit.".to_owned()
+                }
+                _ => "The provider request failed.".to_owned(),
+            },
+            _ => "The provider request ended without a completed response.".to_owned(),
+        }
+    };
+    if message.is_empty() || message.len() > MAX_EVENT_BYTES {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The provider terminal message is too large.",
+        ));
+    }
+    Ok(message)
 }
 
 fn validate_final_output(current: &str, final_text: &str, allow_empty: bool) -> CoreResult<()> {

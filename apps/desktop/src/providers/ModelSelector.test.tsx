@@ -6,10 +6,10 @@ import * as ipc from '../ipc/providers';
 import { ModelSelector } from './ModelSelector';
 import { ModelSettings } from './ModelSettings';
 import { ProviderSettingsProvider, useProviders } from './ProviderContext';
-vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), saveModelSettings: vi.fn() }));
+vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), checkCodexConnection: vi.fn(), saveModelSettings: vi.fn() }));
 const luna: ipc.ModelSelection = { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'max', serviceTier: 'priority' };
 function initial(): ipc.ProviderState {
-  return { settings: { revision: '0', active: { ...ipc.localModel }, favorites: [] }, dispatch: { kind: 'localMock', detail: 'No live AI connected' }, catalog: { models: [
+  return { settings: { revision: '0', active: { ...ipc.localModel }, favorites: [] }, dispatch: { kind: 'localMock', detail: 'No live AI connected' }, codexConnection: { ready: false, detail: 'Check Settings to connect Codex.' }, catalog: { models: [
     { key: { providerId: 'mock', modelId: 'mock-story-context' }, label: 'Local test model', providerLabel: 'Local', reasoningLevels: [], serviceTiers: [], contextWindowTokens: null, maxOutputTokens: null, origin: 'builtIn', ready: true, statusDetail: 'No live AI connected' },
     { key: { providerId: 'codex', modelId: 'gpt-5.6-luna' }, label: 'GPT-5.6-Luna', providerLabel: 'Codex CLI', reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'], serviceTiers: [{ id: 'priority', label: 'Fast' }], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: false, statusDetail: 'Not connected' },
   ] } };
@@ -24,6 +24,7 @@ beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.removeAttribute('open'); } });
   vi.mocked(ipc.readProviderState).mockImplementation(async () => structuredClone(state));
+  vi.mocked(ipc.checkCodexConnection).mockImplementation(async () => structuredClone(state));
   vi.mocked(ipc.saveModelSettings).mockImplementation(async (_revision, active, favorites) => { state = { ...state, settings: { revision: String(Number(state.settings.revision) + 1), active, favorites }, dispatch: { kind: active.providerId === 'mock' ? 'localMock' : 'blocked', detail: '' } }; return structuredClone(state); });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
@@ -69,5 +70,30 @@ describe('persistent model selection', () => {
     await act(async () => { selects[0].value = 'high'; selects[0].dispatchEvent(new Event('change', { bubbles: true })); });
     expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('8', { ...luna, reasoning: 'high' }, [luna]);
     await click('Close settings'); expect(document.activeElement).toBe(button('Settings'));
+  });
+  it('checks Codex only when explicitly requested and preserves the saved choice', async () => {
+    const before = structuredClone(state.settings);
+    vi.mocked(ipc.checkCodexConnection).mockImplementationOnce(async () => {
+      state = { ...state, codexConnection: { ready: true, detail: 'Signed in through Codex. GPT-5.6-Luna is available with Max reasoning and Fast response speed.' } };
+      return structuredClone(state);
+    });
+    await render(); expect(ipc.checkCodexConnection).not.toHaveBeenCalled(); await click('Settings');
+    expect(ipc.checkCodexConnection).not.toHaveBeenCalled(); await click('Check Codex connection');
+    expect(ipc.checkCodexConnection).toHaveBeenCalledExactlyOnceWith(); expect(state.settings).toEqual(before);
+    expect(host.textContent).toContain('Signed in through Codex'); expect(host.querySelector('.provider-connection-status')!.textContent).toBe('Connected');
+  });
+  it('reconciles a failed Codex check without changing preferences', async () => {
+    const before = structuredClone(state.settings);
+    vi.mocked(ipc.checkCodexConnection).mockRejectedValueOnce({ detail: 'The connection check could not finish.' });
+    await render(); await click('Settings'); await click('Check Codex connection');
+    expect(ipc.checkCodexConnection).toHaveBeenCalledExactlyOnceWith(); expect(ipc.readProviderState).toHaveBeenCalledTimes(2);
+    expect(state.settings).toEqual(before); expect(host.querySelector('[role=alert]')!.textContent).toContain('connection check could not finish');
+  });
+  it('offers the exact Codex traits when a connection is ready', async () => {
+    state.settings = { revision: '8', active: { ...luna, reasoning: 'high', serviceTier: null }, favorites: [luna] };
+    state.dispatch = { kind: 'blocked', detail: 'Choose Max reasoning and Fast response speed to send.' };
+    state.codexConnection = { ready: true, detail: 'Signed in through Codex.' };
+    await render(); await click('Settings'); await click('Use Max reasoning + Fast response speed');
+    expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('8', luna, [luna]);
   });
 });

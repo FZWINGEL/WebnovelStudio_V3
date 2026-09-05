@@ -330,6 +330,40 @@ pub async fn library_duplicate(
     })
     .await
 }
+
+#[tauri::command]
+pub async fn library_resume_import(
+    operation_id: String,
+    session: String,
+    state: State<'_, DesktopLibrary>,
+    projects: State<'_, DesktopProjects>,
+) -> CoreResult<OpenedProject> {
+    let state = state.inner().clone();
+    let projects = projects.inner().clone();
+    execute(move || {
+        let mut library = state.0.lock().map_err(|_| lock_error())?;
+        let result = library.resume_v2_import(&operation_id)?;
+        let pending = library.operation(&operation_id)?.ok_or_else(|| {
+            CoreError::new(
+                "PersistenceUnavailable",
+                "The resumed import operation is missing from the library index.",
+            )
+        })?;
+        pending.require_available()?;
+        let final_path = pending.final_path;
+        drop(library);
+        let mut opened = projects.open(final_path, None, session)?;
+        if opened.project.project_id != result.project.project_id {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "The resumed import opened a different project identity.",
+            ));
+        }
+        opened.library_warning = None;
+        Ok(opened)
+    })
+    .await
+}
 #[tauri::command]
 pub async fn project_backup(
     access: ProjectAccess,

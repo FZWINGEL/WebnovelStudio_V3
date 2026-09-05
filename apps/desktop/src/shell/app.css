@@ -308,3 +308,13 @@ input::placeholder { color: #637083; }
 .export-error { color: #9b2932; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .export-notice { color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .export-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--line); }
+.v2-import-source { margin: 14px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.v2-import-source code { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+.v2-import-summary { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin: 18px 0 15px; padding: 11px 13px; background: #f8f9fc; border: 1px solid var(--line); }
+.v2-import-summary span { color: var(--muted); font-size: 11px; }
+.v2-import-chapters { margin-top: 19px; }
+.v2-import-chapters h3 { margin: 0 0 9px; font-size: 13px; }
+.v2-import-help { margin: 0 0 9px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.v2-import-row { display: grid; gap: 6px; margin-top: 8px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; line-height: 1.45; }
+.v2-import-row span { color: var(--muted); }
+.v2-import-row select { width: 100%; border: 1px solid #aebccc; background: #fff; border-radius: 5px; padding: 8px 10px; color: inherit; }

@@ -12,7 +12,7 @@ use crate::projects::{
     write_creation_origin,
 };
 use crate::{storage, validate_snapshot_json};
-use rusqlite::{Connection, OpenFlags, TransactionBehavior, backup::Backup};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, backup::Backup};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -231,6 +231,14 @@ fn valid_hash(value: &str) -> bool {
 fn valid_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn valid_import_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
@@ -473,6 +481,41 @@ fn online_backup(project: &ProjectSession, staged_db: &Path) -> CoreResult<()> {
 
 fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<DatabaseHeads> {
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    // Keep the entire validation pass on one consistent read snapshot.  The
+    // same-connection entry point below is also used by import replay, where
+    // the caller owns an already-open read-only connection and transaction.
+    connection.execute_batch("BEGIN DEFERRED")?;
+    let result = validate_project_connection_heads(&connection, expected);
+    match result {
+        Ok(heads) => {
+            connection.execute_batch("COMMIT")?;
+            Ok(heads)
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+/// Validate a project database through an existing read-only connection.
+///
+/// The caller should hold a `BEGIN DEFERRED` transaction when the validation
+/// must share a snapshot with another read performed as part of the same
+/// reconciliation.  This function never migrates, writes, or opens another
+/// connection; it is therefore safe for import replay after the original
+/// source database has disappeared.
+pub(crate) fn validate_project_connection(
+    connection: &Connection,
+    expected: &ProjectInfo,
+) -> CoreResult<()> {
+    validate_project_connection_heads(connection, Some(expected)).map(|_| ())
+}
+
+fn validate_project_connection_heads(
+    connection: &Connection,
+    expected: Option<&ProjectInfo>,
+) -> CoreResult<DatabaseHeads> {
     let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     if integrity != "ok" {
         return Err(transfer_error(
@@ -535,49 +578,56 @@ fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<
         ));
     }
     let context_source_epoch = valid_version(epoch)?;
-    crate::projects::validate_stored_view_state(&connection).map_err(|error| {
+    crate::projects::validate_stored_view_state(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",
             format!("The saved view state is invalid: {error}"),
         )
     })?;
-    crate::projects::story_context::validate_context_storage(&connection).map_err(|error| {
+    crate::projects::story_context::validate_context_storage(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",
             format!("The story context is invalid: {error}"),
         )
     })?;
-    crate::projects::context_packets::validate_context_packets(&connection).map_err(|error| {
+    crate::projects::context_packets::validate_context_packets(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",
             format!("The prepared requests are invalid: {error}"),
         )
     })?;
-    crate::projects::guidance::validate_guidance_storage(&connection).map_err(|error| {
+    crate::projects::discussions::validate_provider_results(connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The provider results are invalid: {error}"),
+        )
+    })?;
+    crate::projects::guidance::validate_guidance_storage(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",
             format!("The author guidance records are invalid: {error}"),
         )
     })?;
-    crate::projects::proposals::validate_proposal_storage(&connection).map_err(|error| {
+    crate::projects::proposals::validate_proposal_storage(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",
             format!("The suggestion history is invalid: {error}"),
         )
     })?;
-    crate::projects::history::validate_history_storage(&connection).map_err(|error| {
+    crate::projects::history::validate_history_storage(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",
             format!("The document history is invalid: {error}"),
         )
     })?;
-    crate::projects::exports::validate_export_storage(&connection).map_err(|error| {
+    crate::projects::exports::validate_export_storage(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",
             format!("The export records are invalid: {error}"),
         )
     })?;
-    validate_source_pin_storage(&connection, &info)?;
+    validate_source_pin_storage(connection, &info)?;
+    validate_import_storage(connection, &info)?;
     let mut documents = Vec::new();
     let mut statement = connection.prepare(
         "SELECT id,working_version,body_hash,last_checkpoint_id,body_json,schema_version \
@@ -694,6 +744,9 @@ fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<
 
 const MAX_SOURCE_PIN_DOCUMENTS: usize = 64;
 
+const MAX_IMPORT_LEGACY_RECORDS: usize = 20_000;
+const MAX_IMPORT_LEGACY_BYTES: usize = 4 * 1024 * 1024;
+
 /// Validate the durable source-pin state before a database can be backed up
 /// or recovered.  Mutable sets belong to the database's current identity;
 /// their receipts deliberately do not, because recovery retains receipts as
@@ -798,6 +851,248 @@ fn validate_source_pin_storage(connection: &Connection, info: &ProjectInfo) -> C
             return Err(transfer_error(
                 "InvalidBackup",
                 "A source-pin receipt version does not follow its request.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+struct ImportManifestRow {
+    project_id: String,
+    namespace: String,
+    operation_id: String,
+    source_project_id: String,
+    source_schema_version: i64,
+    source_sha256: String,
+    source_bytes: i64,
+    source_title: String,
+    source_slug: String,
+    request_sha256: String,
+    counts_json: String,
+    import_format_version: i64,
+    created_at: String,
+}
+
+fn validate_import_storage(connection: &Connection, info: &ProjectInfo) -> CoreResult<()> {
+    let manifest: Option<ImportManifestRow> = connection
+        .query_row(
+            "SELECT project_id,operation_namespace,operation_id,source_project_id,
+                    source_schema_version,source_sha256,source_bytes,source_title,
+                    source_slug,request_sha256,counts_json,import_format_version,created_at
+             FROM import_manifest WHERE singleton=1",
+            [],
+            |row| {
+                Ok(ImportManifestRow {
+                    project_id: row.get(0)?,
+                    namespace: row.get(1)?,
+                    operation_id: row.get(2)?,
+                    source_project_id: row.get(3)?,
+                    source_schema_version: row.get(4)?,
+                    source_sha256: row.get(5)?,
+                    source_bytes: row.get(6)?,
+                    source_title: row.get(7)?,
+                    source_slug: row.get(8)?,
+                    request_sha256: row.get(9)?,
+                    counts_json: row.get(10)?,
+                    import_format_version: row.get(11)?,
+                    created_at: row.get(12)?,
+                })
+            },
+        )
+        .optional()?;
+    let Some(manifest) = manifest else {
+        let orphaned: i64 = connection.query_row(
+            "SELECT (SELECT COUNT(*) FROM import_id_map)
+                    +(SELECT COUNT(*) FROM import_body_decisions)
+                    +(SELECT COUNT(*) FROM import_legacy_records)",
+            [],
+            |row| row.get(0),
+        )?;
+        if orphaned != 0 {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "Import evidence exists without its manifest.",
+            ));
+        }
+        return Ok(());
+    };
+    if manifest.project_id != info.project_id
+        || manifest.namespace != info.operation_namespace
+        || !valid_id(&manifest.project_id)
+        || !valid_id(&manifest.namespace)
+        || !valid_id(&manifest.operation_id)
+        || !valid_import_id(&manifest.source_project_id)
+        || manifest.import_format_version != 1
+        || manifest.source_schema_version != 8
+        || manifest.source_bytes < 0
+        || !valid_hash(&manifest.source_sha256)
+        || !valid_hash(&manifest.request_sha256)
+        || manifest.source_title.is_empty()
+        || manifest.source_title.len() > 512
+        || manifest.source_title.chars().any(char::is_control)
+        || manifest.source_slug.len() > 512
+        || manifest.source_slug.chars().any(char::is_control)
+        || manifest.counts_json.len() > 64 * 1024
+        || !matches!(
+            serde_json::from_str::<Value>(&manifest.counts_json),
+            Ok(Value::Object(_))
+        )
+        || manifest.created_at.is_empty()
+    {
+        return Err(transfer_error(
+            "InvalidBackup",
+            "The import manifest has invalid identity or source metadata.",
+        ));
+    }
+
+    let map_count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM import_id_map", [], |row| row.get(0))?;
+    if usize::try_from(map_count)
+        .ok()
+        .is_none_or(|count| count > MAX_IMPORT_LEGACY_RECORDS)
+    {
+        return Err(transfer_error(
+            "InvalidBackup",
+            "The import identity map is too large.",
+        ));
+    }
+    let mut maps = connection.prepare(
+        "SELECT source_table,source_id,v3_document_id,source_project_id FROM import_id_map ORDER BY source_table,source_id",
+    )?;
+    let rows = maps.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (table, source_id, document_id, mapped_project) = row?;
+        if !valid_id(&table)
+            || !valid_import_id(&source_id)
+            || !valid_id(&document_id)
+            || mapped_project != manifest.source_project_id
+            || connection
+                .query_row(
+                    "SELECT 1 FROM documents WHERE id=?",
+                    [&document_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                != Some(1)
+        {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "The import identity map is invalid.",
+            ));
+        }
+    }
+
+    let decision_count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM import_body_decisions", [], |row| {
+            row.get(0)
+        })?;
+    if usize::try_from(decision_count)
+        .ok()
+        .is_none_or(|count| count > MAX_IMPORT_LEGACY_RECORDS)
+    {
+        return Err(transfer_error(
+            "InvalidBackup",
+            "The import body-decision set is too large.",
+        ));
+    }
+    let mut decisions = connection.prepare(
+        "SELECT source_chapter_id,choice_kind,source_draft_id,source_working_state,
+                source_body_sha256,selected_body_hash
+         FROM import_body_decisions ORDER BY source_chapter_id",
+    )?;
+    let rows = decisions.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+        ))
+    })?;
+    for row in rows {
+        let (chapter_id, choice, draft_id, working_state, source_hash, selected_hash) = row?;
+        let mapped_document: Option<(String, String)> = connection
+            .query_row(
+                "SELECT v3_document_id,source_project_id FROM import_id_map WHERE source_table='chapters' AND source_id=?",
+                [&chapter_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((document_id, mapped_project)) = mapped_document else {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "An import body decision has no chapter map.",
+            ));
+        };
+        let selected_checkpoint: Option<i64> = connection
+            .query_row(
+                "SELECT 1 FROM revisions
+                 WHERE document_id=? AND body_hash=? AND reason='importedV2' LIMIT 1",
+                rusqlite::params![&document_id, &selected_hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let draft_valid = draft_id.as_deref().is_none_or(valid_import_id);
+        let shape_valid = valid_import_id(&chapter_id)
+            && mapped_project == manifest.source_project_id
+            && valid_hash(&source_hash)
+            && valid_hash(&selected_hash)
+            && selected_checkpoint == Some(1)
+            && matches!(working_state.as_str(), "present" | "missing")
+            && match choice.as_str() {
+                "working" => working_state == "present" && draft_id.is_none(),
+                "empty" => working_state == "missing" && draft_id.is_none(),
+                "draft" => working_state == "missing" && draft_id.is_some() && draft_valid,
+                _ => false,
+            };
+        if !shape_valid {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "An import body decision is invalid.",
+            ));
+        }
+    }
+
+    let mut legacy_bytes = 0usize;
+    let mut legacy_rows = 0usize;
+    let mut legacy = connection.prepare(
+        "SELECT source_table,source_id,source_project_id,payload_json
+         FROM import_legacy_records ORDER BY source_table,source_id",
+    )?;
+    let rows = legacy.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (table, source_id, mapped_project, payload) = row?;
+        legacy_rows = legacy_rows.checked_add(1).ok_or_else(|| {
+            transfer_error("InvalidBackup", "Import evidence row count overflow.")
+        })?;
+        legacy_bytes = legacy_bytes
+            .checked_add(payload.len())
+            .ok_or_else(|| transfer_error("InvalidBackup", "Import evidence size overflow."))?;
+        if legacy_rows > MAX_IMPORT_LEGACY_RECORDS
+            || legacy_bytes > MAX_IMPORT_LEGACY_BYTES
+            || !valid_id(&table)
+            || !valid_import_id(&source_id)
+            || mapped_project != manifest.source_project_id
+            || serde_json::from_str::<Value>(&payload).is_err()
+        {
+            return Err(transfer_error(
+                "InvalidBackup",
+                "An imported legacy record is invalid.",
             ));
         }
     }
@@ -1193,6 +1488,16 @@ fn rotate_identity(path: &Path, old: &ProjectInfo, new: &ProjectInfo) -> CoreRes
     // historical authority and cannot authorize writes in the new copy.
     tx.execute(
         "UPDATE source_pin_sets SET project_id=?,operation_namespace=?
+         WHERE project_id=? AND operation_namespace=?",
+        rusqlite::params![
+            new.project_id,
+            new.operation_namespace,
+            old.project_id,
+            old.operation_namespace
+        ],
+    )?;
+    tx.execute(
+        "UPDATE import_manifest SET project_id=?,operation_namespace=?
          WHERE project_id=? AND operation_namespace=?",
         rusqlite::params![
             new.project_id,

@@ -1088,6 +1088,13 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
              DROP TRIGGER source_pin_receipts_no_delete;
              DROP TABLE source_pin_receipts;
              DROP TABLE source_pin_sets;
+             DROP TABLE import_legacy_records;
+             DROP TABLE import_body_decisions;
+             DROP TABLE import_id_map;
+             DROP TABLE import_manifest;
+             DROP TRIGGER provider_results_no_update;
+             DROP TRIGGER provider_results_no_delete;
+             DROP TABLE provider_results;
              DROP TABLE export_records;
              ALTER TABLE discussion_drafts DROP COLUMN safe_brief_json;
              PRAGMA user_version=8;",
@@ -1099,7 +1106,7 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
         .unwrap()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 11);
+    assert_eq!(version, 13);
     let table: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row(
@@ -1171,6 +1178,13 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
              DROP TRIGGER source_pin_receipts_no_delete;
              DROP TABLE source_pin_receipts;
              DROP TABLE source_pin_sets;
+             DROP TABLE import_legacy_records;
+             DROP TABLE import_body_decisions;
+             DROP TABLE import_id_map;
+             DROP TABLE import_manifest;
+             DROP TRIGGER provider_results_no_update;
+             DROP TRIGGER provider_results_no_delete;
+             DROP TABLE provider_results;
              DROP TABLE export_records;
              DROP TRIGGER command_receipts_no_proposal_collision;
              DROP TABLE proposal_receipts; DROP TABLE proposal_decisions; DROP TABLE proposal_versions; DROP TABLE proposals;
@@ -1230,5 +1244,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 11);
+    assert_eq!(version, 13);
 }

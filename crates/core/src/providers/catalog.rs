@@ -59,6 +59,7 @@ pub struct CatalogSnapshot {
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum DispatchResolution {
     LocalMock { detail: String },
+    CodexCli { detail: String },
     Blocked { detail: String },
 }
 

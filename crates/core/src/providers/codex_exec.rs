@@ -137,6 +137,19 @@ impl CodexJsonlParser {
         Self::default()
     }
 
+    /// Only protocol-validated observations; raw records and reasoning stay private.
+    pub fn partial_text(&self) -> &str {
+        &self.assistant_text
+    }
+
+    pub fn observed_usage(&self) -> Option<CodexUsage> {
+        self.usage
+    }
+
+    pub fn warning_count(&self) -> usize {
+        self.warnings.len()
+    }
+
     /// Feed an arbitrary stdout chunk. UTF-8 records may be split across
     /// calls. Once a failure is returned, every later operation returns the
     /// same sanitized failure.

@@ -310,6 +310,7 @@ fn guidance_is_copied_into_recovery_and_remains_editable_with_local_history() {
             pinned_document_ids: Vec::new(),
             safe_brief: None,
             budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
             previous_run_id: None,
         })
         .expect("create provenance discussion");
@@ -375,7 +376,10 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let connection = Connection::open(&database).expect("open current database");
     connection
         .execute_batch(
-            "DROP TRIGGER source_pin_receipts_no_update;
+            "DROP TABLE provider_results;
+             DROP TABLE import_manifest; DROP TABLE import_id_map;
+             DROP TABLE import_body_decisions; DROP TABLE import_legacy_records;
+             DROP TRIGGER source_pin_receipts_no_update;
              DROP TRIGGER source_pin_receipts_no_delete;
              DROP TABLE source_pin_receipts;
              DROP TABLE source_pin_sets;
@@ -401,7 +405,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 11);
+    assert_eq!(version, 13);
     for table in [
         "author_guidance_versions",
         "author_guidance_heads",

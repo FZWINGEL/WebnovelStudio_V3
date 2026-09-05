@@ -5,11 +5,12 @@ import { DocumentSession } from '../editor/session';
 import { canonicalJson } from '../editor/document';
 import { createDocument, reconcileProject, readDocument, projectTransport, projectMetadata, renameProject, renameDocument, type CreateDocumentIntent, type DocumentRecord, type OpenedProject, type ProjectAccess, type ViewState } from '../ipc/projects';
 import { CreateIntentRecoveryError, CreateIntentUnresolvedError, runCreateIntent } from '../ipc/createIntent';
-import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, projectBackup, type LibrarySnapshot } from '../ipc/library';
+import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, libraryResumeImport, projectBackup, type LibrarySnapshot } from '../ipc/library';
 import { prepareDraftExport, exportPreparedDraft, type DraftExportPreview, type DraftFormat } from '../ipc/exports';
 import { App as EditorTrial } from './App';
 import { Writer } from './Writer';
 import { ExportDialog } from './ExportDialog';
+import { V2ImportDialog } from './V2ImportDialog';
 import { runtimeInfo } from '../ipc/native';
 import { ModelSelector } from '../providers/ModelSelector';
 import { ModelSettings } from '../providers/ModelSettings';
@@ -32,6 +33,7 @@ export function Workspace() {
   const [search, setSearch] = useState('');
   const [archived, setArchived] = useState(false);
   const [newProject, setNewProject] = useState(false);
+  const [importingV2, setImportingV2] = useState(false);
   const [title, setTitle] = useState('');
   const [newDocument, setNewDocument] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -185,6 +187,12 @@ export function Workspace() {
       activate(opened); await refreshLibrary();
     });
   }
+  function resumeImport(operationId: string) {
+    void perform(async () => {
+      const opened = await navigate(() => libraryResumeImport(operationId, renderer.current));
+      activate(opened); await refreshLibrary();
+    });
+  }
   function rename(event: React.FormEvent) {
     event.preventDefault(); if (!project) return;
     void perform(async () => {
@@ -335,12 +343,12 @@ export function Workspace() {
     {project && renaming && <form className="rename-project-form" onSubmit={rename}><label htmlFor="rename-project">Project title</label><input autoFocus id="rename-project" value={renamedTitle} maxLength={160} onChange={event => setRenamedTitle(event.target.value)} /><button type="button" onClick={() => setRenaming(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedTitle.trim()}>Save title</button></form>}
     {project && active && renamingDocument && <form className="rename-project-form" onSubmit={renameCurrentDocument}><label htmlFor="rename-document">Document title</label><input autoFocus id="rename-document" value={renamedDocumentTitle} maxLength={160} onChange={event => setRenamedDocumentTitle(event.target.value)} /><button type="button" onClick={() => setRenamingDocument(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedDocumentTitle.trim()}>Save document title</button></form>}
     {!project ? <main className="library-page" aria-label="Project library">
-      <div className="library-heading"><div><h1>Your stories</h1><p>Start wherever the idea begins.</p></div><div className="header-actions"><button className="secondary-button" disabled={busy} onClick={() => open(null)}>Open folder</button><button className="primary-button" disabled={busy} onClick={() => setNewProject(true)}>New project</button></div></div>
+      <div className="library-heading"><div><h1>Your stories</h1><p>Start wherever the idea begins.</p></div><div className="header-actions"><button className="secondary-button" disabled={busy} onClick={() => open(null)}>Open folder</button><button className="secondary-button" disabled={busy} onClick={() => setImportingV2(true)}>Import V2 project</button><button className="primary-button" disabled={busy} onClick={() => setNewProject(true)}>New project</button></div></div>
       {newProject && <form className="inline-form" onSubmit={event => { event.preventDefault(); create(title); }}><label htmlFor="project-title">Project title</label><input autoFocus id="project-title" value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder="Untitled project" disabled={busy} /><div><button type="button" disabled={busy} onClick={() => setNewProject(false)}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? 'Creating…' : 'Create project'}</button></div></form>}
       <div className="library-filters"><label className="search-field"><span className="sr-only">Find a project</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Find a project" /></label><button aria-pressed={archived} onClick={() => setArchived(!archived)}>{archived ? 'Show active' : 'Archived'}</button></div>
       {loading ? <p role="status">Opening your library…</p> : entries.length ? <ul className="project-list">{entries.map(entry => <li key={entry.projectId}><button className="project-open" disabled={busy || entry.missing} onClick={() => open(entry.path)}><strong>{entry.title}</strong><span>{entry.missing ? 'Folder moved or unavailable' : `Last opened ${new Date(entry.lastOpened).toLocaleDateString()}`}</span></button>{entry.missing && <button disabled={busy} onClick={() => open(null)}>Locate</button>}<button disabled={busy} aria-label={`${entry.archived ? 'Unarchive' : 'Archive'} ${entry.title}`} onClick={() => void perform(async () => { await libraryArchive(entry.projectId, !entry.archived); await refreshLibrary(); })}>{entry.archived ? 'Unarchive' : 'Archive'}</button></li>)}</ul>
         : <div className="library-empty"><h2>{search ? 'No matching projects' : archived ? 'No archived projects' : 'A place for your next story'}</h2><p>{search ? 'Try a different title.' : archived ? 'Archived projects stay on your computer.' : 'Create a project, then add a character, a world, a chapter, or a simple note. There is no required order.'}</p></div>}
-      {!!library.pending.length && <section className="pending-projects" aria-label="Unfinished project operations"><h2>Unfinished setup</h2>{library.pending.map(pending => <div key={pending.origin.operationId}><span>{pending.title}</span>{pending.kind === 'create' && <button disabled={busy} onClick={() => create(pending.title, pending.origin.operationId)}>Resume creation</button>}{pending.kind === 'duplicate' && <button disabled={busy} onClick={() => resumeDuplicate(pending.origin.operationId, pending.title)}>Resume copy</button>}{pending.kind === 'recover' && <button disabled={busy} onClick={() => recover(pending.origin.operationId, pending.title)}>Resume recovery</button>}</div>)}</section>}
+      {!!library.pending.length && <section className="pending-projects" aria-label="Unfinished project operations"><h2>Unfinished setup</h2>{library.pending.map(pending => <div key={pending.origin.operationId}><span>{pending.title}</span>{pending.kind === 'create' && <button disabled={busy} onClick={() => create(pending.title, pending.origin.operationId)}>Resume creation</button>}{pending.kind === 'duplicate' && <button disabled={busy} onClick={() => resumeDuplicate(pending.origin.operationId, pending.title)}>Resume copy</button>}{pending.kind === 'recover' && <button disabled={busy} onClick={() => recover(pending.origin.operationId, pending.title)}>Resume recovery</button>}{pending.kind === 'import' && <button disabled={busy} onClick={() => resumeImport(pending.origin.operationId)}>Check import</button>}</div>)}</section>}
       <footer className="library-footer"><span>Projects are saved on this computer.</span><div className="header-actions"><button disabled={busy} onClick={() => recover()}>Recover backup</button>{trialAvailable && <button disabled={busy} onClick={() => setTrial(true)}>Open editor trial</button>}</div></footer>
     </main> : <div className="workspace">
       <aside className="document-sidebar" aria-label="Project documents"><div className="sidebar-heading"><h2>Writing & ideas</h2><button disabled={busy} onClick={() => setNewDocument(true)}>Add</button></div><input aria-label="Find a document" type="search" placeholder="Find a document" value={search} onChange={event => setSearch(event.target.value)} />
@@ -353,6 +361,9 @@ export function Workspace() {
     {exporting && active?.session === exporting.session && <ExportDialog access={exporting.session.projectAccess} documentId={exporting.record.head.documentId} title={exporting.record.title}
       onPrepare={format => prepareExport(exporting, format)} onExport={preview => writeExport(exporting, preview)}
       onClose={() => { setExporting(null); exportButton.current?.focus(); }} />}
+    {importingV2 && !project && <V2ImportDialog session={renderer.current}
+      onImported={opened => { setImportingV2(false); activate(opened); void refreshLibrary(); }}
+      onClose={() => { setImportingV2(false); void refreshLibrary(); }} />}
     {(error || notice || busy) && <footer className="workspace-notice" role={error ? 'alert' : 'status'}><span className={error ? 'error-status' : ''}>{error || notice || 'Working…'}</span>{error && <button onClick={() => setError('')}>Dismiss</button>}</footer>}
   </div>;
 }

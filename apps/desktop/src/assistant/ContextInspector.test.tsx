@@ -29,6 +29,12 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('historical context inspection', () => {
+  it('distinguishes Codex stdin delivery and byte allowances from model understanding', async () => {
+    const providerBinding = { providerId:'codex',modelId:'gpt-5.6-luna',reasoning:'max',serviceTier:'priority',profileVersion:'0.153.3',inputLimitBytes:'24576',reservedOutputBytes:'0',reservedProtocolBytes:'0',outputLimitBytes:'65536',accountingMethod:'utf8-byte-count/codex-stdin-application-cap-v1' };
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet,options:{ ...packet.options,modelId:providerBinding.modelId,providerBinding } });
+    await render(); expect(host.textContent).toContain('confirms local delivery, not that the model understood every source');
+    expect(host.textContent).toContain('not a model token count');
+  });
   it('shows the exact approved brief separately without retrieving its private origin', async () => {
     vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, safeBrief: { text: 'Mei reads the pause as grief.', textHash: 'hash', originMessageId: 'private-origin' } } });
     await render();
@@ -80,7 +86,7 @@ describe('historical context inspection', () => {
     await render('packet', '1', false);
     expect(host.textContent).toContain('Prepared · 1 source');
     expect(host.textContent).toContain('Available · 2 sources');
-    expect(host.textContent).toContain('This request has not been sent to a model.');
+    expect(host.textContent).toContain('Delivery has not been confirmed.');
     expect(host.textContent).toContain('The separation: 2 blocks were not included');
     expect(host.textContent).not.toContain('handle:second');
     await render('packet', '1', true);

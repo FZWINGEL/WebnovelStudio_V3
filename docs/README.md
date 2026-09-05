@@ -1,6 +1,6 @@
 # V3 documentation index
 
-Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The default Tauri application has a persistent Library/Workspace, manual writing, mock discussions, scoped guidance, saved discussion sources, optional author-approved writing briefs for restricted selected-passage edits, an inspectable context packet, selected-passage Apply/Reject, and saved-version restore. Current work adds exact Markdown/TXT export previews and Windows installer configuration. Reviewed-story authority, richer memory, live providers, and full release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
+Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The native development app has persistent writing, project management, discussion, exact context inspection, adopted guidance, saved sources, optional approved writing briefs, selected-passage Apply/Reject, history, export previews, bounded Codex integration, and schema-8 V2 import. Reviewed-story authority, richer memory, broader providers, and full release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
 
 | Read | Document | Responsibility |
 | --- | --- | --- |
@@ -19,8 +19,9 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6g | [Discussion source pins ADR](ADR_0007_DISCUSSION_SOURCE_PINS.md) | Persistent source choices, explicit confirmation, mandatory packet binding, retry and recovery boundaries |
 | 6h | [Writing brief ADR](ADR_0008_WRITING_BRIEF.md) | Optional author-approved directions, exact restricted transfer, draft persistence, and approval/reset rules |
 | 6i | [Discussion recovery ADR](ADR_0009_DISCUSSION_RECOVERY.md) | Cleanup-owned Stop, retained partial output, failed local writes, and explicit recovery without generation replay |
-| 6j | [Model preferences ADR](ADR_0010_MODEL_PREFERENCES.md) | Persistent native selector, separate traits, confirmed settings, and exact mock request binding without provider substitution |
-| 6k | [V2 import preview](V2_IMPORT_PREVIEW.md) | Read-only schema-8 preview, exact missing/empty prose, inert legacy evidence, and the remaining staged import boundary |
+| 6j | [Model preferences ADR](ADR_0010_MODEL_PREFERENCES.md) | Persistent native selector, separate traits, confirmed settings, and preference persistence and historical mock binding; extended by ADR 0011 |
+| 6k | [V2 import](V2_IMPORT_PREVIEW.md) | Schema-8 preview, explicit missing-prose choices, staged independent import, inert evidence, and reconciliation |
+| 6l | [Bounded Codex ADR](ADR_0011_LIVE_CODEX.md) | Explicit connection, immutable live packet, response format, owned Stop, and durable provider results |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |

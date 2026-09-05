@@ -4,12 +4,15 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
-use webnovel_core::context::packet::MockContextBudget;
+use webnovel_core::context::packet::{
+    MockContextBudget, PROPOSAL_RESPONSE_CONTRACT, ProviderBinding, serialized_input,
+};
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::discussions::{
     DiscussionBegin, DiscussionFail, DiscussionFinish, DiscussionMessageRole,
     DiscussionOutputAppend, DiscussionRunStatus, DiscussionScopeInput, DiscussionStopCleanup,
-    DiscussionStopSettled, FeedbackIntent, RunOwner, SafeBriefInput, SaveDiscussionDraft,
+    DiscussionStopSettled, FeedbackIntent, ProviderCleanup, ProviderOutcomeStatus,
+    ProviderTerminalReport, ProviderUsage, RunOwner, SafeBriefInput, SaveDiscussionDraft,
     StartDiscussion,
 };
 use webnovel_core::projects::{
@@ -97,6 +100,7 @@ fn start_request(
         pinned_document_ids,
         safe_brief: None,
         budget: budget(),
+        provider_binding: None,
         previous_run_id: None,
     }
 }
@@ -2097,6 +2101,11 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
              DROP TABLE source_pin_receipts;
              DROP TABLE source_pin_sets;
              DROP TABLE export_records;
+             DROP TABLE provider_results;
+             DROP TABLE import_manifest;
+             DROP TABLE import_id_map;
+             DROP TABLE import_body_decisions;
+             DROP TABLE import_legacy_records;
              ALTER TABLE discussion_drafts DROP COLUMN safe_brief_json;
              DROP TRIGGER command_receipts_no_proposal_collision;
              DROP TABLE proposal_receipts; DROP TABLE proposal_decisions; DROP TABLE proposal_versions; DROP TABLE proposals;
@@ -2116,7 +2125,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema11-")
+            .starts_with("schema6-before-schema13-")
     }));
 }
 
@@ -2642,4 +2651,312 @@ fn safe_brief_backup_retains_history_but_old_origin_cannot_authorize_recovery() 
         recovered.start_discussion(copied_request).unwrap_err().code,
         "InvalidSafeBrief"
     );
+}
+
+#[test]
+fn bounded_provider_completion_persists_binding_usage_and_replays_after_restart() {
+    let temp = TempDir::new("provider-complete");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let binding = ProviderBinding::codex_luna();
+    let mut request = start_request(
+        &access,
+        &document,
+        "provider-complete-start",
+        "Answer about the selected chapter.",
+        None,
+        Vec::new(),
+    );
+    request.provider_binding = Some(binding.clone());
+    let started = project
+        .start_discussion(request)
+        .expect("start live packet");
+    let dispatch = project
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .expect("claim live packet");
+    let delivered_error = project
+        .mark_discussion_delivered(started.run.owner.clone())
+        .expect_err("live delivery must require a typed provider result");
+    assert_eq!(delivered_error.code, "ProviderResultRequired");
+    let finish_error = project
+        .finish_discussion(DiscussionFinish {
+            owner: started.run.owner.clone(),
+            expected_sequence: "0".into(),
+            event_id: "provider-finish-forbidden".into(),
+            assistant_text: "A complete bounded answer.".into(),
+        })
+        .expect_err("live completion must require a typed provider result");
+    assert_eq!(finish_error.code, "ProviderResultRequired");
+    let still_running = project
+        .read_discussion_run(started.run.owner.clone())
+        .expect("read live run after rejected legacy methods");
+    assert_eq!(still_running.status, DiscussionRunStatus::Running);
+    assert_eq!(still_running.sequence, "0");
+    let stdin_bytes = serialized_input(&dispatch.packet.messages, &dispatch.packet.options)
+        .unwrap()
+        .len()
+        .to_string();
+    let report = ProviderTerminalReport {
+        owner: started.run.owner.clone(),
+        expected_sequence: "0".into(),
+        event_id: "provider-terminal-complete".into(),
+        assistant_text: "A complete bounded answer.".into(),
+        binding: binding.clone(),
+        status: ProviderOutcomeStatus::Completed,
+        confirmed_stdin_bytes: stdin_bytes,
+        usage: Some(ProviderUsage {
+            input_tokens: 12,
+            cached_input_tokens: 2,
+            cache_write_input_tokens: 0,
+            output_tokens: 7,
+            reasoning_output_tokens: 3,
+        }),
+        cleanup: ProviderCleanup::Settled,
+        error: None,
+        effective_identity: None,
+    };
+    let settled = project
+        .settle_provider_discussion(report.clone())
+        .expect("settle provider completion");
+    let replay = project
+        .settle_provider_discussion(report)
+        .expect("replay provider completion after a lost acknowledgment");
+    assert_eq!(replay.run.id, settled.run.id);
+    assert_eq!(replay.provider_result, settled.provider_result);
+    assert_eq!(settled.run.status, DiscussionRunStatus::Completed);
+    assert_eq!(settled.run.provider_binding, Some(binding.clone()));
+    assert_eq!(
+        settled
+            .run
+            .provider_result
+            .as_ref()
+            .unwrap()
+            .usage
+            .as_ref()
+            .unwrap()
+            .output_tokens,
+        7
+    );
+    drop(project);
+    let reopened = ProjectSession::open(&path).expect("reopen provider project");
+    let reopened_access = reopened.attach("provider-reopen".into()).unwrap();
+    let view = reopened
+        .read_discussion(reopened_access, "chapter-one".into())
+        .unwrap();
+    let run = view.runs.last().unwrap();
+    assert_eq!(run.status, DiscussionRunStatus::Completed);
+    assert_eq!(run.provider_binding, Some(binding));
+    assert_eq!(run.output_text, "A complete bounded answer.");
+}
+
+#[test]
+fn unresolved_provider_cleanup_interrupts_and_accepts_partial_stdin_without_proposals() {
+    let temp = TempDir::new("provider-unresolved");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let binding = ProviderBinding::codex_luna();
+    let mut request = start_request(
+        &access,
+        &document,
+        "provider-unresolved-start",
+        "Answer about the selected chapter.",
+        None,
+        Vec::new(),
+    );
+    request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(request).unwrap();
+    project
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .unwrap();
+    let prefix = append(
+        &project,
+        &started.run.owner,
+        "0",
+        "provider-prefix",
+        "Partial ",
+    );
+    let settled = project
+        .settle_provider_discussion(ProviderTerminalReport {
+            owner: started.run.owner.clone(),
+            expected_sequence: prefix.sequence,
+            event_id: "provider-terminal-unresolved".into(),
+            assistant_text: "Partial ".into(),
+            binding,
+            status: ProviderOutcomeStatus::TimedOut,
+            confirmed_stdin_bytes: "0".into(),
+            usage: None,
+            cleanup: ProviderCleanup::Unresolved,
+            error: Some("cleanup could not be confirmed".into()),
+            effective_identity: None,
+        })
+        .expect("settle unresolved provider result");
+    assert_eq!(settled.run.status, DiscussionRunStatus::Interrupted);
+    assert_eq!(settled.run.output_text, "Partial ");
+    assert!(settled.run.provider_result.is_some());
+    assert!(
+        project
+            .proposals(access, "chapter-one".into())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn live_proposal_discussion_freezes_strict_response_contract_in_packet() {
+    let temp = TempDir::new("provider-proposal-contract");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let instruction = "Make only this passage quieter while preserving the author's exact ending.";
+    let mut request = start_request(
+        &access,
+        &document,
+        "provider-proposal-contract-start",
+        instruction,
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    request.intent = FeedbackIntent::ProposeEdits;
+    request.provider_binding = Some(ProviderBinding::codex_luna());
+
+    let started = project
+        .start_discussion(request)
+        .expect("start live proposal discussion");
+    assert!(
+        started.packet.messages[0]
+            .content
+            .contains(PROPOSAL_RESPONSE_CONTRACT)
+    );
+    assert!(
+        started.packet.messages[0]
+            .content
+            .contains("replacementText")
+    );
+    assert_eq!(started.packet.messages[2].content, instruction);
+
+    let reopened_packet = project
+        .prepared_context(access, started.packet.receipt.packet_id.clone())
+        .expect("reopen frozen proposal packet");
+    assert_eq!(reopened_packet, started.packet);
+    assert_eq!(
+        reopened_packet.options.provider_binding,
+        Some(ProviderBinding::codex_luna())
+    );
+}
+
+#[test]
+fn tampered_provider_result_is_rejected_by_backup_validation() {
+    let temp = TempDir::new("provider-result-backup-tamper");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let binding = ProviderBinding::codex_luna();
+    let mut request = start_request(
+        &access,
+        &document,
+        "provider-result-backup-tamper-start",
+        "Answer about the selected chapter.",
+        None,
+        Vec::new(),
+    );
+    request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(request).unwrap();
+    let dispatch = project
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .unwrap();
+    let stdin_bytes = serialized_input(&dispatch.packet.messages, &dispatch.packet.options)
+        .unwrap()
+        .len()
+        .to_string();
+    project
+        .settle_provider_discussion(ProviderTerminalReport {
+            owner: started.run.owner,
+            expected_sequence: "0".into(),
+            event_id: "provider-result-backup-tamper-terminal".into(),
+            assistant_text: "A durable answer.".into(),
+            binding,
+            status: ProviderOutcomeStatus::Completed,
+            confirmed_stdin_bytes: stdin_bytes,
+            usage: None,
+            cleanup: ProviderCleanup::Settled,
+            error: None,
+            effective_identity: None,
+        })
+        .unwrap();
+    drop(project);
+
+    let database = path.join("project.sqlite3");
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "DROP TRIGGER provider_results_no_update;
+             UPDATE provider_results SET assistant_text='tampered';",
+        )
+        .unwrap();
+    drop(connection);
+
+    let reopened = ProjectSession::open(&path).unwrap();
+    let error = create_backup(&reopened, &temp.child("tampered.wnsbackup"))
+        .expect_err("tampered provider result must reject backup");
+    assert_eq!(error.code, "InvalidBackup");
+}
+
+#[test]
+fn completed_live_run_without_provider_result_is_rejected_by_backup_validation() {
+    let temp = TempDir::new("provider-result-backup-missing");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let binding = ProviderBinding::codex_luna();
+    let mut request = start_request(
+        &access,
+        &document,
+        "provider-result-backup-missing-start",
+        "Answer about the selected chapter.",
+        None,
+        Vec::new(),
+    );
+    request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(request).unwrap();
+    let dispatch = project
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .unwrap();
+    let stdin_bytes = serialized_input(&dispatch.packet.messages, &dispatch.packet.options)
+        .unwrap()
+        .len()
+        .to_string();
+    project
+        .settle_provider_discussion(ProviderTerminalReport {
+            owner: started.run.owner,
+            expected_sequence: "0".into(),
+            event_id: "provider-result-backup-missing-terminal".into(),
+            assistant_text: "A durable answer.".into(),
+            binding,
+            status: ProviderOutcomeStatus::Completed,
+            confirmed_stdin_bytes: stdin_bytes,
+            usage: None,
+            cleanup: ProviderCleanup::Settled,
+            error: None,
+            effective_identity: None,
+        })
+        .unwrap();
+    drop(project);
+
+    let database = path.join("project.sqlite3");
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "DROP TRIGGER provider_results_no_delete;
+             DELETE FROM provider_results;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let reopened = ProjectSession::open(&path).unwrap();
+    let error = create_backup(&reopened, &temp.child("missing.wnsbackup"))
+        .expect_err("completed live run without provider result must reject backup");
+    assert_eq!(error.code, "InvalidBackup");
 }

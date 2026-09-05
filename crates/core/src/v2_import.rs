@@ -2,8 +2,8 @@
 //!
 //! This module deliberately stops at a preview.  It never installs rows into a V3
 //! project.  On the supported Windows path it reads the original through a
-//! share-read OS handle and opens only an owned copy with SQLite.  The eventual
-//! installer can use the preview as an input after adding its own staging boundary.
+//! share-read OS handle and opens only an owned copy with SQLite. The separate
+//! projects::import installer consumes a validated preview within its staging boundary.
 
 use crate::projects::{CoreError, CoreResult};
 use rusqlite::{Connection, OpenFlags, Row, types::ValueRef};
@@ -114,6 +114,15 @@ pub struct V2ProjectPreview {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct V2ProjectSummary {
+    pub source_project_id: String,
+    pub title: String,
+    pub slug: String,
+    pub chapter_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct V2ChapterPreview {
     pub source_id: String,
     pub chapter_number: i64,
@@ -124,6 +133,17 @@ pub struct V2ChapterPreview {
     pub working_prose_based_on_draft_id: Option<String>,
     pub approved_draft_id: Option<String>,
     pub draft_count: usize,
+    pub drafts: Vec<V2DraftPreview>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct V2DraftPreview {
+    pub source_id: String,
+    pub version: i64,
+    pub prose: String,
+    pub is_approved: bool,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -196,6 +216,47 @@ pub fn preview_v2_import(path: &Path, source_project_id: &str) -> CoreResult<V2I
     })();
     let _ = connection.execute_batch("ROLLBACK");
     result
+}
+
+/// List bounded source-project metadata so callers can present a choice before
+/// requesting a selected-project preview. The source is still copied through
+/// the same Windows-only, read-only snapshot boundary as preview/import.
+pub fn list_v2_projects(path: &Path) -> CoreResult<Vec<V2ProjectSummary>> {
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        return Err(v2_error(
+            "UnsupportedPlatform",
+            "V2 import preview currently requires the Windows source snapshot boundary",
+        ));
+    }
+    #[cfg(windows)]
+    {
+        let (snapshot, source) = source_snapshot(path)?;
+        let connection =
+            Connection::open_with_flags(&snapshot.path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        connection.execute_batch("BEGIN")?;
+        let result = (|| {
+            validate_schema(&connection, source.schema_version)?;
+            let mut statement = connection.prepare(
+                "SELECT p.id,p.title,p.slug,COUNT(c.id)
+                 FROM projects p LEFT JOIN chapters c ON c.project_id=p.id
+                 GROUP BY p.id,p.title,p.slug ORDER BY p.title COLLATE NOCASE,p.id",
+            )?;
+            let rows = statement.query_map([], |row| {
+                let chapter_count: i64 = row.get(3)?;
+                Ok(V2ProjectSummary {
+                    source_project_id: row.get(0)?,
+                    title: row.get(1)?,
+                    slug: row.get(2)?,
+                    chapter_count: usize::try_from(chapter_count).unwrap_or(usize::MAX),
+                })
+            })?;
+            Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        })();
+        let _ = connection.execute_batch("ROLLBACK");
+        result
+    }
 }
 
 struct OwnedSnapshot {
@@ -825,6 +886,14 @@ fn string_or_null<'a>(payload: &'a serde_json::Value, field: &str) -> Option<&'a
     payload.get(field).and_then(serde_json::Value::as_str)
 }
 
+fn payload_string<'a>(payload: &'a serde_json::Value, field: &str) -> Option<&'a str> {
+    payload.get(field).and_then(serde_json::Value::as_str)
+}
+
+fn payload_i64(payload: &serde_json::Value, field: &str) -> Option<i64> {
+    payload.get(field).and_then(serde_json::Value::as_i64)
+}
+
 fn chapter_previews(
     connection: &Connection,
     selected: &str,
@@ -838,7 +907,7 @@ fn chapter_previews(
         let working: Option<String> = row.get(4)?;
         let based: Option<String> = row.get(5)?;
         let approved: Option<String> = row.get(6)?;
-        let draft_count = catalog
+        let drafts = catalog
             .rows
             .iter()
             .filter(|item| {
@@ -850,7 +919,17 @@ fn chapter_previews(
                         .and_then(serde_json::Value::as_str)
                         == Some(id.as_str())
             })
-            .count();
+            .filter_map(|item| {
+                Some(V2DraftPreview {
+                    source_id: item.id.clone(),
+                    version: payload_i64(&item.payload, "version")?,
+                    prose: payload_string(&item.payload, "prose")?.to_owned(),
+                    is_approved: payload_i64(&item.payload, "is_approved")? != 0,
+                    created_at: payload_string(&item.payload, "created_at")?.to_owned(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let draft_count = drafts.len();
         chapters.push(V2ChapterPreview {
             source_id: id,
             chapter_number: row.get(1)?,
@@ -865,6 +944,7 @@ fn chapter_previews(
             working_prose_based_on_draft_id: based,
             approved_draft_id: approved,
             draft_count,
+            drafts,
         });
     }
     Ok(chapters)

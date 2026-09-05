@@ -13,9 +13,13 @@ mod discussion_recovery;
 mod export_commands;
 mod guidance_commands;
 mod library_commands;
+#[cfg(windows)]
+mod live_discussion;
 mod project_commands;
 mod provider_commands;
+mod provider_runtime;
 mod source_pin_commands;
+mod v2_import_commands;
 
 #[tauri::command]
 fn validate_snapshot(snapshot_json: String) -> Result<SnapshotReceipt, String> {
@@ -47,6 +51,7 @@ fn main() {
     tauri::Builder::default()
         .manage(project_commands::DesktopProjects::default())
         .manage(discussion_recovery::DiscussionRecovery::default())
+        .manage(provider_runtime::DesktopProviders::default())
         .setup(|app| {
             // Installed releases keep their library across rebuilds and upgrades.
             // Development checkouts and synthetic qualification data stay separate.
@@ -104,6 +109,10 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             provider_commands::provider_state,
+            v2_import_commands::v2_import_list_projects,
+            v2_import_commands::v2_import_preview,
+            v2_import_commands::v2_import,
+            provider_commands::check_codex_connection,
             provider_commands::save_model_settings,
             export_commands::prepare_draft_export,
             export_commands::export_prepared_draft,
@@ -158,6 +167,7 @@ fn main() {
             library_commands::library_archive,
             library_commands::library_recover,
             library_commands::library_duplicate,
+            library_commands::library_resume_import,
             library_commands::project_backup
         ])
         .run(tauri::generate_context!())
