@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use tauri::Manager;
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
 mod context_commands;
+mod discussion_commands;
 mod library_commands;
 mod project_commands;
 
@@ -84,6 +85,10 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            discussion_commands::read_discussion,
+            discussion_commands::save_discussion_draft,
+            discussion_commands::start_discussion,
+            discussion_commands::stop_discussion,
             context_commands::context_epochs,
             context_commands::freeze_story_context,
             context_commands::story_context_snapshot,

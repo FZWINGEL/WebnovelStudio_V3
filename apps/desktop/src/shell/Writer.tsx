@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Editor, Extension } from '@tiptap/core';
 import { EditorContent } from '@tiptap/react';
 import { Plugin, Selection, TextSelection } from '@tiptap/pm/state';
@@ -7,6 +7,8 @@ import { editorExtensions } from '../editor/schema';
 import { snapshotFromEditor } from '../editor/document';
 import { DocumentSession, SessionError } from '../editor/session';
 import { saveViewState, type DocumentRecord, type Endpoint, type ViewState } from '../ipc/projects';
+import { captureSelection, type Scope } from '../editor/selection';
+import { FeedbackPanel } from '../assistant/FeedbackPanel';
 
 const Manuscript = memo(({ editor }: { editor: Editor }) => <EditorContent editor={editor} />);
 export function Writer({ active, onError, onRename }: { active: { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null }; onError: (message: string) => void; onRename: () => void }) {
@@ -14,6 +16,12 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
   const [state, setState] = useState(session.state);
   const [, redraw] = useState(0);
   const [pasteNotice, setPasteNotice] = useState('');
+  const [discussionVisible, setDiscussionVisible] = useState(true);
+  const [discussionSelection, setDiscussionSelection] = useState<{ scope: Scope; nonce: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const discussionSaver = useRef<(() => Promise<void>) | null>(null);
+  const registerDiscussionSaver = useCallback((save: (() => Promise<void>) | null) => { discussionSaver.current = save; }, []);
+  const discuss = useRef<() => boolean>(() => false);
   const [editor] = useState(() => new Editor({
     extensions: [...editorExtensions, Extension.create({
       name: 'persistentEditing', priority: 1000,
@@ -23,6 +31,7 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
         'Mod-Shift-z': () => redo(this.editor.state, tr => this.editor.view.dispatch(tr.setMeta('saveCause', 'redo'))),
         'Mod-y': () => redo(this.editor.state, tr => this.editor.view.dispatch(tr.setMeta('saveCause', 'redo'))),
         'Mod-s': () => { void session.checkpoint('manual').catch(error => onError(String(error.message))); return true; },
+        'Mod-Shift-f': () => discuss.current(),
       }; },
     })],
     content: structuredClone(session.body.body),
@@ -32,6 +41,12 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
       session.update(snapshotFromEditor(editor.getJSON()), transaction.getMeta('saveCause') ?? 'typing');
     },
   }));
+  discuss.current = () => {
+    const scope = captureSelection(editor);
+    if (!scope) return false;
+    setDiscussionSelection(previous => ({ scope, nonce: (previous?.nonce ?? 0) + 1 }));
+    setDiscussionVisible(true); setMenu(null); return true;
+  };
   useEffect(() => {
     const unsubscribe = session.subscribe(() => { setState(session.state); editor.setEditable(session.state.editable, false); });
     let viewTimer: ReturnType<typeof setTimeout> | undefined;
@@ -46,6 +61,7 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
       return found ?? { blockId: editor.state.doc.lastChild!.attrs.id as string, utf16Offset: editor.state.doc.lastChild!.content.size };
     };
     session.setViewSaver(async () => {
+      await discussionSaver.current?.();
       const head = session.state.head; const anchor = endpoint(editor.state.selection.anchor); const focus = endpoint(editor.state.selection.head);
       const saved = await saveViewState(session.projectAccess, head, anchor, focus);
       if (saved.documentId !== head.documentId || saved.head.version !== head.version || saved.head.bodyHash !== head.bodyHash
@@ -83,8 +99,8 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
     } catch (error) { onError((error as Error).message); }
   }
   const saving = state.phase === 'reconciling' ? 'Checking saved version…' : state.phase === 'conflict' ? 'Choose which version to keep' : state.phase === 'saveFailed' ? "Couldn't save" : state.dirty || state.saving ? 'Saving…' : 'Saved';
-  return <main className="writing" aria-label="Writing desk">
-    <div className="document-heading"><h1>{record.title}</h1><button disabled={!state.editable} onClick={onRename}>Rename document</button><span className="save-status" role="status" aria-live="polite">{saving}</span></div>
+  return <><main className="writing" aria-label="Writing desk">
+    <div className="document-heading"><h1>{record.title}</h1><button disabled={!state.editable} onClick={onRename}>Rename document</button><button aria-pressed={discussionVisible} onClick={() => setDiscussionVisible(value => !value)}>Discussion</button><span className="save-status" role="status" aria-live="polite">{saving}</span></div>
     <div className="formatbar" role="toolbar" aria-label="Manuscript formatting">
       <select aria-label="Paragraph style" disabled={!state.editable} value={editor.isActive('heading') ? `h${editor.getAttributes('heading').level}` : 'p'} onChange={event => { if (event.target.value === 'p') editor.chain().focus().setNode('paragraph').run(); else editor.chain().focus().setNode('heading', { level: Number(event.target.value.slice(1)) }).run(); }}><option value="p">Paragraph</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option></select>
       <button className="format-button bold" aria-label="Bold" aria-pressed={editor.isActive('bold')} disabled={!state.editable} onMouseDown={event => event.preventDefault()} onClick={() => editor.chain().focus().toggleMark('bold').run()}>B</button>
@@ -92,11 +108,15 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
       <button disabled={!state.editable} onClick={() => editor.chain().focus().insertContent({ type: 'sceneBreak', attrs: { id: crypto.randomUUID() } }).run()}>Scene break</button>
       <button disabled={!state.editable || !undoDepth(editor.state)} onClick={() => { undo(editor.state, tr => editor.view.dispatch(tr.setMeta('saveCause', 'undo'))); editor.commands.focus(); }}>Undo</button>
       <button disabled={!state.editable || !redoDepth(editor.state)} onClick={() => { redo(editor.state, tr => editor.view.dispatch(tr.setMeta('saveCause', 'redo'))); editor.commands.focus(); }}>Redo</button>
+      <button className="selection-action" disabled={!state.editable || editor.state.selection.empty} onMouseDown={event => event.preventDefault()} onClick={() => discuss.current()}>Discuss selection</button>
     </div>
     {state.error && <section className="save-error" role="alert"><p>{state.error}</p><div className="header-actions">{state.phase === 'saveFailed' && <button onClick={() => void session.flush().catch(error => onError(error.message))}>Retry save</button>}{state.phase === 'reconciling' && <button onClick={() => void session.reconcile().catch(error => onError(error.message))}>Check saved version</button>}<button onClick={() => void navigator.clipboard.writeText(editor.getText()).catch(() => onError('Could not copy. Select and copy your text from the editor.'))}>Copy my text</button></div>
       {state.phase === 'conflict' && <><h2>Saved version</h2><div className="saved-version-preview">{session.savedConflict?.body.body.content.map(block => block.type === 'sceneBreak' ? <hr key={block.attrs.id} /> : <p key={block.attrs.id}>{block.content?.map((inline, index) => inline.type === 'hardBreak' ? <br key={index} /> : <span key={index} style={{ fontWeight: inline.marks?.some(mark => mark.type === 'bold') ? 700 : undefined, fontStyle: inline.marks?.some(mark => mark.type === 'italic') ? 'italic' : undefined }}>{inline.text}</span>)}</p>)}</div><p>Your local version is still in the editor.</p><button onClick={() => void resolve('keepLocal')}>Keep my local version</button><button onClick={() => void resolve('useSaved')}>Use the saved version</button></>}
     </section>}
-    <div className="manuscript-scroll" onPaste={event => { if (/<(?:table|img|ul|ol|pre|video|iframe|script|blockquote|code|s|strike|del|u|sub|sup|h[4-6])\b/iu.test(event.clipboardData.getData('text/html'))) setPasteNotice('Pasted text with supported formatting. Other formatting or embedded content was omitted.'); }}><div className="manuscript-page"><Manuscript editor={editor} /></div></div>
+    <div className="manuscript-scroll" onContextMenu={event => { if (!editor.state.selection.empty && state.editable) { event.preventDefault(); setMenu({ x: Math.min(event.clientX, window.innerWidth - 270), y: Math.min(event.clientY, window.innerHeight - 60) }); } }} onPaste={event => { if (/<(?:table|img|ul|ol|pre|video|iframe|script|blockquote|code|s|strike|del|u|sub|sup|h[4-6])\b/iu.test(event.clipboardData.getData('text/html'))) setPasteNotice('Pasted text with supported formatting. Other formatting or embedded content was omitted.'); }}><div className="manuscript-page"><Manuscript editor={editor} /></div></div>
     <footer className="writing-status"><span>{pasteNotice || 'Writing on this computer'}</span><span>Offline writing</span></footer>
-  </main>;
+  </main>
+  <FeedbackPanel session={session} state={state} title={record.title} selection={discussionSelection} visible={discussionVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} />
+  {menu && <><div className="menu-dismiss" onClick={() => setMenu(null)} /><div className="selection-menu" role="menu" aria-label="Selected passage" style={{ left: menu.x, top: menu.y }} onKeyDown={event => { if (event.key === 'Escape') { setMenu(null); editor.commands.focus(); } }}><button role="menuitem" autoFocus onMouseDown={event => event.preventDefault()} onClick={() => discuss.current()}>Discuss selection · Ctrl+Shift+F</button></div></>}
+  </>;
 }

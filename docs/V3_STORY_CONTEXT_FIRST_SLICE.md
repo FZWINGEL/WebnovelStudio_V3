@@ -3,7 +3,7 @@
 **Implementation plan · 5 September 2026**
 **Contract:** `V3_STORY_CONTEXT_SYSTEM.md`.
 **Base:** `V3_ARCHITECTURE_REFINED.md` and `V3_FIRST_SLICE_PLAN.md`.
-**Status:** C0 pure contracts and 16 adversarial tests are implemented. C1's working-basis snapshot/retrieval slice is implemented and tested. C2's Rust pure deterministic compiler, durable exact packet receipts, and native IPC path are implemented locally; the updated native smoke check remains open. C3–C6 remain planned, and the work-package acceptance gates are not complete.
+**Status:** C0 pure contracts and 16 adversarial tests are implemented. C1's working-basis snapshot/retrieval slice is implemented and tested. C2's Rust pure deterministic compiler, durable exact packet receipts, and native IPC path are implemented and pushed; the current development smoke covers the packet path. W4 now partially integrates the C3 inspector and scoped source pins through persistent discussions. Keep as guidance, permitted conversation-history compilation, durable Apply, C4–C6, and the work-package acceptance gates remain open.
 
 The supplied research and proposal are rationale for this adopted design, not newly verified validation or completed implementation evidence.
 
@@ -57,7 +57,7 @@ Coverage labels distinguish verbatim, digest, and directory-only. Preserve the e
 
 ### C3 — Integrate conversation guidance and the author-facing inspector
 
-Add Story context with Used, Available, Not included, and Needs refresh. Implement scoped source pins and “Keep as guidance” for explicit author decisions. Keep entire conversations locally, while compiling only relevant permitted history into each request.
+The current W4 discussion surface partially integrates this package: Story context shows Used, Available, Not included, and Needs refresh with exact source reads, and captures pins for the next request. Entire conversations remain locally. Complete the package with scoped “Keep as guidance” for explicit author decisions, persistent chapter/project pins, and compilation of relevant permitted history into each request.
 
 Wire the deterministic mock through the existing discussion/proposal workflow. A selected sentence can use broad read-only context without widening its editable scope.
 

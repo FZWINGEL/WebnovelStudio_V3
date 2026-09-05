@@ -294,116 +294,7 @@ impl OwnedProject {
                 "Prepare a new request using the current source permissions.",
             ));
         }
-        let target_document = read_document(&tx, &request.expected.document_id)?;
-        require_head(&target_document.head, &request.expected)?;
-        let target = checkpoint_at(&tx, &target_document, "context")?;
-        let source_ref = |revision: &Revision| SourceRef {
-            project_id: request.access.project_id.clone(),
-            document_id: revision.head.document_id.clone(),
-            revision_id: revision.id.clone(),
-            body_hash: revision.head.body_hash.clone(),
-        };
-        let mut snapshot = StorySnapshot {
-            snapshot_id: new_id(),
-            project_id: request.access.project_id.clone(),
-            basis: request.basis,
-            target: source_ref(&target),
-            context_source_epoch: current_epochs.source.clone(),
-            ordering_epoch: current_epochs.source,
-            disclosure_policy_version: current_epochs.policy,
-            sources: Vec::new(),
-        };
-        let ids = ordered_documents(&tx)?;
-        for (id, position) in ids {
-            let document = read_document(&tx, &id)?;
-            let revision = checkpoint_at(&tx, &document, "context")?;
-            let chapter = document.kind == "chapter";
-            snapshot.sources.push(SourceDescriptor {
-                handle: revision.id.clone(),
-                source: source_ref(&revision),
-                display_name: document.title,
-                kind: SourceKind::CurrentDraft,
-                current: true,
-                coverage: CoverageLabel::Verbatim,
-                disclosure: Disclosure {
-                    reader_position: chapter.then(|| position.to_string()),
-                    visible_to_characters: Vec::new(),
-                    author_only: !chapter,
-                    future_private: false,
-                },
-                story_time: None,
-                dependencies: Vec::new(),
-            });
-        }
-        let target_handle = target.id;
-        eligibility(
-            &snapshot,
-            &request.policy,
-            request.purpose,
-            std::slice::from_ref(&target_handle),
-        )
-        .map_err(eligibility_error)?;
-        let total = snapshot.sources.len();
-        // Test every candidate with the mandatory target. Only permitted
-        // descriptors (including their titles) enter the public manifest.
-        let mut eligible = HashSet::new();
-        // C1 resolves only original drafts with no derived dependencies. Check
-        // each against the target without repeatedly validating a thousand-
-        // document manifest. Derived-source closure is handled by C0/C4.
-        let mut candidate_snapshot = snapshot.clone();
-        candidate_snapshot
-            .sources
-            .retain(|source| source.handle == target_handle);
-        for source in &snapshot.sources {
-            let selected = if source.handle == target_handle {
-                vec![target_handle.clone()]
-            } else {
-                vec![target_handle.clone(), source.handle.clone()]
-            };
-            if source.handle != target_handle {
-                candidate_snapshot.sources.push(source.clone());
-            }
-            if eligibility(
-                &candidate_snapshot,
-                &request.policy,
-                request.purpose,
-                &selected,
-            )
-            .is_ok()
-            {
-                eligible.insert(source.handle.clone());
-            }
-            candidate_snapshot.sources.truncate(1);
-        }
-        snapshot
-            .sources
-            .retain(|source| eligible.contains(&source.handle));
-        let mut aliases = BTreeMap::new();
-        for source in &snapshot.sources {
-            // Author-entered aliases have no reader-disclosure provenance yet.
-            // They remain author-room metadata until explicit safe grants exist.
-            if request.policy.audience == Audience::AuthorRoom {
-                aliases.insert(
-                    source.handle.clone(),
-                    read_aliases(&tx, &source.source.document_id)?,
-                );
-            }
-        }
-        let frozen = FrozenContext {
-            excluded_source_count: (total - snapshot.sources.len()) as u32,
-            snapshot,
-            policy: request.policy,
-            purpose: request.purpose,
-            aliases,
-        };
-        let json = serde_json::to_string(&frozen)?;
-        tx.execute(
-            "INSERT INTO story_snapshots(id,project_id,operation_namespace,operation_id,payload_hash,context_source_epoch,disclosure_policy_epoch,manifest_json,manifest_hash) VALUES(?,?,?,?,?,?,?,?,?)",
-            params![frozen.snapshot.snapshot_id, request.access.project_id, request.access.operation_namespace, request.operation_id, payload, parse_version(&frozen.snapshot.context_source_epoch)?, parse_version(&frozen.policy.version)?, json, sha256_hex(json.as_bytes())],
-        )?;
-        for source in &frozen.snapshot.sources {
-            tx.execute("INSERT INTO snapshot_sources(snapshot_id,handle,document_id,revision_id,body_hash) VALUES(?,?,?,?,?)", params![frozen.snapshot.snapshot_id, source.handle, source.source.document_id, source.source.revision_id, source.source.body_hash])?;
-        }
+        let frozen = freeze_story_at(&tx, &request, &payload)?;
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(frozen)
     }
@@ -596,6 +487,159 @@ impl OwnedProject {
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(count)
     }
+}
+
+/// Build and persist one immutable story snapshot inside an existing actor
+/// transaction. Callers that need to compose another durable record (for
+/// example a discussion run and its packet) can therefore freeze the same
+/// source basis without opening a nested transaction.
+pub(super) fn freeze_story_at(
+    tx: &Connection,
+    request: &FreezeStory,
+    payload_hash: &str,
+) -> CoreResult<FrozenContext> {
+    if request.basis != BasisKind::Working {
+        return Err(CoreError::new(
+            "BasisUnavailable",
+            "Reviewed and explicit historical requests need their respective authority records.",
+        ));
+    }
+    if request.policy.audience == Audience::AuthorRoom
+        && matches!(
+            request.purpose,
+            ContextPurpose::Revise | ContextPurpose::Continue
+        )
+    {
+        return Err(CoreError::new(
+            "BoundaryConflict",
+            "Prepare a separate writing request with an approved disclosure boundary.",
+        ));
+    }
+    if request.policy.character_id.is_some() || !request.policy.character_grants.is_empty() {
+        return Err(CoreError::new(
+            "CharacterPolicyUnavailable",
+            "Character-specific disclosure needs reviewed knowledge grants.",
+        ));
+    }
+    check_id(&request.operation_id)?;
+    let current_epochs = epochs(tx)?;
+    if request.policy.version != current_epochs.policy {
+        return Err(CoreError::new(
+            "ContextPolicyChanged",
+            "Prepare a new request using the current source permissions.",
+        ));
+    }
+    let target_document = read_document(tx, &request.expected.document_id)?;
+    require_head(&target_document.head, &request.expected)?;
+    let target = checkpoint_at(tx, &target_document, "context")?;
+    let source_ref = |revision: &Revision| SourceRef {
+        project_id: request.access.project_id.clone(),
+        document_id: revision.head.document_id.clone(),
+        revision_id: revision.id.clone(),
+        body_hash: revision.head.body_hash.clone(),
+    };
+    let mut snapshot = StorySnapshot {
+        snapshot_id: new_id(),
+        project_id: request.access.project_id.clone(),
+        basis: request.basis,
+        target: source_ref(&target),
+        context_source_epoch: current_epochs.source.clone(),
+        ordering_epoch: current_epochs.source,
+        disclosure_policy_version: current_epochs.policy,
+        sources: Vec::new(),
+    };
+    let ids = ordered_documents(tx)?;
+    for (id, position) in ids {
+        let document = read_document(tx, &id)?;
+        let revision = checkpoint_at(tx, &document, "context")?;
+        let chapter = document.kind == "chapter";
+        snapshot.sources.push(SourceDescriptor {
+            handle: revision.id.clone(),
+            source: source_ref(&revision),
+            display_name: document.title,
+            kind: SourceKind::CurrentDraft,
+            current: true,
+            coverage: CoverageLabel::Verbatim,
+            disclosure: Disclosure {
+                reader_position: chapter.then(|| position.to_string()),
+                visible_to_characters: Vec::new(),
+                author_only: !chapter,
+                future_private: false,
+            },
+            story_time: None,
+            dependencies: Vec::new(),
+        });
+    }
+    let target_handle = target.id;
+    eligibility(
+        &snapshot,
+        &request.policy,
+        request.purpose,
+        std::slice::from_ref(&target_handle),
+    )
+    .map_err(eligibility_error)?;
+    let total = snapshot.sources.len();
+    // Test every candidate with the mandatory target. Only permitted
+    // descriptors (including their titles) enter the public manifest.
+    let mut eligible = HashSet::new();
+    // C1 resolves only original drafts with no derived dependencies. Check
+    // each against the target without repeatedly validating a thousand-
+    // document manifest. Derived-source closure is handled by C0/C4.
+    let mut candidate_snapshot = snapshot.clone();
+    candidate_snapshot
+        .sources
+        .retain(|source| source.handle == target_handle);
+    for source in &snapshot.sources {
+        let selected = if source.handle == target_handle {
+            vec![target_handle.clone()]
+        } else {
+            vec![target_handle.clone(), source.handle.clone()]
+        };
+        if source.handle != target_handle {
+            candidate_snapshot.sources.push(source.clone());
+        }
+        if eligibility(
+            &candidate_snapshot,
+            &request.policy,
+            request.purpose,
+            &selected,
+        )
+        .is_ok()
+        {
+            eligible.insert(source.handle.clone());
+        }
+        candidate_snapshot.sources.truncate(1);
+    }
+    snapshot
+        .sources
+        .retain(|source| eligible.contains(&source.handle));
+    let mut aliases = BTreeMap::new();
+    for source in &snapshot.sources {
+        // Author-entered aliases have no reader-disclosure provenance yet.
+        // They remain author-room metadata until explicit safe grants exist.
+        if request.policy.audience == Audience::AuthorRoom {
+            aliases.insert(
+                source.handle.clone(),
+                read_aliases(tx, &source.source.document_id)?,
+            );
+        }
+    }
+    let frozen = FrozenContext {
+        excluded_source_count: (total - snapshot.sources.len()) as u32,
+        snapshot,
+        policy: request.policy.clone(),
+        purpose: request.purpose,
+        aliases,
+    };
+    let json = serde_json::to_string(&frozen)?;
+    tx.execute(
+        "INSERT INTO story_snapshots(id,project_id,operation_namespace,operation_id,payload_hash,context_source_epoch,disclosure_policy_epoch,manifest_json,manifest_hash) VALUES(?,?,?,?,?,?,?,?,?)",
+        params![frozen.snapshot.snapshot_id, request.access.project_id, request.access.operation_namespace, request.operation_id, payload_hash, parse_version(&frozen.snapshot.context_source_epoch)?, parse_version(&frozen.policy.version)?, json, sha256_hex(json.as_bytes())],
+    )?;
+    for source in &frozen.snapshot.sources {
+        tx.execute("INSERT INTO snapshot_sources(snapshot_id,handle,document_id,revision_id,body_hash) VALUES(?,?,?,?,?)", params![frozen.snapshot.snapshot_id, source.handle, source.source.document_id, source.source.revision_id, source.source.body_hash])?;
+    }
+    Ok(frozen)
 }
 
 fn epochs(db: &Connection) -> CoreResult<ContextEpochs> {

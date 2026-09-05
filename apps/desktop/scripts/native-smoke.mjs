@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+const executable = process.env.WNS_V3_NATIVE_EXE ? resolve(process.env.WNS_V3_NATIVE_EXE) : resolve(root, 'target/debug/webnovel-desktop.exe');
 const output = resolve(root, '.local/native-results');
 await mkdir(output, { recursive: true });
 const data = await mkdtemp(resolve(tmpdir(), 'wns-v3-native-'));
@@ -19,7 +20,7 @@ await new Promise(resolve => server.close(resolve));
 let appLog = '';
 let spawnError;
 function launch() {
-  const process = spawn(resolve(root, 'target/debug/webnovel-desktop.exe'), [], {
+  const process = spawn(executable, [], {
     cwd: root, windowsHide: true, stdio: 'pipe',
     env: { ...globalThis.process.env, WNS_V3_NATIVE_CDP_PORT: String(port), WNS_V3_TRIAL_WEBVIEW_DIR: resolve(data, 'webview'), WNS_V3_TEST_DATA_DIR: resolve(data, 'library') },
   });
@@ -340,6 +341,29 @@ try {
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
   await page.getByRole('heading', { name: 'Ending to protect', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.querySelector('.tiptap').editor.state.selection.anchor), 7);
+  const beforeDiscussion = await page.evaluate(() => { window.discussionEditor = document.querySelector('.tiptap').editor; window.discussionEditor.commands.setTextSelection({ from: 10, to: 23 }); return window.discussionEditor.getJSON(); });
+  await page.getByRole('button', { name: 'Discuss selection', exact: true }).click();
+  await page.locator('.persistent-feedback .quoted-scope blockquote').filter({ hasText: /^final lantern$/ }).waitFor();
+  await page.getByRole('textbox', { name: 'Discuss this passage', exact: true }).fill('Keep this image, but make its meaning less obvious.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('.persistent-feedback article').filter({ hasText: 'This test confirms discussion and context handling' }).waitFor();
+  assert(await page.evaluate(() => document.querySelector('.tiptap').editor === window.discussionEditor));
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeDiscussion);
+  await page.locator('.context-inspector>summary').click();
+  await page.locator('.context-inspector summary').filter({ hasText: /^Used/ }).waitFor();
+  await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).fill('Remember the promise from this scene.');
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+  await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).inputValue(), 'Remember the promise from this scene.');
+  await page.locator('.persistent-feedback article').filter({ hasText: /^You/ }).filter({ hasText: 'Keep this image, but make its meaning less obvious.' }).waitFor();
+  await page.reload();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+  await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).inputValue(), 'Remember the promise from this scene.');
+  await page.locator('.persistent-feedback article').filter({ hasText: 'This test confirms discussion and context handling' }).waitFor();
+  await page.screenshot({ path: resolve(output, 'persistent-discussion.png') });
+  checks.push('Native selected discussion retains its exact quote, mock response and context receipt without replacing prose; unsent composer and conversation survive switching and renderer reload');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: 'Archive Harbour C', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor({ state: 'detached' });

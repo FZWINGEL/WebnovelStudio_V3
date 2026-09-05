@@ -1,7 +1,7 @@
 # WebnovelStudio V3 — Story Context Engine
 
 **Design extension · 5 September 2026**
-**Status:** adopted design pending implementation; no application implementation or benchmark execution is claimed.
+**Status:** adopted design; C0–C2 are implemented and pushed, and the C2 packet/receipt path is exercised by the current development smoke. The inspector and source pins are partially integrated through W4 persistent discussions. Scoped guidance, permitted conversation-history compilation, C4–C6, provider integration, and benchmark execution remain open. See [implementation status](IMPLEMENTATION_STATUS.md).
 **Extends:** `V3_ARCHITECTURE_REFINED.md`, especially §§9–11. Replaces the minimal context compiler in §10 with the design below.
 **Companion:** `V3_STORY_CONTEXT_FIRST_SLICE.md`.
 

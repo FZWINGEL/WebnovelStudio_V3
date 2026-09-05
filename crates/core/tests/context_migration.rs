@@ -146,14 +146,20 @@ fn setup_project(
     (project, access, document, saved)
 }
 
-/// Convert a schema4 database into the previous schema2 shape. This is a
+/// Convert a schema5 database into the previous schema2 shape. This is a
 /// synthetic legacy database used only to exercise the upgrade boundary.
 fn downgrade_to_schema2(path: &Path) {
     let database = path.join("project.sqlite3");
     let connection = Connection::open(&database).expect("open current database");
     connection
         .execute_batch(
-            "DROP TABLE context_packets;
+            "DROP TABLE discussion_output_events;
+             DROP TABLE discussion_messages;
+             DROP TABLE discussion_draft_receipts;
+             DROP TABLE discussion_runs;
+             DROP TABLE discussion_drafts;
+             DROP TABLE discussion_threads;
+             DROP TABLE context_packets;
              DROP TABLE snapshot_sources;
              DROP TABLE story_snapshots;
              DROP TABLE passage_projections;
@@ -165,7 +171,7 @@ fn downgrade_to_schema2(path: &Path) {
     drop(connection);
 }
 
-/// Convert a schema4 database into the previous schema3 shape while keeping
+/// Convert a schema5 database into the previous schema3 shape while keeping
 /// all frozen story snapshots. This is a synthetic legacy database used only
 /// to exercise the context-packet migration boundary.
 fn downgrade_to_schema3(path: &Path) {
@@ -173,7 +179,13 @@ fn downgrade_to_schema3(path: &Path) {
     let connection = Connection::open(&database).expect("open current database");
     connection
         .execute_batch(
-            "DROP TABLE context_packets;
+            "DROP TABLE discussion_output_events;
+             DROP TABLE discussion_messages;
+             DROP TABLE discussion_draft_receipts;
+             DROP TABLE discussion_runs;
+             DROP TABLE discussion_drafts;
+             DROP TABLE discussion_threads;
+             DROP TABLE context_packets;
              PRAGMA user_version=3;",
         )
         .expect("downgrade synthetic database to schema3");
@@ -236,7 +248,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 4);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 5);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -288,7 +300,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
 }
 
 #[test]
-fn schema3_upgrade_to_schema4_preserves_frozen_snapshot_and_useful_backup() {
+fn schema3_upgrade_to_schema5_preserves_frozen_snapshot_and_useful_backup() {
     let temp = TempDir::new("schema3-upgrade");
     let path = temp.child("legacy");
     let (project, access, _document, _saved) = setup_project(&path);
@@ -301,7 +313,18 @@ fn schema3_upgrade_to_schema4_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 4);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 5);
+    let connection =
+        Connection::open(path.join("project.sqlite3")).expect("open migrated schema5 database");
+    let discussion_tables: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='discussion_runs'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("check schema5 discussion tables");
+    assert_eq!(discussion_tables, 1);
+    drop(connection);
     let attached = upgraded
         .attach_snapshot("schema3-upgrade-reader".into())
         .expect("attach upgraded project");
@@ -360,7 +383,7 @@ fn schema2_upgrade_failure_rolls_back_and_retains_durable_backup() {
 
     let error = ProjectSession::open(&path)
         .err()
-        .expect("conflicting schema3 migration must fail");
+        .expect("conflicting later migration must fail");
     assert_eq!(error.code, "PersistenceUnavailable");
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
     let connection = Connection::open(path.join("project.sqlite3")).expect("reopen rolled back db");
@@ -411,7 +434,7 @@ fn schema2_upgrade_failure_rolls_back_and_retains_durable_backup() {
 }
 
 #[test]
-fn schema2_backup_recovers_forward_to_schema4_with_document_view_and_epoch() {
+fn schema2_backup_recovers_forward_to_schema5_with_document_view_and_epoch() {
     let temp = TempDir::new("schema2-recovery");
     let source_path = temp.child("source");
     let (project, access, _document, saved) = setup_project(&source_path);
@@ -435,7 +458,7 @@ fn schema2_backup_recovers_forward_to_schema4_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 4);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 5);
     assert_eq!(
         recovered
             .context_source_epoch()

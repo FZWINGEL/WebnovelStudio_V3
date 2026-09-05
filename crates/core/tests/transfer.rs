@@ -605,7 +605,10 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let connection = Connection::open(&database_path).expect("open source database");
     connection
         .execute_batch(
-            "DROP TABLE context_packets; DROP TABLE snapshot_sources; DROP TABLE story_snapshots;
+            "DROP TABLE discussion_output_events; DROP TABLE discussion_messages;
+             DROP TABLE discussion_draft_receipts; DROP TABLE discussion_runs;
+             DROP TABLE discussion_drafts; DROP TABLE discussion_threads;
+             DROP TABLE context_packets; DROP TABLE snapshot_sources; DROP TABLE story_snapshots;
              DROP TABLE passage_projections; DROP TABLE document_aliases;
              ALTER TABLE project DROP COLUMN disclosure_policy_epoch;
              DROP TABLE view_state; ALTER TABLE project DROP COLUMN context_source_epoch;",
@@ -651,9 +654,9 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     );
     drop(recovered);
     let connection = Connection::open(recovered_path.join("project.sqlite3"))
-        .expect("open recovered schema two database");
+        .expect("open recovered migrated database");
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 4);
+    assert_eq!(version, 5);
 }

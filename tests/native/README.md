@@ -1,4 +1,4 @@
-# Native W0 trial
+# Native development smoke
 
 These checks drive the built Windows Tauri application through its WebView2 remote debugging endpoint. They do not launch a standalone Chromium browser. The smoke flow is implemented by `apps/desktop/scripts/native-smoke.mjs` and writes machine-local output under `.local/native-results/`, which is ignored.
 
@@ -26,10 +26,13 @@ The current flow checks:
 - refusal to apply a captured replacement after an intervening manuscript edit;
 - a visible manuscript keyboard-focus indicator;
 - actual WebView2 `Ctrl+C`/`Ctrl+V` clipboard copy/paste of formatted Unicode paragraphs with emoji and unique block IDs; and
-- right-click selection feedback.
+- right-click selection feedback;
+- persistent author-room discussion with exact selected quotations and a deterministic mock response;
+- prepared/delivered context receipt inspection over native IPC; and
+- draft and discussion-history retention across project switching and renderer reload.
 
-The source-level checks cover the same restricted document and identity contract with shared golden fixtures. W1 structural scope validation and W2 session/core receipt and reconciliation paths are implemented; W3 schema-2 migration takes an Online Backup before upgrade and carries exact-head caret/last-document state, metadata compare-and-swap, and `context_source_epoch`. Native Windows UI Automation exposes the manuscript textbox, feedback labels, and actions. Unicode input is internal robustness evidence for English authoring, not a separate language feature. The remaining English native author trial, minimum-window behavior, external Word paste, and screen-reader user trial are still open.
+The source-level checks cover the same restricted document and identity contract with shared golden fixtures. W1 structural scope validation and W2 session/core receipt and reconciliation paths are implemented; W3 schema-5 migration takes a durable pre-upgrade backup and carries exact-head caret/last-document state, metadata compare-and-swap, and `context_source_epoch`; the discussion tables and migration path are included in the current schema. Native Windows UI Automation exposes the manuscript textbox, feedback labels, discussion controls, and actions. Unicode input is internal robustness evidence for English authoring, not a separate language feature. The remaining English native author trial, minimum-window behavior, external Word paste, and screen-reader user trial are still open.
 
-After the narrow native helper fix and rebuild, the current real Tauri/WebView2 flow passed 14/14 checks on WebView2 `152.0.4191.62`, including two-project save/switch/reload and copy isolation, process kill/restart, project/document rename, exact caret/last-document restore, and archive/unarchive. Native backup/export dialog use has not been exercised; the broader A, N, and W3 qualification remains open.
+After a fresh isolated rebuild, the current real Tauri/WebView2 flow passed 16/16 checks on WebView2 `152.0.4191.62`, including two-project save/switch/reload and copy isolation, process kill/restart, project/document rename, exact caret/last-document restore, archive/unarchive, persistent discussion, selected feedback, context inspection, and draft/history retention. Native backup/export/recovery dialog use, packaged installation, accessibility, and the broader A, N, and W3 qualification remain open.
 
 The W0 sample trial has no disk-backed manuscript, provider, durable Apply, or author-data path; its sample text is cleared when the window closes. The default Library/Workspace has disk-backed project persistence, but this development flow is not an installed-release or native-qualification claim. Do not use a real manuscript for the W0 sample trial. The [W0 qualification record](../../docs/W0_QUALIFICATION.md) records the spike verdict and evidence without turning these checks into a release claim.

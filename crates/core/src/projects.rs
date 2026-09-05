@@ -13,6 +13,7 @@ use std::thread::JoinHandle;
 use uuid::Uuid;
 
 pub mod context_packets;
+pub mod discussions;
 pub mod story_context;
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -264,6 +265,7 @@ type Reply<T> = mpsc::SyncSender<CoreResult<T>>;
 enum Command {
     Packet(Box<context_packets::PacketCommand>),
     Context(Box<story_context::ContextCommand>),
+    Discussion(Box<discussions::DiscussionCommand>),
     Attach(String, Reply<ProjectAccess>),
     AttachSnapshot(String, Reply<AttachedProject>),
     Create(CreateDocument, Reply<DocumentRecord>),
@@ -401,6 +403,7 @@ impl ProjectSession {
                         match command {
                             Command::Packet(command) => project.handle_packet(*command),
                             Command::Context(command) => project.handle_context(*command),
+                            Command::Discussion(command) => project.handle_discussion(*command),
                             Command::Attach(session, reply) => {
                                 let _ = reply.send(project.attach(session));
                             }
@@ -804,7 +807,7 @@ impl OwnedProject {
             }
             actual
         };
-        Ok(Self {
+        let mut project = Self {
             connection: Some(connection),
             _lock: lock,
             path,
@@ -813,7 +816,9 @@ impl OwnedProject {
             renderer_session: None,
             retired_sessions: HashSet::new(),
             needs_reopen: false,
-        })
+        };
+        project.recover_interrupted_discussions()?;
+        Ok(project)
     }
     fn attach(&mut self, session: String) -> CoreResult<ProjectAccess> {
         check_id(&session)?;

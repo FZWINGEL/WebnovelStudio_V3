@@ -1,0 +1,156 @@
+import { useEffect, useRef, useState } from 'react';
+import type { Scope } from '../editor/selection';
+import { bodyHash, canonicalJson, snapshotFromEditor } from '../editor/document';
+import type { DocumentSession, SessionState } from '../editor/session';
+import { readDiscussion, saveDiscussionDraft, startDiscussion, stopDiscussion, type ComposerBody, type DiscussionRun, type DiscussionView, type StartDiscussion } from '../ipc/discussions';
+import { ComposerSession, emptyComposer } from './composer';
+import { ContextInspector } from './ContextInspector';
+
+function detail(reason: unknown): string { return reason && typeof reason === 'object' && 'detail' in reason ? String(reason.detail) : reason instanceof Error ? reason.message : 'The discussion could not be updated. Your text is retained.'; }
+function uncertain(reason: unknown): boolean { return !reason || typeof reason !== 'object' || !('code' in reason) || ['UncertainOutcome', 'ReconciliationRequired', 'StaleWriterLease'].includes(String(reason.code)); }
+const activeRun = (run: DiscussionRun) => ['queued', 'running', 'stopping'].includes(run.status);
+
+export function FeedbackPanel({ session, state, title, selection, visible, onClose, registerSaver }: {
+  session: DocumentSession; state: SessionState; title: string; selection: { scope: Scope; nonce: number } | null; visible: boolean;
+  onClose: () => void; registerSaver: (save: (() => Promise<void>) | null) => void;
+}) {
+  const [view, setView] = useState<DiscussionView | null>(null);
+  const [body, setBody] = useState<ComposerBody>(emptyComposer);
+  const [error, setError] = useState('');
+  const [sending, setSending] = useState(false);
+  const [pending, setPending] = useState<StartDiscussion | null>(null);
+  const [retryOf, setRetryOf] = useState<string | null>(null);
+  const [scopeBusy, setScopeBusy] = useState(false);
+  const [scopeStale, setScopeStale] = useState(false);
+  const [reload, setReload] = useState(0);
+  const sendingRef = useRef(false);
+  const controller = useRef<ComposerSession | null>(null);
+  const mounted = useRef(true);
+  const composer = useRef<HTMLTextAreaElement>(null);
+  const composing = useRef(false);
+  const compositionWaiters = useRef<Array<() => void>>([]);
+  const polling = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const documentId = state.head.documentId;
+  const save = useRef(async () => {});
+  save.current = async () => {
+    if (composing.current) await new Promise<void>(resolve => compositionWaiters.current.push(resolve));
+    await controller.current?.save();
+  };
+  function update(next: ComposerBody) {
+    controller.current?.update(next); setBody(structuredClone(next));
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { void save.current().catch(reason => { if (mounted.current) setError(detail(reason)); }); }, 750);
+  }
+  async function refresh() {
+    if (polling.current) return;
+    polling.current = true;
+    const access = session.projectAccess;
+    try {
+      const result = await readDiscussion(access, documentId);
+      if (mounted.current && access.writerLease === session.projectAccess.writerLease && result.documentId === documentId) setView(result);
+    } catch (reason) { if (mounted.current && access.writerLease === session.projectAccess.writerLease) setError(detail(reason)); }
+    finally { polling.current = false; }
+  }
+  useEffect(() => {
+    mounted.current = true;
+    registerSaver(() => save.current());
+    let cancelled = false;
+    void readDiscussion(session.projectAccess, documentId).then(result => {
+      if (cancelled) return;
+      if (result.documentId !== documentId) throw new Error('This discussion belongs to another document.');
+      const restored = new ComposerSession(documentId, result.draft, () => session.projectAccess, saveDiscussionDraft);
+      controller.current = restored; setBody(structuredClone(restored.body)); setView(result); setError('');
+    }).catch(reason => { if (!cancelled) setError(detail(reason)); });
+    return () => { cancelled = true; mounted.current = false; registerSaver(null); if (timer.current) clearTimeout(timer.current); };
+  }, [session, reload]);
+  useEffect(() => {
+    if (!view?.runs.some(activeRun)) return;
+    const interval = setInterval(() => { void refresh(); }, 500);
+    return () => clearInterval(interval);
+  }, [view?.runs.some(activeRun), session]);
+  useEffect(() => {
+    if (!selection || !controller.current) return;
+    let cancelled = false; setScopeBusy(true);
+    const selected = selection.scope;
+    const selectedBody = snapshotFromEditor(selected.source.toJSON());
+    void bodyHash(canonicalJson(selectedBody)).then(hash => {
+      if (cancelled) return;
+      update({ ...controller.current!.body, scope: { kind: 'passage', start: selected.start, end: selected.end, quote: selected.quote, sourceBodyHash: hash } });
+      composer.current?.focus();
+    }).catch(reason => { if (!cancelled) setError(detail(reason)); }).finally(() => { if (!cancelled) setScopeBusy(false); });
+    return () => { cancelled = true; };
+  }, [selection, !!view]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!body.scope) { setScopeStale(false); return; }
+    void bodyHash(canonicalJson(session.body)).then(hash => { if (!cancelled) setScopeStale(hash !== body.scope!.sourceBodyHash); }).catch(() => { if (!cancelled) setScopeStale(true); });
+    return () => { cancelled = true; };
+  }, [body.scope, state.generation, session]);
+  async function send(checkPending = false) {
+    if (!controller.current || sendingRef.current || composing.current || scopeBusy) return;
+    const submitted = structuredClone(controller.current.body);
+    if (!submitted.text.trim() && !pending) return;
+    sendingRef.current = true; setSending(true); setError('');
+    let request: StartDiscussion | null = checkPending ? pending : null;
+    let confirmed = false;
+    try {
+      if (checkPending) await session.reconcile();
+      const result = await session.withLifecycleGuard(async () => {
+        await session.flush(); await save.current();
+        if (!request) {
+          if (submitted.scope && await bodyHash(canonicalJson(session.body)) !== submitted.scope.sourceBodyHash) throw { code: 'StaleScope', detail: 'The text changed. Select the passage again, or discuss the whole document.' };
+          request = { access: session.projectAccess, operationId: crypto.randomUUID(), expected: session.state.head, instruction: submitted.text, scope: submitted.scope, pinnedDocumentIds: submitted.pinnedDocumentIds,
+            budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' }, previousRunId: retryOf };
+        }
+        setPending(request);
+        const result = await startDiscussion({ ...request, access: session.projectAccess });
+        if (result.run.owner.projectId !== request.access.projectId || result.run.owner.operationNamespace !== request.access.operationNamespace || result.run.target.documentId !== documentId || result.run.operationId !== request.operationId) throw new Error('The discussion response did not match this request.');
+        return result;
+      });
+      if (!mounted.current) return;
+      confirmed = true;
+      setPending(null); setRetryOf(null);
+      setView(previous => previous ? { ...previous, threadId: result.threadId, messages: [...previous.messages.filter(item => item.id !== result.userMessage.id), result.userMessage], runs: [...previous.runs.filter(item => item.id !== result.run.id), result.run] } : previous);
+      const sentBody = request ? { text: request.instruction, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds } : submitted;
+      if (controller.current.clearIfUnchanged(sentBody)) { setBody(structuredClone(controller.current.body)); await save.current(); }
+      await refresh();
+    } catch (reason) {
+      if (!mounted.current) return;
+      if (!uncertain(reason)) setPending(null);
+      setError(`${detail(reason)}${!confirmed && uncertain(reason) && request ? ' Check the request before sending another.' : ''}`);
+    } finally { sendingRef.current = false; if (mounted.current) setSending(false); }
+  }
+  async function stop(run: DiscussionRun) {
+    try { await stopDiscussion(session.projectAccess, run.id); await refresh(); }
+    catch (reason) { if (mounted.current) setError(detail(reason)); }
+  }
+  const locked = sending || !!pending || scopeBusy;
+  const latest = view?.runs.at(-1);
+  const latestIsCurrentProject = latest?.owner.projectId === session.projectAccess.projectId && latest?.owner.operationNamespace === session.projectAccess.operationNamespace;
+  const pin = (id: string) => { if (!locked && controller.current && !controller.current.body.pinnedDocumentIds.includes(id)) update({ ...controller.current.body, pinnedDocumentIds: [...controller.current.body.pinnedDocumentIds, id] }); };
+  return <aside className="feedback persistent-feedback" aria-label="Document discussion" style={visible ? undefined : { display: 'none' }}>
+    <div className="feedback-heading"><h2>Discussion</h2><button onClick={onClose} aria-label="Hide discussion">Hide</button></div>
+    <p className="panel-intro">Talk through {title}. Select text to focus on a passage.</p>
+    <div className="scope-controls"><span>Local test model</span><span className="session-tag">No live AI connected</span></div>
+    <div className="feedback-scroll">
+      {!view && !error && <p role="status">Opening discussion…</p>}
+      {view && !view.messages.length && <div className="feedback-empty"><p>What would you like to improve?</p><span>Ask about pacing, a character’s choices, or an earlier detail. Your discussion is saved with this document.</span></div>}
+      {view?.messages.map(item => {
+        const run = view.runs.find(run => run.id === item.runId);
+        return <article className="feedback-note" key={item.id}><div>{item.role === 'user' ? 'You' : 'Test assistant'}{item.role === 'assistant' && run && run.status !== 'completed' && <span>{run.status} · incomplete</span>}</div>{item.scope && <blockquote>{item.scope.quote}</blockquote>}<p>{item.content}</p></article>;
+      })}
+      {view?.runs.filter(run => activeRun(run)).map(run => <section key={run.id} className="feedback-note"><div>Test assistant <span>{run.status === 'queued' ? 'Preparing…' : 'Responding…'}</span></div>{run.outputText && <p>{run.outputText}</p>}<button onClick={() => void stop(run)}>Stop response</button></section>)}
+      {latest && !activeRun(latest) && latest.status !== 'completed' && <p className="discussion-state">This response is {latest.status}. {latest.stopReason === 'context_stale' ? 'The story changed before it could start.' : ''}<button disabled={locked} onClick={() => { const previous = view!.messages.find(item => item.runId === latest.id && item.role === 'user'); if (previous) { const scope = previous.scope; update({ text: previous.content, scope: scope ? { kind: scope.kind, start: scope.start, end: scope.end, quote: scope.quote, sourceBodyHash: scope.sourceHash } : null, pinnedDocumentIds: [] }); setRetryOf(latestIsCurrentProject ? latest.id : null); composer.current?.focus(); } }}>Prepare another attempt</button></p>}
+      {latest && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={latest.packetId} delivered={latest.dispatchState === 'delivered'} refreshKey={state.head.version} onPin={pin} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
+    </div>
+    <form className="feedback-form" onSubmit={event => { event.preventDefault(); void send(); }}>
+      {body.scope && <div className="quoted-scope"><div className="scope-title"><strong>Selected passage</strong><button type="button" disabled={locked} className="text-button" onClick={() => update({ ...body, scope: null })}>Use whole document</button></div><blockquote>{body.scope.quote}</blockquote>{scopeStale && <p className="stale-notice">The manuscript changed. Select the passage again before sending.</p>}</div>}
+      {body.pinnedDocumentIds.length > 0 && <div className="source-pins">{body.pinnedDocumentIds.map((id, index) => <button type="button" key={id} disabled={locked} onClick={() => update({ ...body, pinnedDocumentIds: body.pinnedDocumentIds.filter(pin => pin !== id) })}>Included source {index + 1} · remove</button>)}</div>}
+      <label htmlFor="discussion-composer">{body.scope ? 'Discuss this passage' : 'Discuss this document'}</label>
+      <textarea id="discussion-composer" ref={composer} value={body.text} disabled={!view || locked} maxLength={16000} placeholder="Make this moment more emotional, but keep the ending…" onChange={event => update({ ...body, text: event.target.value })} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; compositionWaiters.current.splice(0).forEach(resolve => resolve()); }} />
+      {error && <div className="discussion-error" role="alert">{error}{!view && <button type="button" onClick={() => setReload(value => value + 1)}>Retry loading discussion</button>}{view && !pending && <button type="button" onClick={() => void save.current().then(() => setError('')).catch(reason => setError(detail(reason)))}>Retry saving discussion</button>}</div>}
+      <div className="form-actions"><span>Discussion never changes the manuscript.</span>{pending && !sending ? <button type="button" onClick={() => void send(true)}>Check request</button> : <button className="primary-button" disabled={!view || locked || scopeStale || !body.text.trim() || view.runs.some(activeRun)}>Send</button>}</div>
+    </form>
+  </aside>;
+}

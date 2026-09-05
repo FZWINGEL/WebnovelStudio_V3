@@ -176,6 +176,26 @@ impl OwnedProject {
     }
 }
 
+/// Validate and read a packet from an actor transaction. This deliberately
+/// checks only the project identity; dispatch workers own a durable run rather
+/// than a renderer writer lease.
+pub(super) fn read_context_packet_at(
+    db: &Connection,
+    access: &ProjectAccess,
+    id: &str,
+) -> CoreResult<CompiledPacket> {
+    let stored = read_packet_row(db, id)?;
+    if stored.project_id != access.project_id || stored.namespace != access.operation_namespace {
+        return Err(CoreError::new(
+            "ContextProjectMismatch",
+            "This prepared request belongs to another project or an independent recovered copy.",
+        ));
+    }
+    let packet = validate_packet_row(db, &stored)?;
+    story_context::load_snapshot(db, access, &packet.receipt.snapshot_id)?;
+    Ok(packet)
+}
+
 struct PacketRow {
     id: String,
     project_id: String,
