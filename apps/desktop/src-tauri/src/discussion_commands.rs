@@ -317,6 +317,7 @@ mod tests {
                 guidance_handles: Vec::new(),
                 conversation_message_ids: Vec::new(),
                 omitted_discussion_turns: 0,
+                safe_brief: None,
                 coverage: Vec::new(),
                 omissions: Vec::new(),
                 input_hash,

@@ -321,6 +321,9 @@ try {
   await page.locator('.trial-label').filter({ hasText: 'Harbour A copy' }).waitFor();
   await fillManuscript('Only the independent copy changes.');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  // A click acknowledges the gesture, not asynchronous detach/flush. Kill only
+  // after the Library is shown, so this scenario tests acknowledged retention.
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   const libraryBeforeRestart = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
   assert.equal(libraryBeforeRestart.entries.length, 3);
   assert.equal(new Set(libraryBeforeRestart.entries.map(entry => entry.projectId)).size, 3);
@@ -481,13 +484,51 @@ try {
   const appliedProse = 'Her sister held the lantern. The ending stays unchanged.';
   await fillManuscript(originalProse);
   await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  const privatePlan = 'Private plan: the mentor stole the lantern years ago. Do not reveal the theft.';
+  await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).fill(privatePlan);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('.feedback-note p').filter({ hasText: privatePlan }).first().waitFor();
+  await page.waitForFunction(() => document.querySelector('#discussion-composer')?.value === '');
+  await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'detached' });
   await page.evaluate(() => document.querySelector('.tiptap').editor.commands.setTextSelection({ from: 1, to: 4 }));
   await page.getByRole('button', { name: 'Discuss selection', exact: true }).click();
   await page.locator('.persistent-feedback .quoted-scope blockquote').filter({ hasText: /^Mei$/ }).waitFor();
   await page.getByRole('button', { name: 'Suggest edits', exact: true }).click();
+  await page.locator('.feedback-note').filter({ hasText: privatePlan }).first().getByRole('button', { name: 'Adapt as writing brief', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: 'Send', exact: true }).isEnabled(), false);
+  const approvedBrief = 'Let her sister hold the lantern. Preserve the ending.';
+  await page.getByRole('textbox', { name: 'Directions for this edit request', exact: true }).fill(approvedBrief);
+  await page.getByRole('button', { name: 'Approve this brief', exact: true }).click();
   await page.getByRole('textbox', { name: 'Request edits for this passage', exact: true }).fill('Change who holds the lantern. Preserve everything outside the selected name.');
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.reload();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Directions for this edit request', exact: true }).inputValue(), approvedBrief);
+  await page.getByText('Writing brief approved', { exact: true }).waitFor();
+  await page.locator('.safe-brief-editor').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'writing-brief-approved.png') });
+  await page.evaluate(() => {
+    const fetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await fetch.apply(window, args);
+      if (String(args[0]).endsWith('/start_discussion') && response.headers.get('Tauri-Response') === 'ok') {
+        window.fetch = fetch;
+        window.nativeBriefPacket = (await response.clone().json()).packet;
+      }
+      return response;
+    };
+  });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.proposal-card').length === 3);
+  const briefPacket = await page.evaluate(() => window.nativeBriefPacket);
+  assert.equal(briefPacket.receipt.safeBrief.text, approvedBrief);
+  assert.equal(JSON.parse(briefPacket.messages[1].content).approvedWritingBrief, approvedBrief);
+  assert.equal(JSON.stringify(briefPacket.messages).includes(privatePlan), false);
+  assert.equal(JSON.stringify(briefPacket.messages).includes(briefPacket.receipt.safeBrief.originMessageId), false);
+  if (await page.locator('.context-inspector').getAttribute('open') === null) await page.locator('.context-inspector>summary').click();
+  await page.locator('.context-safe-brief p').filter({ hasText: approvedBrief }).waitFor();
+  checks.push('Native writing-brief adoption requires explicit approval, survives draft reload, supplies only exact approved directions rather than private planning, and remains inspectable without changing prose');
   let chosen = page.locator('.proposal-card').filter({ hasText: 'Mock clarity option' });
   await chosen.getByRole('textbox', { name: 'Replacement wording', exact: true }).fill('Her sister');
   await chosen.getByRole('button', { name: 'Preview', exact: true }).click();

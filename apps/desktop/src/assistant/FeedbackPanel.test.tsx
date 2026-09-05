@@ -7,6 +7,9 @@ import * as discussions from '../ipc/discussions';
 import * as proposals from '../ipc/proposals';
 import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
 import { DocumentSession } from '../editor/session';
+import { Editor } from '@tiptap/core';
+import { editorExtensions } from '../editor/schema';
+import { captureSelection } from '../editor/selection';
 import type { DocumentRecord, Head, ProjectAccess, ProjectTransport } from '../ipc/projects';
 
 vi.mock('../ipc/discussions', () => ({
@@ -92,7 +95,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(discussions.readDiscussion).mockImplementation(async (_access, documentId) => emptyView(documentId));
   vi.mocked(proposals.readProposals).mockResolvedValue([]);
-  vi.mocked(discussions.saveDiscussionDraft).mockImplementation(async request => ({ documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, updatedAt: 'now' }));
+  vi.mocked(discussions.saveDiscussionDraft).mockImplementation(async request => ({ documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, updatedAt: 'now' }));
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 
@@ -110,6 +113,114 @@ describe('persistent FeedbackPanel safeguards', () => {
   function click(text: string) {
     return act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === text) as HTMLButtonElement).click());
   }
+
+  async function briefView(session: DocumentSession, role: 'user' | 'assistant' = 'user') {
+    const original = startResult(session);
+    const scope: discussions.DiscussionScope = { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 1 }, quote: 'A', sourceBodyHash: session.state.head.bodyHash };
+    const view: discussions.DiscussionView = { ...emptyView('document'), threadId: original.threadId,
+      runs: [{ ...original.run, status: 'completed' }], messages: [{ ...original.userMessage, role, packetId: role === 'assistant' ? null : original.packet.receipt.packetId, content: 'The mentor killed her father. Keep it secret.' }],
+      draft: { documentId: 'document', version: '0', text: 'Hint at his recognition.', scope, pinnedDocumentIds: [], updatedAt: 'now' } };
+    vi.mocked(discussions.readDiscussion).mockResolvedValue(view);
+    await renderPanel(session); return view;
+  }
+
+  async function typeBrief(text: string) {
+    await act(async () => {
+      const textarea = host.querySelector('.safe-brief-editor textarea') as HTMLTextAreaElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, text);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  it.each(['user', 'assistant'] as const)('requires exact brief approval when adapting a %s message and sends only the adopted directions', async role => {
+    const session = await makeSession(); const view = await briefView(session, role);
+    await click('Adapt as writing brief');
+    expect((host.querySelector('.safe-brief-editor textarea') as HTMLTextAreaElement).value).toBe(view.messages[0].content);
+    expect(discussions.startDiscussion).not.toHaveBeenCalled();
+    const sendButton = () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Send')!;
+    expect(sendButton().disabled).toBe(true);
+    await typeBrief('He notices the pendant, then changes the subject.'); await click('Approve this brief');
+    await waitFor(() => expect(sendButton().disabled).toBe(false));
+    await typeBrief('He notices the pendant. Mei reads the pause as grief.'); expect(sendButton().disabled).toBe(true);
+    await click('Approve this brief');
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => {
+      const result = startResult(session, 'brief-run', request.operationId);
+      result.packet.receipt.safeBrief = { text: request.safeBrief!.text, textHash: await bodyHash(request.safeBrief!.text), originMessageId: request.safeBrief!.originMessageId };
+      return result;
+    });
+    await click('Send'); await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledOnce());
+    const request = vi.mocked(discussions.startDiscussion).mock.calls[0][0];
+    expect(request.safeBrief).toEqual({ text: 'He notices the pendant. Mei reads the pause as grief.', originMessageId: view.messages[0].id, confirmed: true });
+    expect(request.instruction).not.toContain('killed her father'); expect(request.intent).toBe('proposeEdits');
+    await waitFor(() => expect(host.querySelector('.safe-brief-editor')).toBeNull());
+    expect(session.body).toEqual(emptyBody);
+  });
+
+  it('revokes approval when selecting another passage or switching to the whole document', async () => {
+    const session = await makeSession(); await briefView(session);
+    await click('Adapt as writing brief'); await typeBrief('Keep the pause.'); await click('Approve this brief');
+    const editor = new Editor({ extensions: editorExtensions, content: emptyBody.body });
+    try {
+      editor.commands.setTextSelection({ from: 3, to: 8 });
+      const scope = captureSelection(editor)!;
+      await act(async () => root.render(<FeedbackPanel session={session} state={session.state} title="Chapter" documentKind="chapter" selection={{ scope, nonce: 1 }} visible onClose={() => {}} registerSaver={() => {}} />));
+      await waitFor(() => expect(host.querySelector('.quoted-scope blockquote')?.textContent).toBe('quiet'));
+      expect(host.textContent).toContain('Writing brief needs approval');
+      expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Send')!.disabled).toBe(true);
+      await click('Approve this brief'); await click('Use whole document');
+      expect(host.textContent).toContain('Writing brief needs approval');
+      expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Send')!.disabled).toBe(true);
+      expect(discussions.startDiscussion).not.toHaveBeenCalled();
+    } finally { editor.destroy(); }
+  });
+
+  it('preserves exact approved directions when preparing an unchanged linked edit retry', async () => {
+    const session = await makeSession(); const view = await briefView(session);
+    const safeBrief = { text: 'Keep the pause.', originMessageId: view.messages[0].id, confirmed: true };
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...view, runs: [{ ...view.runs[0], intent: 'proposeEdits', status: 'stopped' }] });
+    const destination = await makeSession(); await renderPanel(destination);
+    vi.mocked(discussions.discussionRetry).mockResolvedValue({ text: 'Hint at his recognition.', intent: 'proposeEdits', scope: view.draft!.scope, pinnedDocumentIds: [], previousRunId: 'run-1', safeBrief });
+    await click('Prepare another attempt');
+    await waitFor(() => expect(discussions.saveDiscussionDraft).toHaveBeenCalledWith(expect.objectContaining({ previousRunId: 'run-1', safeBrief })));
+    expect(host.textContent).toContain('Writing brief approved');
+    expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Send')!.disabled).toBe(false);
+  });
+
+  it('drops the brief when returning to Discuss and never sends private planning implicitly', async () => {
+    const session = await makeSession(); await briefView(session);
+    await click('Adapt as writing brief'); await click('Discuss');
+    expect(host.querySelector('.safe-brief-editor')).toBeNull();
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => startResult(session, 'discussion-without-brief', request.operationId));
+    await click('Send'); await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledOnce());
+    expect(vi.mocked(discussions.startDiscussion).mock.calls[0][0].safeBrief).toBeUndefined();
+  });
+
+  it('keeps direct briefs optional, blocks empty or oversized directions, and returns focus after removal', async () => {
+    const session = await makeSession(); await briefView(session);
+    await click('Suggest edits'); await click('Add writing brief');
+    const approve = () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Approve this brief')!;
+    expect(approve().disabled).toBe(true);
+    expect((host.querySelector('.safe-brief-editor textarea') as HTMLTextAreaElement).value).toBe('');
+    await typeBrief('é'.repeat(9000)); expect(approve().disabled).toBe(true);
+    expect(host.textContent).toContain('This brief is too long');
+    await click('Remove brief');
+    expect(host.querySelector('.safe-brief-editor')).toBeNull();
+    expect(document.activeElement?.textContent).toBe('Add writing brief');
+    await waitFor(() => expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Send')!.disabled).toBe(false));
+  });
+
+  it('retains an approved brief and checks the same operation when its acknowledgment is malformed', async () => {
+    const session = await makeSession(); await briefView(session);
+    await click('Adapt as writing brief'); await typeBrief('Let the pendant catch his attention.'); await click('Approve this brief');
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => startResult(session, 'missing-brief-receipt', request.operationId));
+    await waitFor(() => expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Send')!.disabled).toBe(false));
+    await click('Send'); await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledOnce());
+    await waitFor(() => expect(host.textContent).toContain('Check request'));
+    const original = vi.mocked(discussions.startDiscussion).mock.calls[0][0];
+    await click('Check request'); await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(discussions.startDiscussion).mock.calls[1][0]).toEqual({ ...original, access: { ...original.access, writerLease: 'fresh-lease' } });
+    expect((host.querySelector('.safe-brief-editor textarea') as HTMLTextAreaElement).value).toBe(original.safeBrief!.text);
+  });
 
   it('restores the exact retry pins, saves its link, and sends the linked request', async () => {
     const session = await makeSession();

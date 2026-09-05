@@ -308,6 +308,7 @@ fn guidance_is_copied_into_recovery_and_remains_editable_with_local_history() {
             intent: Default::default(),
             scope: None,
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             budget: MockContextBudget::new("100000", "100", "100"),
             previous_run_id: None,
         })
@@ -386,6 +387,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
              DROP TABLE author_guidance_receipts;
              DROP TABLE author_guidance_heads;
              DROP TABLE author_guidance_versions;
+             ALTER TABLE discussion_drafts DROP COLUMN safe_brief_json;
              ALTER TABLE discussion_drafts DROP COLUMN intent;
              ALTER TABLE discussion_drafts DROP COLUMN previous_run_id;
              PRAGMA user_version=5;",
@@ -399,7 +401,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
     for table in [
         "author_guidance_versions",
         "author_guidance_heads",

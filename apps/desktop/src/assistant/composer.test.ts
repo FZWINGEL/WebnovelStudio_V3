@@ -3,8 +3,22 @@ import { ComposerSession } from './composer';
 import type { DiscussionDraft, SaveDiscussionDraft } from '../ipc/discussions';
 
 const access = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
-function ack(request: SaveDiscussionDraft): DiscussionDraft { return { documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, updatedAt: 'today' }; }
+function ack(request: SaveDiscussionDraft): DiscussionDraft { return { documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, updatedAt: 'today' }; }
 describe('unsent discussion persistence', () => {
+  it('retains exact brief approval and origins across a lost reply, later edits and reopening', async () => {
+    const write = vi.fn(async (request: SaveDiscussionDraft) => ack(request));
+    write.mockRejectedValueOnce(new Error('lost reply'));
+    const session = new ComposerSession('document', null, () => access, write);
+    const approved = { text: 'Give him a pause.', scope: null, pinnedDocumentIds: [], intent: 'proposeEdits' as const, safeBrief: { text: 'He recognizes the pendant.', originMessageId: 'private-message', confirmed: true } };
+    session.update(approved); await expect(session.save()).rejects.toThrow('lost reply');
+    session.update({ ...approved, safeBrief: { ...approved.safeBrief, text: 'He briefly recognizes the pendant.', confirmed: false } });
+    expect(session.clearIfUnchanged(approved)).toBe(false);
+    await session.save();
+    expect(write.mock.calls[0][0]).toEqual(write.mock.calls[1][0]);
+    const restored = new ComposerSession('document', ack(write.mock.calls[2][0]), () => access, write);
+    expect(restored.body.safeBrief).toEqual({ text: 'He briefly recognizes the pendant.', originMessageId: 'private-message', confirmed: false });
+    expect(restored.dirty).toBe(false);
+  });
   it('does not clear a retry choice when an unrelated send acknowledgment arrives', async () => {
     const write = vi.fn(async (request: SaveDiscussionDraft) => ack(request));
     const session = new ComposerSession('document', null, () => access, write);

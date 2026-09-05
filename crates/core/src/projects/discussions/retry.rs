@@ -29,6 +29,7 @@ pub(super) fn guidance(
         || request.instruction != original.text
         || request.scope != original.scope
         || request.pinned_document_ids != original.pinned_document_ids
+        || request.safe_brief != original.safe_brief
     {
         return Err(CoreError::new(
             "RetryRequestChanged",
@@ -99,6 +100,7 @@ fn original(
             intent,
             scope,
             pinned_document_ids: pins,
+            safe_brief: prepared.safe_brief,
             previous_run_id: run_id.to_owned(),
         },
         frozen,

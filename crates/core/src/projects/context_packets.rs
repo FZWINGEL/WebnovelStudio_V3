@@ -21,6 +21,8 @@ pub struct PrepareContext {
     /// again when a linked retry starts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transient_mandatory_handles: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_brief: Option<crate::context::SafeBriefInput>,
     pub scope: Option<ScopeGrant>,
     pub budget: MockContextBudget,
 }
@@ -97,6 +99,12 @@ impl OwnedProject {
     fn prepare_context_packet(&mut self, request: PrepareContext) -> CoreResult<PreparationResult> {
         self.check_access(&request.access)?;
         check_id(&request.operation_id)?;
+        if request.safe_brief.is_some() {
+            return Err(CoreError::new(
+                "SafeBriefRequiresDiscussion",
+                "An approved writing brief must be committed by a restricted discussion start.",
+            ));
+        }
         let payload = logical_hash(&request)?;
         let existing: Option<(String, String)> = self.db()?.query_row(
             "SELECT id,payload_hash FROM context_packets WHERE operation_namespace=? AND operation_id=?",
@@ -153,6 +161,7 @@ impl OwnedProject {
             instruction: request.instruction.clone(),
             sources,
             mandatory_handles: request.mandatory_handles.clone(),
+            safe_brief: request.safe_brief.clone(),
             scope: request.scope.clone(),
             budget: request.budget.clone(),
         };
@@ -319,6 +328,7 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
         sources,
         mandatory_handles: request.mandatory_handles,
         scope: request.scope,
+        safe_brief: request.safe_brief,
         budget: request.budget,
     })
     .map_err(|error| {

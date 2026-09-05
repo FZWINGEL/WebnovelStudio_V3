@@ -29,6 +29,15 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('historical context inspection', () => {
+  it('shows the exact approved brief separately without retrieving its private origin', async () => {
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, safeBrief: { text: 'Mei reads the pause as grief.', textHash: 'hash', originMessageId: 'private-origin' } } });
+    await render();
+    expect(host.querySelector('.context-safe-brief p')?.textContent).toBe('Mei reads the pause as grief.');
+    expect(host.textContent).not.toContain('private-origin');
+    expect(context.readStoryContextSource).not.toHaveBeenCalled();
+    vi.mocked(context.preparedStoryContextIsCurrent).mockResolvedValue(false); await render('packet', 'new-head');
+    expect(host.querySelector('.context-safe-brief p')?.textContent).toBe('Mei reads the pause as grief.');
+  });
   it('labels required sources from the receipt and offers a separate persistent-source action', async () => {
     const keep = vi.fn(); const next = vi.fn();
     vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, mandatorySourceHandles: ['first'] } });

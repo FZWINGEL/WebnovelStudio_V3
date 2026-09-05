@@ -1088,16 +1088,18 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
              DROP TRIGGER source_pin_receipts_no_delete;
              DROP TABLE source_pin_receipts;
              DROP TABLE source_pin_sets;
-             DROP TABLE export_records; PRAGMA user_version=8;",
+             DROP TABLE export_records;
+             ALTER TABLE discussion_drafts DROP COLUMN safe_brief_json;
+             PRAGMA user_version=8;",
         )
         .unwrap();
     drop(connection);
-    let migrated = ProjectSession::open(&source).expect("migrate schema eight to ten");
+    let migrated = ProjectSession::open(&source).expect("migrate schema eight to eleven");
     let version: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
     let table: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row(
@@ -1228,5 +1230,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
 }

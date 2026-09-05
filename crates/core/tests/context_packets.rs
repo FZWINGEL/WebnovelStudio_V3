@@ -6,8 +6,11 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use webnovel_core::context::packet::MockContextBudget;
 use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
+use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
-use webnovel_core::projects::discussions::StartDiscussion;
+use webnovel_core::projects::discussions::{
+    DiscussionScopeInput, FeedbackIntent, SafeBriefInput, StartDiscussion,
+};
 use webnovel_core::projects::story_context::FreezeStory;
 use webnovel_core::projects::{
     CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
@@ -73,6 +76,36 @@ fn setup_project(
     (project, access, document)
 }
 
+fn passage_scope(document: &webnovel_core::projects::DocumentRecord) -> DiscussionScopeInput {
+    let grant = capture_scope(
+        &document.body,
+        ScopeGrant {
+            kind: ScopeKind::Passage,
+            start: Some(Endpoint {
+                block_id: "p1".into(),
+                utf16_offset: 0,
+            }),
+            end: Some(Endpoint {
+                block_id: "p1".into(),
+                utf16_offset: 8,
+            }),
+            source_hash: String::new(),
+            quote: String::new(),
+            quote_hash: String::new(),
+            prefix: None,
+            suffix: None,
+        },
+    )
+    .expect("capture discussion passage");
+    DiscussionScopeInput {
+        kind: grant.kind,
+        start: grant.start,
+        end: grant.end,
+        quote: grant.quote,
+        source_body_hash: grant.source_hash,
+    }
+}
+
 fn policy(project: &ProjectSession, access: &ProjectAccess) -> InformationPolicy {
     InformationPolicy {
         version: project
@@ -118,6 +151,7 @@ fn prepare_request(
         instruction: "Keep the selected target grounded in the supplied evidence.".into(),
         mandatory_handles: Vec::new(),
         transient_mandatory_handles: None,
+        safe_brief: None,
         scope: None,
         budget,
     }
@@ -157,6 +191,22 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[test]
+fn generic_prepare_rejects_safe_brief_before_snapshot_lookup() {
+    let temp = TempDir::new("safe-brief-generic");
+    let (project, access, _document) = setup_project(&temp.child("project"));
+    let mut request = prepare_request(&access, "missing-snapshot", "generic-safe-brief", budget());
+    request.safe_brief = Some(SafeBriefInput {
+        text: "A caller supplied direction".into(),
+        origin_message_id: None,
+        confirmed: true,
+    });
+    let error = project
+        .prepare_context(request)
+        .expect_err("generic packet preparation must not authorize a safe brief");
+    assert_eq!(error.code, "SafeBriefRequiresDiscussion");
 }
 
 fn rewrite_packet(project: &ProjectSession, packet_id: &str, mutate: impl FnOnce(&mut Value)) {
@@ -228,6 +278,26 @@ fn legacy_packet_without_mandatory_annotation_retains_exact_input_and_replays() 
     request.mandatory_handles = vec![mandatory.clone()];
     let original = prepared(project.prepare_context(request.clone()).unwrap());
     assert_eq!(original.receipt.mandatory_source_handles, vec![mandatory]);
+    let stored = Connection::open(project.path.join("project.sqlite3")).unwrap();
+    let request_json: String = stored
+        .query_row(
+            "SELECT request_json FROM context_packets WHERE id=?",
+            [&original.receipt.packet_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let packet_json: String = stored
+        .query_row(
+            "SELECT packet_json FROM context_packets WHERE id=?",
+            [&original.receipt.packet_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let stored_request: Value = serde_json::from_str(&request_json).unwrap();
+    let stored_packet: Value = serde_json::from_str(&packet_json).unwrap();
+    assert!(stored_request.get("safeBrief").is_none());
+    assert!(stored_packet["receipt"].get("safeBrief").is_none());
+    drop(stored);
     rewrite_packet(&project, &original.receipt.packet_id, |packet| {
         packet["receipt"]
             .as_object_mut()
@@ -245,6 +315,41 @@ fn legacy_packet_without_mandatory_annotation_retains_exact_input_and_replays() 
         historical
     );
     create_backup(&project, &temp.child("legacy.wnsbackup")).unwrap();
+}
+
+#[test]
+fn safe_brief_receipt_tampering_is_rejected_by_read_and_backup_validation() {
+    let temp = TempDir::new("safe-brief-tamper");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let started = project
+        .start_discussion(StartDiscussion {
+            access: access.clone(),
+            operation_id: "safe-brief-packet".into(),
+            expected: document.head.clone(),
+            instruction: "Revise the selected passage.".into(),
+            intent: FeedbackIntent::ProposeEdits,
+            scope: Some(passage_scope(&document)),
+            pinned_document_ids: Vec::new(),
+            safe_brief: Some(SafeBriefInput {
+                text: "Keep the selected exchange restrained.".into(),
+                origin_message_id: None,
+                confirmed: true,
+            }),
+            budget: budget(),
+            previous_run_id: None,
+        })
+        .expect("prepare safe brief packet");
+    rewrite_packet(&project, &started.packet.receipt.packet_id, |packet| {
+        packet["receipt"]["safeBrief"]["text"] = json!("Tampered direction.");
+    });
+
+    let read_error = project
+        .prepared_context(access, started.packet.receipt.packet_id.clone())
+        .expect_err("tampered safe brief receipt must fail packet read");
+    assert_eq!(read_error.code, "InvalidContextPacket");
+    let backup_error = create_backup(&project, &temp.child("tampered.wnsbackup"))
+        .expect_err("tampered safe brief receipt must fail backup validation");
+    assert_eq!(backup_error.code, "InvalidBackup");
 }
 
 #[test]
@@ -691,6 +796,7 @@ fn generic_preparation_rejects_consumed_discussion_request_guidance() {
         intent: Default::default(),
         scope: None,
         pinned_document_ids: Vec::new(),
+        safe_brief: None,
         budget: budget(),
         previous_run_id: None,
     };

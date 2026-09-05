@@ -62,6 +62,7 @@ impl Fixture {
                     source_body_hash: self.document.head.body_hash.clone(),
                 }),
                 pinned_document_ids: vec![],
+                safe_brief: None,
                 budget: MockContextBudget::new("100000", "1000", "100"),
                 previous_run_id: None,
                 intent: FeedbackIntent::ProposeEdits,

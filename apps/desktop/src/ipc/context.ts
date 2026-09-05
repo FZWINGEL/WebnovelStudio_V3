@@ -57,6 +57,7 @@ export interface PacketReceipt {
   packetId: string; sessionId: string; snapshotId: string; invocationOrdinal: string;
   sourceHandles: string[]; mandatorySourceHandles?: string[]; coverage: Array<{ handle: string; label: string; detail: CoverageDetail }>;
   guidanceHandles?: string[];
+  safeBrief?: { text: string; textHash: string; originMessageId: string | null };
   conversationMessageIds?: string[];
   omittedDiscussionTurns?: number;
   omissions: string[]; inputHash: string; inputTokens: string; tokenAccountingMethod: string;

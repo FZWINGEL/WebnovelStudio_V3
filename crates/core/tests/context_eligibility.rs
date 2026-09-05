@@ -702,6 +702,7 @@ fn packet_and_budget_contracts_keep_cross_boundary_counters_as_strings() {
         guidance_handles: Vec::new(),
         conversation_message_ids: Vec::new(),
         omitted_discussion_turns: 0,
+        safe_brief: None,
         coverage: Vec::new(),
         omissions: Vec::new(),
         input_hash: "b".repeat(64),

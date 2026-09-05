@@ -208,6 +208,12 @@ input::placeholder { color: #637083; }
 .source-pin-form label { font-size: 12px; font-weight: 600; margin-top: 6px; }
 .source-pin-form select { min-width: 0; width: 100%; padding: 8px; border: 1px solid #aebccc; border-radius: 5px; color: inherit; background: #fff; }
 .source-pin-form button { justify-self: end; margin-top: 5px; }
+.safe-brief-editor { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 22px; }
+.safe-brief-editor h3 { font-size: 15px; margin: 0; }
+.safe-brief-editor label { display: block; font-size: 12px; font-weight: 600; margin: 12px 0 7px; }
+.safe-brief-editor textarea { display: block; width: 100%; min-height: 110px; resize: vertical; padding: 10px; border: 1px solid #aebccc; border-radius: 5px; color: inherit; background: #fff; font: inherit; }
+.safe-brief-editor .secondary-button { margin-top: 10px; }
+.safe-brief-status { display: flex; gap: 10px; justify-content: space-between; align-items: center; font-size: 12px; margin: 0 0 12px; }
 .writing-guidance { margin: 0 0 21px; padding: 0 0 17px; border-bottom: 1px solid var(--line); }
 .guidance-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .writing-guidance-details { flex: 1; min-width: 0; }

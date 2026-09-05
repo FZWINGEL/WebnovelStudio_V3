@@ -11,8 +11,9 @@ pub mod packet;
 
 pub use contracts::{
     Audience, BasisKind, BudgetError, BudgetErrorCode, CharacterGrant, ContextPurpose,
-    CoverageEntry, CoverageLabel, Disclosure, EligibilityRequest, InformationPolicy, PacketReceipt,
-    SourceDescriptor, SourceKind, SourceRef, StorySnapshot, StoryTime,
+    CoverageEntry, CoverageLabel, Disclosure, EligibilityRequest, InformationPolicy,
+    MAX_SAFE_BRIEF_BYTES, PacketReceipt, SafeBriefInput, SafeBriefReceipt, SourceDescriptor,
+    SourceKind, SourceRef, StorySnapshot, StoryTime,
 };
 pub use eligibility::{
     EligibilityError, EligibilityErrorCode, EligibilityReceipt, EligibleSource,

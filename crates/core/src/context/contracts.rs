@@ -18,6 +18,26 @@ pub enum Audience {
     RestrictedWriting,
 }
 
+/// A request-scoped author direction. It is separate from story evidence and
+/// only enters a restricted writing packet after explicit confirmation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SafeBriefInput {
+    pub text: String,
+    pub origin_message_id: Option<String>,
+    pub confirmed: bool,
+}
+
+pub const MAX_SAFE_BRIEF_BYTES: usize = 16 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SafeBriefReceipt {
+    pub text: String,
+    pub text_hash: String,
+    pub origin_message_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum ContextPurpose {
@@ -190,6 +210,8 @@ pub struct PacketReceipt {
     pub conversation_message_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "zero_discussion_turns")]
     pub omitted_discussion_turns: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_brief: Option<SafeBriefReceipt>,
     pub coverage: Vec<CoverageEntry>,
     pub omissions: Vec<String>,
     pub input_hash: String,

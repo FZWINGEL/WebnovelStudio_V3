@@ -7,7 +7,8 @@ export type FeedbackIntent = 'discuss' | 'proposeEdits';
 export const DEFAULT_FEEDBACK_INTENT: FeedbackIntent = 'discuss';
 
 export interface DiscussionScope { kind: ScopeGrant['kind']; start: Endpoint | null; end: Endpoint | null; quote: string; sourceBodyHash: string }
-export interface ComposerBody { text: string; scope: DiscussionScope | null; pinnedDocumentIds: string[]; intent?: FeedbackIntent; previousRunId?: string | null }
+export interface SafeBriefInput { text: string; originMessageId: string | null; confirmed: boolean }
+export interface ComposerBody { text: string; scope: DiscussionScope | null; pinnedDocumentIds: string[]; intent?: FeedbackIntent; previousRunId?: string | null; safeBrief?: SafeBriefInput | null }
 export interface DiscussionDraft extends ComposerBody { documentId: string; version: string; updatedAt: string }
 export interface DiscussionMessage { id: string; threadId: string; runId: string | null; role: 'user' | 'assistant'; content: string; scope: ScopeGrant | null; packetId: string | null; createdAt: string }
 export interface DiscussionRun {
@@ -20,6 +21,7 @@ export interface DiscussionView { documentId: string; threadId: string | null; m
 export interface StartDiscussion {
   access: ProjectAccess; operationId: string; expected: Head; instruction: string; scope: DiscussionScope | null;
   intent?: FeedbackIntent; pinnedDocumentIds: string[]; budget: MockContextBudget; previousRunId: string | null;
+  safeBrief?: SafeBriefInput | null;
 }
 export interface DiscussionStart { threadId: string; run: DiscussionRun; userMessage: DiscussionMessage; packet: CompiledPacket }
 export interface SaveDiscussionDraft extends ComposerBody { access: ProjectAccess; operationId: string; documentId: string; expectedVersion: string }

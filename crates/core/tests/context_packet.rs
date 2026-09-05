@@ -6,9 +6,9 @@ use webnovel_core::context::packet::{
 };
 use webnovel_core::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
-    SourceDescriptor, SourceKind, SourceRef, StorySnapshot,
+    SafeBriefInput, SourceDescriptor, SourceKind, SourceRef, StorySnapshot,
 };
-use webnovel_core::documents::{ScopeGrant, ScopeKind, capture_scope};
+use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
 use webnovel_core::validate_snapshot_json;
 
@@ -132,8 +132,32 @@ fn request(frozen: FrozenContext, reads: Vec<SourceRead>) -> PacketRequest {
         sources: reads,
         mandatory_handles: Vec::new(),
         scope: None,
+        safe_brief: None,
         budget: MockContextBudget::new("100000", "100", "100"),
     }
+}
+
+fn passage_scope(body: &Value) -> ScopeGrant {
+    capture_scope(
+        body,
+        ScopeGrant {
+            kind: ScopeKind::Passage,
+            start: Some(Endpoint {
+                block_id: "target-1".into(),
+                utf16_offset: 0,
+            }),
+            end: Some(Endpoint {
+                block_id: "target-1".into(),
+                utf16_offset: 8,
+            }),
+            source_hash: String::new(),
+            quote: String::new(),
+            quote_hash: String::new(),
+            prefix: None,
+            suffix: None,
+        },
+    )
+    .expect("capture exact passage scope")
 }
 
 fn compile(request: PacketRequest) -> CompiledPacket {
@@ -212,6 +236,146 @@ fn conversation_request() -> PacketRequest {
         frozen,
         vec![read(&target, &prose), read(&optional, &optional_body)],
     )
+}
+
+#[test]
+fn safe_brief_compiler_projects_exact_text_receipt_and_restricted_instruction() {
+    use sha2::{Digest, Sha256};
+
+    let target_body = body(&[("target-1", "A selected passage.")]);
+    let target = source("target", "target-doc", &target_body);
+    let mut request = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Revise,
+            Audience::RestrictedWriting,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    request.scope = Some(passage_scope(&target_body));
+    let text = "Keep the exchange restrained and preserve the exact selected passage.";
+    request.safe_brief = Some(SafeBriefInput {
+        text: text.into(),
+        origin_message_id: None,
+        confirmed: true,
+    });
+
+    let packet = compile(request);
+    let receipt = packet
+        .receipt
+        .safe_brief
+        .as_ref()
+        .expect("safe brief receipt");
+    assert_eq!(receipt.text, text);
+    assert_eq!(
+        receipt.text_hash,
+        Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
+    assert!(receipt.origin_message_id.is_none());
+    let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
+    assert_eq!(envelope["approvedWritingBrief"], text);
+    assert!(envelope.get("originMessageId").is_none());
+    assert!(packet.messages[0].content.contains("approvedWritingBrief"));
+    assert!(packet.messages[0].content.contains("final author request"));
+    assert!(
+        packet.messages[0]
+            .content
+            .contains("exact selected passage scope")
+    );
+    assert_eq!(
+        packet.receipt.input_hash,
+        packet_input_hash(&packet.messages, &packet.options).unwrap()
+    );
+}
+
+#[test]
+fn safe_brief_compiler_refuses_wrong_policy_scope_empty_unconfirmed_and_oversized_input() {
+    let target_body = body(&[("target-1", "A selected passage.")]);
+    let target = source("target", "target-doc", &target_body);
+    let mut valid = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Revise,
+            Audience::RestrictedWriting,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    valid.scope = Some(passage_scope(&target_body));
+    valid.safe_brief = Some(SafeBriefInput {
+        text: "Keep the scene quiet.".into(),
+        origin_message_id: None,
+        confirmed: true,
+    });
+
+    let mut wrong_audience = valid.clone();
+    wrong_audience.frozen.policy.audience = Audience::AuthorRoom;
+    let mut wrong_scope = valid.clone();
+    wrong_scope.scope = None;
+    let mut empty = valid.clone();
+    empty.safe_brief.as_mut().unwrap().text.clear();
+    let mut unconfirmed = valid.clone();
+    unconfirmed.safe_brief.as_mut().unwrap().confirmed = false;
+    let mut oversized = valid;
+    oversized.safe_brief.as_mut().unwrap().text = "x".repeat(16 * 1024 + 1);
+
+    for (label, candidate) in [
+        ("wrong audience", wrong_audience),
+        ("wrong scope", wrong_scope),
+        ("empty", empty),
+        ("unconfirmed", unconfirmed),
+        ("oversized", oversized),
+    ] {
+        assert!(
+            matches!(
+                compile_packet(&candidate),
+                Err(PacketError::InvalidRequest { .. })
+            ),
+            "safe brief case {label} must fail before packet projection"
+        );
+    }
+}
+
+#[test]
+fn safe_brief_counts_as_mandatory_context_and_never_truncates() {
+    let target_body = body(&[("target-1", "A selected passage.")]);
+    let target = source("target", "target-doc", &target_body);
+    let mut baseline = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Revise,
+            Audience::RestrictedWriting,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    baseline.scope = Some(passage_scope(&target_body));
+    baseline.budget = MockContextBudget::new("100000", "0", "0");
+    let baseline_packet = compile(baseline.clone());
+    let baseline_tokens = baseline_packet
+        .receipt
+        .input_tokens
+        .parse::<usize>()
+        .unwrap();
+
+    baseline.safe_brief = Some(SafeBriefInput {
+        text: "A".repeat(512),
+        origin_message_id: None,
+        confirmed: true,
+    });
+    baseline.budget = MockContextBudget::new(baseline_tokens.to_string(), "0", "0");
+    match compile_packet(&baseline).expect_err("brief must not be silently truncated") {
+        PacketError::Budget(error) => {
+            assert_eq!(
+                error.code,
+                webnovel_core::context::BudgetErrorCode::MandatoryContextTooLarge
+            );
+            assert!(error.mandatory_handles.contains(&"target".into()));
+            assert!(error.required_input_tokens.parse::<usize>().unwrap() > baseline_tokens);
+        }
+        error => panic!("expected mandatory brief budget error, got {error}"),
+    }
 }
 
 #[test]

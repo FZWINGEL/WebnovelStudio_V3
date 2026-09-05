@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -8,7 +9,7 @@ use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::discussions::{
     DiscussionBegin, DiscussionFail, DiscussionFinish, DiscussionMessageRole,
     DiscussionOutputAppend, DiscussionRunStatus, DiscussionScopeInput, FeedbackIntent, RunOwner,
-    SaveDiscussionDraft, StartDiscussion,
+    SafeBriefInput, SaveDiscussionDraft, StartDiscussion,
 };
 use webnovel_core::projects::{
     CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
@@ -93,6 +94,7 @@ fn start_request(
         intent: Default::default(),
         scope,
         pinned_document_ids,
+        safe_brief: None,
         budget: budget(),
         previous_run_id: None,
     }
@@ -433,6 +435,7 @@ fn save_draft(
             intent: Default::default(),
             scope: None,
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             previous_run_id: None,
         })
         .expect("save discussion draft")
@@ -487,6 +490,21 @@ fn scope_input(document: &webnovel_core::projects::DocumentRecord) -> Discussion
         quote: grant.quote,
         source_body_hash: grant.source_hash,
     }
+}
+
+fn safe_brief(text: &str, origin_message_id: Option<String>, confirmed: bool) -> SafeBriefInput {
+    SafeBriefInput {
+        text: text.into(),
+        origin_message_id,
+        confirmed,
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn adopt_guidance(
@@ -1311,6 +1329,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             intent: Default::default(),
             scope: None,
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             previous_run_id: None,
         })
         .expect_err("draft operation payload is immutable");
@@ -1325,6 +1344,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             intent: Default::default(),
             scope: None,
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             previous_run_id: None,
         })
         .expect_err("draft version is a CAS boundary");
@@ -1423,6 +1443,7 @@ fn retry_request(
         draft.pinned_document_ids,
     );
     request.intent = draft.intent;
+    request.safe_brief = draft.safe_brief;
     request.previous_run_id = Some(draft.previous_run_id);
     request
 }
@@ -1686,6 +1707,7 @@ fn retry_composer_link_is_durable_payload_bound_and_fenced_in_recovered_copies()
         intent: retry.intent,
         scope: retry.scope,
         pinned_document_ids: retry.pinned_document_ids,
+        safe_brief: None,
         previous_run_id: Some(first.run.id.clone()),
     };
     let saved = project.save_discussion_draft(request.clone()).unwrap();
@@ -1760,6 +1782,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
              DROP TABLE source_pin_receipts;
              DROP TABLE source_pin_sets;
              DROP TABLE export_records;
+             ALTER TABLE discussion_drafts DROP COLUMN safe_brief_json;
              DROP TRIGGER command_receipts_no_proposal_collision;
              DROP TABLE proposal_receipts; DROP TABLE proposal_decisions; DROP TABLE proposal_versions; DROP TABLE proposals;
              ALTER TABLE discussion_drafts DROP COLUMN intent;
@@ -1778,7 +1801,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema10-")
+            .starts_with("schema6-before-schema11-")
     }));
 }
 
@@ -1897,6 +1920,7 @@ fn proposal_retry_exposes_and_preserves_intent() {
             intent: retry.intent,
             scope: retry.scope.clone(),
             pinned_document_ids: retry.pinned_document_ids.clone(),
+            safe_brief: None,
             previous_run_id: Some(first.run.id.clone()),
         })
         .unwrap();
@@ -1910,6 +1934,7 @@ fn proposal_retry_exposes_and_preserves_intent() {
         intent: FeedbackIntent::Discuss,
         scope: retry.scope.clone(),
         pinned_document_ids: retry.pinned_document_ids.clone(),
+        safe_brief: None,
         previous_run_id: Some(first.run.id.clone()),
     };
     assert_eq!(
@@ -1984,5 +2009,322 @@ fn completed_prose_run_is_excluded_from_later_discussion_context() {
             .receipt
             .conversation_message_ids
             .is_empty()
+    );
+}
+
+#[test]
+fn safe_brief_is_exact_restricted_packet_direction_without_origin_metadata() {
+    let temp = TempDir::new("safe-brief-packet");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    completed_turn(
+        &project,
+        &access,
+        &document,
+        "safe-brief-origin",
+        "An earlier answer from the author room.",
+    );
+    let origin_message = discussion(&project, &access)
+        .messages
+        .into_iter()
+        .find(|message| matches!(message.role, DiscussionMessageRole::Assistant))
+        .expect("completed origin has an assistant message");
+    let text = "Keep the selected exchange restrained and end on the unanswered threat.";
+    let mut request = start_request(
+        &access,
+        &document,
+        "safe-brief-start",
+        "Revise the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    request.intent = FeedbackIntent::ProposeEdits;
+    request.safe_brief = Some(safe_brief(text, Some(origin_message.id.clone()), true));
+
+    let result = project.start_discussion(request).expect("safe brief start");
+    let receipt = result.packet.receipt.safe_brief.as_ref().unwrap();
+    assert_eq!(receipt.text, text);
+    assert_eq!(receipt.text_hash, sha256_hex(text.as_bytes()));
+    assert_eq!(
+        receipt.origin_message_id.as_deref(),
+        Some(origin_message.id.as_str())
+    );
+    assert!(
+        result.packet.messages[0]
+            .content
+            .contains("author direction")
+    );
+    let envelope: Value = serde_json::from_str(&result.packet.messages[1].content).unwrap();
+    assert_eq!(envelope["approvedWritingBrief"], text);
+    assert!(envelope.get("originMessageId").is_none());
+    assert!(
+        !result.packet.messages[1]
+            .content
+            .contains(&origin_message.id)
+    );
+}
+
+#[test]
+fn safe_brief_rejects_unconfirmed_wrong_mode_and_foreign_origin_without_writes() {
+    let temp = TempDir::new("safe-brief-rejections");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let before = counts(&project);
+
+    let mut unconfirmed = start_request(
+        &access,
+        &document,
+        "safe-brief-unconfirmed",
+        "Revise the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    unconfirmed.intent = FeedbackIntent::ProposeEdits;
+    unconfirmed.safe_brief = Some(safe_brief("Keep the ending quiet.", None, false));
+    assert_eq!(
+        project.start_discussion(unconfirmed).unwrap_err().code,
+        "InvalidSafeBrief"
+    );
+    assert_eq!(counts(&project), before);
+
+    let mut wrong_mode = start_request(
+        &access,
+        &document,
+        "safe-brief-wrong-mode",
+        "Discuss the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    wrong_mode.safe_brief = Some(safe_brief("Keep the ending quiet.", None, true));
+    assert_eq!(
+        project.start_discussion(wrong_mode).unwrap_err().code,
+        "InvalidSafeBrief"
+    );
+    assert_eq!(counts(&project), before);
+
+    let other_temp = TempDir::new("safe-brief-foreign");
+    let (other, other_access, other_document) = setup_project(&other_temp.child("project"));
+    let foreign_origin = start(&other, &other_access, &other_document, "foreign-origin");
+    let mut foreign = start_request(
+        &access,
+        &document,
+        "safe-brief-foreign-origin",
+        "Revise the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    foreign.intent = FeedbackIntent::ProposeEdits;
+    foreign.safe_brief = Some(safe_brief(
+        "Keep the ending quiet.",
+        Some(foreign_origin.user_message.id),
+        true,
+    ));
+    assert_eq!(
+        project.start_discussion(foreign).unwrap_err().code,
+        "InvalidSafeBrief"
+    );
+    assert_eq!(counts(&project), before);
+}
+
+#[test]
+fn safe_brief_draft_retains_unconfirmed_text_across_reopen() {
+    let temp = TempDir::new("safe-brief-draft");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let draft_brief = safe_brief("", None, false);
+    let saved = project
+        .save_discussion_draft(SaveDiscussionDraft {
+            access: access.clone(),
+            operation_id: "safe-brief-draft".into(),
+            document_id: document.head.document_id.clone(),
+            expected_version: "0".into(),
+            text: "An unsubmitted revision note".into(),
+            intent: FeedbackIntent::ProposeEdits,
+            scope: Some(scope_input(&document)),
+            pinned_document_ids: Vec::new(),
+            safe_brief: Some(draft_brief.clone()),
+            previous_run_id: None,
+        })
+        .expect("save editable safe brief draft");
+    assert_eq!(saved.safe_brief, Some(draft_brief.clone()));
+
+    drop(project);
+    let reopened = ProjectSession::open(path).expect("reopen draft project");
+    let reopened_access = reopened.attach("safe-brief-draft-reopen".into()).unwrap();
+    let view = reopened
+        .read_discussion(reopened_access, document.head.document_id)
+        .unwrap();
+    assert_eq!(view.draft.unwrap().safe_brief, Some(draft_brief));
+}
+
+#[test]
+fn safe_brief_retry_preserves_exact_approval_and_rejects_changed_brief() {
+    let temp = TempDir::new("safe-brief-retry");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let origin = start(&project, &access, &document, "safe-brief-retry-origin");
+    let brief = safe_brief(
+        "Keep the protagonist's answer indirect.",
+        Some(origin.user_message.id),
+        true,
+    );
+    let mut request = start_request(
+        &access,
+        &document,
+        "safe-brief-retry-first",
+        "Revise the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    request.intent = FeedbackIntent::ProposeEdits;
+    request.safe_brief = Some(brief.clone());
+    let first = project.start_discussion(request).unwrap();
+    project
+        .stop_discussion(access.clone(), first.run.id.clone())
+        .unwrap();
+
+    let retry = project
+        .discussion_retry(access.clone(), first.run.id.clone())
+        .unwrap();
+    assert_eq!(retry.safe_brief, Some(brief.clone()));
+    let mut changed = retry_request(
+        &project,
+        &access,
+        &document,
+        &first.run.id,
+        "safe-brief-retry-changed",
+    );
+    changed.safe_brief = Some(safe_brief(
+        "Use a direct answer instead.",
+        brief.origin_message_id.clone(),
+        true,
+    ));
+    assert_eq!(
+        project.start_discussion(changed).unwrap_err().code,
+        "RetryRequestChanged"
+    );
+
+    let retried = project
+        .start_discussion(retry_request(
+            &project,
+            &access,
+            &document,
+            &first.run.id,
+            "safe-brief-retry",
+        ))
+        .unwrap();
+    assert_eq!(
+        retried.packet.receipt.safe_brief,
+        first.packet.receipt.safe_brief
+    );
+}
+
+#[test]
+fn safe_brief_replay_survives_policy_bump_but_new_origin_use_does_not() {
+    let temp = TempDir::new("safe-brief-policy-replay");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let origin = start(&project, &access, &document, "safe-brief-policy-origin");
+    let mut request = start_request(
+        &access,
+        &document,
+        "safe-brief-policy-start",
+        "Revise the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    request.intent = FeedbackIntent::ProposeEdits;
+    request.safe_brief = Some(safe_brief(
+        "Keep the unanswered threat at the end.",
+        Some(origin.user_message.id.clone()),
+        true,
+    ));
+    let first = project.start_discussion(request.clone()).unwrap();
+    project
+        .revoke_story_context(access.clone(), "0".into())
+        .unwrap();
+
+    let replay = project
+        .start_discussion(request)
+        .expect("same operation receipt must remain replayable");
+    assert_eq!(replay.run.id, first.run.id);
+    assert_eq!(replay.packet, first.packet);
+
+    let mut fresh = start_request(
+        &access,
+        &document,
+        "safe-brief-policy-fresh",
+        "Revise the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    fresh.intent = FeedbackIntent::ProposeEdits;
+    fresh.safe_brief = Some(safe_brief(
+        "Keep the unanswered threat at the end.",
+        Some(origin.user_message.id),
+        true,
+    ));
+    assert_eq!(
+        project.start_discussion(fresh).unwrap_err().code,
+        "ContextPolicyChanged"
+    );
+}
+
+#[test]
+fn safe_brief_backup_retains_history_but_old_origin_cannot_authorize_recovery() {
+    let temp = TempDir::new("safe-brief-recovery");
+    let source_path = temp.child("source");
+    let (source, access, document) = setup_project(&source_path);
+    let origin = start(&source, &access, &document, "safe-brief-recovery-origin");
+    let mut request = start_request(
+        &access,
+        &document,
+        "safe-brief-recovery-start",
+        "Revise the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    request.intent = FeedbackIntent::ProposeEdits;
+    request.safe_brief = Some(safe_brief(
+        "Keep the final image unresolved.",
+        Some(origin.user_message.id.clone()),
+        true,
+    ));
+    let started = source.start_discussion(request).unwrap();
+    let archive = temp.child("safe-brief.wnsbackup");
+    create_backup(&source, &archive).unwrap();
+
+    let recovered = recover_backup(&archive, &temp.child("recovered"), "Recovered brief")
+        .expect("recover safe brief history");
+    let recovered_access = recovered.attach("safe-brief-recovered".into()).unwrap();
+    let packet_json: String = Connection::open(recovered.path.join("project.sqlite3"))
+        .unwrap()
+        .query_row(
+            "SELECT packet_json FROM context_packets WHERE id=?",
+            [&started.packet.receipt.packet_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let packet: Value = serde_json::from_str(&packet_json).unwrap();
+    assert_eq!(
+        packet["receipt"]["safeBrief"]["text"],
+        "Keep the final image unresolved."
+    );
+    let recovered_document = recovered
+        .document(recovered_access.clone(), document.head.document_id.clone())
+        .unwrap();
+    let mut copied_request = start_request(
+        &recovered_access,
+        &recovered_document,
+        "safe-brief-recovery-new",
+        "Revise the selected passage.",
+        Some(scope_input(&recovered_document)),
+        Vec::new(),
+    );
+    copied_request.intent = FeedbackIntent::ProposeEdits;
+    copied_request.safe_brief = Some(safe_brief(
+        "Keep the final image unresolved.",
+        Some(origin.user_message.id),
+        true,
+    ));
+    assert_eq!(
+        recovered.start_discussion(copied_request).unwrap_err().code,
+        "InvalidSafeBrief"
     );
 }

@@ -227,6 +227,7 @@ fn discussion_uses_persistent_author_sources_but_restricted_edits_do_not() {
             intent: FeedbackIntent::Discuss,
             scope: None,
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             budget: MockContextBudget::new("100000", "100", "100"),
             previous_run_id: None,
         })
@@ -256,6 +257,7 @@ fn discussion_uses_persistent_author_sources_but_restricted_edits_do_not() {
             intent: FeedbackIntent::Discuss,
             scope: None,
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             budget: MockContextBudget::new("100000", "100", "100"),
             previous_run_id: None,
         })
@@ -306,6 +308,7 @@ fn discussion_uses_persistent_author_sources_but_restricted_edits_do_not() {
                 source_body_hash: scope.source_hash,
             }),
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             budget: MockContextBudget::new("100000", "100", "100"),
             previous_run_id: None,
         })
@@ -341,6 +344,7 @@ fn retry_keeps_transient_pins_and_refreshes_persistent_pins() {
             intent: FeedbackIntent::Discuss,
             scope: None,
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             budget: MockContextBudget::new("100000", "100", "100"),
             previous_run_id: None,
         })
@@ -370,6 +374,7 @@ fn retry_keeps_transient_pins_and_refreshes_persistent_pins() {
             intent: retry.intent,
             scope: retry.scope,
             pinned_document_ids: retry.pinned_document_ids,
+            safe_brief: None,
             budget: MockContextBudget::new("100000", "100", "100"),
             previous_run_id: Some(retry.previous_run_id),
         })
@@ -660,6 +665,7 @@ fn persistent_pin_budget_failure_does_not_start_a_discussion() {
             intent: FeedbackIntent::Discuss,
             scope: None,
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             budget: MockContextBudget::new("1", "0", "0"),
             previous_run_id: None,
         })
@@ -689,6 +695,7 @@ fn changing_persistent_pins_stales_an_existing_prepared_packet() {
             intent: FeedbackIntent::Discuss,
             scope: None,
             pinned_document_ids: Vec::new(),
+            safe_brief: None,
             budget: MockContextBudget::new("100000", "100", "100"),
             previous_run_id: None,
         })

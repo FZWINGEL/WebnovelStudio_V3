@@ -5,8 +5,11 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+use webnovel_core::context::packet::MockContextBudget;
 use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
 use webnovel_core::documents::Endpoint;
+use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
+use webnovel_core::projects::discussions::SaveDiscussionDraft;
 use webnovel_core::projects::story_context::FreezeStory;
 use webnovel_core::projects::{
     CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
@@ -272,7 +275,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 10);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 11);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -324,7 +327,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
 }
 
 #[test]
-fn schema3_upgrade_to_schema10_preserves_frozen_snapshot_and_useful_backup() {
+fn schema3_upgrade_to_schema11_preserves_frozen_snapshot_and_useful_backup() {
     let temp = TempDir::new("schema3-upgrade");
     let path = temp.child("legacy");
     let (project, access, _document, _saved) = setup_project(&path);
@@ -337,16 +340,16 @@ fn schema3_upgrade_to_schema10_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 10);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 11);
     let connection =
-        Connection::open(path.join("project.sqlite3")).expect("open migrated schema10 database");
+        Connection::open(path.join("project.sqlite3")).expect("open migrated schema11 database");
     let discussion_tables: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='discussion_runs'",
             [],
             |row| row.get(0),
         )
-        .expect("check schema10 discussion tables");
+        .expect("check schema11 discussion tables");
     assert_eq!(discussion_tables, 1);
     drop(connection);
     let attached = upgraded
@@ -386,6 +389,97 @@ fn schema3_upgrade_to_schema10_preserves_frozen_snapshot_and_useful_backup() {
         })
         .expect("read backed snapshot pins");
     assert_eq!(backup_pins, 1);
+}
+
+#[test]
+fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft() {
+    let temp = TempDir::new("schema10-safe-brief");
+    let path = temp.child("legacy");
+    let (project, access, document, _saved) = setup_project(&path);
+    let current = project
+        .document(access.clone(), document.head.document_id.clone())
+        .expect("read current migration target");
+    let snapshot_id = freeze_one_snapshot(&project, &access, &current);
+    let packet = match project
+        .prepare_context(PrepareContext {
+            access: access.clone(),
+            operation_id: "schema10-old-packet".into(),
+            snapshot_id,
+            instruction: "Keep the selected target grounded.".into(),
+            mandatory_handles: Vec::new(),
+            transient_mandatory_handles: None,
+            safe_brief: None,
+            scope: None,
+            budget: MockContextBudget::new("100000", "100", "100"),
+        })
+        .expect("prepare old packet")
+    {
+        PreparationResult::Prepared { packet, .. } => *packet,
+        PreparationResult::BudgetRejected { .. } => panic!("old packet must fit budget"),
+    };
+    let draft = project
+        .save_discussion_draft(SaveDiscussionDraft {
+            access: access.clone(),
+            operation_id: "schema10-old-draft".into(),
+            document_id: document.head.document_id.clone(),
+            expected_version: "0".into(),
+            text: "A draft retained before migration.".into(),
+            intent: Default::default(),
+            scope: None,
+            pinned_document_ids: Vec::new(),
+            safe_brief: None,
+            previous_run_id: None,
+        })
+        .expect("save old draft");
+    drop(project);
+
+    let connection = Connection::open(path.join("project.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "ALTER TABLE discussion_drafts DROP COLUMN safe_brief_json;
+             PRAGMA user_version=10;",
+        )
+        .expect("downgrade synthetic schema10 database");
+    drop(connection);
+
+    let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 11);
+    let connection = Connection::open(path.join("project.sqlite3")).unwrap();
+    let safe_brief_column: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('discussion_drafts') WHERE name='safe_brief_json'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(safe_brief_column, 1);
+    let stored_request: String = connection
+        .query_row(
+            "SELECT request_json FROM context_packets WHERE id=?",
+            [&packet.receipt.packet_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        serde_json::from_str::<Value>(&stored_request)
+            .unwrap()
+            .get("safeBrief")
+            .is_none()
+    );
+    drop(connection);
+
+    let reopened = upgraded.attach("schema10-reader".into()).unwrap();
+    let restored = upgraded
+        .prepared_context(reopened.clone(), packet.receipt.packet_id)
+        .expect("old packet remains readable after schema11 migration");
+    assert_eq!(restored.receipt.input_hash, packet.receipt.input_hash);
+    let restored_draft = upgraded
+        .read_discussion(reopened, document.head.document_id)
+        .unwrap()
+        .draft
+        .expect("old draft remains readable after schema11 migration");
+    assert_eq!(restored_draft.text, draft.text);
+    assert!(restored_draft.safe_brief.is_none());
 }
 
 #[test]
@@ -458,7 +552,7 @@ fn schema2_upgrade_failure_rolls_back_and_retains_durable_backup() {
 }
 
 #[test]
-fn schema2_backup_recovers_forward_to_schema10_with_document_view_and_epoch() {
+fn schema2_backup_recovers_forward_to_schema11_with_document_view_and_epoch() {
     let temp = TempDir::new("schema2-recovery");
     let source_path = temp.child("source");
     let (project, access, _document, saved) = setup_project(&source_path);
@@ -482,7 +576,7 @@ fn schema2_backup_recovers_forward_to_schema10_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 10);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 11);
     assert_eq!(
         recovered
             .context_source_epoch()

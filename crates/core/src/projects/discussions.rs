@@ -11,7 +11,9 @@ use super::*;
 use crate::context::packet::{
     CompiledPacket, MockContextBudget, PacketError, PacketRequest, compile_packet,
 };
-use crate::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
+use crate::context::{
+    Audience, BasisKind, ContextPurpose, InformationPolicy, MAX_SAFE_BRIEF_BYTES,
+};
 use crate::documents::{
     Endpoint, ScopeGrant, ScopeKind, ScopeValidationRequest, capture_scope, validate_scope,
 };
@@ -21,6 +23,8 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
+
+pub use crate::context::SafeBriefInput;
 
 mod retry;
 
@@ -110,6 +114,8 @@ pub struct StartDiscussion {
     pub intent: FeedbackIntent,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_brief: Option<SafeBriefInput>,
     pub budget: MockContextBudget,
     pub previous_run_id: Option<String>,
 }
@@ -265,6 +271,8 @@ pub struct DiscussionDraft {
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_brief: Option<SafeBriefInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_run_id: Option<String>,
     pub updated_at: String,
 }
@@ -276,6 +284,8 @@ pub struct DiscussionRetry {
     pub intent: FeedbackIntent,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_brief: Option<SafeBriefInput>,
     pub previous_run_id: String,
 }
 
@@ -291,6 +301,8 @@ pub struct SaveDiscussionDraft {
     pub intent: FeedbackIntent,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_brief: Option<SafeBriefInput>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_run_id: Option<String>,
 }
@@ -507,6 +519,7 @@ impl OwnedProject {
             tx.commit().map_err(CoreError::uncertain)?;
             return Ok(result);
         }
+        validate_safe_brief_origin(&tx, &request)?;
 
         let retry_guidance = retry::guidance(&tx, &request)?;
         let (purpose, policy) = discussion_context_policy(&tx, &request)?;
@@ -580,6 +593,7 @@ impl OwnedProject {
             sources: source_reads,
             mandatory_handles: mandatory_handles.clone(),
             scope: scope.clone(),
+            safe_brief: request.safe_brief.clone(),
             budget: request.budget.clone(),
         })
         .map_err(packet_error)?;
@@ -1082,6 +1096,7 @@ impl OwnedProject {
                 "The discussion draft scope quote is too large.",
             ));
         }
+        validate_safe_brief_draft(request.safe_brief.as_ref())?;
         let payload_hash = logical_hash(&request)?;
         let tx = self
             .db_mut()?
@@ -1125,7 +1140,7 @@ impl OwnedProject {
         let next = current
             .checked_add(1)
             .ok_or_else(|| CoreError::new("InvalidRequest", "The draft version is exhausted."))?;
-        tx.execute("INSERT INTO discussion_drafts(project_id,operation_namespace,document_id,version,text,intent,scope_json,pinned_document_ids_json,previous_run_id) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,operation_namespace,document_id) DO UPDATE SET version=excluded.version,text=excluded.text,intent=excluded.intent,scope_json=excluded.scope_json,pinned_document_ids_json=excluded.pinned_document_ids_json,previous_run_id=excluded.previous_run_id,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", params![request.access.project_id,request.access.operation_namespace,request.document_id,next,request.text,request.intent.as_str(),request.scope.as_ref().map(serde_json::to_string).transpose()?,serde_json::to_string(&request.pinned_document_ids)?,request.previous_run_id])?;
+        tx.execute("INSERT INTO discussion_drafts(project_id,operation_namespace,document_id,version,text,intent,scope_json,pinned_document_ids_json,previous_run_id,safe_brief_json) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,operation_namespace,document_id) DO UPDATE SET version=excluded.version,text=excluded.text,intent=excluded.intent,scope_json=excluded.scope_json,pinned_document_ids_json=excluded.pinned_document_ids_json,previous_run_id=excluded.previous_run_id,safe_brief_json=excluded.safe_brief_json,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", params![request.access.project_id,request.access.operation_namespace,request.document_id,next,request.text,request.intent.as_str(),request.scope.as_ref().map(serde_json::to_string).transpose()?,serde_json::to_string(&request.pinned_document_ids)?,request.previous_run_id,request.safe_brief.as_ref().map(serde_json::to_string).transpose()?])?;
         let draft = read_draft(&tx, &request.access, &request.document_id)?.ok_or_else(|| {
             CoreError::new(
                 "PersistenceUnavailable",
@@ -1170,6 +1185,135 @@ fn validate_start(request: &StartDiscussion) -> CoreResult<()> {
         return Err(CoreError::new(
             "InvalidScope",
             "A discussion scope quote or source hash is invalid.",
+        ));
+    }
+    validate_safe_brief_start(request)?;
+    Ok(())
+}
+
+fn validate_safe_brief_shape(brief: &SafeBriefInput) -> CoreResult<()> {
+    if brief.text.len() > MAX_SAFE_BRIEF_BYTES {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The writing brief must be at most 16 KiB.",
+        ));
+    }
+    if let Some(origin) = brief.origin_message_id.as_deref()
+        && (origin.is_empty()
+            || origin.len() > 64
+            || !origin
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')))
+    {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The writing brief origin message ID is invalid.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_safe_brief_draft(brief: Option<&SafeBriefInput>) -> CoreResult<()> {
+    if let Some(brief) = brief {
+        validate_safe_brief_shape(brief)?;
+    }
+    Ok(())
+}
+
+fn validate_safe_brief_start(request: &StartDiscussion) -> CoreResult<()> {
+    let Some(brief) = request.safe_brief.as_ref() else {
+        return Ok(());
+    };
+    validate_safe_brief_shape(brief)?;
+    if brief.text.trim().is_empty() || !brief.confirmed {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "A writing brief must be nonempty and explicitly confirmed before use.",
+        ));
+    }
+    if request.intent != FeedbackIntent::ProposeEdits
+        || request
+            .scope
+            .as_ref()
+            .is_none_or(|scope| scope.kind != ScopeKind::Passage)
+    {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "A writing brief is available only for a confirmed passage revision.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_safe_brief_origin(tx: &Connection, request: &StartDiscussion) -> CoreResult<()> {
+    let Some(brief) = request.safe_brief.as_ref() else {
+        return Ok(());
+    };
+    let Some(origin_id) = brief.origin_message_id.as_deref() else {
+        return Ok(());
+    };
+    let row: Option<(String, String, String, String, Option<String>)> = tx
+        .query_row(
+            "SELECT dt.project_id,dt.operation_namespace,dt.document_id,dm.role,dr.packet_id
+             FROM discussion_messages dm
+             JOIN discussion_threads dt ON dt.id=dm.thread_id
+             LEFT JOIN discussion_runs dr ON dr.id=dm.run_id
+             WHERE dm.id=?",
+            [origin_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((project, namespace, document, role, packet_id)) = row else {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The writing brief origin message is not available.",
+        ));
+    };
+    if project != request.access.project_id
+        || namespace != request.access.operation_namespace
+        || document != request.expected.document_id
+        || DiscussionMessageRole::parse(&role)? == DiscussionMessageRole::Assistant
+            && packet_id.is_none()
+    {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The writing brief origin message does not belong to this chapter discussion.",
+        ));
+    }
+    let packet_id = packet_id.ok_or_else(|| {
+        CoreError::new(
+            "InvalidSafeBrief",
+            "The writing brief origin message has no readable discussion context.",
+        )
+    })?;
+    let snapshot_id: Option<String> = tx
+        .query_row(
+            "SELECT snapshot_id FROM context_packets WHERE id=?",
+            [&packet_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(snapshot_id) = snapshot_id else {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The writing brief origin message has no readable discussion context.",
+        ));
+    };
+    let frozen = story_context::load_snapshot(tx, &request.access, &snapshot_id)?;
+    if frozen.policy.audience != Audience::AuthorRoom
+        || frozen.snapshot.target.document_id != request.expected.document_id
+    {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The writing brief origin message is not readable in the current AuthorRoom policy.",
         ));
     }
     Ok(())
@@ -1359,6 +1503,7 @@ fn insert_packet(
         instruction: request.instruction.clone(),
         mandatory_handles: mandatory_handles.to_vec(),
         transient_mandatory_handles: transient_handles,
+        safe_brief: request.safe_brief.clone(),
         scope: scope.cloned(),
         budget: request.budget.clone(),
     };
@@ -1411,16 +1556,24 @@ fn validate_previous_run(
 fn read_start(db: &Connection, run_id: &str) -> CoreResult<DiscussionStart> {
     let run = read_run(db, run_id)?;
     let user_message = db.query_row("SELECT id FROM discussion_messages WHERE run_id=? AND role='user' ORDER BY created_at,id LIMIT 1", [run_id], |row| row.get::<_,String>(0)).map_err(CoreError::from).and_then(|id| read_message(db, &id))?;
-    let packet = context_packets::read_context_packet_at(
-        db,
-        &ProjectAccess {
-            project_id: run.owner.project_id.clone(),
-            operation_namespace: run.owner.operation_namespace.clone(),
-            session: String::new(),
-            writer_lease: String::new(),
-        },
-        &run.packet_id,
-    )?;
+    // Safe-brief starts are explicit author actions whose receipt must remain
+    // replayable after a later policy bump. Ordinary discussion receipts keep
+    // the existing current-policy read boundary.
+    let retained = context_packets::validated_packet_record(db, &run.packet_id)?;
+    let packet = if retained.receipt.safe_brief.is_some() {
+        retained
+    } else {
+        context_packets::read_context_packet_at(
+            db,
+            &ProjectAccess {
+                project_id: run.owner.project_id.clone(),
+                operation_namespace: run.owner.operation_namespace.clone(),
+                session: String::new(),
+                writer_lease: String::new(),
+            },
+            &run.packet_id,
+        )?
+    };
     Ok(DiscussionStart {
         thread_id: run.thread_id.clone(),
         run,
@@ -1548,10 +1701,11 @@ fn read_draft(
         String,
         String,
         Option<String>,
+        Option<String>,
     );
     let row: Option<DraftRow> = db
         .query_row(
-            "SELECT document_id,version,text,intent,scope_json,pinned_document_ids_json,updated_at,previous_run_id FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?",
+            "SELECT document_id,version,text,intent,scope_json,pinned_document_ids_json,updated_at,previous_run_id,safe_brief_json FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?",
             params![access.project_id, access.operation_namespace, document_id],
             |row| {
                 Ok((
@@ -1563,6 +1717,7 @@ fn read_draft(
                     row.get(5)?,
                     row.get(6)?,
                     row.get(7)?,
+                    row.get(8)?,
                 ))
             },
         )
@@ -1576,6 +1731,7 @@ fn read_draft(
         pins_json,
         updated_at,
         previous_run_id,
+        safe_brief_json,
     )) = row
     else {
         return Ok(None);
@@ -1589,6 +1745,9 @@ fn read_draft(
             .map(|json| serde_json::from_str(&json))
             .transpose()?,
         pinned_document_ids: serde_json::from_str(&pins_json)?,
+        safe_brief: safe_brief_json
+            .map(|json| serde_json::from_str(&json))
+            .transpose()?,
         previous_run_id,
         updated_at,
     }))
