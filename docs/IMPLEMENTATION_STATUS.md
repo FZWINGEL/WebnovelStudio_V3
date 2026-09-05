@@ -10,7 +10,8 @@ WebnovelStudio V3 targets English novel authoring, UI, and export. Translated-we
 ## Repository and CI evidence
 
 - The private repository is [FZWINGEL/WebnovelStudio_V3](https://github.com/FZWINGEL/WebnovelStudio_V3). Its default branch is `main`, whose current tip is `d0eebfd780e435c068ef1017cac580786360d36b`.
-- The latest remote CI run [33971040177](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33971040177), for commit `b8d4cb8`, confirmed the contract jobs on both OSes, Windows Clippy/tests, and native build; native smoke reached the UI but timed out on a CSS-hidden diagnostic label. The wait/query fix is local and the remote rerun is pending.
+- The implementation is pushed as `73db1bc03e9a99eef1e5cdd31d8dbcb9be0dac53` on `codex/v3-persistence`. Its [CI run 33973213684](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33973213684) has passed Ubuntu contracts; Windows contracts and native qualification are still running at this record's update.
+- The previous [CI run 33971040177](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33971040177), for `b8d4cb8`, passed both contract jobs, Windows Clippy/tests, and native build; native smoke reached the UI but timed out on a CSS-hidden diagnostic label. The committed fix waits for attachment and checks the actual runtime through IPC.
 - The historical [W0 qualification record](W0_QUALIFICATION.md) remains the record for that spike. Current implementation status and remaining gates are maintained here.
 
 ## Current work
@@ -21,11 +22,11 @@ WebnovelStudio V3 targets English novel authoring, UI, and export. Translated-we
 | W1 structural scope | In progress | Rust structural scope validation is implemented with fixtures | Complete validator evidence, mutation/failure coverage, and JS/Rust qualification |
 | W2 project/session/save | In progress | Core/frontend sessions, receipts/reconciliation, and default persistent UI wiring are implemented | Complete file-backed persistence/reconciliation evidence and the broader author-trial integration; no full W2/V3 completion claim |
 | W3 library/transfer | Active work | Registry, transfer, schema-2 migration, and persistent Library/Workspace flows are underway/partly wired | Complete library/recovery/A-trial contract and evidence |
-| GitHub/CI | Repository available; native smoke rerun pending | Private repo, `main` default, run 33971040177 for `b8d4cb8` confirmed contract/build jobs and a native smoke timeout | Record the remote rerun result after the local wait/query fix |
+| GitHub/CI | Implementation pushed; Windows CI running | Private repo, `main` default, `73db1bc` run 33973213684 passed Ubuntu contracts | Record the Windows contracts/native results |
 
 ## Current local evidence
 
-The root wrapper passed rustfmt, workspace Clippy with `-D warnings`, 59 Rust tests (one additional child test is ignored because its parent invokes it in a subprocess), the TypeScript/Vite build, and 73 frontend tests. Review regressions cover scene-break caret saving, ignoring an unavailable last document, preserving the current writer lease when destination reads fail, and view/metadata acknowledgment fences. After rebuilding, the real Tauri/WebView2 smoke path passed 14/14 checks on WebView2 `152.0.4191.62`, covering two-project save/switch/reload and copy isolation, process kill/restart, project/document rename, exact caret/last-document restore, and archive/unarchive. The ignored `.local/native-results/report.json` is machine-local evidence. Native backup/export dialog use has not been exercised, and the broader A, N, and W3 qualification gates remain open.
+The root wrapper passed rustfmt, workspace Clippy with `-D warnings`, 59 Rust tests (one additional child test is ignored because its parent invokes it in a subprocess), the TypeScript/Vite build, and 73 frontend tests. Review regressions cover scene-break caret saving, ignoring an unavailable last document, preserving the current writer lease when destination reads fail, and view/metadata acknowledgment fences. After rebuilding, the real Tauri/WebView2 smoke path passed 14/14 checks on WebView2 `152.0.4191.62`, covering two-project save/switch/reload and copy isolation, process kill/restart, project/document rename, exact caret/last-document restore, and archive/unarchive. The ignored `.local/native-results/report.json` is machine-local evidence. A separate native Windows dialog check saved a 55,151-byte synthetic backup through the Backup action. Native export/recovery dialogs, normal-close behavior, and the broader A, N, and W3 qualification gates remain open.
 
 ## Full completion checklist
 
