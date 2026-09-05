@@ -45,9 +45,13 @@ fn main() {
             let data_directory = std::env::var_os("WNS_V3_TRIAL_WEBVIEW_DIR")
                 .map(PathBuf::from)
                 .unwrap_or(data_directory);
+            #[cfg(debug_assertions)]
+            eprintln!("Starting WebView2 {:?}, data directory {:?}", tauri::webview_version(), data_directory);
             tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
                 .data_directory(data_directory)
                 .build()?;
+            #[cfg(debug_assertions)]
+            eprintln!("WebView2 window created");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![validate_snapshot, runtime_info])

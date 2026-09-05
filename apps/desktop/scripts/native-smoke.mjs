@@ -21,17 +21,27 @@ const app = spawn(resolve(root, 'target/debug/webnovel-desktop.exe'), [], {
   env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1`, WNS_V3_TRIAL_WEBVIEW_DIR: data },
 });
 let appLog = '';
+let spawnError;
 app.stdout.on('data', chunk => { appLog += chunk; });
 app.stderr.on('data', chunk => { appLog += chunk; });
-app.on('error', error => { appLog += error.stack; });
+app.on('error', error => { spawnError = error; appLog += error.stack; });
 let browser;
 const checks = [];
 try {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (app.exitCode !== null) throw new Error(`Native app exited: ${appLog}`);
-    try { const response = await fetch(`http://127.0.0.1:${port}/json/version`); if (response.ok) break; } catch {}
-    await new Promise(resolve => setTimeout(resolve, 200));
+  const startup = Date.now();
+  let ready = false;
+  let lastReadinessError = '';
+  console.log(`Starting native WebView2 qualification (PID ${app.pid}); waiting up to 90 seconds for CDP.`);
+  while (Date.now() - startup < 90_000) {
+    if (spawnError || app.exitCode !== null) throw new Error(`Native app did not start (exit ${app.exitCode}): ${appLog}`);
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(2000) });
+      if (response.ok && (await response.json()).webSocketDebuggerUrl) { ready = true; break; }
+      lastReadinessError = `Unexpected CDP HTTP status ${response.status}`;
+    } catch (error) { lastReadinessError = String(error); }
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
+  if (!ready) throw new Error(`WebView2 CDP was not ready after ${Date.now() - startup}ms. PID=${app.pid}; exit=${app.exitCode}; ${lastReadinessError}\nNative log:\n${appLog || '(empty)'}`);
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 10000 });
   const context = browser.contexts()[0];
   let page = context.pages()[0];
