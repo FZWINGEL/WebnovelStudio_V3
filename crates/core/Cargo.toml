@@ -8,6 +8,6 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 sha2 = "=0.11.0"
 url = "=2.5.8"
-
-[dev-dependencies]
-rusqlite = { version = "=0.40.2", features = ["bundled"] }
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+unicode-segmentation = "=1.13.3"
+uuid = { version = "=1.26.0", features = ["v4"] }

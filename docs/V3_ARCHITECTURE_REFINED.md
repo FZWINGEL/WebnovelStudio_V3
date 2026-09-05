@@ -569,7 +569,7 @@ A portable project is a directory:
 
 ```text
 My Novel/
-  project.wns                  # fixed-format project marker; not a second title DB
+  project.wns.json             # implemented JSON identity marker; title authority remains SQLite
   project.sqlite3              # authoritative project data
   assets/<content-hash>         # immutable referenced attachments, when supported
   legacy/                      # explicitly preserved V2/import evidence

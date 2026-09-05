@@ -18,7 +18,7 @@ const port = server.address().port;
 await new Promise(resolve => server.close(resolve));
 const app = spawn(resolve(root, 'target/debug/webnovel-desktop.exe'), [], {
   cwd: root, windowsHide: true, stdio: 'pipe',
-  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1`, WNS_V3_TRIAL_WEBVIEW_DIR: data },
+  env: { ...process.env, WNS_V3_NATIVE_CDP_PORT: String(port), WNS_V3_TRIAL_WEBVIEW_DIR: data },
 });
 let appLog = '';
 let spawnError;
@@ -171,8 +171,35 @@ try {
   await page.getByRole('textbox', { name: 'Your feedback on this passage' }).waitFor();
   assert.equal(await page.locator('.quoted-scope blockquote').textContent(), 'Clipboard');
   checks.push('Right-click selection menu captures the intended passage');
+  // W2 exercises shipping project commands against synthetic, file-backed data.
+  // This is transport qualification; the visible W0 manuscript is still session-only.
+  const projectPath = resolve(data, 'persistence-project');
+  const persisted = await page.evaluate(async ({ projectPath }) => {
+    const invoke = (command, args) => window.__TAURI_INTERNALS__.invoke(command, args);
+    const opened = await invoke('create_project', { path: projectPath, title: 'Native persistence fixture', session: 'native-session-one' });
+    const body = { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'native-paragraph' } }] } };
+    const created = await invoke('create_document', { request: { access: opened.access, operationId: 'create-native', documentId: 'native-chapter', title: 'An empty harbour', kind: 'chapter', body } });
+    body.body.content[0].content = [{ type: 'text', text: 'Saved in Rust. Mei waited beneath the lantern. 👩‍🚀' }];
+    const request = { access: opened.access, operationId: 'native-save', expected: created.head, localGeneration: '1', body, cause: 'typing' };
+    const ack = await invoke('save_snapshot', { request });
+    const replay = await invoke('save_snapshot', { request });
+    const revision = await invoke('checkpoint_document', { request: { access: opened.access, expected: ack.head, reason: 'manual' } });
+    const reconciled = await invoke('reconcile_document', { request: { projectId: opened.project.projectId, operationNamespace: opened.project.operationNamespace, session: 'native-session-two', documentId: 'native-chapter', pendingOperationIds: ['native-save'] } });
+    let staleError;
+    try { await invoke('save_snapshot', { request }); } catch (error) { staleError = error; }
+    const reopened = await invoke('open_project', { path: projectPath, session: 'native-session-three' });
+    return { opened, created, ack, replay, revision, reconciled, staleError, reopened };
+  }, { projectPath });
+  assert.equal(persisted.ack.head.version, '1');
+  assert.deepEqual(persisted.replay, persisted.ack);
+  assert.deepEqual(persisted.reconciled.document.head, persisted.ack.head);
+  assert.equal(persisted.reconciled.receipts[0].operationId, 'native-save');
+  assert.equal(persisted.staleError.code, 'WriterLeaseExpired');
+  assert.equal(persisted.reopened.documents[0].body.body.content[0].content[0].text, 'Saved in Rust. Mei waited beneath the lantern. 👩‍🚀');
+  assert.equal(persisted.reopened.documents[0].lastCheckpointId, persisted.revision.id);
+  checks.push('Real project IPC creates file-backed prose, saves once, checkpoints, fences stale writers and reopens the latest head');
   assert.deepEqual(errors, []);
-  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable: 'target/debug/webnovel-desktop.exe', limitations: ['No disk-backed manuscript persistence', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No provider or durable Apply'], dataDirectory: data }, null, 2));
+  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable: 'target/debug/webnovel-desktop.exe', limitations: ['Visible trial manuscript is session-only; project persistence is exercised through real IPC on synthetic data', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No provider or durable Apply'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));
 } catch (error) {
   await writeFile(resolve(output, 'failure.txt'), `${error.stack}\n${appLog}`);

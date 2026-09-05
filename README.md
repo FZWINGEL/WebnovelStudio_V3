@@ -1,10 +1,12 @@
 # WebnovelStudio V3
 
-WebnovelStudio V3 is the native desktop rewrite of WebnovelStudio for English novel authoring, UI, and export. Optional translated-webnovel, wuxia, and xianxia register or terminology may shape style work later; they are not required genres or language modes. The current checkout is the W0 native editor spike: a Tauri window with a React/Tiptap manuscript editor, a small feedback panel, and a Rust snapshot validation command over real IPC.
+WebnovelStudio V3 is the native desktop rewrite of WebnovelStudio for English novel authoring, UI, and export. Optional translated-webnovel, wuxia, and xianxia register or terminology may shape style work later; they are not required genres or language modes. The current checkout is `codex/v3-persistence`: W0's native editor remains session-only while W1 Rust structural scope validation and W2 core file-backed project/session/save work are in progress.
 
-W0 is **in progress**. The window uses sample text held in memory for the session. It has no author storage, project library, provider, SQLite persistence, durable Apply path, receipts, or reconciliation. The remaining native author trial, minimum-window behavior, external Word paste, screen-reader use, and broader qualification remain open. See the [W0 qualification record](docs/W0_QUALIFICATION.md).
+W0's runtime UI still uses sample text held in memory for the session. It has no integrated author storage, project library, provider, SQLite persistence, durable Apply path, receipts, or reconciliation. The remaining English native author trial, minimum-window behavior, external Word paste, screen-reader use, and broader qualification remain open. The [W0 qualification record](docs/W0_QUALIFICATION.md) is historical; see the [implementation status](docs/IMPLEMENTATION_STATUS.md) for the current work gates.
 
-The implementation branch is `codex/v3-native-editor-spike`. V2 remains unchanged in `D:\WebnovelStudio_V2`; V3 has no GitHub remote. The [product requirements](PRODUCT.md), [workspace plan](docs/V3_WORKSPACE_PLAN.md), [first-slice plan](docs/V3_FIRST_SLICE_PLAN.md), and [editor contract](docs/ADR_0001_EDITOR_CONTRACT.md) define the next steps.
+The private GitHub repository is [FZWINGEL/WebnovelStudio_V3](https://github.com/FZWINGEL/WebnovelStudio_V3), with `main` as its default branch. The current `main` tip is `d0eebfd780e435c068ef1017cac580786360d36b`; active implementation is on `codex/v3-persistence`. V2 remains unchanged in `D:\WebnovelStudio_V2`. The [product requirements](PRODUCT.md), [implementation status](docs/IMPLEMENTATION_STATUS.md), [workspace plan](docs/V3_WORKSPACE_PLAN.md), [first-slice plan](docs/V3_FIRST_SLICE_PLAN.md), and [editor contract](docs/ADR_0001_EDITOR_CONTRACT.md) define the current boundaries.
+
+The completed GitHub CI run [33969395869](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33969395869) passed its Ubuntu and Windows core/frontend contract jobs, Windows workspace Clippy/tests and native Tauri build, but native smoke stopped before the UI because CDP startup exceeded 20 seconds and the connection was refused. Native smoke remains open.
 
 ## Run the spike
 
