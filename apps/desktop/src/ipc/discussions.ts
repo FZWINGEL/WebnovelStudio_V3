@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { CompiledPacket, MockContextBudget, ScopeGrant } from './context';
 import type { Endpoint, Head, ProjectAccess } from './projects';
+import type { ModelSelection } from './providers';
 
 /** The author action encoded in a discussion's immutable context packet. */
 export type FeedbackIntent = 'discuss' | 'proposeEdits';
@@ -19,6 +20,7 @@ export interface DiscussionRun {
 }
 export interface DiscussionView { documentId: string; threadId: string | null; messages: DiscussionMessage[]; runs: DiscussionRun[]; draft: DiscussionDraft | null; workerIssues?: Array<{ runId: string; detail: string }> }
 export interface StartDiscussion {
+  modelSelection?: ModelSelection;
   access: ProjectAccess; operationId: string; expected: Head; instruction: string; scope: DiscussionScope | null;
   intent?: FeedbackIntent; pinnedDocumentIds: string[]; budget: MockContextBudget; previousRunId: string | null;
   safeBrief?: SafeBriefInput | null;
@@ -28,6 +30,6 @@ export interface SaveDiscussionDraft extends ComposerBody { access: ProjectAcces
 export const readDiscussion = (access: ProjectAccess, documentId: string): Promise<DiscussionView> => invoke('read_discussion', { access, documentId });
 export const retryDiscussionSave = (access: ProjectAccess, documentId: string, runId: string): Promise<DiscussionView> => invoke('retry_discussion_save', { access, documentId, runId });
 export const discussionRetry = (access: ProjectAccess, runId: string): Promise<ComposerBody & { previousRunId: string }> => invoke('discussion_retry', { access, runId });
-export const startDiscussion = (request: StartDiscussion): Promise<DiscussionStart> => invoke('start_discussion', { request });
+export const startDiscussion = ({ modelSelection, ...request }: StartDiscussion): Promise<DiscussionStart> => invoke('start_discussion', { request, modelSelection: modelSelection ?? null });
 export const stopDiscussion = (access: ProjectAccess, runId: string): Promise<{ run: DiscussionRun }> => invoke('stop_discussion', { access, runId });
 export const saveDiscussionDraft = (request: SaveDiscussionDraft): Promise<DiscussionDraft> => invoke('save_discussion_draft', { request });

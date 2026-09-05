@@ -11,6 +11,8 @@ import { App as EditorTrial } from './App';
 import { Writer } from './Writer';
 import { ExportDialog } from './ExportDialog';
 import { runtimeInfo } from '../ipc/native';
+import { ModelSelector } from '../providers/ModelSelector';
+import { ModelSettings } from '../providers/ModelSettings';
 
 type ActiveDocument = { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null };
 const emptyLibrary: LibrarySnapshot = { entries: [], pending: [] };
@@ -328,6 +330,7 @@ export function Workspace() {
     <header className="app-header"><div className="brand"><strong>WebnovelStudio</strong><span className="trial-label">{project ? project.project.title : 'Library'}</span></div>
       {project ? <div className="header-actions"><button disabled={busy} onClick={backToLibrary}>All projects</button><button disabled={busy} onClick={() => { setRenamedTitle(project.project.title); setRenaming(!renaming); }}>Rename</button><button disabled={busy} onClick={duplicate}>Duplicate</button><button disabled={busy} onClick={() => void perform(backup)}>Backup</button><button ref={exportButton} disabled={busy || !active} onClick={() => void perform(exportDraft)}>Export draft</button></div>
         : <span className="session-notice">Desktop preview · English writing</span>}
+      <div className="assistant-controls"><ModelSelector /><ModelSettings /></div>
     </header>
     {project && renaming && <form className="rename-project-form" onSubmit={rename}><label htmlFor="rename-project">Project title</label><input autoFocus id="rename-project" value={renamedTitle} maxLength={160} onChange={event => setRenamedTitle(event.target.value)} /><button type="button" onClick={() => setRenaming(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedTitle.trim()}>Save title</button></form>}
     {project && active && renamingDocument && <form className="rename-project-form" onSubmit={renameCurrentDocument}><label htmlFor="rename-document">Document title</label><input autoFocus id="rename-document" value={renamedDocumentTitle} maxLength={160} onChange={event => setRenamedDocumentTitle(event.target.value)} /><button type="button" onClick={() => setRenamingDocument(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedDocumentTitle.trim()}>Save document title</button></form>}

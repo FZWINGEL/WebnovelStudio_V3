@@ -2,12 +2,14 @@
 use crate::discussion_recovery::{
     DesktopDiscussionView, DiscussionRecovery, PendingSave, SaveOutcome,
 };
+use crate::library_commands::DesktopLibrary;
 use crate::project_commands::{DesktopProjects, execute};
 use tauri::State;
 use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, packet_input_hash};
 use webnovel_core::projects::discussions::*;
 use webnovel_core::projects::proposals::*;
 use webnovel_core::projects::{CoreError, CoreResult, ProjectAccess, ProjectSession};
+use webnovel_core::providers::preferences::ModelSelection;
 
 #[tauri::command]
 pub async fn read_discussion(
@@ -103,13 +105,26 @@ pub async fn reject_proposal(
 #[tauri::command]
 pub async fn start_discussion(
     request: StartDiscussion,
+    model_selection: Option<ModelSelection>,
     state: State<'_, DesktopProjects>,
     recovery: State<'_, DiscussionRecovery>,
+    library: State<'_, DesktopLibrary>,
 ) -> CoreResult<DiscussionStart> {
     let project = state.project(&request.access.project_id)?;
     let recovery = recovery.inner().clone();
+    let library = library.inner().clone();
     execute(move || {
-        let started = project.start_discussion(request)?;
+        let started = {
+            // Preference acceptance and new request acceptance are serialized.
+            // Subsequent setting changes cannot redirect this frozen request.
+            let library = library
+                .0
+                .lock()
+                .map_err(|_| crate::provider_commands::unavailable())?;
+            let active = library.provider_state()?.settings.active;
+            check_model_choice(&project, &request, model_selection.as_ref(), &active)?;
+            project.start_discussion(request)?
+        };
         if started.run.status == DiscussionRunStatus::Queued {
             // A duplicate lost-ack retry can reach here. Only one worker can
             // claim the durable queued run. Claim before spawning, so failure
@@ -138,6 +153,42 @@ pub async fn start_discussion(
         Ok(started)
     })
     .await
+}
+
+fn check_model_choice(
+    project: &ProjectSession,
+    request: &StartDiscussion,
+    requested: Option<&ModelSelection>,
+    active: &ModelSelection,
+) -> CoreResult<()> {
+    let local = ModelSelection::local_mock();
+    // Older native callers have an explicit mock-only packet contract.
+    let requested = requested.unwrap_or(&local);
+    if requested != &local {
+        return Err(CoreError::new(
+            "ProviderUnavailable",
+            "The selected model is not connected in this preview. Choose the local test model to try the discussion flow.",
+        ));
+    }
+    if active == requested {
+        return Ok(());
+    }
+    // An old uncertain acknowledgment must still be resolvable after a model
+    // preference change. Core verifies the immutable operation payload before
+    // returning its receipt; a new operation cannot use this exception.
+    let view =
+        project.read_discussion(request.access.clone(), request.expected.document_id.clone())?;
+    if view.runs.iter().any(|run| {
+        run.operation_id == request.operation_id
+            && run.owner.operation_namespace == request.access.operation_namespace
+            && run.owner.project_id == request.access.project_id
+    }) {
+        return Ok(());
+    }
+    Err(CoreError::new(
+        "ModelChoiceChanged",
+        "The selected model changed before this request started. Check the model selector and send again.",
+    ))
 }
 
 fn run_mock(project: ProjectSession, recovery: DiscussionRecovery, dispatch: DiscussionDispatch) {
@@ -381,6 +432,77 @@ mod tests {
             })
             .unwrap();
         (project, access, started)
+    }
+
+    #[test]
+    fn model_selection_blocks_new_requests_without_rebinding_a_saved_request() {
+        let (project, access, started) = started_project("model-binding");
+        let request = StartDiscussion {
+            access: access.clone(),
+            operation_id: "start".into(),
+            expected: started.run.target.clone(),
+            instruction: "Discuss the ending.".into(),
+            intent: FeedbackIntent::Discuss,
+            scope: None,
+            pinned_document_ids: Vec::new(),
+            safe_brief: None,
+            previous_run_id: None,
+            budget: MockContextBudget::new("100000", "4096", "1024"),
+        };
+        let local = ModelSelection::local_mock();
+        let codex = ModelSelection {
+            provider_id: "codex".into(),
+            model_id: "gpt-5.6-luna".into(),
+            reasoning: Some("max".into()),
+            service_tier: Some("priority".into()),
+        };
+        assert!(check_model_choice(&project, &request, Some(&local), &local).is_ok());
+        assert_eq!(
+            check_model_choice(&project, &request, Some(&codex), &codex)
+                .unwrap_err()
+                .code,
+            "ProviderUnavailable"
+        );
+        // A settings change does not prevent checking an old mock receipt.
+        assert!(check_model_choice(&project, &request, Some(&local), &codex).is_ok());
+        assert!(check_model_choice(&project, &request, None, &codex).is_ok());
+        let replay = project.start_discussion(request.clone()).unwrap();
+        assert_eq!(replay.run.id, started.run.id);
+        let mut changed = request.clone();
+        changed.instruction = "A different request".into();
+        assert!(check_model_choice(&project, &changed, Some(&local), &codex).is_ok());
+        assert!(project.start_discussion(changed).is_err()); // Core still checks exact payload.
+        let mut fresh = request;
+        fresh.operation_id = "fresh-operation".into();
+        assert_eq!(
+            check_model_choice(&project, &fresh, Some(&local), &codex)
+                .unwrap_err()
+                .code,
+            "ModelChoiceChanged"
+        );
+        assert_eq!(
+            check_model_choice(&project, &fresh, None, &codex)
+                .unwrap_err()
+                .code,
+            "ModelChoiceChanged"
+        );
+        let mut invalid_mock = local.clone();
+        invalid_mock.reasoning = Some("max".into());
+        assert_eq!(
+            check_model_choice(&project, &fresh, Some(&invalid_mock), &local)
+                .unwrap_err()
+                .code,
+            "ProviderUnavailable"
+        );
+        assert_eq!(
+            project
+                .read_discussion(access, "chapter".into())
+                .unwrap()
+                .runs
+                .len(),
+            1
+        );
+        clean_project(project);
     }
 
     fn claimed_project(label: &str) -> (ProjectSession, ProjectAccess, DiscussionDispatch) {

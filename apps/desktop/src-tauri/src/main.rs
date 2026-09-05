@@ -14,6 +14,7 @@ mod export_commands;
 mod guidance_commands;
 mod library_commands;
 mod project_commands;
+mod provider_commands;
 mod source_pin_commands;
 
 #[tauri::command]
@@ -102,6 +103,8 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            provider_commands::provider_state,
+            provider_commands::save_model_settings,
             export_commands::prepare_draft_export,
             export_commands::export_prepared_draft,
             guidance_commands::read_guidance,

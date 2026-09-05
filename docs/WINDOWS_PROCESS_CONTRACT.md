@@ -41,6 +41,17 @@ the root process, waits for Job Object `ActiveProcesses == 0`, drains both
 reader streams, and joins both reader workers. Completion also terminates the
 Job Object so a descendant cannot keep inherited pipes open.
 
+Before termination, the proof-bearing path takes a bounded Job PID snapshot and
+retains `PROCESS_SYNCHRONIZE` handles for the members reported by that
+snapshot. It takes a second snapshot immediately after `TerminateJobObject` to
+cover members observed during that termination race. A snapshot whose reported
+PID count is lower than its assigned-process count fails cleanup rather than
+being treated as complete. The retained handles and Job accounting are checked
+within the same cleanup deadline. These handles are bounded evidence for the
+members returned by complete snapshots; Job containment remains authoritative
+for the process tree, and this does not prove a universal guarantee for a
+member that appears after the final snapshot or for processes outside the Job.
+
 `finish_or_stop_with_output` uses the same proof path and invokes its
 synchronous callback only for bytes accepted into the combined bounded
 prefix. It preserves per-stream read order and also observes the final drain.
@@ -74,7 +85,9 @@ subset is 3/3. The tests retain live process handles for root/child/grandchild
 fixtures and assert those handles become signaled for Stop, timeout, and
 completion cleanup. They also cover combined output caps, packet-only stdin,
 early zero-exit with incomplete delivery, cancellation, Drop queue behavior,
-argument quoting, and the restricted handle list. See
+argument quoting, and the restricted handle list. The standard CI descendant
+cleanup failure predates the bounded post-termination snapshot fix; no new
+native UI pass is implied by the focused process result. See
 [`windows_process.rs` tests](../crates/core/tests/windows_process.rs).
 
 This evidence does not qualify a live provider, model budgets, upstream retry

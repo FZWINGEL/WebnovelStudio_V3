@@ -19,6 +19,8 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6g | [Discussion source pins ADR](ADR_0007_DISCUSSION_SOURCE_PINS.md) | Persistent source choices, explicit confirmation, mandatory packet binding, retry and recovery boundaries |
 | 6h | [Writing brief ADR](ADR_0008_WRITING_BRIEF.md) | Optional author-approved directions, exact restricted transfer, draft persistence, and approval/reset rules |
 | 6i | [Discussion recovery ADR](ADR_0009_DISCUSSION_RECOVERY.md) | Cleanup-owned Stop, retained partial output, failed local writes, and explicit recovery without generation replay |
+| 6j | [Model preferences ADR](ADR_0010_MODEL_PREFERENCES.md) | Persistent native selector, separate traits, confirmed settings, and exact mock request binding without provider substitution |
+| 6k | [V2 import preview](V2_IMPORT_PREVIEW.md) | Read-only schema-8 preview, exact missing/empty prose, inert legacy evidence, and the remaining staged import boundary |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |

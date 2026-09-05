@@ -70,6 +70,28 @@ try {
   observedPage = page;
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  await page.getByRole('button', { name: 'Choose model: Local test model', exact: true }).click();
+  await page.getByRole('button', { name: 'Favorite GPT-5.6-Luna', exact: true }).click();
+  await page.getByRole('button', { name: 'Unfavorite GPT-5.6-Luna', exact: true }).waitFor();
+  await page.getByRole('searchbox', { name: 'Search models' }).fill('luna');
+  assert.equal(await page.locator('.model-choice').count(), 1);
+  await page.getByRole('searchbox', { name: 'Search models' }).press('Enter');
+  await page.getByRole('button', { name: 'Choose model: GPT-5.6-Luna', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByLabel('Reasoning', { exact: true }).selectOption('high');
+  await page.waitForFunction(async () => (await window.__TAURI_INTERNALS__.invoke('provider_state')).settings.active.reasoning === 'high');
+  await page.screenshot({ path: resolve(output, 'model-settings.png') });
+  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+  await page.reload();
+  await page.getByRole('button', { name: 'Choose model: GPT-5.6-Luna', exact: true }).waitFor();
+  const savedProvider = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('provider_state'));
+  assert.equal(savedProvider.dispatch.kind, 'blocked');
+  assert.deepEqual(savedProvider.settings.active, { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'high', serviceTier: 'priority' });
+  assert.deepEqual(savedProvider.settings.favorites, [{ providerId: 'codex', modelId: 'gpt-5.6-luna' }]);
+  await page.getByRole('button', { name: 'Choose model: GPT-5.6-Luna', exact: true }).click();
+  await page.locator('.model-choice').filter({ hasText: 'Local test model' }).click();
+  await page.getByRole('button', { name: 'Choose model: Local test model', exact: true }).waitFor();
+  checks.push('Model choice, favorites and traits survive reload; unavailable Codex remains blocked without substitution');
   await page.getByRole('button', { name: 'Open editor trial', exact: true }).click();
   await page.getByRole('textbox', { name: 'Chapter manuscript' }).waitFor();
   // The diagnostic is intentionally hidden at smaller native window widths.

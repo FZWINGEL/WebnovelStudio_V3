@@ -22,9 +22,10 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_BROKEN_PIPE, ERROR_INSUFFICIENT_BUFFER, ERROR_IO_INCOMPLETE,
-    ERROR_IO_PENDING, ERROR_NO_DATA, ERROR_NOT_FOUND, GENERIC_WRITE, GetLastError, HANDLE,
-    HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    CloseHandle, ERROR_BROKEN_PIPE, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_PARAMETER,
+    ERROR_IO_INCOMPLETE, ERROR_IO_PENDING, ERROR_NO_DATA, ERROR_NOT_FOUND, GENERIC_WRITE,
+    GetLastError, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, SetHandleInformation,
+    WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::Storage::FileSystem::{
@@ -34,9 +35,10 @@ use windows_sys::Win32::Storage::FileSystem::{
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
-    QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_BASIC_PROCESS_ID_LIST,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicAccountingInformation,
+    JobObjectBasicProcessIdList, JobObjectExtendedLimitInformation, QueryInformationJobObject,
+    SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Pipes::PeekNamedPipe;
 use windows_sys::Win32::System::Pipes::{
@@ -46,9 +48,10 @@ use windows_sys::Win32::System::Pipes::{
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateEventW, CreateProcessW,
     DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcessId,
-    GetExitCodeProcess, InitializeProcThreadAttributeList, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-    PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOEXW, TerminateProcess,
-    UpdateProcThreadAttribute, WaitForSingleObject,
+    GetExitCodeProcess, InitializeProcThreadAttributeList, OpenProcess,
+    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROCESS_INFORMATION, PROCESS_SYNCHRONIZE, ResumeThread,
+    STARTF_USESTDHANDLES, STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute,
+    WaitForSingleObject,
 };
 
 /// Maximum packet accepted by this low-level boundary.  Provider adapters can
@@ -61,6 +64,7 @@ const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 const OUTPUT_QUEUE_CHUNKS: usize = 32;
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+const MAX_JOB_PROCESSES: usize = 4096;
 
 /// How the child environment is formed.  The caller must choose a policy;
 /// there is no implicit environment or credential lookup in this primitive.
@@ -248,6 +252,7 @@ pub struct RunningChild {
     stdout_reader: Option<JoinHandle<()>>,
     stderr_reader: Option<JoinHandle<()>>,
     io_stop: StopSignal,
+    cleanup_processes: Option<Vec<OwnedHandle>>,
     stdin_packet: Vec<u8>,
     stdin_offset: usize,
     stdin_write: Option<Box<PendingWrite>>,
@@ -487,6 +492,7 @@ pub fn spawn(invocation: CliInvocation) -> Result<RunningChild, ContainmentError
         stdout_reader,
         stderr_reader,
         io_stop,
+        cleanup_processes: None,
         stdin_packet: invocation.packet,
         stdin_offset: 0,
         stdin_write: None,
@@ -854,8 +860,29 @@ impl RunningChild {
         capture: &mut Capture,
         operation: &'static str,
     ) -> Result<(), ContainmentError> {
+        if self.cleanup_processes.is_none() {
+            let handles = match job_process_handles(self.job.as_ref().expect("job handle")) {
+                Ok(handles) => handles,
+                Err(_code) => {
+                    return Err(self.cleanup_error("job process list", std::mem::take(capture)));
+                }
+            };
+            self.cleanup_processes = Some(handles);
+        }
         if unsafe { TerminateJobObject(raw(self.job.as_ref().expect("job handle")), 1) } == 0 {
             return Err(self.cleanup_error(operation, std::mem::take(capture)));
+        }
+        let after_termination = match job_process_handles(self.job.as_ref().expect("job handle")) {
+            Ok(handles) => handles,
+            Err(_code) => {
+                return Err(self.cleanup_error(
+                    "job process list after termination",
+                    std::mem::take(capture),
+                ));
+            }
+        };
+        if let Some(handles) = self.cleanup_processes.as_mut() {
+            handles.extend(after_termination);
         }
         self.cancel_pending_stdin()
             .map_err(|stage| self.cleanup_error(stage, std::mem::take(capture)))?;
@@ -914,6 +941,19 @@ impl RunningChild {
 
     fn wait_for_job_empty(&self, capture: &mut Capture) -> Result<(), ContainmentError> {
         let deadline = Instant::now() + CLEANUP_TIMEOUT;
+        if let Some(handles) = &self.cleanup_processes {
+            for handle in handles {
+                let wait = unsafe {
+                    WaitForSingleObject(
+                        raw(handle),
+                        duration_ms(deadline.saturating_duration_since(Instant::now())),
+                    )
+                };
+                if wait != WAIT_OBJECT_0 {
+                    return Err(self.cleanup_error("job process handles", std::mem::take(capture)));
+                }
+            }
+        }
         loop {
             let active = match job_active_processes(self.job.as_ref().expect("job handle")) {
                 Ok(active) => active,
@@ -1485,6 +1525,54 @@ fn job_active_processes(job: &OwnedHandle) -> Result<u32, u32> {
         return Err(last_error());
     }
     Ok(accounting.ActiveProcesses)
+}
+
+/// Capture synchronization handles for every process currently returned by a
+/// complete Job PID snapshot.  Cleanup takes one snapshot before termination
+/// and another immediately after it to cover members that appeared during the
+/// termination race.  Job containment remains authoritative for the whole
+/// tree; these handles only provide bounded evidence that observed members'
+/// process objects have become signaled.
+fn job_process_handles(job: &OwnedHandle) -> Result<Vec<OwnedHandle>, u32> {
+    let mut storage = vec![0_usize; 2 + MAX_JOB_PROCESSES];
+    let mut returned = 0_u32;
+    if unsafe {
+        QueryInformationJobObject(
+            raw(job),
+            JobObjectBasicProcessIdList,
+            storage.as_mut_ptr().cast(),
+            (storage.len() * size_of::<usize>()) as u32,
+            &mut returned,
+        )
+    } == 0
+    {
+        return Err(last_error());
+    }
+    let list = unsafe { &*storage.as_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>() };
+    let assigned =
+        usize::try_from(list.NumberOfAssignedProcesses).map_err(|_| ERROR_INVALID_PARAMETER)?;
+    let count =
+        usize::try_from(list.NumberOfProcessIdsInList).map_err(|_| ERROR_INVALID_PARAMETER)?;
+    if assigned > MAX_JOB_PROCESSES || count > MAX_JOB_PROCESSES || count != assigned {
+        return Err(ERROR_INVALID_PARAMETER);
+    }
+    let ids = unsafe { std::slice::from_raw_parts(list.ProcessIdList.as_ptr(), count) };
+    let mut handles = Vec::with_capacity(count);
+    for process_id in ids {
+        let process_id = u32::try_from(*process_id).map_err(|_| ERROR_INVALID_PARAMETER)?;
+        let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, process_id) };
+        if process.is_null() || process == INVALID_HANDLE_VALUE {
+            let code = last_error();
+            // A process may have exited between the Job query and OpenProcess;
+            // in that case it is already settled and needs no retained handle.
+            if code == ERROR_INVALID_PARAMETER {
+                continue;
+            }
+            return Err(code);
+        }
+        handles.push(unsafe { OwnedHandle::from_raw_handle(process.cast()) });
+    }
+    Ok(handles)
 }
 
 fn terminate_unassigned_process(

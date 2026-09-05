@@ -11,6 +11,8 @@ import { ProposalPanel } from './ProposalPanel';
 import { SourcePinsPanel } from './SourcePinsPanel';
 import { SafeBriefEditor, validBriefText } from './SafeBriefEditor';
 import type { SourceChoice } from '../ipc/sourcePins';
+import { useProviders } from '../providers/ProviderContext';
+import { sameModel } from '../ipc/providers';
 
 function detail(reason: unknown): string { return reason && typeof reason === 'object' && 'detail' in reason ? String(reason.detail) : reason instanceof Error ? reason.message : 'The discussion could not be updated. Your text is retained.'; }
 function uncertain(reason: unknown): boolean { return !reason || typeof reason !== 'object' || !('code' in reason) || ['UncertainOutcome', 'ReconciliationRequired', 'StaleWriterLease'].includes(String(reason.code)); }
@@ -37,6 +39,9 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   onPrepareProposal?: (proposal: Proposal, text: string, operationId: string) => Promise<PreparedProposal>;
   onApplyProposal?: (proposal: Proposal, prepared: PreparedProposal) => Promise<void>;
 }) {
+  const providers = useProviders();
+  const model = providers.state?.catalog.models.find(model => sameModel(model.key, providers.state!.settings.active));
+  const modelReady = !providers.busy && providers.state?.dispatch.kind === 'localMock';
   const [view, setView] = useState<DiscussionView | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [body, setBody] = useState<ComposerBody>(emptyComposer);
@@ -142,6 +147,8 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
     return () => { cancelled = true; };
   }, [body.scope, state.generation, session]);
   async function send(checkPending = false) {
+    if (!checkPending && !modelReady) return;
+    const selectedModel = providers.state?.settings.active;
     if (!controller.current || sendingRef.current || composing.current || scopeBusy || (sourcesPending && !checkPending)) return;
     const submittedController = controller.current;
     const submitted = structuredClone(submittedController.body);
@@ -165,6 +172,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
         if (!request) {
           if (submitted.scope && await bodyHash(canonicalJson(session.body)) !== submitted.scope.sourceBodyHash) throw { code: 'StaleScope', detail: 'The text changed. Select the passage again, or discuss the whole document.' };
           request = { access: session.projectAccess, operationId: crypto.randomUUID(), expected: session.state.head, instruction: submitted.text, intent: submittedIntent === 'discuss' ? undefined : submittedIntent, scope: submitted.scope, pinnedDocumentIds: submitted.pinnedDocumentIds,
+            modelSelection: selectedModel ? { ...selectedModel } : undefined,
             safeBrief: submittedIntent === 'proposeEdits' ? submitted.safeBrief : undefined,
             budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' }, previousRunId: submitted.previousRunId ?? null };
         }
@@ -239,7 +247,8 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   return <aside className="feedback persistent-feedback" aria-label="Document discussion" style={visible ? undefined : { display: 'none' }}>
     <div className="feedback-heading"><h2>Discussion</h2><button onClick={onClose} aria-label="Hide discussion">Hide</button></div>
     <p className="panel-intro">Talk through {title}. Select text to focus on a passage.</p>
-    <div className="scope-controls"><span>Local test model</span><span className="session-tag">No live AI connected</span></div>
+    <div className="scope-controls"><span>{model?.label ?? 'Model unavailable'}</span><span className="session-tag">{modelReady ? 'No live AI connected' : providers.busy ? 'Checking model…' : 'Not connected'}</span></div>
+    {!modelReady && <p className="discussion-state">{providers.busy ? 'Checking your saved model choice…' : 'Choose the local test model in the app header to try discussion, or check Settings. Your writing and feedback stay saved.'}</p>}
     {view?.workerIssues?.map(issue => <div key={issue.runId} className="discussion-error response-save-notice" role="alert"><p>{issue.detail}</p><button disabled={locked} onClick={() => void checkSavedResponse(issue.runId)}>Retry saving response</button></div>)}
     <div className="feedback-scroll">
       {currentIntent === 'proposeEdits' && body.safeBrief && <SafeBriefEditor value={body.safeBrief} disabled={locked} focusKey={briefFocus}
@@ -272,7 +281,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
       <label htmlFor="discussion-composer">{currentIntent === 'proposeEdits' ? 'Request edits for this passage' : body.scope ? 'Discuss this passage' : 'Discuss this document'}</label>
       <textarea id="discussion-composer" ref={composer} value={body.text} disabled={!view || locked} maxLength={16000} placeholder="Make this moment more emotional, but keep the ending…" onChange={event => update({ ...body, text: event.target.value })} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; compositionWaiters.current.splice(0).forEach(resolve => resolve()); }} />
       {error && <div className="discussion-error" role="alert">{error}{!pending && <button type="button" disabled={locked} onClick={() => void checkSavedResponse()}>Check saved discussion</button>}{!view && <button type="button" onClick={() => setReload(value => value + 1)}>Retry loading discussion</button>}{view && !pending && <button type="button" onClick={() => void save.current().then(() => setError('')).catch(reason => setError(detail(reason)))}>Retry saving discussion</button>}</div>}
-      <div className="form-actions"><span>{sourcesPending ? 'Check saved sources before sending a new request.' : currentIntent === 'proposeEdits' ? 'Review a suggestion before applying it.' : 'Discussion never changes the manuscript.'}</span>{pending && !sending ? <button type="button" onClick={() => void send(true)}>Check request</button> : <button className="primary-button" disabled={!view || locked || sourcesPending || scopeStale || !body.text.trim() || view.runs.some(activeRun) || (currentIntent === 'proposeEdits' && (!canSuggestEdits || (!!body.safeBrief && (!body.safeBrief.confirmed || !validBriefText(body.safeBrief.text)))))}>Send</button>}</div>
+      <div className="form-actions"><span>{sourcesPending ? 'Check saved sources before sending a new request.' : currentIntent === 'proposeEdits' ? 'Review a suggestion before applying it.' : 'Discussion never changes the manuscript.'}</span>{pending && !sending ? <button type="button" onClick={() => void send(true)}>Check request</button> : <button className="primary-button" disabled={!modelReady || !view || locked || sourcesPending || scopeStale || !body.text.trim() || view.runs.some(activeRun) || (currentIntent === 'proposeEdits' && (!canSuggestEdits || (!!body.safeBrief && (!body.safeBrief.confirmed || !validBriefText(body.safeBrief.text)))))}>Send</button>}</div>
     </form>
   </aside>;
 }

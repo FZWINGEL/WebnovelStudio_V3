@@ -3,6 +3,13 @@
 use crate::projects::{
     CoreError, CoreResult, CreationOrigin, ProjectSession, read_creation_origin,
 };
+use crate::providers::{
+    catalog::ProviderState,
+    preferences::{
+        MODEL_SETTINGS_KEY, MODEL_SETTINGS_SCHEMA_VERSION, ModelKey, ModelSelection, ModelSettings,
+        StoredModelSettings, parse_revision, provider_state as build_provider_state,
+    },
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
@@ -102,13 +109,14 @@ impl Library {
         })?;
         let mut connection = Connection::open(root.join("library.sqlite3"))?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 1 {
+        if version > 2 {
             return Err(CoreError::new(
                 "UnsupportedSchema",
                 "This library needs a newer WebnovelStudio.",
             ));
         }
         crate::storage::configure(&connection)?;
+        let mut version = version;
         if version == 0 {
             let tx = connection.transaction()?;
             tx.execute_batch("CREATE TABLE identity (namespace TEXT NOT NULL) STRICT;
@@ -123,6 +131,21 @@ impl Library {
                 [Uuid::new_v4().to_string()],
             )?;
             tx.commit().map_err(CoreError::uncertain)?;
+            version = 1;
+        }
+        if version < 2 {
+            let tx = connection.transaction()?;
+            tx.execute_batch(
+                "CREATE TABLE app_preferences (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    schema_version INTEGER NOT NULL CHECK(schema_version=1),
+                    revision INTEGER NOT NULL CHECK(revision >= 0),
+                    value_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                ) STRICT;
+                PRAGMA user_version=2;",
+            )?;
+            tx.commit().map_err(CoreError::uncertain)?;
         }
         let namespace = connection.query_row("SELECT namespace FROM identity", [], |r| r.get(0))?;
         std::fs::create_dir_all(root.join("Projects"))?;
@@ -132,6 +155,93 @@ impl Library {
             root,
             namespace,
         })
+    }
+    /// Read the app-global model preference and the offline catalog.  This
+    /// method never probes a provider or reads credentials.
+    pub fn provider_state(&self) -> CoreResult<ProviderState> {
+        let settings = self.read_model_settings()?;
+        build_provider_state(settings)
+    }
+    /// Persist an explicit active model and favorites with a compare-and-swap
+    /// revision.  The returned state is read from the committed values, so a
+    /// caller that loses this acknowledgment can safely call provider_state.
+    pub fn save_model_settings(
+        &mut self,
+        expected_revision: &str,
+        active: ModelSelection,
+        favorites: Vec<ModelKey>,
+    ) -> CoreResult<ProviderState> {
+        let expected = parse_revision(expected_revision)?;
+        let current = self.read_model_settings()?;
+        let current_revision = parse_revision(&current.revision)?;
+        if current_revision != expected {
+            return Err(CoreError::new(
+                "PreferenceConflict",
+                "The model settings changed. Read them again before saving.",
+            ));
+        }
+        let next_revision = expected.checked_add(1).ok_or_else(|| {
+            CoreError::new(
+                "PreferenceRevisionLimit",
+                "The model preference revision limit was reached.",
+            )
+        })?;
+        let settings = ModelSettings {
+            revision: next_revision.to_string(),
+            active,
+            favorites,
+        };
+        settings.validate()?;
+        let value_json = serde_json::to_string(&settings.stored()).map_err(|error| {
+            CoreError::new(
+                "InvalidModelSettings",
+                &format!("Could not serialize model settings: {error}"),
+            )
+        })?;
+        let tx = self.connection.transaction()?;
+        tx.execute(
+            "INSERT INTO app_preferences(key,schema_version,revision,value_json,updated_at)
+             VALUES(?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+             ON CONFLICT(key) DO UPDATE SET schema_version=excluded.schema_version,
+               revision=excluded.revision,value_json=excluded.value_json,
+               updated_at=excluded.updated_at",
+            params![
+                MODEL_SETTINGS_KEY,
+                i64::from(MODEL_SETTINGS_SCHEMA_VERSION),
+                next_revision,
+                value_json,
+            ],
+        )?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        build_provider_state(settings)
+    }
+    fn read_model_settings(&self) -> CoreResult<ModelSettings> {
+        let row: Option<(i64, i64, String)> = self
+            .connection
+            .query_row(
+                "SELECT schema_version,revision,value_json FROM app_preferences WHERE key=?",
+                [MODEL_SETTINGS_KEY],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((schema_version, revision, value_json)) = row else {
+            return Ok(ModelSettings::default());
+        };
+        if schema_version != i64::from(MODEL_SETTINGS_SCHEMA_VERSION) || revision < 0 {
+            return Err(CoreError::new(
+                "InvalidModelSettings",
+                "The stored model settings use an unsupported schema or revision.",
+            ));
+        }
+        let stored: StoredModelSettings = serde_json::from_str(&value_json).map_err(|error| {
+            CoreError::new(
+                "InvalidModelSettings",
+                &format!("The stored model settings are invalid: {error}"),
+            )
+        })?;
+        let settings = ModelSettings::from_stored(revision.to_string(), stored);
+        settings.validate()?;
+        Ok(settings)
     }
     pub fn list(&self) -> CoreResult<Vec<LibraryEntry>> {
         let mut statement = self.connection.prepare("SELECT project_id,title,path,archived,last_opened FROM entries ORDER BY last_opened DESC,title COLLATE NOCASE")?;

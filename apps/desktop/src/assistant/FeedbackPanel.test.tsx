@@ -11,6 +11,9 @@ import { Editor } from '@tiptap/core';
 import { editorExtensions } from '../editor/schema';
 import { captureSelection } from '../editor/selection';
 import type { DocumentRecord, Head, ProjectAccess, ProjectTransport } from '../ipc/projects';
+import * as providerIpc from '../ipc/providers';
+import { ProviderSettingsProvider, useProviders } from '../providers/ProviderContext';
+vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), saveModelSettings: vi.fn() }));
 
 vi.mock('../ipc/discussions', () => ({
   readDiscussion: vi.fn(),
@@ -106,6 +109,34 @@ afterEach(async () => {
 });
 
 describe('persistent FeedbackPanel safeguards', () => {
+  function providerState(blocked: boolean): providerIpc.ProviderState {
+    const active = blocked ? { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'max', serviceTier: 'priority' } : providerIpc.localModel;
+    return { settings: { revision: blocked ? '1' : '0', active, favorites: [] }, dispatch: { kind: blocked ? 'blocked' : 'localMock', detail: '' }, catalog: { models: [{ key: active, label: blocked ? 'GPT-5.6-Luna' : 'Local test model', providerLabel: 'Test catalog', reasoningLevels: [], serviceTiers: [], origin: 'builtIn', ready: !blocked, statusDetail: '', contextWindowTokens: null, maxOutputTokens: null }] } };
+  }
+  function RefreshModel() { const providers = useProviders(); return <button onClick={() => void providers.refresh()}>Reload model choice</button>; }
+  async function renderWithProvider(session: DocumentSession) {
+    await act(async () => root.render(<ProviderSettingsProvider><RefreshModel /><FeedbackPanel session={session} state={session.state} title="Chapter" documentKind="chapter" selection={null} visible onClose={() => {}} registerSaver={() => {}} /></ProviderSettingsProvider>));
+    await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
+  }
+  it('keeps feedback editable while an unavailable selected provider blocks Send', async () => {
+    const session = await makeSession(); vi.mocked(providerIpc.readProviderState).mockResolvedValue(providerState(true));
+    await renderWithProvider(session); await typeInstruction('Keep the ending.');
+    expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Send')!.disabled).toBe(true);
+    await act(async () => host.querySelector('form.feedback-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(discussions.startDiscussion).not.toHaveBeenCalled(); expect(session.body).toEqual(emptyBody);
+    expect((host.querySelector('#discussion-composer') as HTMLTextAreaElement).disabled).toBe(false);
+  });
+  it('keeps an uncertain request bound to its original model after the active choice changes', async () => {
+    const session = await makeSession(); vi.mocked(providerIpc.readProviderState).mockResolvedValue(providerState(false));
+    vi.mocked(discussions.startDiscussion).mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'The acknowledgment was lost.' }).mockImplementationOnce(async request => startResult(session, 'run-1', request.operationId));
+    await renderWithProvider(session); await typeInstruction('Keep the ending.'); await click('Send');
+    await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledOnce());
+    const original = vi.mocked(discussions.startDiscussion).mock.calls[0][0]; expect(original.modelSelection).toEqual(providerIpc.localModel);
+    vi.mocked(providerIpc.readProviderState).mockResolvedValue(providerState(true)); await click('Reload model choice');
+    await waitFor(() => expect(host.textContent).toContain('GPT-5.6-Luna')); await click('Check request');
+    await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(discussions.startDiscussion).mock.calls[1][0]).toEqual({ ...original, access: { ...original.access, writerLease: 'fresh-lease' } });
+  });
   function stoppedView(session: DocumentSession) {
     const started = startResult(session);
     return { ...emptyView(session.state.head.documentId), threadId: started.threadId, messages: [started.userMessage], runs: [{ ...started.run, status: 'stopped' as const }] };

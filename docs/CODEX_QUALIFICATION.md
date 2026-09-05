@@ -31,6 +31,14 @@ Exact 0.153.3 sources qualify only a narrower boundary:
 
 These controls reduce ordinary ambient surfaces but do not prove packet-only behavior, universal tool denial, or author-filesystem isolation. Effective model, effort, and service-tier identity remained unconfirmed in every JSONL stream. Upstream instructions, tool construction, retries, cancellation, and output budgets remain opaque.
 
+## Pure launch profile prepared for the next adapter slice
+
+The exported pure constructor in [`codex_profile.rs`](../crates/core/src/providers/codex_profile.rs) accepts version output and an app-owned catalog path, rejects every version other than `0.153.3`, and produces the existing Windows stdin `exec` argument shape. It does not locate or launch Codex, read auth/config state, write the catalog, or make a provider request. The eventual process and catalog-file wiring remain outside this pure module. Its four focused tests pass.
+
+Its requested Luna catalog keeps the discovered identity, `low`/`medium`/`high`/`xhigh`/`max` effort set, and `priority`/`Fast` service label while setting `tool_mode="direct"`, `shell_type="disabled"`, `apply_patch_tool_type=null`, `experimental_supported_tools=[]`, `multi_agent_version=null`, and `supports_search_tool=false`. Context limits remain absent because the live response did not expose them. Runtime overrides include `approval_policy="never"`, `web_search="disabled"`, empty MCP/plugins, disabled app/skill/instruction surfaces, `[agents].enabled=false`, disabled `tools.experimental_request_user_input` and `tools.update_plan`, hidden tool metadata, the `story-context` filesystem/network profile, and explicit 0.153.3 gates for shell, unified exec, request permissions, view image, sleep, deferred execution, token budget, current-time reminders, multi-agent, apps, plugins, MCP apps, skills, image/web/browser/computer/code-mode, goals, guardian, hooks, remote plugins, in-app surfaces, workspace dependencies, shell snapshots, capability discovery, retries, and elicitation. Removed/deprecated compatibility aliases are not emitted. The profile preserves `default_permissions="story-context"` through runtime overrides instead of adding the mutually exclusive `--sandbox` mode, and ends with `-` so the future adapter's packet remains stdin-only.
+
+This is requested launch material and catalog metadata; it is not an observation that every registration path is absent. Exact source still has no universal no-tools or app-server allowlist control, and dynamic/extension contributors must be kept out by the future adapter and rejected if encountered. No new live request was made for this profile, and the three-dispatch ledger below is unchanged.
+
 ## Three-dispatch ledger
 
 The three rows below are generation dispatches. The strict-config and missing-schema checks inside the two isolation-profile runs were local preflights and did not send an LLM request.
