@@ -7,7 +7,7 @@
 
 use crate::projects::{
     CheckpointReason, CheckpointRequest, CoreError, CoreResult, CreationOrigin, Head,
-    ProjectAccess, ProjectInfo, ProjectSession, Revision, StoredResult, read_creation_origin,
+    ProjectAccess, ProjectInfo, ProjectSession, StoredResult, read_creation_origin,
     write_creation_origin,
 };
 use crate::{storage, validate_snapshot_json};
@@ -73,15 +73,70 @@ pub struct AssetManifest {
     pub size: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DraftFormat {
+    PlainText,
+    Markdown,
+}
+
+impl DraftFormat {
+    pub(crate) fn storage_name(self) -> &'static str {
+        match self {
+            Self::PlainText => "plainText",
+            Self::Markdown => "markdown",
+        }
+    }
+
+    pub(crate) fn from_storage(value: &str) -> Result<Self, ()> {
+        match value {
+            "plainText" => Ok(Self::PlainText),
+            "markdown" => Ok(Self::Markdown),
+            _ => Err(()),
+        }
+    }
+
+    pub(crate) fn is_supported(self) -> bool {
+        matches!(self, Self::PlainText | Self::Markdown)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExportManifest {
-    pub format: String,
-    pub format_loss: String,
+pub struct DraftExportPreview {
+    pub id: String,
     pub project_id: String,
+    pub operation_namespace: String,
+    pub source_head: Head,
+    pub revision_id: String,
+    pub format: DraftFormat,
+    pub format_version: u32,
+    pub utf8_bytes: u64,
+    pub sha256: String,
+    pub format_loss: String,
+    pub preview_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportRecord {
+    pub id: String,
+    pub project_id: String,
+    pub operation_namespace: String,
     pub document_id: String,
     pub source_head: Head,
-    pub checkpoint_id: String,
+    pub revision_id: String,
+    pub working_draft: bool,
+    pub format: DraftFormat,
+    pub format_version: u32,
+    pub utf8_bytes: u64,
+    pub sha256: String,
+    pub basename: String,
+    pub created_at: String,
+}
+
+pub(crate) struct ProjectedDraft {
+    pub text: String,
     pub utf8_bytes: u64,
     pub sha256: String,
 }
@@ -344,6 +399,26 @@ fn install_file_no_replace(staged: &Path, target: &Path) -> CoreResult<()> {
     Ok(())
 }
 
+pub(crate) fn install_export_file(root: &Path, target: &Path, bytes: &[u8]) -> CoreResult<()> {
+    let target = output_outside(root, target)?;
+    let parent = target.parent().ok_or_else(|| {
+        transfer_error(
+            "InvalidRequest",
+            "The export destination has no parent directory.",
+        )
+    })?;
+    let staged = stage(parent, "wns-export")?;
+    let staged_file = staged.path.join("output");
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged_file)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    install_file_no_replace(&staged_file, &target)
+}
+
 fn online_backup(project: &ProjectSession, staged_db: &Path) -> CoreResult<()> {
     let source_path = project.path.join(DB_FILE);
     let source = Connection::open_with_flags(&source_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -493,6 +568,12 @@ fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<
         transfer_error(
             "InvalidBackup",
             format!("The document history is invalid: {error}"),
+        )
+    })?;
+    crate::projects::exports::validate_export_storage(&connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The export records are invalid: {error}"),
         )
     })?;
     let mut documents = Vec::new();
@@ -1253,52 +1334,334 @@ fn plain_projection(body: &Value) -> CoreResult<String> {
     Ok(rendered.join("\n\n"))
 }
 
-/// Checkpoint an exact saved head, then export its body as a labelled UTF-8 draft.
-pub fn export_draft_txt(
-    project: &ProjectSession,
-    access: ProjectAccess,
-    head: Head,
-    target: &Path,
-) -> CoreResult<ExportManifest> {
-    let target = output_outside(&project.path, target)?;
-    let revision: Revision = project.checkpoint(CheckpointRequest {
-        access,
-        expected: head.clone(),
-        reason: CheckpointReason::Export,
-    })?;
-    if revision.head != head {
-        return Err(transfer_error(
-            "VersionConflict",
-            "The export checkpoint did not retain the requested head.",
-        ));
+pub(crate) fn draft_format_loss(format: DraftFormat) -> &'static str {
+    match format {
+        DraftFormat::PlainText => {
+            "Rich marks and links are omitted; hard breaks remain newlines and scene breaks become [Scene break]."
+        }
+        DraftFormat::Markdown => {
+            "Markdown represents headings, bold, italic, safe links, and scene breaks. Spacing and end-of-paragraph breaks depend on the reader. Comments, history, and other project material are omitted."
+        }
     }
-    let text = plain_projection(&revision.body)?;
-    let bytes = text.as_bytes();
-    let parent = target.parent().ok_or_else(|| {
+}
+
+/// Validate a complete immutable snapshot before projecting it into an export
+/// format.  The returned bytes are the exact UTF-8 content installed on disk.
+pub(crate) fn project_draft(body: &Value, format: DraftFormat) -> CoreResult<ProjectedDraft> {
+    let encoded = serde_json::to_string(body)?;
+    let validated = validate_snapshot_json(&encoded).map_err(|error| {
         transfer_error(
-            "InvalidRequest",
-            "The export destination has no parent directory.",
+            "InvalidDocument",
+            format!("The export source is invalid: {error}"),
         )
     })?;
-    let staged = stage(parent, "wns-export")?;
-    let staged_file = staged.path.join("draft.txt");
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&staged_file)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-    let manifest = ExportManifest {
-        format: "text/plain; charset=utf-8".into(),
-        format_loss: "Rich marks and links are omitted; hard breaks remain newlines and scene breaks become [Scene break].".into(),
-        project_id: project.project_metadata()?.project.project_id,
-        document_id: head.document_id.clone(),
-        source_head: head,
-        checkpoint_id: revision.id,
-        utf8_bytes: bytes.len() as u64,
-        sha256: sha256_bytes(bytes),
+    let text = match format {
+        DraftFormat::PlainText => plain_projection(&validated.snapshot)?,
+        DraftFormat::Markdown => markdown_projection(&validated.snapshot)?,
     };
-    install_file_no_replace(&staged_file, &target)?;
-    Ok(manifest)
+    let utf8_bytes = text.len() as u64;
+    let sha256 = sha256_bytes(text.as_bytes());
+    Ok(ProjectedDraft {
+        text,
+        utf8_bytes,
+        sha256,
+    })
+}
+
+fn markdown_projection(body: &Value) -> CoreResult<String> {
+    let blocks = body
+        .get("body")
+        .and_then(Value::as_object)
+        .and_then(|body| body.get("content"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            transfer_error(
+                "InvalidDocument",
+                "The export source has no document blocks.",
+            )
+        })?;
+    let mut rendered = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        let object = block.as_object().ok_or_else(|| {
+            transfer_error(
+                "InvalidDocument",
+                "The export source contains an invalid block.",
+            )
+        })?;
+        match object.get("type").and_then(Value::as_str) {
+            Some("sceneBreak") => rendered.push("---".to_owned()),
+            Some("paragraph") => rendered.push(markdown_block_text(object)?),
+            Some("heading") => {
+                let level = object
+                    .get("attrs")
+                    .and_then(Value::as_object)
+                    .and_then(|attrs| attrs.get("level"))
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| {
+                        transfer_error("InvalidDocument", "The heading has no valid level.")
+                    })?;
+                let text = markdown_block_text(object)?;
+                let prefix = "#".repeat(usize::try_from(level).map_err(|_| {
+                    transfer_error("InvalidDocument", "The heading level is too large.")
+                })?);
+                rendered.push(if text.is_empty() {
+                    prefix
+                } else {
+                    format!("{prefix} {text}")
+                });
+            }
+            _ => {
+                return Err(transfer_error(
+                    "InvalidDocument",
+                    "The export source contains an unsupported block.",
+                ));
+            }
+        }
+    }
+    // Markdown export has one deterministic line ending and never appends a
+    // newline after the final block.  Source-backed trailing empty blocks and
+    // hard breaks remain part of the projected content.
+    let joined = rendered.join("\n\n");
+    Ok(normalize_lf(&joined))
+}
+
+fn markdown_block_text(block: &serde_json::Map<String, Value>) -> CoreResult<String> {
+    let Some(content) = block.get("content").and_then(Value::as_array) else {
+        return Ok(String::new());
+    };
+    let mut result = String::new();
+    for inline in content {
+        let object = inline.as_object().ok_or_else(|| {
+            transfer_error(
+                "InvalidDocument",
+                "The export source contains an invalid inline node.",
+            )
+        })?;
+        match object.get("type").and_then(Value::as_str) {
+            Some("hardBreak") => result.push_str("  \n"),
+            Some("text") => {
+                let text = object
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| transfer_error("InvalidDocument", "A text node has no text."))?;
+                result.push_str(&markdown_text(text, object.get("marks"))?);
+            }
+            _ => {
+                return Err(transfer_error(
+                    "InvalidDocument",
+                    "The export source contains an unsupported inline node.",
+                ));
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn markdown_text(text: &str, marks: Option<&Value>) -> CoreResult<String> {
+    let text = normalize_lf(text);
+    let marks = marks.and_then(Value::as_array).cloned().unwrap_or_default();
+    let (leading, core, trailing) = boundary_whitespace(&text);
+    if core.is_empty() {
+        return Ok(markdown_leading_whitespace(&text));
+    }
+    let leading = markdown_leading_whitespace(leading);
+    let mut rendered = markdown_escape(core);
+    let mut link: Option<String> = None;
+    for mark in marks {
+        let object = mark
+            .as_object()
+            .ok_or_else(|| transfer_error("InvalidDocument", "A text mark is not an object."))?;
+        match object.get("type").and_then(Value::as_str) {
+            Some("bold") => rendered = format!("**{rendered}**"),
+            Some("italic") => rendered = format!("*{rendered}*"),
+            Some("link") => {
+                let href = object
+                    .get("attrs")
+                    .and_then(Value::as_object)
+                    .and_then(|attrs| attrs.get("href"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| transfer_error("InvalidDocument", "A link mark has no href."))?;
+                link = Some(href.to_owned());
+            }
+            _ => {
+                return Err(transfer_error(
+                    "InvalidDocument",
+                    "The export source contains an unsupported mark.",
+                ));
+            }
+        }
+    }
+    if let Some(href) = link {
+        // Angle-bracket destinations preserve punctuation such as parentheses
+        // and query entities.  Character references keep raw angle brackets
+        // from terminating the CommonMark destination while preserving the
+        // URL seen by a Markdown parser.
+        let href = markdown_href(&href);
+        rendered = format!("[{rendered}](<{href}>)");
+    }
+    Ok(format!("{leading}{rendered}{trailing}"))
+}
+
+fn markdown_leading_whitespace(value: &str) -> String {
+    let indent = value
+        .chars()
+        .take_while(|ch| matches!(ch, ' ' | '\t'))
+        .fold(0, |column, ch| {
+            if ch == '\t' {
+                column + 4 - column % 4
+            } else {
+                column + 1
+            }
+        });
+    if indent < 4 {
+        return value.to_owned();
+    }
+    let first = value.as_bytes()[0];
+    let entity = match first {
+        b' ' => "&#32;",
+        b'\t' => "&#9;",
+        _ => unreachable!("the leading character must be an ASCII indent"),
+    };
+    format!("{entity}{}", &value[1..])
+}
+
+fn boundary_whitespace(value: &str) -> (&str, &str, &str) {
+    let leading_end = value
+        .char_indices()
+        .find(|(_, ch)| !ch.is_whitespace())
+        .map(|(index, _)| index)
+        .unwrap_or(value.len());
+    let trailing_start = value[leading_end..]
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !ch.is_whitespace())
+        .map(|(index, ch)| leading_end + index + ch.len_utf8())
+        .unwrap_or(leading_end);
+    (
+        &value[..leading_end],
+        &value[leading_end..trailing_start],
+        &value[trailing_start..],
+    )
+}
+
+fn markdown_escape(value: &str) -> String {
+    const ESCAPED: &str = r#"\\`*_{}[]()#+-!<>|~&"#;
+    let mut result = String::with_capacity(value.len());
+    let mut line_start = 0;
+    for (index, ch) in value.char_indices() {
+        if ch == '\n' {
+            result.push_str("  \n");
+            line_start = index + 1;
+        } else {
+            // Ordinary sentence/decimal periods are readable as-is. Escape a
+            // possible ordered-list marker at a line's start (CommonMark 5.2).
+            let ordered_marker = if ch == '.' {
+                let prefix = value[line_start..index].trim_start_matches([' ', '\t']);
+                (1..=9).contains(&prefix.len())
+                    && prefix.bytes().all(|byte| byte.is_ascii_digit())
+                    && value[index + 1..]
+                        .chars()
+                        .next()
+                        .is_none_or(|next| matches!(next, ' ' | '\t' | '\n'))
+            } else {
+                false
+            };
+            if ESCAPED.contains(ch) || ordered_marker {
+                result.push('\\');
+            }
+            result.push(ch);
+        }
+    }
+    result
+}
+
+fn markdown_href(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => result.push_str("&amp;"),
+            '<' => result.push_str("&lt;"),
+            '>' => result.push_str("&gt;"),
+            _ => result.push(ch),
+        }
+    }
+    result
+}
+
+fn normalize_lf(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            result.push('\n');
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+/// Freeze the requested current head and return a complete, tamper-detecting
+/// preview.  The preview refers to this immutable revision even if the
+/// working document changes before the file is installed.
+pub fn prepare_draft_export(
+    project: &ProjectSession,
+    access: &ProjectAccess,
+    expected: Head,
+    format: DraftFormat,
+) -> CoreResult<DraftExportPreview> {
+    if !format.is_supported() {
+        return Err(transfer_error(
+            "InvalidRequest",
+            "The requested export format is unsupported.",
+        ));
+    }
+    let revision = project.checkpoint(CheckpointRequest {
+        access: access.clone(),
+        expected,
+        reason: CheckpointReason::Export,
+    })?;
+    let projected = project_draft(&revision.body, format)?;
+    let metadata = project.project_metadata()?;
+    Ok(DraftExportPreview {
+        id: Uuid::new_v4().to_string(),
+        project_id: metadata.project.project_id,
+        operation_namespace: metadata.project.operation_namespace,
+        source_head: revision.head,
+        revision_id: revision.id,
+        format,
+        format_version: 1,
+        utf8_bytes: projected.utf8_bytes,
+        sha256: projected.sha256,
+        format_loss: draft_format_loss(format).into(),
+        preview_text: projected.text,
+    })
+}
+
+/// Install one prepared whole-document export and then record its immutable
+/// metadata.  Filesystem installation and SQLite recording intentionally have
+/// separate failure boundaries; a record failure leaves the installed output
+/// in place and asks the caller to prepare a new explicit export.
+pub fn export_prepared_draft(
+    project: &ProjectSession,
+    access: ProjectAccess,
+    preview: DraftExportPreview,
+    target: &Path,
+) -> CoreResult<ExportRecord> {
+    let candidate = output_path(target)?;
+    let basename = candidate
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            transfer_error(
+                "InvalidRequest",
+                "The destination must have a UTF-8 basename.",
+            )
+        })?
+        .to_owned();
+    crate::projects::exports::validate_basename(&basename)?;
+    project.install_export(access, preview, candidate, basename)
 }

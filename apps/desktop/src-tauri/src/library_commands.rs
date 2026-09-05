@@ -351,24 +351,3 @@ pub async fn project_backup(
     })
     .await
 }
-#[tauri::command]
-pub async fn project_export_draft(
-    access: ProjectAccess,
-    expected: Head,
-    projects: State<'_, DesktopProjects>,
-) -> CoreResult<Option<String>> {
-    let project = projects.project(&access.project_id)?;
-    execute(move || {
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Export draft as plain text (formatting is omitted)")
-            .add_filter("Plain text", &["txt"])
-            .set_file_name("Chapter draft.txt")
-            .save_file()
-        else {
-            return Ok(None);
-        };
-        transfer::export_draft_txt(&project, access, expected, &path)?;
-        Ok(Some(path.to_string_lossy().into_owned()))
-    })
-    .await
-}

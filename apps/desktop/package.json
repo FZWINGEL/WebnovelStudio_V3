@@ -14,6 +14,7 @@
     "test:native": "node scripts/native-smoke.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build --no-bundle",
+    "desktop:package": "node ../../scripts/run-desktop.mjs package",
     "desktop:spike": "tauri build --debug --no-bundle"
   },
   "dependencies": {

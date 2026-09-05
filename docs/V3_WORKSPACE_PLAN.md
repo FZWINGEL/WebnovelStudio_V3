@@ -68,14 +68,14 @@ Contracts use a small explicit document schema and typed DTOs. Generate types fr
 
 | Data | Planned location/policy |
 | --- | --- |
-| Production app registry and nonsecret settings | `%LOCALAPPDATA%\WebnovelStudioV3` using the selected application identifier |
+| Production app registry and nonsecret settings | `%LOCALAPPDATA%\com.webnovelstudio.v3`, from Tauri's app-local-data path and stable release identifier |
 | Suggested new-project destination | `%USERPROFILE%\WebnovelStudio\Projects`; author can choose another local folder |
 | Manual backup destination | Author-selected native destination; explain that a copy on the same drive is not drive-loss protection |
 | Development app registry and projects | `%LOCALAPPDATA%\WebnovelStudioV3-Dev\<checkout-id>`; a different namespace for every development worktree |
 | Automated test projects | Unique temporary directories per test, never the production registry or author folders |
 | Credentials | OS credential store or the provider's managed login; core-owned references, no project/export secrets |
 
-These are planned defaults; the design bootstrap created no author-data folders. Development builds must show that they use development data. Their New Project destination is inside their development root, not the production default. Test-only path overrides and fault controls must be excluded from shipping builds. A separate app identifier prevents production and development single-instance activation from redirecting into each other.
+The design bootstrap created no author-data folders. The current native implementation uses separate release and development data roots; debug windows show **Development** in the title. Their New Project destination is inside their development root. Test-only path overrides and the harness debugging endpoint are compiled only in debug builds. No single-instance activation plugin is enabled. The stable release identifier and package configuration are recorded in [Windows package qualification](WINDOWS_PACKAGE_QUALIFICATION.md).
 
 Every project session owns a resolved path, project ID, current operation namespace, connection, and OS-held lock. Runtime code never resolves a write through a mutable global "current project" path. Project-folder identity checks cover aliases/junctions and duplicate embedded IDs. Same-project stale callbacks are fenced; cross-project callbacks are routed by their captured ownership.
 

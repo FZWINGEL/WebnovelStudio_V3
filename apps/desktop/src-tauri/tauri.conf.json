@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "WebnovelStudio V3 Editor Trial",
+  "productName": "WebnovelStudio V3",
   "version": "0.1.0",
-  "identifier": "com.webnovelstudio.v3.editor-trial",
+  "identifier": "com.webnovelstudio.v3",
   "build": {
     "beforeDevCommand": "node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 1420 --strictPort",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [{
       "label": "main",
       "create": false,
-      "title": "WebnovelStudio V3 — Desktop preview",
+      "title": "WebnovelStudio V3",
       "width": 1240,
       "height": 840,
       "minWidth": 800,
@@ -23,5 +23,18 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'"
     }
   },
-  "bundle": { "active": false }
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "shortDescription": "A local writing studio for English web novels",
+    "windows": {
+      "webviewInstallMode": { "type": "offlineInstaller", "silent": true },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    }
+  }
 }

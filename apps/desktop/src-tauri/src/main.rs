@@ -1,12 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::Serialize;
+#[cfg(debug_assertions)]
 use std::hash::{DefaultHasher, Hash, Hasher};
+#[cfg(debug_assertions)]
 use std::path::PathBuf;
 use tauri::Manager;
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
 mod context_commands;
 mod discussion_commands;
+mod export_commands;
 mod guidance_commands;
 mod library_commands;
 mod project_commands;
@@ -39,18 +42,24 @@ fn main() {
     tauri::Builder::default()
         .manage(project_commands::DesktopProjects::default())
         .setup(|app| {
-            let mut checkout = DefaultHasher::new();
-            env!("CARGO_MANIFEST_DIR").hash(&mut checkout);
-            let root = std::env::var_os("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .unwrap_or_else(std::env::temp_dir);
-            let library_root = root
-                .join("WebnovelStudioV3-Dev")
-                .join(format!("{:016x}", checkout.finish()));
+            // Installed releases keep their library across rebuilds and upgrades.
+            // Development checkouts and synthetic qualification data stay separate.
+            #[cfg(not(debug_assertions))]
+            let library_root = app.path().app_local_data_dir()?;
             #[cfg(debug_assertions)]
-            let library_root = std::env::var_os("WNS_V3_TEST_DATA_DIR")
-                .map(PathBuf::from)
-                .unwrap_or(library_root);
+            let library_root = {
+                let mut checkout = DefaultHasher::new();
+                env!("CARGO_MANIFEST_DIR").hash(&mut checkout);
+                let root = std::env::var_os("LOCALAPPDATA")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(std::env::temp_dir);
+                std::env::var_os("WNS_V3_TEST_DATA_DIR")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| {
+                        root.join("WebnovelStudioV3-Dev")
+                            .join(format!("{:016x}", checkout.finish()))
+                    })
+            };
             let data_directory = library_root.join("webview");
             app.manage(library_commands::DesktopLibrary(std::sync::Arc::new(
                 std::sync::Mutex::new(webnovel_core::library::Library::open(library_root)?),
@@ -68,6 +77,8 @@ fn main() {
             let window =
                 tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
                     .data_directory(data_directory);
+            #[cfg(debug_assertions)]
+            let window = window.title("WebnovelStudio V3 — Development");
             // Hosted Windows runners may be elevated. WebView2 ignores its own
             // environment overrides there, so the debug harness uses the API.
             // This opt-in branch is absent from shipping release binaries.
@@ -86,6 +97,8 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            export_commands::prepare_draft_export,
+            export_commands::export_prepared_draft,
             guidance_commands::read_guidance,
             guidance_commands::save_guidance,
             discussion_commands::read_discussion,
@@ -134,9 +147,8 @@ fn main() {
             library_commands::library_archive,
             library_commands::library_recover,
             library_commands::library_duplicate,
-            library_commands::project_backup,
-            library_commands::project_export_draft
+            library_commands::project_backup
         ])
         .run(tauri::generate_context!())
-        .expect("Could not launch the editor trial");
+        .expect("Could not launch WebnovelStudio V3");
 }

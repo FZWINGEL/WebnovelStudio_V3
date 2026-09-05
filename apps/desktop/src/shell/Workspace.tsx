@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { DocumentSession } from '../editor/session';
+import { canonicalJson } from '../editor/document';
 import { createDocument, reconcileProject, readDocument, projectTransport, projectMetadata, renameProject, renameDocument, type CreateDocumentIntent, type DocumentRecord, type OpenedProject, type ProjectAccess, type ViewState } from '../ipc/projects';
 import { CreateIntentRecoveryError, CreateIntentUnresolvedError, runCreateIntent } from '../ipc/createIntent';
-import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, projectBackup, projectExportDraft, type LibrarySnapshot } from '../ipc/library';
+import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, projectBackup, type LibrarySnapshot } from '../ipc/library';
+import { prepareDraftExport, exportPreparedDraft, type DraftExportPreview, type DraftFormat } from '../ipc/exports';
 import { App as EditorTrial } from './App';
 import { Writer } from './Writer';
+import { ExportDialog } from './ExportDialog';
 
 type ActiveDocument = { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null };
 const emptyLibrary: LibrarySnapshot = { entries: [], pending: [] };
@@ -20,6 +23,8 @@ export function Workspace() {
   const [library, setLibrary] = useState(emptyLibrary);
   const [project, setProject] = useState<OpenedProject | null>(null);
   const [active, setActive] = useState<ActiveDocument | null>(null);
+  const [exporting, setExporting] = useState<ActiveDocument | null>(null);
+  const exportButton = useRef<HTMLButtonElement>(null);
   const activeRef = useRef(active); activeRef.current = active;
   const [search, setSearch] = useState('');
   const [archived, setArchived] = useState(false);
@@ -64,6 +69,7 @@ export function Workspace() {
     finally { running.current = false; setBusy(false); }
   }
   function activate(opened: OpenedProject, document?: DocumentRecord) {
+    setExporting(null);
     setProject(opened);
     const next = document ?? opened.documents.find(document => document.head.documentId === opened.viewState?.documentId) ?? opened.documents[0];
     setActive(next ? { record: next, session: new DocumentSession(opened.access, next, projectTransport), viewState: opened.viewState } : null);
@@ -280,12 +286,32 @@ export function Workspace() {
     if (activeRef.current) await activeRef.current.session.withLifecycleGuard(work); else await work();
   }
   async function exportDraft() {
-    const settled = await settlePendingDocumentIntent();
+    await settlePendingDocumentIntent();
     const current = activeRef.current; if (!current) return;
-    await current.session.projectWrite(async () => {
-      const result = await projectExportDraft(current.session.projectAccess, current.session.state.head);
-      if (result) setNotice(`Draft exported as plain text: ${result}`);
+    setExporting(current);
+  }
+  async function prepareExport(current: ActiveDocument, format: DraftFormat): Promise<DraftExportPreview> {
+    return current.session.withLifecycleGuard(async () => {
+      if (activeRef.current?.session !== current.session) throw new Error('Open this document again to export it.');
+      await current.session.flush();
+      const head = current.session.state.head;
+      const preview = await prepareDraftExport(current.session.projectAccess, head, format);
+      if (canonicalJson(preview.sourceHead) !== canonicalJson(head)) throw new Error('The export preview does not match the saved writing. Prepare it again.');
+      return preview;
     });
+  }
+  async function writeExport(current: ActiveDocument, preview: DraftExportPreview): Promise<string | null> {
+    if (running.current || activeRef.current?.session !== current.session) throw new Error('Finish the current operation before exporting.');
+    running.current = true; setBusy(true);
+    try {
+      const result = await exportPreparedDraft(current.session.projectAccess, preview);
+      if (!result) return null;
+      if (result.previewId !== preview.id || result.sha256 !== preview.sha256 || result.utf8Bytes !== preview.utf8Bytes || !result.path) {
+        throw new Error('Could not verify the exported file. Check the chosen destination before trying again.');
+      }
+      if (activeRef.current?.session === current.session) setNotice(`Draft exported: ${result.path}`);
+      return result.path;
+    } finally { running.current = false; setBusy(false); }
   }
 
   if (trial) return <><button className="trial-return" onClick={() => setTrial(false)}>Back to library</button><EditorTrial /></>;
@@ -293,7 +319,7 @@ export function Workspace() {
   const documents = project?.documents.filter(document => document.title.toLocaleLowerCase().includes(search.toLocaleLowerCase())) ?? [];
   return <div className="app persistent-workspace">
     <header className="app-header"><div className="brand"><strong>WebnovelStudio</strong><span className="trial-label">{project ? project.project.title : 'Library'}</span></div>
-      {project ? <div className="header-actions"><button disabled={busy} onClick={backToLibrary}>All projects</button><button disabled={busy} onClick={() => { setRenamedTitle(project.project.title); setRenaming(!renaming); }}>Rename</button><button disabled={busy} onClick={duplicate}>Duplicate</button><button disabled={busy} onClick={() => void perform(backup)}>Backup</button><button disabled={busy || !active} onClick={() => void perform(exportDraft)}>Export draft</button></div>
+      {project ? <div className="header-actions"><button disabled={busy} onClick={backToLibrary}>All projects</button><button disabled={busy} onClick={() => { setRenamedTitle(project.project.title); setRenaming(!renaming); }}>Rename</button><button disabled={busy} onClick={duplicate}>Duplicate</button><button disabled={busy} onClick={() => void perform(backup)}>Backup</button><button ref={exportButton} disabled={busy || !active} onClick={() => void perform(exportDraft)}>Export draft</button></div>
         : <span className="session-notice">Desktop preview · English writing</span>}
     </header>
     {project && renaming && <form className="rename-project-form" onSubmit={rename}><label htmlFor="rename-project">Project title</label><input autoFocus id="rename-project" value={renamedTitle} maxLength={160} onChange={event => setRenamedTitle(event.target.value)} /><button type="button" onClick={() => setRenaming(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedTitle.trim()}>Save title</button></form>}
@@ -314,6 +340,9 @@ export function Workspace() {
       </aside>
       {active ? <Writer key={`${project.project.projectId}:${active.record.head.documentId}`} active={active} onError={setError} onRename={() => { setRenamedDocumentTitle(active.record.title); setRenamingDocument(!renamingDocument); }} /> : <main className="empty-project"><h1>Where would you like to start?</h1><p>A character, a world, a chapter, or just a thought.</p><button className="primary-button" disabled={busy} onClick={() => setNewDocument(true)}>Add your first document</button></main>}
     </div>}
+    {exporting && active?.session === exporting.session && <ExportDialog access={exporting.session.projectAccess} documentId={exporting.record.head.documentId} title={exporting.record.title}
+      onPrepare={format => prepareExport(exporting, format)} onExport={preview => writeExport(exporting, preview)}
+      onClose={() => { setExporting(null); exportButton.current?.focus(); }} />}
     {(error || notice || busy) && <footer className="workspace-notice" role={error ? 'alert' : 'status'}><span className={error ? 'error-status' : ''}>{error || notice || 'Working…'}</span>{error && <button onClick={() => setError('')}>Dismiss</button>}</footer>}
   </div>;
 }

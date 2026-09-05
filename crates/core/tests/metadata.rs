@@ -204,7 +204,7 @@ fn v1_upgrade_takes_local_online_backup_and_preserves_data() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read upgraded schema version");
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
     let title: String = connection
         .query_row(
             "SELECT title FROM documents WHERE id='chapter-one'",

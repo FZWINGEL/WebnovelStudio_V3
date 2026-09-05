@@ -14,6 +14,7 @@ export class SessionError extends Error {
 type Capture = { request: SaveSnapshot; json: string; hash: string; payloadHash: string };
 /** Preflight is pure; commit dispatches the same prepared editor transaction. */
 export interface PreparedEditorChange { body: WnsDocument; commit(): WnsDocument; read?(): WnsDocument }
+type ViewSaver = () => Promise<void>;
 type AuthorCapture = { body: WnsDocument; json: string; payloadHash: string; change: PreparedEditorChange } &
   ({ kind: 'apply'; request: ApplyProposal } | { kind: 'restore'; request: RestoreRevision });
 type Listener = () => void;
@@ -54,6 +55,7 @@ export class DocumentSession {
   private barrier = false;
   private owner: Promise<unknown> | null = null;
   private flight: Promise<void> | null = null;
+  private viewFlight: Promise<boolean> | null = null;
   private pending: Capture | null = null;
   private pendingChange: AuthorCapture | null = null;
   private nextCause: SaveSnapshot['cause'] = 'typing';
@@ -61,7 +63,8 @@ export class DocumentSession {
   private dirtySince: number | null = null;
   private listeners = new Set<Listener>();
   private conflict: ReconciledDocument | null = null;
-  private viewSaver: (() => Promise<void>) | null = null;
+  private viewSaver: ViewSaver | null = null;
+  private viewSaverEpoch = 0;
 
   constructor(access: ProjectAccess, document: DocumentRecord, private transport: ProjectTransport, private options: { autosave?: boolean; newId?: () => string } = {}) {
     this.access = clone(access); this.head = clone(document.head); version(this.head.version);
@@ -75,9 +78,69 @@ export class DocumentSession {
       dirty: this.generation !== this.savedGeneration, editable: !this.barrier && ['editing', 'saveFailed'].includes(this.phase), error: this.error };
   }
   subscribe(listener: Listener): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
-  setViewSaver(save: (() => Promise<void>) | null): void { this.viewSaver = save; }
-  private async saveView(): Promise<void> { try { await this.viewSaver?.(); } catch (reason) { throw this.recordFailure(reason); } }
+  setViewSaver(save: ViewSaver | null): void { this.viewSaver = save; this.viewSaverEpoch += 1; }
+  private async saveView(): Promise<void> {
+    const save = this.viewSaver;
+    if (!save) return;
+    const epoch = this.viewSaverEpoch;
+    try { await save(); }
+    catch (reason) {
+      const error = errorOf(reason);
+      // A document operation can advance the head between capture and this
+      // position write. The body save/checkpoint remains authoritative; let a
+      // later idle position write retry instead of fencing the manuscript.
+      if (error.code === 'VersionConflict') return;
+      // A renderer cleanup can detach the callback while its IPC is still
+      // settling. Do not let that late callback change a reused session.
+      if (this.phase !== 'disposed' && this.viewSaverEpoch === epoch) throw this.recordFailure(reason);
+      throw error;
+    }
+  }
   async persistView(): Promise<void> { await this.withLifecycleGuard(async () => { await this.flush(); await this.saveView(); }); }
+  /**
+   * Persist only the reading position while the saved document is idle.
+   * This intentionally has no lifecycle owner or input barrier: authors can
+   * keep typing while the position acknowledgment is in flight.
+   *
+   * The boolean result is false when the attempt was deferred, allowing an
+   * idle caller to re-arm a later attempt without a tight retry loop.
+   */
+  persistViewBackground(save: ViewSaver): Promise<boolean> {
+    // A second idle request joins the existing native call, then reports that
+    // it was deferred. This lets a later caret event retry with fresh data
+    // instead of treating the old capture as the latest reading position.
+    if (this.viewFlight) return this.viewFlight.then(() => false);
+    const callback = save;
+    if (!this.canStartBackgroundView()) return Promise.resolve(false);
+    const epoch = this.viewSaverEpoch;
+    let flight!: Promise<boolean>;
+    flight = Promise.resolve().then(async () => {
+      // State can change between scheduling and this microtask. Never invoke
+      // a renderer callback once a body operation or lifecycle owner started.
+      if (!this.canStartBackgroundView() || this.viewSaverEpoch !== epoch) return false;
+      try {
+        await callback();
+        return true;
+      } catch (reason) {
+        const error = errorOf(reason);
+        // A stale head is expected when another operation wins the race. Let
+        // the next idle callback retry it without fencing the manuscript.
+        if (error.code === 'VersionConflict') return false;
+        // Cleanup invalidates the callback epoch. Its late result cannot own
+        // this session and must not disable or replace the live editor.
+        if (this.phase === 'disposed' || this.viewSaverEpoch !== epoch) return false;
+        throw this.recordFailure(reason);
+      }
+    }).finally(() => {
+      if (this.viewFlight === flight) this.viewFlight = null;
+    });
+    this.viewFlight = flight;
+    return flight;
+  }
+  private canStartBackgroundView(): boolean {
+    return this.phase === 'editing' && !this.composing && !this.barrier && !this.owner && !this.flight
+      && this.generation === this.savedGeneration;
+  }
   async projectWrite<T>(write: () => Promise<T>): Promise<T> {
     return this.withLifecycleGuard(async () => { await this.flush(); try { return await write(); } catch (reason) { throw this.recordFailure(reason); } });
   }
@@ -177,7 +240,12 @@ export class DocumentSession {
   }
   /** Navigation/normal close share this guard; they wait for an existing local operation. */
   async withLifecycleGuard<T>(work: () => Promise<T>): Promise<T> {
-    while (this.owner) { try { await this.owner; } catch { /* Recheck state after the owner releases. */ } }
+    while (this.owner || this.viewFlight) {
+      const owner = this.owner;
+      const view = this.viewFlight;
+      if (owner) { try { await owner; } catch { /* Recheck state after the owner releases. */ } }
+      if (view) { try { await view; } catch { /* Recheck state after the view callback releases. */ } }
+    }
     const operation = Promise.resolve().then(async () => {
       if (this.phase === 'disposed') throw new SessionError('Disposed', 'This document is closed.');
       if (this.composing) await new Promise<void>(resolve => this.compositionWaiters.push(resolve));

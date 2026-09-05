@@ -29,6 +29,10 @@ switch (action) {
   case 'dev': await node([tauri, 'dev']); break;
   case 'spike': await node([tauri, 'build', '--debug', '--no-bundle', '--', '--locked']); break;
   case 'build': await node([tauri, 'build', '--no-bundle', '--', '--locked']); break;
+  case 'package':
+    if (process.platform !== 'win32') throw new Error('The initial installer target is Windows x64.');
+    await node([tauri, 'build', '--target', 'x86_64-pc-windows-msvc', '--bundles', 'nsis', '--', '--locked']);
+    break;
   case 'test': await node(['node_modules/vitest/vitest.mjs', 'run']); break;
   case 'native': await node(['scripts/native-smoke.mjs']); break;
   case 'check':

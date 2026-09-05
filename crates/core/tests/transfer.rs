@@ -10,9 +10,9 @@ use webnovel_core::projects::{
     read_creation_origin,
 };
 use webnovel_core::transfer::{
-    BackupManifest, DuplicateBasis, ExportManifest, capture_duplicate_basis, create_backup,
+    BackupManifest, DraftFormat, DuplicateBasis, capture_duplicate_basis, create_backup,
     duplicate_project, duplicate_project_staged_with_basis, duplicate_project_with_basis,
-    export_draft_txt, recover_backup, recover_backup_staged,
+    export_prepared_draft, prepare_draft_export, recover_backup, recover_backup_staged,
 };
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
@@ -581,8 +581,10 @@ fn export_is_explicit_utf8_plain_text_with_scene_and_hard_break_projection() {
     ]));
     let ack = save(&project, &access, &document, "save-export", content);
     let output = temp.child("draft.txt");
-    let manifest: ExportManifest =
-        export_draft_txt(&project, access, ack.head.clone(), &output).expect("export draft");
+    let preview = prepare_draft_export(&project, &access, ack.head.clone(), DraftFormat::PlainText)
+        .expect("prepare draft");
+    assert!(preview.format_loss.contains("omitted"));
+    let manifest = export_prepared_draft(&project, access, preview, &output).expect("export draft");
     let bytes = fs::read(&output).expect("read exported UTF-8");
     assert_eq!(
         String::from_utf8(bytes.clone()).expect("valid UTF-8"),
@@ -590,8 +592,560 @@ fn export_is_explicit_utf8_plain_text_with_scene_and_hard_break_projection() {
     );
     assert_eq!(manifest.utf8_bytes, bytes.len() as u64);
     assert_eq!(manifest.sha256, sha256(&bytes));
-    assert!(manifest.format_loss.contains("omitted"));
     assert_eq!(manifest.source_head, ack.head);
+}
+
+#[test]
+fn prepared_plain_text_and_markdown_exports_have_exact_preview_and_record() {
+    let temp = TempDir::new("prepared-export");
+    let source = temp.child("source");
+    let (project, access, document) = open_project(&source);
+    let content = body(json!([
+        {"type":"heading","attrs":{"id":"title","level":2},"content":[text("Title")]},
+        paragraph("p", json!([
+            text("A "),
+            {"type":"text","text":"bold","marks":[{"type":"bold"}]},
+            text(" and "),
+            {"type":"text","text":"site","marks":[{"type":"link","attrs":{"href":"https://example.com/a_(b)"}}]},
+            {"type":"hardBreak"},
+            {"type":"text","text":"next","marks":[{"type":"italic"},{"type":"bold"}]}
+        ])),
+        {"type":"sceneBreak","attrs":{"id":"scene"}}
+    ]));
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "prepared-export-save",
+        content,
+    );
+
+    let plain = prepare_draft_export(
+        &project,
+        &access,
+        saved.head.clone(),
+        DraftFormat::PlainText,
+    )
+    .expect("prepare plain export");
+    assert_eq!(
+        plain.preview_text,
+        "Title\n\nA bold and site\nnext\n\n[Scene break]"
+    );
+    assert_eq!(plain.utf8_bytes, plain.preview_text.len() as u64);
+    assert_eq!(plain.format, DraftFormat::PlainText);
+    let plain_target = temp.child("draft.txt");
+    let plain_record =
+        export_prepared_draft(&project, access.clone(), plain.clone(), &plain_target)
+            .expect("install plain export");
+    assert_eq!(
+        fs::read_to_string(&plain_target).unwrap(),
+        plain.preview_text
+    );
+    assert!(plain_record.working_draft);
+    assert_eq!(plain_record.basename, "draft.txt");
+    let retry = export_prepared_draft(&project, access.clone(), plain.clone(), &plain_target)
+        .expect_err("a recorded export must not install a duplicate file");
+    assert_eq!(retry.code, "ExportAlreadyRecorded");
+
+    let markdown = prepare_draft_export(&project, &access, saved.head, DraftFormat::Markdown)
+        .expect("prepare markdown export");
+    assert_eq!(
+        markdown.preview_text,
+        "## Title\n\nA **bold** and [site](<https://example.com/a_(b)>)  \n***next***\n\n---"
+    );
+    assert!(!markdown.preview_text.ends_with('\n'));
+    let markdown_target = temp.child("draft.md");
+    let markdown_record =
+        export_prepared_draft(&project, access.clone(), markdown.clone(), &markdown_target)
+            .expect("install markdown export");
+    assert_eq!(
+        fs::read_to_string(&markdown_target).unwrap(),
+        markdown.preview_text
+    );
+    assert_eq!(markdown_record.format, DraftFormat::Markdown);
+    assert_eq!(markdown_record.sha256, markdown.sha256);
+
+    drop(project);
+    let reopened = ProjectSession::open(&source).expect("reopen exported project");
+    let reopened_access = reopened
+        .attach("export-reader".into())
+        .expect("attach export reader");
+    assert_eq!(
+        reopened.read_export_record(reopened_access, markdown.id),
+        Ok(markdown_record)
+    );
+}
+
+#[test]
+fn export_uses_frozen_revision_after_a_later_working_edit() {
+    let temp = TempDir::new("frozen-export");
+    let (project, access, document) = open_project(&temp.child("source"));
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "frozen-export-save",
+        body(json!([paragraph("p", json!([text("frozen source")]))])),
+    );
+    let preview =
+        prepare_draft_export(&project, &access, saved.head.clone(), DraftFormat::Markdown)
+            .expect("prepare frozen export");
+    let current = project
+        .document(access.clone(), "chapter-one".into())
+        .unwrap();
+    let later = save(
+        &project,
+        &access,
+        &current,
+        "frozen-export-later",
+        body(json!([paragraph("p", json!([text("later working edit")]))])),
+    );
+    assert_ne!(later.head, preview.source_head);
+    let target = temp.child("frozen.md");
+    export_prepared_draft(&project, access.clone(), preview.clone(), &target)
+        .expect("export retained revision");
+    assert_eq!(fs::read_to_string(target).unwrap(), "frozen source");
+    assert_eq!(
+        project.document(access, "chapter-one".into()).unwrap().head,
+        later.head
+    );
+}
+
+#[test]
+fn tampered_foreign_or_missing_export_source_is_rejected_before_file_creation() {
+    let temp = TempDir::new("export-rejections");
+    let (project, access, document) = open_project(&temp.child("source"));
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "rejection-save",
+        body(json!([paragraph("p", json!([text("source")]))])),
+    );
+    let preview = prepare_draft_export(&project, &access, saved.head, DraftFormat::PlainText)
+        .expect("prepare source export");
+
+    let mut tampered = preview.clone();
+    tampered.preview_text.push('!');
+    let tampered_target = temp.child("tampered.txt");
+    let error = export_prepared_draft(&project, access.clone(), tampered, &tampered_target)
+        .expect_err("tampered preview must be refused");
+    assert_eq!(error.code, "ExportPreviewMismatch");
+    assert!(!tampered_target.exists());
+
+    let mut missing = preview.clone();
+    missing.revision_id = "missing-revision".into();
+    let missing_target = temp.child("missing.txt");
+    let error = export_prepared_draft(&project, access.clone(), missing, &missing_target)
+        .expect_err("missing revision must be refused");
+    assert_eq!(error.code, "RevisionNotFound");
+    assert!(!missing_target.exists());
+
+    let other_root = temp.child("other");
+    let (other, other_access, other_document) = open_project(&other_root);
+    let other_saved = save(
+        &other,
+        &other_access,
+        &other_document,
+        "foreign-save",
+        body(json!([paragraph("p", json!([text("foreign")]))])),
+    );
+    let foreign = prepare_draft_export(
+        &other,
+        &other_access,
+        other_saved.head,
+        DraftFormat::PlainText,
+    )
+    .expect("prepare foreign export");
+    let foreign_target = temp.child("foreign.txt");
+    let error = export_prepared_draft(&project, access, foreign, &foreign_target)
+        .expect_err("foreign preview must be refused");
+    assert_eq!(error.code, "WrongProjectSession");
+    assert!(!foreign_target.exists());
+}
+
+#[test]
+fn export_refuses_existing_or_in_project_destinations() {
+    let temp = TempDir::new("export-targets");
+    let source = temp.child("source");
+    let (project, access, document) = open_project(&source);
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "target-save",
+        body(json!([paragraph("p", json!([text("source")]))])),
+    );
+    let inside = source.join("inside.txt");
+    let preview = prepare_draft_export(
+        &project,
+        &access,
+        saved.head.clone(),
+        DraftFormat::PlainText,
+    )
+    .expect("prepare in-project test");
+    let error = export_prepared_draft(&project, access.clone(), preview, &inside)
+        .expect_err("in-project destination must be refused");
+    assert_eq!(error.code, "InvalidRequest");
+
+    let existing = temp.child("existing.txt");
+    fs::write(&existing, "keep").unwrap();
+    let preview = prepare_draft_export(&project, &access, saved.head, DraftFormat::PlainText)
+        .expect("prepare existing target test");
+    let error = export_prepared_draft(&project, access, preview, &existing)
+        .expect_err("existing destination must be refused");
+    assert_eq!(error.code, "TargetExists");
+    assert_eq!(fs::read_to_string(existing).unwrap(), "keep");
+}
+
+#[test]
+fn export_record_failure_keeps_installed_output_and_concurrent_retry_cannot_write_twice() {
+    let temp = TempDir::new("export-record-boundary");
+    let source = temp.child("source");
+    let (project, access, document) = open_project(&source);
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "record-failure-save",
+        body(json!([paragraph("p", json!([text("source")]))])),
+    );
+    let preview = prepare_draft_export(&project, &access, saved.head, DraftFormat::PlainText)
+        .expect("prepare record failure export");
+    let connection = Connection::open(source.join("project.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER fail_export_record BEFORE INSERT ON export_records
+             BEGIN SELECT RAISE(ABORT,'test export record failure'); END;",
+        )
+        .unwrap();
+    drop(connection);
+    let failed_target = temp.child("record-failure.txt");
+    let error = export_prepared_draft(&project, access.clone(), preview.clone(), &failed_target)
+        .expect_err("record failure must be explicit");
+    assert_eq!(error.code, "ExportRecordUnavailable");
+    assert!(failed_target.exists());
+    let count: i64 = Connection::open(source.join("project.sqlite3"))
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM export_records", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+
+    let connection = Connection::open(source.join("project.sqlite3")).unwrap();
+    connection
+        .execute_batch("DROP TRIGGER fail_export_record;")
+        .unwrap();
+    drop(connection);
+    let first_target = temp.child("concurrent-a.txt");
+    let second_target = temp.child("concurrent-b.txt");
+    let first_project = project.clone();
+    let first_access = access.clone();
+    let first_preview = preview.clone();
+    let second_project = project.clone();
+    let second_access = access.clone();
+    let second_preview = preview;
+    let (first, second) = std::thread::scope(|scope| {
+        let left = scope.spawn(|| {
+            export_prepared_draft(&first_project, first_access, first_preview, &first_target)
+        });
+        let right = scope.spawn(|| {
+            export_prepared_draft(
+                &second_project,
+                second_access,
+                second_preview,
+                &second_target,
+            )
+        });
+        (left.join().unwrap(), right.join().unwrap())
+    });
+    let successes = usize::from(first.is_ok()) + usize::from(second.is_ok());
+    assert_eq!(successes, 1);
+    let rejected = [first.as_ref().err(), second.as_ref().err()]
+        .into_iter()
+        .flatten()
+        .next()
+        .expect("one concurrent finalization must be rejected");
+    assert_eq!(
+        rejected.code, "OperationIdReusedWithDifferentPayload",
+        "first={first:?} second={second:?}"
+    );
+    assert_ne!(first_target.exists(), second_target.exists());
+}
+
+#[test]
+fn export_record_begin_failure_keeps_installed_output() {
+    let temp = TempDir::new("export-begin-failure");
+    let source = temp.child("source");
+    let (project, access, document) = open_project(&source);
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "begin-failure-save",
+        body(json!([paragraph("p", json!([text("source")]))])),
+    );
+    let preview = prepare_draft_export(&project, &access, saved.head, DraftFormat::PlainText)
+        .expect("prepare begin failure export");
+    let blocker = Connection::open(source.join("project.sqlite3")).unwrap();
+    blocker
+        .execute_batch("BEGIN IMMEDIATE;")
+        .expect("hold the database writer lock");
+    let target = temp.child("begin-failure.txt");
+    let error = export_prepared_draft(&project, access, preview, &target)
+        .expect_err("transaction begin failure must be explicit");
+    assert_eq!(error.code, "ExportRecordUnavailable");
+    assert!(target.exists());
+    let count: i64 = blocker
+        .query_row("SELECT COUNT(*) FROM export_records", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+    blocker.execute_batch("ROLLBACK;").unwrap();
+}
+
+#[test]
+fn markdown_preserves_trailing_breaks_and_safe_url_delimiters() {
+    let temp = TempDir::new("markdown-delimiters");
+    let (project, access, document) = open_project(&temp.child("source"));
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "markdown-delimiters-save",
+        body(json!([paragraph(
+            "p",
+            json!([
+                {"type":"text","text":"    bold  ","marks":[{"type":"bold"}]},
+                text(" and "),
+                {"type":"text","text":"site","marks":[{"type":"link","attrs":{"href":"https://example.com/?q=<tag>&copy;"}}]},
+                {"type":"hardBreak"}
+            ])
+        )])),
+    );
+    let preview = prepare_draft_export(&project, &access, saved.head, DraftFormat::Markdown)
+        .expect("prepare delimiter export");
+    assert_eq!(
+        preview.preview_text,
+        "&#32;   **bold**   and [site](<https://example.com/?q=&lt;tag&gt;&amp;copy;>)  \n"
+    );
+    assert!(preview.preview_text.ends_with("  \n"));
+    let target = temp.child("delimiters.md");
+    export_prepared_draft(&project, access, preview.clone(), &target)
+        .expect("install delimiter export");
+    assert_eq!(fs::read_to_string(target).unwrap(), preview.preview_text);
+}
+
+#[test]
+fn markdown_keeps_adjacent_marks_and_text_syntax_in_one_paragraph() {
+    let temp = TempDir::new("markdown-syntax");
+    let (project, access, document) = open_project(&temp.child("source"));
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "markdown-syntax-save",
+        body(json!([paragraph(
+            "p",
+            json!([
+                {"type":"text","text":"bold","marks":[{"type":"bold"}]},
+                {"type":"text","text":"italic","marks":[{"type":"italic"}]},
+                {"type":"text","text":"both","marks":[{"type":"italic"},{"type":"bold"}]},
+                text(" # heading\n    indented")
+            ])
+        )])),
+    );
+    let preview = prepare_draft_export(&project, &access, saved.head, DraftFormat::Markdown)
+        .expect("prepare syntax export");
+    assert_eq!(
+        preview.preview_text,
+        "**bold***italic****both*** \\# heading  \n    indented"
+    );
+    assert!(!preview.preview_text.starts_with("    "));
+    assert!(preview.preview_text.contains("\\# heading"));
+}
+
+#[test]
+fn export_refuses_windows_device_stream_and_ambiguous_filenames() {
+    let temp = TempDir::new("export-filename");
+    let (project, access, document) = open_project(&temp.child("source"));
+    let preview = prepare_draft_export(&project, &access, document.head, DraftFormat::PlainText)
+        .expect("prepare filename check");
+    for name in [
+        "NUL.txt",
+        "con",
+        "COM1.md",
+        "Lpt².txt",
+        "CON .txt",
+        "CONOUT$.txt",
+        "draft:stream",
+        "draft.md.",
+        "draft.md ",
+        "draft?.md",
+    ] {
+        let error =
+            export_prepared_draft(&project, access.clone(), preview.clone(), &temp.child(name))
+                .expect_err("reject invalid Windows basename before any write");
+        assert_eq!(error.code, "InvalidRequest", "{name}");
+    }
+    let record =
+        export_prepared_draft(&project, access, preview, &temp.child("A valid chapter.md"))
+            .expect("a valid new basename still works");
+    assert_eq!(record.basename, "A valid chapter.md");
+}
+
+#[test]
+fn markdown_keeps_sentence_periods_but_protects_literal_numbered_lines() {
+    let temp = TempDir::new("markdown-periods");
+    let (project, access, document) = open_project(&temp.child("source"));
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "markdown-periods-save",
+        body(json!([paragraph(
+            "p",
+            json!([text(
+                "It ended. 3.14. Part 1.\n1. This is prose.\n12.\n1234567890. Still prose."
+            )])
+        )])),
+    );
+    let preview = prepare_draft_export(&project, &access, saved.head, DraftFormat::Markdown)
+        .expect("prepare punctuation export");
+    assert_eq!(
+        preview.preview_text,
+        "It ended. 3.14. Part 1.  \n1\\. This is prose.  \n12\\.  \n1234567890. Still prose."
+    );
+}
+
+#[test]
+fn markdown_tab_indent_does_not_turn_a_paragraph_into_a_code_block() {
+    let temp = TempDir::new("markdown-tab");
+    let (project, access, document) = open_project(&temp.child("source"));
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "markdown-tab-save",
+        body(json!([paragraph(
+            "p",
+            json!([
+                text("\t"),
+                {"type":"text","text":"a","marks":[{"type":"bold"}]},
+                {"type":"text","text":"b","marks":[{"type":"bold"}]}
+            ])
+        )])),
+    );
+    let preview =
+        prepare_draft_export(&project, &access, saved.head, DraftFormat::Markdown).unwrap();
+    // An escaped tab starts an ordinary paragraph; canonical source validation
+    // merges the equal-mark text runs before Markdown delimiters are generated.
+    assert_eq!(preview.preview_text, "&#9;**ab**");
+}
+
+#[test]
+fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migration() {
+    let temp = TempDir::new("export-backup");
+    let source = temp.child("source");
+    let (project, access, document) = open_project(&source);
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "backup-export-save",
+        body(json!([paragraph("p", json!([text("source")]))])),
+    );
+    let preview = prepare_draft_export(&project, &access, saved.head, DraftFormat::Markdown)
+        .expect("prepare backup export");
+    let output = temp.child("backup-export.md");
+    let record = export_prepared_draft(&project, access.clone(), preview, &output)
+        .expect("record backup export");
+    let archive = temp.child("export.wnsbackup");
+    create_backup(&project, &archive).expect("backup export record");
+    let recovered_path = temp.child("recovered");
+    let recovered = recover_backup(&archive, &recovered_path, "Recovered exports")
+        .expect("recover export record");
+    let recovered_namespace = recovered.info.operation_namespace.clone();
+    let recovered_count: i64 = Connection::open(recovered_path.join("project.sqlite3"))
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM export_records", [], |row| row.get(0))
+        .unwrap();
+    let copied_namespace: String = Connection::open(recovered_path.join("project.sqlite3"))
+        .unwrap()
+        .query_row(
+            "SELECT operation_namespace FROM export_records WHERE id=?",
+            [&record.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(recovered_count, 1);
+    assert_ne!(copied_namespace, recovered_namespace);
+
+    drop(recovered);
+    drop(project);
+    let connection = Connection::open(source.join("project.sqlite3")).unwrap();
+    connection
+        .execute_batch("DROP TABLE export_records; PRAGMA user_version=8;")
+        .unwrap();
+    drop(connection);
+    let migrated = ProjectSession::open(&source).expect("migrate schema eight to nine");
+    let version: i64 = Connection::open(source.join("project.sqlite3"))
+        .unwrap()
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 9);
+    let table: i64 = Connection::open(source.join("project.sqlite3"))
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='export_records'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(table, 1);
+    drop(migrated);
+}
+
+#[test]
+fn tampered_export_record_is_rejected_by_backup_validation() {
+    let temp = TempDir::new("export-backup-tamper");
+    let source = temp.child("source");
+    let (project, access, document) = open_project(&source);
+    let saved = save(
+        &project,
+        &access,
+        &document,
+        "backup-tamper-save",
+        body(json!([paragraph("p", json!([text("source")]))])),
+    );
+    let preview = prepare_draft_export(&project, &access, saved.head, DraftFormat::PlainText)
+        .expect("prepare tamper export");
+    export_prepared_draft(&project, access, preview, &temp.child("tamper.txt"))
+        .expect("record tamper export");
+    let backup = temp.child("valid.wnsbackup");
+    create_backup(&project, &backup).expect("create export backup");
+    let (mut manifest, database) = archive_entries(&backup);
+    let database_path = temp.child("tampered.sqlite3");
+    fs::write(&database_path, database).unwrap();
+    let connection = Connection::open(&database_path).unwrap();
+    connection
+        .execute_batch(
+            "DROP TRIGGER export_records_immutable_update;
+             UPDATE export_records SET project_id='other-project';",
+        )
+        .unwrap();
+    drop(connection);
+    let database = fs::read(&database_path).unwrap();
+    manifest.database_sha256 = sha256(&database);
+    let tampered_manifest = serde_json::to_vec(&manifest).unwrap();
+    let tampered_backup = temp.child("tampered.wnsbackup");
+    write_archive(&tampered_backup, &tampered_manifest, &database, None);
+    let error = recover_backup(
+        &tampered_backup,
+        &temp.child("rejected-recovery"),
+        "Tampered export",
+    )
+    .err()
+    .expect("tampered export metadata must reject recovery");
+    assert_eq!(error.code, "InvalidBackup");
 }
 
 #[test]
@@ -605,7 +1159,8 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let connection = Connection::open(&database_path).expect("open source database");
     connection
         .execute_batch(
-            "DROP TRIGGER command_receipts_no_proposal_collision;
+            "DROP TABLE export_records;
+             DROP TRIGGER command_receipts_no_proposal_collision;
              DROP TABLE proposal_receipts; DROP TABLE proposal_decisions; DROP TABLE proposal_versions; DROP TABLE proposals;
              DROP TABLE guidance_request_uses; DROP TABLE snapshot_guidance;
              DROP TABLE author_guidance_receipts; DROP TABLE author_guidance_heads;
@@ -663,5 +1218,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
 }

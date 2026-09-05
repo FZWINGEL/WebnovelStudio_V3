@@ -1,6 +1,6 @@
 # V3 documentation index
 
-Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The default Tauri application has a persistent Library/Workspace, manual writing, mock discussions, scoped guidance, and an inspectable context packet. This W5 checkpoint adds proposal cards and single-author Apply/Reject; its development contracts are covered by [CI run 33981203728](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33981203728), while broader installed-release/native qualification remains pending. The current W6 development slice adds saved-version comparison and explicit document restore; final W6 qualification remains pending. Reviewed-story authority, richer memory, live providers, and release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
+Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The default Tauri application has a persistent Library/Workspace, manual writing, mock discussions, scoped guidance, an inspectable context packet, selected-passage Apply/Reject, and saved-version restore. Current work adds exact Markdown/TXT export previews and Windows installer configuration. Reviewed-story authority, richer memory, live providers, and full release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
 
 | Read | Document | Responsibility |
 | --- | --- | --- |
@@ -15,9 +15,11 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6c | [Recent discussion ADR](ADR_0003_DISCUSSION_CONTEXT.md) | Complete-turn selection, exact frozen messages, budget priority, omissions, and policy boundary |
 | 6d | [Proposal and Apply ADR](ADR_0004_PROPOSAL_APPLY.md) | Explicit feedback intent, restricted proposal context, immutable review records, and atomic author Apply/Reject |
 | 6e | [Document history ADR](ADR_0005_DOCUMENT_HISTORY.md) | Saved-version comparison and explicit restore development contract |
+| 6f | [Draft export ADR](ADR_0006_DRAFT_EXPORT.md) | Exact frozen Markdown/TXT previews, explicit native save, immutable export records, and partial-failure boundary |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
-| Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and one synthetic request; production provider support remains unqualified |
+| Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |
+| Reference | [Windows package qualification](WINDOWS_PACKAGE_QUALIFICATION.md) | Stable release data location, offline NSIS configuration, and installed-release evidence gates |
 | Reference | [W0 qualification](W0_QUALIFICATION.md) | Historical W0 execution record; current status is in the implementation status document |
 | Reference | [V2 migration evidence](V2_MIGRATION_EVIDENCE.md) | V2 source inventory and unqualified import boundary |
 | Reference | [Original Pro response](references/pro/README.md) | Historical supplied documents and fingerprints |

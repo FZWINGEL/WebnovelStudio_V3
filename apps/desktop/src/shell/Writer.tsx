@@ -88,9 +88,30 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
     setHistoryVisible(false); setDiscussionVisible(true); setMenu(null); return true;
   };
   useEffect(() => {
-    const unsubscribe = session.subscribe(() => { setState(session.state); editor.setEditable(session.state.editable, false); });
+    let disposed = false;
+    let composing = false;
     let viewTimer: ReturnType<typeof setTimeout> | undefined;
-    const saveLater = () => { clearTimeout(viewTimer); viewTimer = setTimeout(() => { if (session.state.phase === 'editing') void session.persistView().catch(() => {}); }, 1250); };
+    const scheduleViewSave = () => {
+      if (disposed || composing) return;
+      clearTimeout(viewTimer);
+      viewTimer = setTimeout(() => {
+        viewTimer = undefined;
+        if (disposed) return;
+        void session.persistViewBackground(saveReadingPosition).then(started => {
+          // Dirty, composing, and lifecycle-busy states are normal while the
+          // author works. Retry from a later idle turn without spinning.
+          if (!started && !disposed && !composing && session.state.phase === 'editing' && !session.state.saving) scheduleViewSave();
+        }).catch(() => { /* Session state retains owned background failures. */ });
+      }, 1250);
+    };
+    const unsubscribe = session.subscribe(() => {
+      const next = session.state;
+      setState(next); editor.setEditable(next.editable, false);
+      // A skipped attempt may have observed a lifecycle barrier or a body
+      // flight. The state transition back to editing is the next idle arm.
+      if (!disposed && next.phase === 'editing' && !next.saving) scheduleViewSave();
+    });
+    const saveLater = () => scheduleViewSave();
     const update = () => redraw(value => value + 1); editor.on('transaction', update);
     editor.on('selectionUpdate', saveLater); editor.on('update', saveLater);
     const endpoint = (position: number): Endpoint => {
@@ -100,14 +121,27 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
       });
       return found ?? { blockId: editor.state.doc.lastChild!.attrs.id as string, utf16Offset: editor.state.doc.lastChild!.content.size };
     };
-    session.setViewSaver(async () => {
-      await discussionSaver.current?.();
-      const head = session.state.head; const anchor = endpoint(editor.state.selection.anchor); const focus = endpoint(editor.state.selection.head);
-      const saved = await saveViewState(session.projectAccess, head, anchor, focus);
+    const saveReadingPosition = async () => {
+      if (disposed) return;
+      // Capture every editor-derived value before crossing the async IPC
+      // boundary. Cleanup may destroy the editor while the acknowledgment is
+      // pending, so validation uses only these immutable values afterward.
+      const access = session.projectAccess;
+      const head = session.state.head;
+      const selection = editor.state.selection;
+      const anchor = endpoint(selection.anchor);
+      const focus = endpoint(selection.head);
+      if (disposed) return;
+      const saved = await saveViewState(access, head, anchor, focus);
+      if (disposed) return;
       if (saved.documentId !== head.documentId || saved.head.version !== head.version || saved.head.bodyHash !== head.bodyHash
         || saved.anchor.blockId !== anchor.blockId || saved.anchor.utf16Offset !== anchor.utf16Offset || saved.focus.blockId !== focus.blockId || saved.focus.utf16Offset !== focus.utf16Offset) {
         throw new SessionError('ProtocolError', 'The saved reading position did not match this document.');
       }
+    };
+    session.setViewSaver(async () => {
+      await discussionSaver.current?.();
+      await saveReadingPosition();
     });
     const saved = active.viewState;
     if (saved && saved.head.documentId === record.head.documentId && saved.head.version === record.head.version && saved.head.bodyHash === record.head.bodyHash) {
@@ -122,12 +156,12 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
       }
     }
     saveLater();
-    const compositionStart = () => session.setComposing(true);
+    const compositionStart = () => { composing = true; clearTimeout(viewTimer); viewTimer = undefined; session.setComposing(true); };
     let settling: ReturnType<typeof setTimeout> | undefined;
-    const compositionEnd = () => { settling = setTimeout(() => { if (editor.view.composing) compositionEnd(); else session.setComposing(false); }, 30); };
+    const compositionEnd = () => { settling = setTimeout(() => { if (editor.view.composing) compositionEnd(); else { composing = false; session.setComposing(false); scheduleViewSave(); } }, 30); };
     editor.view.dom.addEventListener('compositionstart', compositionStart);
     editor.view.dom.addEventListener('compositionend', compositionEnd);
-    return () => { unsubscribe(); clearTimeout(settling); clearTimeout(viewTimer); session.setViewSaver(null); editor.off('transaction', update); editor.off('selectionUpdate', saveLater); editor.off('update', saveLater); editor.view.dom.removeEventListener('compositionstart', compositionStart); editor.view.dom.removeEventListener('compositionend', compositionEnd); editor.destroy(); };
+    return () => { disposed = true; unsubscribe(); clearTimeout(settling); clearTimeout(viewTimer); session.setViewSaver(null); editor.off('transaction', update); editor.off('selectionUpdate', saveLater); editor.off('update', saveLater); editor.view.dom.removeEventListener('compositionstart', compositionStart); editor.view.dom.removeEventListener('compositionend', compositionEnd); editor.destroy(); };
   }, [editor, session]);
   async function resolve(choice: 'keepLocal' | 'useSaved') {
     try {

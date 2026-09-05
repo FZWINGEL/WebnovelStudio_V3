@@ -15,6 +15,7 @@ use uuid::Uuid;
 pub mod context_packets;
 mod conversation_context;
 pub mod discussions;
+pub mod exports;
 pub mod guidance;
 pub mod history;
 pub mod proposals;
@@ -277,6 +278,7 @@ enum Command {
     Guidance(Box<guidance::GuidanceCommand>),
     History(Box<history::HistoryCommand>),
     Proposal(Box<proposals::ProposalCommand>),
+    Export(Box<exports::ExportCommand>),
     Attach(String, Reply<ProjectAccess>),
     AttachSnapshot(String, Reply<AttachedProject>),
     Create(CreateDocument, Reply<DocumentRecord>),
@@ -418,6 +420,7 @@ impl ProjectSession {
                             Command::Guidance(command) => project.handle_guidance(*command),
                             Command::History(command) => project.handle_history(*command),
                             Command::Proposal(command) => project.handle_proposal(*command),
+                            Command::Export(command) => project.handle_export(*command),
                             Command::Attach(session, reply) => {
                                 let _ = reply.send(project.attach(session));
                             }

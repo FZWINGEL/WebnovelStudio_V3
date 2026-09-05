@@ -75,6 +75,59 @@ describe('DocumentSession', () => {
     session.update(makeBody('one')); const flush = session.flush(); await waitForSaves(transport, 1); session.update(makeBody('two')); session.update(makeBody('three'));
     gate.resolve(await transport.ack(transport.saves[0])); await flush; expect(transport.saves).toHaveLength(2); expect(transport.saves[1].body).toEqual(makeBody('three')); expect(session.state.dirty).toBe(false);
   });
+  it('keeps the editor editable while a background view acknowledgment is pending', async () => {
+    const { session } = await makeHarness({ autosave: false }); const gate = defer<void>(); let started = false;
+    const background = session.persistViewBackground(async () => { started = true; await gate.promise; });
+    await vi.waitFor(() => expect(started).toBe(true));
+    expect(session.state.editable).toBe(true);
+    session.update(makeBody('typed while the caret save is pending'));
+    expect(session.body).toEqual(makeBody('typed while the caret save is pending'));
+    gate.resolve(); await expect(background).resolves.toBe(true);
+    expect(session.state.editable).toBe(true);
+  });
+  it('waits for a background view flight before flushing the latest foreground body and view', async () => {
+    const { session, transport } = await makeHarness({ autosave: false }); const gate = defer<void>(); const events: string[] = [];
+    session.setViewSaver(async () => { events.push('foreground-view'); });
+    const background = session.persistViewBackground(async () => { events.push('background-view'); await gate.promise; });
+    await vi.waitFor(() => expect(events).toEqual(['background-view']));
+    session.update(makeBody('latest typing'));
+    const foreground = session.persistView();
+    await Promise.resolve(); expect(transport.saves).toHaveLength(0); expect(events).toEqual(['background-view']);
+    gate.resolve(); await foreground;
+    expect(transport.saves).toHaveLength(1); expect(transport.saves[0].body).toEqual(makeBody('latest typing'));
+    expect(events).toEqual(['background-view', 'foreground-view']); await background;
+  });
+  it('coalesces concurrent background view requests into one callback flight', async () => {
+    const { session } = await makeHarness({ autosave: false }); const gate = defer<void>(); const save = vi.fn(async () => { await gate.promise; });
+    const first = session.persistViewBackground(save); const second = session.persistViewBackground(save);
+    expect(second).not.toBe(first); await vi.waitFor(() => expect(save).toHaveBeenCalledOnce());
+    gate.resolve(); await expect(first).resolves.toBe(true); await expect(second).resolves.toBe(false);
+  });
+  it('defers background view saves while dirty, busy, or composing', async () => {
+    const dirty = await makeHarness({ autosave: false }); const dirtySave = vi.fn(async () => {});
+    dirty.session.update(makeBody('dirty')); await expect(dirty.session.persistViewBackground(dirtySave)).resolves.toBe(false); expect(dirtySave).not.toHaveBeenCalled();
+    const composing = await makeHarness({ autosave: false }); const composingSave = vi.fn(async () => {}); composing.session.setComposing(true);
+    await expect(composing.session.persistViewBackground(composingSave)).resolves.toBe(false); expect(composingSave).not.toHaveBeenCalled();
+    const busy = await makeHarness({ autosave: false }); const busySave = vi.fn(async () => {}); const gate = defer<void>();
+    const owner = busy.session.withLifecycleGuard(async () => { await gate.promise; }); await Promise.resolve();
+    await expect(busy.session.persistViewBackground(busySave)).resolves.toBe(false); expect(busySave).not.toHaveBeenCalled(); gate.resolve(); await owner;
+  });
+  it('does not fence the document on a stale background view and ignores a detached callback failure', async () => {
+    const { session } = await makeHarness({ autosave: false }); const stale = vi.fn(async () => { throw { code: 'VersionConflict', detail: 'document advanced' }; });
+    session.setViewSaver(stale); await expect(session.persistViewBackground(stale)).resolves.toBe(false);
+    expect(session.state.phase).toBe('editing'); expect(session.state.editable).toBe(true); expect(session.state.error).toBe(null);
+    const gate = defer<void>(); const detached = vi.fn(async () => { await gate.promise; throw { code: 'PersistenceUnavailable', detail: 'renderer closed' }; });
+    session.setViewSaver(detached); const background = session.persistViewBackground(detached); await vi.waitFor(() => expect(detached).toHaveBeenCalledOnce());
+    session.setViewSaver(null); gate.resolve(); await expect(background).resolves.toBe(false);
+    expect(session.state.phase).toBe('editing'); expect(session.state.editable).toBe(true); expect(session.state.error).toBe(null);
+  });
+  it('waits for a background view flight before disposal', async () => {
+    const { session } = await makeHarness({ autosave: false }); const gate = defer<void>(); const events: string[] = [];
+    const view = async () => { events.push('view'); await gate.promise; }; session.setViewSaver(view); const background = session.persistViewBackground(view);
+    const detaching = session.detachAfter(async () => { events.push('destination'); return 'done'; }); await vi.waitFor(() => expect(events).toEqual(['view']));
+    await Promise.resolve(); expect(events).toEqual(['view']); gate.resolve(); await expect(background).resolves.toBe(true); await expect(detaching).resolves.toBe('done');
+    expect(session.state.phase).toBe('disposed'); expect(events).toEqual(['view', 'view', 'destination']);
+  });
   it.each([
     ['project', (ack: SaveAck) => ({ ...ack, projectId: 'other' })], ['session', (ack: SaveAck) => ({ ...ack, session: 'other' })], ['namespace', (ack: SaveAck) => ({ ...ack, operationNamespace: 'other' })],
     ['operation', (ack: SaveAck) => ({ ...ack, operationId: 'other' })], ['generation', (ack: SaveAck) => ({ ...ack, savedGeneration: '99' })],

@@ -2,7 +2,7 @@
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +30,20 @@ function launch() {
   return process;
 }
 let app = launch();
+async function operateSaveDialog(action, destination = '') {
+  const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', resolve(root, 'apps/desktop/scripts/native-save-dialog.ps1'),
+    '-OwnerPid', String(app.pid), '-Action', action, '-TestRoot', data];
+  if (destination) args.push('-Destination', destination);
+  return new Promise((accept, reject) => {
+    const helper = spawn('powershell.exe', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let output = '';
+    const timeout = setTimeout(() => { helper.kill(); reject(new Error('The owned native Save dialog helper timed out.')); }, 30_000);
+    const append = chunk => { output += chunk; if (output.length > 64_000) { helper.kill(); reject(new Error('Native dialog diagnostics exceeded the bound.')); } };
+    helper.stdout.on('data', append); helper.stderr.on('data', append);
+    helper.once('error', error => { clearTimeout(timeout); reject(error); });
+    helper.once('exit', code => { clearTimeout(timeout); code === 0 ? accept(output.trim()) : reject(new Error(`Native Save dialog action failed (${code}): ${output}`)); });
+  });
+}
 let browser;
 let observedPage;
 const checks = [];
@@ -487,12 +501,31 @@ try {
   await page.screenshot({ path: resolve(output, 'proposal-applied.png') });
   checks.push('Native chapter passage suggestions retain three alternatives and edited previews across reload; explicit Apply preserves the mounted editor and protected ending, leaves other options pending/stale, and Reject does not change prose');
   await page.getByRole('textbox', { name: 'Manuscript', exact: true }).focus();
+  // Hold a real background caret-save acknowledgement while the author uses
+  // Redo. Remembering a reading position must not disable or blur the editor.
+  await page.evaluate(() => {
+    const fetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await fetch.apply(window, args);
+      if (String(args[0]).endsWith('/save_view_state') && response.headers.get('Tauri-Response') === 'ok') {
+        window.fetch = fetch;
+        window.backgroundViewHeld = true;
+        await new Promise(resolve => { window.releaseBackgroundView = resolve; });
+        window.backgroundViewHeld = false;
+      }
+      return response;
+    };
+  });
   await page.keyboard.press('Control+z');
   await page.waitForFunction(text => document.querySelector('.tiptap').editor.getText() === text, originalProse);
   await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  await page.waitForFunction(() => window.backgroundViewHeld === true);
+  assert(await page.evaluate(() => document.activeElement === document.querySelector('.tiptap') && document.querySelector('.tiptap').isContentEditable));
   await page.keyboard.press('Control+Shift+z');
   await page.waitForFunction(text => document.querySelector('.tiptap').editor.getText() === text, appliedProse);
+  await page.evaluate(() => window.releaseBackgroundView());
   await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  checks.push('Delayed real caret-save acknowledgement leaves manuscript focus and editing available; native Redo succeeds while the background save is pending');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await page.reload();
@@ -562,6 +595,33 @@ try {
   await page.screenshot({ path: resolve(output, 'history-after-restore.png') });
   await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
   checks.push('Native saved-version comparison is read-only; explicit restore recovers a lost commit acknowledgment through the same mounted editor, is one undo event, and retains both versions after reload');
+  await page.evaluate(() => document.querySelector('.tiptap').editor.commands.setTextSelection({ from: 1, to: 4 }));
+  await page.getByRole('button', { name: 'Bold', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  const exportSource = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
+  await page.getByRole('button', { name: 'Export draft', exact: true }).click();
+  const exportDialog = page.getByRole('dialog', { name: 'Export draft', exact: true });
+  await exportDialog.getByRole('button', { name: 'Choose destination…', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.export-preview')?.textContent.includes('**Mei**'));
+  await page.screenshot({ path: resolve(output, 'export-preview.png') });
+  await exportDialog.getByRole('combobox', { name: 'File format', exact: true }).selectOption('plainText');
+  await page.waitForFunction(text => document.querySelector('.export-preview')?.textContent === text, originalProse);
+  await exportDialog.getByRole('button', { name: 'Choose destination…', exact: true }).click();
+  await operateSaveDialog('Cancel');
+  await exportDialog.getByRole('status').filter({ hasText: 'No destination chosen' }).waitFor();
+  await exportDialog.getByRole('combobox', { name: 'File format', exact: true }).selectOption('markdown');
+  await page.waitForFunction(() => document.querySelector('.export-preview')?.textContent.includes('**Mei**'));
+  const exportedText = await exportDialog.getByLabel('Exported file preview', { exact: true }).textContent();
+  const exportDestination = resolve(data, 'chapter-draft.md');
+  await exportDialog.getByRole('button', { name: 'Choose destination…', exact: true }).click();
+  await operateSaveDialog('Save', exportDestination);
+  await exportDialog.getByRole('button', { name: 'Done', exact: true }).waitFor();
+  assert.equal(await readFile(exportDestination, 'utf8'), exportedText);
+  await page.screenshot({ path: resolve(output, 'export-completed.png') });
+  await exportDialog.getByRole('button', { name: 'Done', exact: true }).click();
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), exportSource);
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Export draft');
+  checks.push('Native draft export previews exact frozen Markdown/plain text, cancels the real Save dialog without writing, saves through native UI Automation, and preserves manuscript and return focus');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: 'Archive Harbour C', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor({ state: 'detached' });
@@ -571,7 +631,7 @@ try {
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor();
   checks.push('Native renames preserve the mounted editor; last document and exact caret survive navigation/reload; archive and unarchive preserve the project');
   assert.deepEqual(errors, []);
-  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No live provider; durable Apply currently supports single-line passage replacements only', 'Native export/recovery dialog journeys remain separate W3 checks'], dataDirectory: data }, null, 2));
+  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No live provider; durable Apply currently supports single-line passage replacements only', 'Backup/recovery dialog journeys remain separate W3 checks; this flow covers native draft Save/Cancel'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));
 } catch (error) {
   if (observedPage && !observedPage.isClosed()) {
@@ -579,6 +639,7 @@ try {
     appLog += `\nVisible native state:\n${await observedPage.locator('body').innerText().catch(() => '(unavailable)')}`;
   }
   await writeFile(resolve(output, 'failure.txt'), `${error.stack}\n${appLog}`);
+  await writeFile(resolve(output, 'failure.json'), JSON.stringify({ date: new Date().toISOString(), executable, checks, failure: String(error), status: 'failed' }, null, 2));
   throw error;
 } finally {
   await browser?.close();
