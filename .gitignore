@@ -1,0 +1,34 @@
+# Build products and developer-local state.
+/target/
+**/node_modules/
+/apps/desktop/dist/
+**/.vite/
+/.worktrees/
+/.codex/
+/.idea/
+/.vscode/
+/.local/
+**/test-results/
+**/playwright-report/
+*.log
+*.tmp
+*.swp
+Thumbs.db
+.DS_Store
+
+# Author projects, credentials, and generated recovery material.
+/user-data/
+/backups/
+.env
+.env.*
+!.env.example
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+*.db-wal
+*.db-shm
+*.bak
+*.wnsbackup
+
+# Cargo.lock and the frontend package-lock.json belong in version control.
