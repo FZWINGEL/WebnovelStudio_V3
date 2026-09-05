@@ -136,9 +136,19 @@ $script:result = [ordered]@{
         sameVersionReinstallOnly = $true
         upgradeQualification = $false
     }
+    diagnostics = [ordered]@{
+        ownedProcessId = $null
+        failureScreenshot = $null
+        uiAutomationEntries = @()
+        alertTexts = @()
+    }
     errors = [System.Collections.Generic.List[string]]::new()
     events = $null
 }
+
+# Keep the failure path safe when installation or launch fails before $app is
+# assigned. The diagnostics below are only collected for this owned process.
+$app = $null
 
 function Get-FileSha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -788,6 +798,63 @@ function Capture-OwnedWindow {
     }
 }
 
+function Write-FailureDiagnostics {
+    param([Parameter(Mandatory = $true)][int]$ProcessId)
+    $script:result.diagnostics.ownedProcessId = $ProcessId
+    $window = Find-AppWindow $ProcessId
+    if ($null -eq $window) {
+        Write-Event 'diagnostics' ("No owned UIAutomation window was available for PID {0} before cleanup." -f $ProcessId) 'warning'
+        return
+    }
+
+    $failureScreenshot = Join-Path $runRoot 'failure.png'
+    if (Capture-OwnedWindow $window $failureScreenshot) {
+        $script:result.diagnostics.failureScreenshot = 'failure.png'
+    }
+
+    $entries = [System.Collections.Generic.List[object]]::new()
+    $alertTexts = [System.Collections.Generic.List[string]]::new()
+    try {
+        $elements = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+        foreach ($element in $elements) {
+            try {
+                $name = [string]$element.Current.Name
+                $controlType = [string]$element.Current.ControlType.ProgrammaticName
+                $enabled = [bool]$element.Current.IsEnabled
+                if ($entries.Count -lt 30) {
+                    [void]$entries.Add([ordered]@{
+                        name = if ($name.Length -gt 240) { $name.Substring(0, 240) } else { $name }
+                        controlType = $controlType
+                        enabled = $enabled
+                    })
+                }
+
+                $text = $null
+                if ($controlType -match 'Window|Text|Edit|Document') {
+                    $text = Get-UiaText $element
+                }
+                $combined = "{0} {1}" -f $name, [string]$text
+                if ($combined -match '(?i)error|fail|warning|alert|dialog') {
+                    $diagnosticText = if ([string]::IsNullOrWhiteSpace([string]$text)) { $name } else { $text }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$diagnosticText) -and $alertTexts.Count -lt 16) {
+                        $displayText = [string]$diagnosticText
+                        if ($displayText.Length -gt 400) { $displayText = $displayText.Substring(0, 400) }
+                        [void]$alertTexts.Add(("name='{0}', type='{1}', text='{2}'" -f $name, $controlType, $displayText))
+                    }
+                }
+            } catch {
+                # UIA nodes can disappear during a renderer transition. Keep
+                # the diagnostic bounded and retain all nodes read successfully.
+            }
+        }
+    } catch {
+        Write-Event 'diagnostics' ("Owned UIAutomation enumeration failed: {0}" -f $_.Exception.Message) 'warning'
+    }
+    $script:result.diagnostics.uiAutomationEntries = @($entries)
+    $script:result.diagnostics.alertTexts = @($alertTexts | Select-Object -Unique)
+    Write-Event 'diagnostics' ("Captured failure diagnostics for owned PID {0}: {1} UIA entries, {2} alert/error text entries, screenshot={3}." -f $ProcessId, $entries.Count, $alertTexts.Count, ($null -ne $script:result.diagnostics.failureScreenshot)) 'warning'
+}
+
 try {
     Write-Event 'start' ("Starting hosted Windows package qualification in fresh runner root {0}. This run does not claim offline runtime or upgrade support." -f $QualificationRoot)
     $installer = Resolve-Installer
@@ -849,15 +916,29 @@ try {
         try { Wait-Until { Find-UiaByName $window 'Saved' } 30 'Saved status' | Out-Null } catch { Write-Event 'first-launch' 'Saved status was not exposed through UIAutomation before timeout.' 'warning' }
 
         Invoke-Uia (Wait-Until { Find-UiaByName $window 'All projects' } 20 'All projects button')
-        Wait-Until { Find-UiaByName $window 'Library' } 30 'the Library after closing the editor' | Out-Null
+        # A WebView2 navigation may replace the UIA subtree. Reacquire the
+        # owned native window while waiting; querying the pre-navigation
+        # element can remain empty after the renderer has returned to Library.
+        $window = Wait-Until { Find-AppWindow $app.Id } 30 'the installed app UIAutomation window after closing the editor'
+        Wait-Until {
+            $currentWindow = Find-AppWindow $app.Id
+            if ($null -ne $currentWindow) { Find-UiaByName $currentWindow 'Library' }
+        } 30 'the Library after closing the editor' | Out-Null
+        $window = Find-AppWindow $app.Id
         try {
-            $projectButton = Wait-Until { Find-ProjectOpener $window $projectTitle } 30 'created project opener in the Library'
+            $projectButton = Wait-Until {
+                $currentWindow = Find-AppWindow $app.Id
+                if ($null -ne $currentWindow) { Find-ProjectOpener $currentWindow $projectTitle }
+            } 30 'created project opener in the Library'
         } catch {
             Write-Event 'uia' ("Project opener UIA snapshot at timeout: {0}" -f (Get-ProjectOpenerSnapshot $window $projectTitle)) 'warning'
             throw
         }
         Invoke-Uia $projectButton
-        $reopenedEditor = Wait-Until { Find-UiaByName $window 'Manuscript' } 30 'reopened Manuscript editor'
+        $reopenedEditor = Wait-Until {
+            $currentWindow = Find-AppWindow $app.Id
+            if ($null -ne $currentWindow) { Find-UiaByName $currentWindow 'Manuscript' }
+        } 30 'reopened Manuscript editor'
         $reopenedText = Get-UiaText $reopenedEditor
         $script:result.firstLaunch.reopened = $true
         if ($script:result.firstLaunch.textReadback) {
@@ -894,7 +975,11 @@ try {
         if ($null -ne $retained) {
             try {
                 Invoke-Uia $retained
-                $reinstalledEditor = Wait-Until { Find-UiaByName $window 'Manuscript' } 30 'reinstalled Manuscript editor'
+                $reinstalledEditor = Wait-Until {
+                    $currentWindow = Find-AppWindow $app.Id
+                    if ($null -ne $currentWindow) { Find-UiaByName $currentWindow 'Manuscript' }
+                } 30 'reinstalled Manuscript editor'
+                $window = Find-AppWindow $app.Id
                 $reinstalledDocument = Find-UiaByNameContains $window $documentTitle ([System.Windows.Automation.ControlType]::Button)
                 $script:result.sameVersionReinstall.documentRetained = $null -ne $reinstalledDocument
                 $reinstalledText = Get-UiaText $reinstalledEditor
@@ -925,6 +1010,9 @@ try {
     $message = $_.Exception.Message
     $script:result.errors.Add($message)
     $script:result.status = if ($script:blocked) { 'blocked' } else { 'failed' }
+    if ($null -ne $app) {
+        try { Write-FailureDiagnostics -ProcessId $app.Id } catch { Write-Event 'diagnostics' ("Failure diagnostics could not be collected: {0}" -f $_.Exception.Message) 'warning' }
+    }
     Write-Event 'error' $message 'error'
 } finally {
     try {
