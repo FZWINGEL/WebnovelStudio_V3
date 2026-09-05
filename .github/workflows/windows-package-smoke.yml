@@ -12,7 +12,6 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
-      QUALIFICATION_ROOT: ${{ runner.temp }}\webnovel-package-qualification
     steps:
       - name: Check out the package source
         uses: actions/checkout@v7.0.1
@@ -42,15 +41,16 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $qualificationRoot = Join-Path $env:RUNNER_TEMP 'webnovel-package-qualification'
           $bundleRoot = Join-Path $env:GITHUB_WORKSPACE 'target\x86_64-pc-windows-msvc\release\bundle\nsis'
           $installers = @(Get-ChildItem -LiteralPath $bundleRoot -Filter '*-setup.exe' -File)
           if ($installers.Count -ne 1) {
             throw "Expected exactly one NSIS installer in $bundleRoot; found $($installers.Count)."
           }
           $harness = Join-Path $env:GITHUB_WORKSPACE 'scripts\windows-package-qualification.ps1'
-          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $harness -InstallerPath $installers[0].FullName -QualificationRoot $env:QUALIFICATION_ROOT
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $harness -InstallerPath $installers[0].FullName -QualificationRoot $qualificationRoot
           $harnessExitCode = $LASTEXITCODE
-          $resultFiles = @(Get-ChildItem -LiteralPath (Join-Path $env:QUALIFICATION_ROOT 'output') -Filter 'result.json' -File -Recurse)
+          $resultFiles = @(Get-ChildItem -LiteralPath (Join-Path $qualificationRoot 'output') -Filter 'result.json' -File -Recurse)
           if ($resultFiles.Count -ne 1) {
             throw "Qualification harness exited with code $harnessExitCode and produced $($resultFiles.Count) result.json files."
           }
