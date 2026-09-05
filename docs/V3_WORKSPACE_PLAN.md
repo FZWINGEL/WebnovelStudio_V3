@@ -1,6 +1,8 @@
 # V3 workspace and implementation handoff
 
-**Decision date:** 5 September 2026. **User choice:** a separate V3 repository alongside V2. **Current execution:** documentation-only repository initialized; application and toolchain setup remain W0 work.
+**Decision date:** 5 September 2026. **User choice:** a separate V3 repository alongside V2. **Current execution:** W0 native editor spike implemented on `codex/v3-native-editor-spike`; remaining native author trials are recorded in [W0 qualification](W0_QUALIFICATION.md).
+
+**Language scope:** English authoring, UI, and export. Wuxia, xianxia, cultivation, and translated-Chinese-webnovel register/terminology are optional English writing styles. Chinese-language authoring and Pinyin qualification are not product requirements. Unicode regression fixtures remain internal correctness checks.
 
 ## 1. Repository boundary
 
@@ -17,11 +19,11 @@ A V2 worktree would still belong to V2's repository and share its Git history an
 
 Do not relocate V2, replace its `src/`, add Rust to its package scripts, or copy its `.git`, `node_modules`, caches, databases, local credentials, or old Spec Kit implementation checkboxes into V3. Migration consumes a consistent, explicitly selected snapshot through the importer. No application component should depend at runtime on `../WebnovelStudio_V2`.
 
-The local foundation branch is `codex/v3-foundation`. No GitHub repository or remote was created during design work. When publishing is requested, create the V3 remote explicitly, choose its default branch, push the reviewed foundation, and verify its CI independently. Retain the V2 remote and release history.
+The foundation branch is `codex/v3-foundation`; current implementation is on `codex/v3-native-editor-spike`. No GitHub repository or remote was created during design work. When publishing is requested, create the V3 remote explicitly, choose its default branch, push the reviewed foundation, and verify its CI independently. Retain the V2 remote and release history.
 
 ## 2. Planned source layout
 
-This is the layout to scaffold at W0, not a claim that these code files exist:
+This is the full planned layout. W0 has created the two Cargo members, one frontend package, restricted editor/IPC/shell modules, shared fixtures, and executable checks. Later project/provider/storage modules in this tree remain planned:
 
 ```text
 WebnovelStudio_V3/
@@ -79,7 +81,7 @@ Do not share a runtime registry, SQLite writer, build `target` directory overrid
 
 ## 4. Host readiness observed during design
 
-The following is a read-only inventory from 5 September 2026, not a successful native build:
+The following is the historical read-only inventory taken before W0. Rust 1.98.1, Node 24.20.0, and the locked application dependencies are now installed and Windows builds pass; [W0 qualification](W0_QUALIFICATION.md) records current versions and executed results. Preserve this table as the pre-implementation observation:
 
 | Component | Observed state | W0 action |
 | --- | --- | --- |
@@ -90,28 +92,28 @@ The following is a read-only inventory from 5 September 2026, not a successful n
 | Node/npm | Global Node `25.9.0`, npm `11.12.1`; V2 validated Node `24.20.0` separately | Start the V3 lock experiment with Node `24.20.0` LTS and record the npm version used. Do not change V2's runtime installation. |
 | V3 source | Documentation repository only | Create the minimum two-crate/native-editor scaffold at W0. |
 
-Tauri's Windows prerequisites include C++ build tools, WebView2, and Rust; follow its [official prerequisites](https://v2.tauri.app/start/prerequisites/) when performing W0. No installer, toolchain download, credential entry, or provider request was run during this design integration.
+Tauri's Windows prerequisites include C++ build tools, WebView2, and Rust; follow its [official prerequisites](https://v2.tauri.app/start/prerequisites/) when performing W0. No installer, toolchain download, credential entry, or provider request was run during the historical design integration. W0 subsequently installed the official Rust toolchain and built the native application; no provider or author-data operation was added.
 
 ## 5. First implementation task: W0 only
 
-Create a bounded `codex/v3-native-editor-spike` implementation task in the V3 workspace when implementation starts. Its outcome is a small actual Tauri window and recorded experiments, not the whole application or all of milestone A.
+The bounded `codex/v3-native-editor-spike` implementation now exists in the V3 workspace. Its outcome is a small actual Tauri window and recorded experiments, not the whole application or all of milestone A.
 
 1. Verify/install the missing development prerequisites; pin Rust, Node, Tauri, React/Tiptap/PM, and SQLite dependencies with lockfiles. Record native runtime versions separately from package versions.
 2. Scaffold the two-crate workspace and one frontend package. The editor uses the restricted document schema; a thin Rust command round-trips and validates a synthetic snapshot.
-3. Exercise Microsoft Pinyin composition, mixed Chinese/English/emoji, formatted and repeated selections, composer focus transfer, scene breaks, paste, and a strict local replacement/undo cycle in the real window.
+3. Exercise English keyboard/dead-key input, accented or transliterated names and emoji, formatted and repeated selections, composer focus transfer, scene breaks, paste, and a strict local replacement/undo cycle in the real window.
 4. Record the representation/identity/scope decisions and shared fixtures. A provisional hash implementation becomes contractual only when JS/Rust fixtures agree. Do not claim proposal Apply durability from this editor spike.
 5. Record failures and precise reproduction steps. Decide whether the default Tauri/Tiptap combination remains suitable before expanding W1/W2. No automatic migration or live provider is needed.
 
-At W0 define actual commands corresponding to `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, frontend type/contract tests, and Tauri dev/build. The frontend can expose `desktop:dev` and `desktop:build` wrappers around Tauri. These are intended command contracts; they are not runnable or verified in this documentation-only repository.
+At W0 define actual commands corresponding to `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, frontend type/contract tests, and Tauri dev/build. The frontend can expose `desktop:dev` and `desktop:build` wrappers around Tauri. These commands are now implemented and exercised. The root `scripts/desktop.ps1` wrapper selects Node 24.20.0 through npm exec and adds the user Cargo bin directory; use `setup`, `dev`, `spike`, `build`, `check`, `native`, or `test`. Close the trial executable before rebuilding it on Windows; `native` requires a successful `spike` build. Exact evidence remains in the qualification record.
 
 Keep the first editor instance mounted across unrelated shell/chat updates. After W0, W1/W2 establish schema, persistence and save reconciliation; W3 enables the A writing trial. The [delivery plan](V3_FIRST_SLICE_PLAN.md) determines all later gates. Do not turn this first task into W0–W8.
 
 ## 6. CI, review, and acceptance
 
-V3 gets its own workflow once executable packages exist. Core and shared-contract tests can run on Windows/Linux; actual Windows MSVC/Tauri builds and native journeys are a separate lane. Browser frontend checks do not certify WebView2 IME or accessibility. Live-provider trials use explicit opt-in and credentials outside normal CI; narrative evaluation remains a separate result.
+V3 now has its own `.github/workflows/ci.yml`. The repository has no remote yet, so the workflow has not run on GitHub. Core and shared-contract tests can run on Windows/Linux; actual Windows MSVC/Tauri builds and native journeys are a separate lane. Browser frontend checks do not certify native WebView2 keyboard or accessibility behavior. Live-provider trials use explicit opt-in and credentials outside normal CI; narrative evaluation remains a separate result.
 
 Document-only checks validate links, source hashes, status/scope consistency, and whitespace. Do not add empty passing runtime jobs to imply an application exists. Every later failure gate becomes executable with its owning feature; absent deferred features have no visible action until implemented and tested.
 
 Keep one owner for the document/session protocol while parallel work covers independent UI, source fixtures, and adapters. Each implementation change states the affected invariant, an acceptance example, and the appropriate tests. Save/Apply/recovery semantics require failure tests; simple reversible UI copy changes do not need an invented test framework.
 
-The operational design is complete enough to start W0. Native-editor behavior, exact dependency compatibility, live providers, narrative quality, and actual-manuscript migration remain experiments with explicit gates, rather than unresolved reasons to write another general architecture proposal.
+The operational design has supported the W0 implementation. Native-editor behavior, exact dependency compatibility, live providers, narrative quality, and actual-manuscript migration remain experiments with explicit gates, rather than unresolved reasons to write another general architecture proposal.

@@ -2,10 +2,12 @@
 
 **Architecture decision record · 5 September 2026**
 
-**Status:** integrated V3 design baseline. All implementation, native qualification, and live-provider qualification remain pending. This document does not modify V2 `AGENTS.md`; V2 work remains governed by the current V2 repository instructions.
+**Status:** integrated V3 design baseline with the W0 editor spike now implemented; see [W0 qualification](W0_QUALIFICATION.md) for executed evidence and remaining native trials. Durable storage, providers, and later contracts remain implementation work. This document does not modify V2 `AGENTS.md`.
 
 **Companions:** [Delivery plan](V3_FIRST_SLICE_PLAN.md) · [Workspace plan](V3_WORKSPACE_PLAN.md) · [V2 migration evidence](V2_MIGRATION_EVIDENCE.md).
 **Reading path:** §§4–8 define the editing/persistence contract; §12 exercises it; the companion orders implementation and acceptance.
+
+**Authoring scope (user clarification):** the application, novel-writing assistance, and exports are for English novels. Wuxia, xianxia, cultivation, and translated-Chinese-webnovel terminology/register are optional English writing styles. They are not a request for Chinese-language authoring, a translation workflow, or mandatory genre stages. The Unicode document contract still preserves names, accents, and emoji exactly.
 
 ## 0. Verdict, evidence, and the important changes
 
@@ -58,17 +60,17 @@ The user selected the separate `D:\WebnovelStudio_V3` repository. The workspace 
 | Revisions | Mutable current working snapshot plus immutable meaningful checkpoints | Permanent full snapshot on every debounce | Preserves current work and significant history without multiplying full chapters every second. Not every transient autosave remains browsable forever. | Design | Measured storage and recovery requirements justify delta storage or finer retained history. |
 | Narrative state | Flexible documents plus a few reviewed typed records and evidence links | Graph database / narrative simulator | Makes truth, beliefs, disclosures, and promises distinguishable without requiring authors to maintain a graph. Coverage remains incomplete. | Research recommendations [A4, A5] | Measured queries or consistency tasks cannot be served by these relations. |
 | Continuation | Separate working-draft assistance and reviewed-story continuation | Block all assisted continuation until every issue is settled | Preserves free-order writing while keeping the stronger guarantee explicit. No hidden bypass or provisional canon branch. | Requirements; deliberate change to [A1] | Authors cannot understand the two bases in task-based testing. |
-| Retrieval | Exact references, aliases, local substring/FTS search | Embeddings first | Inspectable and sufficient to test context assembly. Chinese short queries need a literal-search path. | SQLite FTS5 [S12]; quality not assumed | A labeled retrieval evaluation shows important paraphrased evidence is consistently missed. |
+| Retrieval | Exact references, aliases, local substring/FTS search | Embeddings first | Inspectable and sufficient to test context assembly. Short English names and transliterated terms such as Qi need a literal-search path. | SQLite FTS5 [S12]; quality not assumed | A labeled retrieval evaluation shows important paraphrased evidence is consistently missed. |
 | Provider integration | Small shared request/job contract; qualified CLI and HTTP adapters | One generic shell command / agent SDK runtime | Preserves model-specific capabilities and cancellation differences. External CLI behavior must be qualified rather than flattened away. | [S16–S20] | A concrete provider requires a new capability—not merely a new brand. |
 | Backup restore | Validate and open an independent recovered copy | Swap files underneath an open project | Removes destructive restore races and leaves original work intact. The library may temporarily contain original and recovered projects. | Design using SQLite backup [S10] | A proven need for in-place replacement outweighs its additional recovery protocol. |
 
-An all-Rust rich-text widget is not the default: this task gives no evidence that it would improve Chinese IME, accessibility, selection, clipboard fidelity, or rich-text editing over the proposed editor. Svelte instead of React does not materially change the correctness boundary. Neither alternative deserves a second implementation without a demonstrated blocker.
+An all-Rust rich-text widget is not the default: this task gives no evidence that it would improve English keyboard/dead-key input, accessibility, selection, clipboard fidelity, or rich-text editing over the proposed editor. Svelte instead of React does not materially change the correctness boundary. Neither alternative deserves a second implementation without a demonstrated blocker.
 
 ## 2. The application an author actually uses
 
 ### 2.1 Library, project home, and free creative order
 
-The initial window is **Library**, with **New project**, **Open project**, and a separate **Try a sample** action. **Import V2** is deferred until the F1 importer gate in §15 has the actual schema, migration/export contracts, and representative sanitized snapshots; it is not an initial Library action. New Project needs only a working title; “Untitled project” is valid. A local destination is suggested. Language, genre, synopsis, cover, and model are optional. Creating an empty project makes no provider request.
+The initial window is **Library**, with **New project**, **Open project**, and a separate **Try a sample** action. **Import V2** is deferred until the F1 importer gate in §15 has the actual schema, migration/export contracts, and representative sanitized snapshots; it is not an initial Library action. New Project needs only a working title; “Untitled project” is valid. A local destination is suggested. Authoring and UI language are English. Genre, synopsis, cover, and model are optional; no language-selection step is required. Creating an empty project makes no provider request.
 
 The library shows title, last edited item, last activity, and pinned/archived filters. Its project menu offers Rename, Duplicate, Archive, Show folder, and Remove from library. Removing a library entry never deletes project files. A missing path presents Locate, not an empty replacement project. Search covers project titles and cached item titles; it does not open every project and run a model.
 
@@ -84,7 +86,7 @@ A chapter owns its prose. **Scenes inside a chapter are structural scene breaks 
 
 Outlines contain author-written planning prose and links to chapters/scenes. They do not mirror chapter bodies. A character note may link to a passage or another note through `document_links`; the UI shows “Appears in” and “Related material,” not a graph canvas. Typed rules become authoritative only through the separate acceptance operation in §9. A note titled “Rules” is not automatically canon.
 
-Templates insert editable headings, questions, or example sections. Removing them is allowed. The production kit can be offered as an explicit template collection, with neither required fields nor completion scores. English word counts and Chinese character counts are separately labeled preferences, not interchangeable progress targets. [A5, A6]
+Templates insert editable headings, questions, or example sections. Removing them is allowed. The production kit can be offered as an explicit template collection, with neither required fields nor completion scores. English word counts are the author-facing length measure; optional chapter targets are preferences, not compulsory progress gates. [A5, A6]
 
 ### 2.3 Manuscript and assistant
 
@@ -250,7 +252,7 @@ Whole-chapter replacement is a distinct grant covering the entire document struc
 
 Persist endpoints as `(blockId, utf16Offset)` within the block's inline content. Text contributes its UTF-16 code-unit length; `hardBreak` contributes one unit. PM's document-wide positions also count structural tokens; they are not these offsets. JS explicitly traverses the tree to convert between the two.
 
-Rust converts an endpoint by iterating Unicode scalar values and summing their UTF-16 lengths; only then may it derive a UTF-8 byte index for slicing. Reject offsets in a surrogate pair, outside the block, or inside a grapheme cluster. JS snaps the initial UI range outward to supported grapheme boundaries and visibly uses the resulting quotation before submission; Rust validates it. Use a locked Unicode segmentation contract with shared Chinese, combining-mark, variation-selector, and ZWJ emoji fixtures. UAX #29 defines grapheme boundaries; it does not make a JavaScript string index a UTF-8 offset or provide universal Chinese word segmentation. [S13]
+Rust converts an endpoint by iterating Unicode scalar values and summing their UTF-16 lengths; only then may it derive a UTF-8 byte index for slicing. Reject offsets in a surrogate pair, outside the block, or inside a grapheme cluster. JS snaps the initial UI range outward to supported grapheme boundaries and visibly uses the resulting quotation before submission; Rust validates it. Use a locked Unicode segmentation contract with shared accented-name, combining-mark, variation-selector, and ZWJ emoji fixtures. Synthetic non-Latin fixtures may also exercise the Unicode boundary; they do not establish another authoring language. UAX #29 defines grapheme boundaries; it does not make a JavaScript string index a UTF-8 offset or establish English word-count semantics. [S13]
 
 An anchor stores source document ID, immutable source revision, endpoints, the exact quoted fragment (including marks/boundaries), quote hash, and small prefix/suffix context for display. Occurrence identity comes from the source revision and block endpoints—not searching for the first matching quotation. Prefix/suffix text is diagnostic help, not an automatic reattachment rule.
 
@@ -683,7 +685,7 @@ The Rust context compiler builds a frozen `ContextReceipt` from authoritative so
 | Whole-chapter feedback | Entire chosen chapter revision and the author's feedback | Relevant preceding prose, selected planning context, accepted summaries | May discuss author-only material; no automatic manuscript write |
 | Passage proposal / whole-chapter rewrite | Exact target, explicit author instruction, scope grant, applicable constraints, read-only neighboring prose | Relevant prior prose, permitted terminology, scoped promises | One explicit edit request can produce candidates directly; privileged planning material enters only through a safe brief |
 
-The compiler first includes mandatory material, then packs discretionary sources by explicit references, temporal/task relevance, and recency. It reserves output capacity based on the selected provider/model descriptor. Token estimates must identify their method; do not assume that Chinese text has the same characters-per-token ratio as English. Where an exact tokenizer is unavailable, use a conservative estimate and handle provider rejection without silently truncating the target.
+The compiler first includes mandatory material, then packs discretionary sources by explicit references, temporal/task relevance, and recency. It reserves output capacity based on the selected provider/model descriptor. Token estimates must identify their method; English prose, transliterated genre terms, punctuation, and emoji need not share a fixed characters-per-token ratio. Where an exact tokenizer is unavailable, use a conservative estimate and handle provider rejection without silently truncating the target.
 
 If mandatory content does not fit, stop before submitting paid work. Offer a narrower explicit scope, a larger supported context, or a reviewed summary where appropriate. “Whole chapter feedback” must not secretly become “feedback on the first part.” Drop low-priority optional notes and remote history before mandatory selection, instructions, and applicable constraints. Record omissions and reasons, including any author-pinned source that could not fit.
 
@@ -701,7 +703,7 @@ Reader disclosure and character knowledge remain separate permissions. A narrato
 
 ### 10.3 Search, freshness, and an embeddings threshold
 
-Start with exact document/passage links, explicit aliases, recent prose windows, and local search. Use FTS for suitable word queries and a trigram or literal substring route for Chinese. SQLite's trigram tokenizer does not match full-text queries shorter than three Unicode characters; short names need an explicit literal/alias lookup rather than a misleading empty result. [S12]
+Start with exact document/passage links, explicit aliases, recent prose windows, and local search. Use FTS for English word queries and explicit alias/literal matching for names and transliterated genre terms. SQLite's trigram tokenizer does not match full-text queries shorter than three Unicode characters; short names need an explicit literal/alias lookup rather than a misleading empty result. [S12]
 
 Each indexed row includes source revision/hash and projection schema version. A save marks the projection dirty in the same transaction. The index worker updates in small transactions; after restart it scans dirty/version-mismatched entries and rebuilds. Context assembly checks source validity against the authoritative tables before inclusion, even when a search hit looks fresh. A stale hit can be re-read from its exact historical source when that is what the author requested; it cannot be presented as current.
 
@@ -821,21 +823,21 @@ The unsent questions demonstrate offline discussion-state persistence without se
 
 The author can reject the others, manually re-prepare one against v31, or explicitly request refreshed suggestions. Apply all on the old three-member set is unavailable. Undo reverses later typing before the isolated applied edit, following §6.
 
-### 12.3 Repeated Chinese sentence with emoji and concurrent typing
+### 12.3 Repeated English quotation with emoji and concurrent typing
 
 At v44, block `b42` contains exactly:
 
 ```text
-钥匙在我这里🔑。 钥匙在我这里🔑。
+My key🔑. My key🔑.
 ```
 
-Each repeated sentence occupies **9 UTF-16 code units**; the separating space occupies one. The selected second occurrence is therefore `b42:[10,19)`. The key emoji occupies two UTF-16 units. This calculation identifies the coordinate example, not a Chinese word-count rule.
+Each repeated sentence occupies **9 UTF-16 code units**; the separating space occupies one. The selected second occurrence is therefore `b42:[10,19)`. The key emoji occupies two UTF-16 units. This calculation identifies the coordinate example, not an English word-count rule.
 
 | Step | Author and frontend | Rust command / durable effect | Result |
 |---|---|---|---|
 | 1 | Select second occurrence; the composer quotes it and displays passage-only scope. | Freeze `r44`, save anchor `a44=(b42,10..19)` and structured quote hash; start `j44`. | The first identical quotation is not an alternative target. |
 | 2 | While j44 runs, author changes another paragraph `b5`. | Autosave commits v45. | j44 is now stale under the deliberately conservative whole-document policy, even though b42 is unchanged. Its highlight may still map correctly. |
-| 3 | Author changes the selected second occurrence to `钥匙不在我这里🔑。`. | Autosave commits v46; live mapping marks the old target touched. | Original a44 remains attached to r44; it is not rewritten to the new text. |
+| 3 | Author changes the selected second occurrence to `My keys🔑.`. | Autosave commits v46; live mapping marks the old target touched. | Original a44 remains attached to r44; it is not rewritten to the new text. |
 | 4 | j44 returns a plausible replacement. | Save terminal job/result and pending historical suggestion against r44. Any attempted `Apply(expected=v44)` sees v46 and returns `SuggestionStale` without prose writes. | UI shows the original quote and “The chapter changed since this request.” It never finds and edits the first identical sentence. |
 | 5 | Author chooses Refresh from current selection, selecting second occurrence `b42:[10,20)` in v46, and confirms a new request. | Freeze r46, new anchor a46 and run j46 linked to j44; do not reuse old request identity or billing claims. | The new quotation and current scope are visible. |
 | 6 | No further typing occurs; author reviews the new result and clicks Apply. | Prepare against r46; apply with exact v46/hash/grant; commit v47 and decision. | Only the second occurrence changes. The first sentence, separator, surrounding paragraph structure, and unselected formatting remain token-identical. |
@@ -931,7 +933,7 @@ P0 blocks a real-manuscript trial of the implemented surface; P1 blocks a releas
 | P0 · I1/I5 | Inject failure after each SQL statement in Save/Apply | Transaction is wholly absent or wholly committed; decision and head cannot split. Rust file-backed SQLite integration tests. |
 | P0 · I2/I5 | Apply commits then drop response; deliver a late old save after a lease fence | One decision/application; stale save rejected; reconciliation loads newest head, not old receipt body. Controlled process/renderer kill harness. |
 | P0 · I1/I2/I5 | Hold Apply at a deterministic IPC/DB barrier while switching, closing, reloading, or killing the renderer | The guard defers normal disposal/reload. Forced death starts a new session that fences/reconciles, accepts only current-session acknowledgments, and attaches the latest durable head without replaying Apply. Test the controlled and forced paths separately. |
-| P0 · I3/I9 | Replace repeated quote, emoji, Chinese text, combining marks, cross-paragraph formatted range | Invalid offsets rejected; correct occurrence selected; every nonselected structural token unchanged. Shared JS/Rust golden and property-based tests. |
+| P0 · I3/I9 | Replace repeated English quotation, emoji, accented names, combining marks, cross-paragraph formatted range | Invalid offsets rejected; correct occurrence selected; every nonselected structural token unchanged. Shared JS/Rust golden and property-based tests. |
 | P0 · I3 | Malicious/buggy proposed snapshot changes neighbor mark, block ID, link, or scene break | Rust rejects even when plain text appears equal. Mutation tests against scope validator. |
 | P0 · I3/I5 | Overlapping suggestions, same-gap insertions, stale member in Apply all, rapid double click | Batch all-or-nothing; one final decision per suggestion; no automatic rebase. Core and UI tests. |
 | P0 · I8 | Disk full, permission error, backup interrupted, malformed archive path, failed migration | Old data stays available; no Saved label on failure; staged restore never becomes active early. File-backed fault fixtures. |
@@ -943,7 +945,7 @@ P0 blocks a real-manuscript trial of the implemented surface; P1 blocks a releas
 | P1 · I6/I12 | Kill app just before external send, after send, during output, after terminal DB write | Restart shows frozen request/partial/terminal truth; never automatically resubmits paid work. Process-kill harness. |
 | P1 · I11/I12 | CLI spawns grandchildren, loads unexpected tool config, internally retries | Process-tree cleanup verified; configuration mismatch rejected; internal retry limitation visible. Windows process fixtures and separately authorized live acceptance. |
 | P1 · I11 | Paste/import scriptable content; malicious response containing HTML/command syntax | Treated as inert text/restricted nodes; no renderer command execution or path escape; secrets absent from logs/backups. Boundary tests. |
-| P1 · I9/I10 | Chinese IME, dead keys, screen reader, context menu, focus-mode toggles | No composition loss, selection drift, inaccessible-only action, or unwanted remount. Actual Windows/native qualification. |
+| P1 · I9/I10 | English keyboard/dead keys, screen reader, context menu, focus-mode toggles | No composition loss, selection drift, inaccessible-only action, or unwanted remount. Actual Windows/native qualification. |
 | P1 · I4/I6 | Wrong model report, unsupported trait, truncated structured output, HTTP EOF | No silent model fallback; unsupported controls absent; partial/refusal output not applicable. Adapter contract tests. |
 | P1 · I8 | V2 working text newer than approved; malformed legacy refs; repeat import | Both bodies/history preserved, unsupported semantics quarantined, duplicate import detected. Actual schema-specific fixtures required. |
 | P2 · I7 | Unlinked continuity change or paraphrased relevant note | Measure missed evidence and unnecessary review; do not report exhaustive consistency. Labeled narrative evaluation. |
@@ -957,12 +959,12 @@ Choose Windows 11 x64 as the initial qualification baseline, subject to the inte
 
 | Area | Required evidence before calling it qualified |
 |---|---|
-| IME and Unicode | Microsoft Pinyin composition, candidate selection, punctuation/full-width input, mixed Chinese/English, reconversion where available, surrogate emoji, ZWJ sequences, combining/dead-key input; selection/Apply/switch during composition never silently discards it |
+| Keyboard and Unicode | English typing and punctuation, accented/transliterated names, surrogate emoji, ZWJ sequences, combining/dead-key input; selection/Apply/switch during active composition never silently discards it. Chinese/Pinyin input is not a product qualification gate. |
 | Selection and editing | Mouse, Shift+arrow, word/paragraph selection, multi-paragraph ranges, scene boundaries, repeated quotations, replacement at beginning/end, rich formatting, undo/redo around applied edits |
 | Clipboard/import | Word/browser formatted paragraphs, plain text, CRLF/LF, tabs/blank paragraphs, copied internal IDs, large paste, unsupported structures and images clearly handled; no invisible plain-text round trip |
 | Accessibility | Keyboard-only Library → editor → selected feedback → preview → Apply/Reject → return; labeled controls, visible focus, NVDA/Narrator trial, high contrast, zoom, no selection-toolbar-only command |
 | Focus and desktop behavior | Context menu preserves selection; model picker/chat cannot steal composition; window resize, minimize/restore, focus mode, DPI changes, multiple monitors, native file dialogs, standard close handling |
-| Long chapters | Typical and stress fixtures with Chinese/English/marks/scene breaks; only active chapter is editable; progressive continuous reader does not virtualize the active editable selection |
+| Long chapters | Typical and stress fixtures with English prose, Unicode names, marks, and scene breaks; only active chapter is editable; progressive continuous reader does not virtualize the active editable selection |
 | Offline delivery | Installer tested in a clean offline VM including absent WebView2; local assets/fonts bundled; no model discovery needed to launch, create, save, or export |
 | Recovery | Actual renderer kill and application kill, not only a simulated rejected promise; restart verifies hashes and document ownership |
 
@@ -1092,7 +1094,7 @@ All following sources were consulted for this review on **5 September 2026**. �
 | S9 | [SQLite `synchronous`](https://www.sqlite.org/pragma.html#pragma_synchronous) | FULL versus NORMAL, including power-loss implications. The application must read back its configured pragmas. |
 | S10 | [SQLite Online Backup API](https://www.sqlite.org/backup.html) | Consistent database backup mechanism; asset/archive staging remains application work. |
 | S11 | [rusqlite 0.40.2 Connection](https://docs.rs/rusqlite/0.40.2/rusqlite/struct.Connection.html); [crate features](https://docs.rs/crate/rusqlite/0.40.2/features) | Connection ownership traits and backup/bundled feature choices. The exact SQLite build and FTS availability must be verified in the release binary. |
-| S12 | [SQLite FTS5, trigram tokenizer](https://www.sqlite.org/fts5.html#the_trigram_tokenizer) | Substring behavior and the under-three-Unicode-character full-text-query limitation. Not a guarantee of Chinese semantic retrieval quality. |
+| S12 | [SQLite FTS5, trigram tokenizer](https://www.sqlite.org/fts5.html#the_trigram_tokenizer) | Substring behavior and the under-three-Unicode-character full-text-query limitation. Not a guarantee of semantic retrieval quality for English prose or transliterated terms. |
 | S13 | [Unicode UAX #29, revision 47](https://www.unicode.org/reports/tr29/tr29-47.html), Unicode 17.0, 2025-08-17 | Grapheme segmentation contract. Does not equate code units, scalars, graphemes, bytes, or language-specific words. |
 | S14 | [Microsoft Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects); [AssignProcessToJobObject](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-assignprocesstojobobject) | Windows process-tree containment primitives. Actual wrapper and nested-job behavior need Windows tests. |
 | S15 | [Microsoft: assigning a process to a job during creation, 9 February 2023](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812) | Creation/assignment race and process-creation approaches. Does not establish that killing only a root child cleans a tree. |

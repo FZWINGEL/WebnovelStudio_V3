@@ -1,0 +1,53 @@
+name: V3 editor contracts and Windows spike
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+      - run: cargo fmt --all --check
+      - run: cargo clippy -p webnovel-core --all-targets --locked -- -D warnings
+      - run: cargo test -p webnovel-core --locked
+      - run: npm ci
+        working-directory: apps/desktop
+      - run: npm run build
+        working-directory: apps/desktop
+      - run: npm test
+        working-directory: apps/desktop
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: rustup toolchain install 1.98.1 --profile minimal --component clippy
+      - run: npm ci
+        working-directory: apps/desktop
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: npm run desktop:spike -- -- --locked
+        working-directory: apps/desktop
+      - run: npm run test:native
+        working-directory: apps/desktop
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: native-spike-evidence
+          path: .local/native-results/
+          include-hidden-files: true
+          if-no-files-found: warn

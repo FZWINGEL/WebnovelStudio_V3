@@ -1,6 +1,8 @@
 # WebnovelStudio V3 — first-slice implementation plan
 
-**5 September 2026 · proposed roadmap, not completed implementation**
+**5 September 2026 · W0 implemented as a native editor spike; remaining author qualification is open. Later work packages remain planned.**
+
+**Language scope:** English authoring, UI, and export. Wuxia, xianxia, cultivation, and translated-Chinese-webnovel register/terminology are optional English writing styles. Chinese-language authoring and Pinyin qualification are not product requirements. Unicode regression fixtures remain internal correctness checks.
 
 **Authority:** [V3_ARCHITECTURE_REFINED.md](V3_ARCHITECTURE_REFINED.md). The detailed contract, evidence limits, and source references in that document apply here.
 
@@ -8,7 +10,7 @@
 
 **Companions:** [Workspace plan](V3_WORKSPACE_PLAN.md) and [V2 migration evidence](V2_MIGRATION_EVIDENCE.md).
 
-Repository and document bootstrap is coordination work, not W0. W0 begins only when the development-native editor spike and its contract fixtures are exercised.
+The W0 native editor and shared contract fixtures are now exercised. See [W0 qualification](W0_QUALIFICATION.md) for 6 Rust tests, 21 frontend tests, 10 actual Tauri/WebView2 checks, and the remaining English native author trials. This does not close milestone A or later native release gates.
 
 ## 1. Three milestones, one traceable dependency order
 
@@ -30,7 +32,7 @@ Batch Apply, Apply all, ready bundles, reviewed-story continuation, automatic fa
 
 ### C — Release qualification
 
-W7–W8 should qualify the installed Windows package and one explicitly supported live provider. W7 is the native release gate: packaged WebView behavior, offline installation, IME, clipboard, focus, accessibility, recovery, and draft/export behavior are tested on the nominated Windows configuration. W8 is the separate live-provider gate; it is required before describing that provider as supported, but it is not required for manual offline writing.
+W7–W8 should qualify the installed Windows package and one explicitly supported live provider. W7 is the native release gate: packaged WebView behavior, offline installation, keyboard/dead-key input, clipboard, focus, accessibility, recovery, and draft/export behavior are tested on the nominated Windows configuration. W8 is the separate live-provider gate; it is required before describing that provider as supported, but it is not required for manual offline writing.
 
 The product must not be called shipped, native-qualified, or ready for an actual manuscript trial from A or B alone. Q remains a separate narrative-quality evaluation; infrastructure and mock pass counts do not establish it.
 
@@ -47,8 +49,8 @@ The product must not be called shipped, native-qualified, or ready for an actual
 | Gate | What it proves | What it does not prove |
 |---|---|---|
 | M — mocked UX proof | Author flows and understandable scopes with deterministic responses | External protocol reliability, billing behavior, prose quality |
-| P — persistence correctness | Real file-backed transactions, CAS, idempotency, recovery, and project ownership | Native IME/accessibility or narrative correctness |
-| N — native qualification | Actual installed Windows/WebView editor, clipboard, focus, IME, accessibility, recovery, and packaging | Reliability of an untested provider or another OS |
+| P — persistence correctness | Real file-backed transactions, CAS, idempotency, recovery, and project ownership | Native keyboard/accessibility or narrative correctness |
+| N — native qualification | Actual installed Windows/WebView editor, clipboard, focus, keyboard input, accessibility, recovery, and packaging | Reliability of an untested provider or another OS |
 | L — live-provider acceptance | One explicitly qualified provider/model configuration honors its advertised contract | Exactly-once upstream execution, all provider versions, full-novel quality |
 | Q — narrative-quality evaluation | Measured usefulness of context and suggestions on selected author tasks | General quality across genres, languages, lengths, or all models |
 
@@ -56,7 +58,7 @@ M/P establish the technical foundation. A development-native trial is evidence t
 
 ## 3. Dependency-ordered work packages
 
-Each package should be reviewable without reading the whole application. Write its contract and fixtures before wiring the next package. The completion criteria below are proposed tests and acceptance checks; none is claimed as run by this document. All save/reconcile safeguards required for a persistent-writing trial belong in W0–W2. W5 may prepare the feedback path, but the B author trial remains gated on W6.
+Each package should be reviewable without reading the whole application. Write its contract and fixtures before wiring the next package. The completion criteria below define their owning work packages; only the checks explicitly recorded in [W0 qualification](W0_QUALIFICATION.md) are claimed as executed. All save/reconcile safeguards required for a persistent-writing trial belong in W0–W2. W5 may prepare the feedback path, but the B author trial remains gated on W6.
 
 ### W0 — Native editor spike and contract lock
 
@@ -64,7 +66,9 @@ Each package should be reviewable without reading the whole application. Write i
 
 Create the smallest Tauri development window with the intended restricted Tiptap schema and a persistent editor instance. Record exact dependencies and runtime versions. Write the ADR fixing snapshot authority, block IDs, UTF-16 anchors, inline versus structural scope, Apply barrier, lifecycle identity, and recovered-copy restore. Keep generated DTOs and shared golden fixtures in the repository.
 
-**Done when:** Microsoft Pinyin composition, formatted cross-paragraph selection, repeated Chinese/emoji text, focus transfer to a selection composer, scene breaks, clipboard paste, and a strict replacement/undo cycle work in the actual development window. Capture failures as reproducible fixtures. A browser-only prototype does not close this package. This is a qualification spike, not the production shell or the N release gate.
+**Done when:** English keyboard/dead-key input, formatted cross-paragraph selection, repeated English quotations and Unicode names/emoji, focus transfer to a selection composer, scene breaks, clipboard paste, and a strict replacement/undo cycle work in the actual development window. Capture failures as reproducible fixtures. A browser-only prototype does not close this package. This is a qualification spike, not the production shell or the N release gate.
+
+**Current W0 status:** source and automated native checks exist, with [ADR 0001](ADR_0001_EDITOR_CONTRACT.md) fixing the implemented snapshot/identity boundary. Feedback and replacement are session-only; Rust validates snapshots but does not persist or independently validate replacement scope yet. The English author trial, minimum-window/DPI behavior, external Word paste, and assistive-technology trial remain open.
 
 ### W1 — Canonical documents and scope validation
 
@@ -132,7 +136,7 @@ Run the early E4 friction check before considering selective invalidation or reb
 
 Add Markdown beside the early draft TXT export, frozen source manifests, omission preview, and separate working-draft export. An optional author-review checkpoint records its exact source and author-only coverage, without creating a second working body or implying continuity validation. Ready bundles, reviewed-story continuation, and automatic fact activation remain F2 work. The initial export action is Export draft; controls for unavailable ready/story features are absent.
 
-Finish keyboard navigation, accessible labels, focus restoration, resizing, native dialogs, and offline NSIS/WebView2 installation. Remove test-only command access and embedded automation services from shipping builds. Qualify the actual packaged WebView on the nominated Windows configuration: IME, clipboard, focus, accessibility, high DPI, long-chapter behavior, process/renderer recovery, backup recovery, Unicode/formatted projections, and export omission behavior.
+Finish keyboard navigation, accessible labels, focus restoration, resizing, native dialogs, and offline NSIS/WebView2 installation. Remove test-only command access and embedded automation services from shipping builds. Qualify the actual packaged WebView on the nominated Windows configuration: keyboard/dead-key input, clipboard, focus, accessibility, high DPI, long-chapter behavior, process/renderer recovery, backup recovery, Unicode/formatted projections, and export omission behavior.
 
 **Done when:** the packaged two-project writing/feedback/restart/backup/export journey passes every P0 case applicable to its enabled features, the offline installer launches without model discovery, and the recorded native evidence supports an N claim. Deferred batch/import/ready operations remain unreachable until their own gates pass. Publication is not inferred from exporting. Manual paths remain usable without model configuration.
 
@@ -166,7 +170,7 @@ Basic source freezing, exact scope, and exclusion of privileged planning materia
 
 | Experiment | Smallest decisive setup | Default and consequence |
 |---|---|---|
-| E1 — Native editor suitability | Restricted editor in the actual Tauri development window; real Pinyin, selection composer, clipboard, screen reader, resize/focus; repeat minimal failures on a supported WebView | Keep Tauri/Tiptap. Trial Electron with the same editor/core only for an unresolved release blocker; direct PM only if wrapper behavior is the blocker. |
+| E1 — Native editor suitability | Restricted editor in the actual Tauri development window; English keyboard/dead-key input, selection composer, clipboard, screen reader, resize/focus; repeat minimal failures on a supported WebView | Keep Tauri/Tiptap. Trial Electron with the same editor/core only for an unresolved release blocker; direct PM only if wrapper behavior is the blocker. |
 | E2 — Snapshot/Apply cost | Real IPC and file-backed FULL commits with approximately 20k and 250k UTF-16-unit fixtures, many marks/blocks, concurrent streaming; measure serialization, input-to-paint, barrier, memory | Keep snapshots and the short barrier. Targets remain proposals. Optimize renders/copies first; sustained measured failure is required before an incremental protocol. |
 | E3 — CLI containment and honesty | Exact executable/version; isolated temp working directory; unexpected config/tool-loading attempt; child/grandchild fixture; Stop and internal-retry observation | Support only qualified modes. HTTP is preferable to pretending undocumented CLI controls exist. Billing/exactly-once guarantees remain out of scope. |
 | E4 — Conservative conflict burden | At B: type while feedback runs, inspect stale proposals, refresh, and apply one of three suggestions. At F2: separately test the earlier-chapter review fence. | Keep conservative staleness initially. Design bounded rebase/selective invalidation only for a demonstrated burden and prove it against the adversarial suite. |

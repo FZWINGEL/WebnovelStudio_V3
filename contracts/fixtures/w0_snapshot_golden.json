@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "chinese_repeated_emoji",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-cn\"},\"content\":[{\"type\":\"text\",\"text\":\"你好🙂🙂\"}]}]}}",
+      "expected": {
+        "canonicalJson": "{\"body\":{\"content\":[{\"attrs\":{\"id\":\"p-cn\"},\"content\":[{\"text\":\"你好🙂🙂\",\"type\":\"text\"}],\"type\":\"paragraph\"}],\"type\":\"doc\"},\"schemaVersion\":1}",
+        "hash": "4d0bec3536d108d65348d2bf1399051a6c1e232a407baf623ed77aab7b619d3d",
+        "utf16Units": 6,
+        "blockCount": 1
+      }
+    },
+    {
+      "name": "combining_sequence_preserved",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-comb\"},\"content\":[{\"type\":\"text\",\"text\":\"é\"}]}]}}",
+      "expected": {
+        "canonicalJson": "{\"body\":{\"content\":[{\"attrs\":{\"id\":\"p-comb\"},\"content\":[{\"text\":\"é\",\"type\":\"text\"}],\"type\":\"paragraph\"}],\"type\":\"doc\"},\"schemaVersion\":1}",
+        "hash": "2a78d0e29e4580cb2cbe8c50c40d54c91da59f12ba238c4d58040a05cb5e5e2d",
+        "utf16Units": 2,
+        "blockCount": 1
+      }
+    },
+    {
+      "name": "marks_sorted_and_adjacent_text_merged",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-marks\"},\"content\":[{\"type\":\"text\",\"text\":\"a\",\"marks\":[{\"type\":\"link\",\"attrs\":{\"href\":\"https://example.com/story\"}},{\"type\":\"italic\"},{\"type\":\"bold\"}]},{\"type\":\"text\",\"text\":\"b\",\"marks\":[{\"type\":\"bold\"},{\"type\":\"italic\"},{\"type\":\"link\",\"attrs\":{\"href\":\"https://example.com/story\"}}]},{\"type\":\"text\",\"text\":\"c\",\"marks\":[{\"type\":\"bold\"}]},{\"type\":\"text\",\"text\":\"d\",\"marks\":[]}]}]}}",
+      "expected": {
+        "canonicalJson": "{\"body\":{\"content\":[{\"attrs\":{\"id\":\"p-marks\"},\"content\":[{\"marks\":[{\"type\":\"bold\"},{\"type\":\"italic\"},{\"attrs\":{\"href\":\"https://example.com/story\"},\"type\":\"link\"}],\"text\":\"ab\",\"type\":\"text\"},{\"marks\":[{\"type\":\"bold\"}],\"text\":\"c\",\"type\":\"text\"},{\"text\":\"d\",\"type\":\"text\"}],\"type\":\"paragraph\"}],\"type\":\"doc\"},\"schemaVersion\":1}",
+        "hash": "ebcfa93d03b8b08928d1f147759c16de409f4b095d8169fd6516d71fb81527dd",
+        "utf16Units": 4,
+        "blockCount": 1
+      }
+    },
+    {
+      "name": "empty_paragraph_omits_content",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-empty\"},\"content\":[]}]}}",
+      "expected": {
+        "canonicalJson": "{\"body\":{\"content\":[{\"attrs\":{\"id\":\"p-empty\"},\"type\":\"paragraph\"}],\"type\":\"doc\"},\"schemaVersion\":1}",
+        "hash": "34c0e2edc8088a90b74567c6a29ad7d6a93e2f3e17d43ce4adaa2a62d5d2763a",
+        "utf16Units": 0,
+        "blockCount": 1
+      }
+    },
+    {
+      "name": "scene_break_and_hard_break",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"heading\",\"attrs\":{\"id\":\"h1\",\"level\":2},\"content\":[{\"type\":\"text\",\"text\":\"Title\"},{\"type\":\"hardBreak\"},{\"type\":\"text\",\"text\":\"Next\"}]},{\"type\":\"sceneBreak\",\"attrs\":{\"id\":\"s1\"}}]}}",
+      "expected": {
+        "canonicalJson": "{\"body\":{\"content\":[{\"attrs\":{\"id\":\"h1\",\"level\":2},\"content\":[{\"text\":\"Title\",\"type\":\"text\"},{\"type\":\"hardBreak\"},{\"text\":\"Next\",\"type\":\"text\"}],\"type\":\"heading\"},{\"attrs\":{\"id\":\"s1\"},\"type\":\"sceneBreak\"}],\"type\":\"doc\"},\"schemaVersion\":1}",
+        "hash": "1d33d6acd6954cb3aa53d89ef3272a7a1c62024ed0467a2a6fc8ded00b832d10",
+        "utf16Units": 10,
+        "blockCount": 2
+      }
+    },
+    {
+      "name": "mailto_link_accepted",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-mail\"},\"content\":[{\"type\":\"text\",\"text\":\"email\",\"marks\":[{\"type\":\"link\",\"attrs\":{\"href\":\"mailto:author@example.com\"}}]}]}]}}",
+      "expected": {
+        "canonicalJson": "{\"body\":{\"content\":[{\"attrs\":{\"id\":\"p-mail\"},\"content\":[{\"marks\":[{\"attrs\":{\"href\":\"mailto:author@example.com\"},\"type\":\"link\"}],\"text\":\"email\",\"type\":\"text\"}],\"type\":\"paragraph\"}],\"type\":\"doc\"},\"schemaVersion\":1}",
+        "hash": "f444583ca1ce865665be5b4e0357853c89ce07f3efbafc9e6d85d3c14f9fd3f2",
+        "utf16Units": 5,
+        "blockCount": 1
+      }
+    },
+    {
+      "name": "malformed_attrs",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":7}}]}}",
+      "error": "id must be a string"
+    },
+    {
+      "name": "unsafe_link_scheme",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-link\"},\"content\":[{\"type\":\"text\",\"text\":\"x\",\"marks\":[{\"type\":\"link\",\"attrs\":{\"href\":\"javascript:alert(1)\"}}]}]}]}}",
+      "error": "absolute http"
+    },
+    {
+      "name": "unsafe_link_credentials",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-link-user\"},\"content\":[{\"type\":\"text\",\"text\":\"x\",\"marks\":[{\"type\":\"link\",\"attrs\":{\"href\":\"https://user:pass@example.com\"}}]}]}]}}",
+      "error": "without credentials"
+    },
+    {
+      "name": "mailto_query_rejected",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-mail-query\"},\"content\":[{\"type\":\"text\",\"text\":\"email\",\"marks\":[{\"type\":\"link\",\"attrs\":{\"href\":\"mailto:author@example.com?subject=hello\"}}]}]}]}}",
+      "error": "valid mailto address"
+    },
+    {
+      "name": "mailto_percent_encoded_control_rejected",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-mail-encoded\"},\"content\":[{\"type\":\"text\",\"text\":\"email\",\"marks\":[{\"type\":\"link\",\"attrs\":{\"href\":\"mailto:author@example.com%0d%0abcc:evil\"}}]}]}]}}",
+      "error": "valid mailto address"
+    },
+    {
+      "name": "duplicate_block_ids",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"same\"}},{\"type\":\"sceneBreak\",\"attrs\":{\"id\":\"same\"}}]}}",
+      "error": "duplicated"
+    },
+    {
+      "name": "invalid_surrogate_json",
+      "input": "{\"schemaVersion\":1,\"body\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"attrs\":{\"id\":\"p-surrogate\"},\"content\":[{\"type\":\"text\",\"text\":\"\\uD800\"}]}]}}",
+      "error": "invalid JSON"
+    }
+  ]
+}
