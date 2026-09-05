@@ -3,7 +3,7 @@ import type { CompiledPacket, MockContextBudget, ScopeGrant } from './context';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 
 export interface DiscussionScope { kind: ScopeGrant['kind']; start: Endpoint | null; end: Endpoint | null; quote: string; sourceBodyHash: string }
-export interface ComposerBody { text: string; scope: DiscussionScope | null; pinnedDocumentIds: string[] }
+export interface ComposerBody { text: string; scope: DiscussionScope | null; pinnedDocumentIds: string[]; previousRunId?: string | null }
 export interface DiscussionDraft extends ComposerBody { documentId: string; version: string; updatedAt: string }
 export interface DiscussionMessage { id: string; threadId: string; runId: string | null; role: 'user' | 'assistant'; content: string; scope: ScopeGrant | null; packetId: string | null; createdAt: string }
 export interface DiscussionRun {
@@ -20,6 +20,7 @@ export interface StartDiscussion {
 export interface DiscussionStart { threadId: string; run: DiscussionRun; userMessage: DiscussionMessage; packet: CompiledPacket }
 export interface SaveDiscussionDraft extends ComposerBody { access: ProjectAccess; operationId: string; documentId: string; expectedVersion: string }
 export const readDiscussion = (access: ProjectAccess, documentId: string): Promise<DiscussionView> => invoke('read_discussion', { access, documentId });
+export const discussionRetry = (access: ProjectAccess, runId: string): Promise<ComposerBody & { previousRunId: string }> => invoke('discussion_retry', { access, runId });
 export const startDiscussion = (request: StartDiscussion): Promise<DiscussionStart> => invoke('start_discussion', { request });
 export const stopDiscussion = (access: ProjectAccess, runId: string): Promise<{ run: DiscussionRun }> => invoke('stop_discussion', { access, runId });
 export const saveDiscussionDraft = (request: SaveDiscussionDraft): Promise<DiscussionDraft> => invoke('save_discussion_draft', { request });

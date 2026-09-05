@@ -390,7 +390,7 @@ export function GuidancePanel({ session, documentId, adoption, refreshKey, onCha
         </select>
         <span className="guidance-count">{draft.text.length}/{MAX_UI_LENGTH}</span>
       </div>
-      <p className="small-copy guidance-scope-help">Next request is used once. This document applies to this chapter or note. This project applies across the project.</p>
+      <p className="small-copy guidance-scope-help">Next request applies to one discussion and its unchanged retries. This document applies to this chapter or note. This project applies across the project.</p>
       {tooLong && <p className="guidance-error" role="alert">{utf8Bytes(draft.text) > MAX_BACKEND_BYTES ? 'This direction is too large to save. Shorten it before saving.' : 'This adopted message is longer than the 4,096-character editor limit. Shorten it before saving.'}</p>}
       <div className="guidance-editor-actions"><button type="button" className="secondary-button" onClick={cancelDraft} disabled={locked}>Cancel</button><button type="button" className="primary-button" onClick={() => void saveDraft()} disabled={locked || tooLong || !draft.text.trim()}>Save guidance</button></div>
     </div>}

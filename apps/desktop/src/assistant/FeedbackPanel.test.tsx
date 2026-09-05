@@ -13,6 +13,7 @@ vi.mock('../ipc/discussions', () => ({
   saveDiscussionDraft: vi.fn(),
   startDiscussion: vi.fn(),
   stopDiscussion: vi.fn(),
+  discussionRetry: vi.fn(),
 }));
 vi.mock('./ContextInspector', () => ({ ContextInspector: () => <div data-testid="context-inspector" /> }));
 vi.mock('./GuidancePanel', () => ({ GuidancePanel: () => <div data-testid="guidance-panel" /> }));
@@ -82,7 +83,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.resetAllMocks();
   vi.mocked(discussions.readDiscussion).mockImplementation(async (_access, documentId) => emptyView(documentId));
-  vi.mocked(discussions.saveDiscussionDraft).mockImplementation(async request => ({ documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, updatedAt: 'now' }));
+  vi.mocked(discussions.saveDiscussionDraft).mockImplementation(async request => ({ documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, updatedAt: 'now' }));
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 
@@ -92,6 +93,70 @@ afterEach(async () => {
 });
 
 describe('persistent FeedbackPanel safeguards', () => {
+  function stoppedView(session: DocumentSession) {
+    const started = startResult(session);
+    return { ...emptyView(session.state.head.documentId), threadId: started.threadId, messages: [started.userMessage], runs: [{ ...started.run, status: 'stopped' as const }] };
+  }
+
+  function click(text: string) {
+    return act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === text) as HTMLButtonElement).click());
+  }
+
+  it('restores the exact retry pins, saves its link, and sends the linked request', async () => {
+    const session = await makeSession();
+    const view = stoppedView(session);
+    vi.mocked(discussions.readDiscussion).mockResolvedValue(view);
+    vi.mocked(discussions.discussionRetry).mockResolvedValue({ text: view.messages[0].content, scope: null, pinnedDocumentIds: ['old-promise'], previousRunId: 'run-1' });
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => startResult(session, 'retry-run', request.operationId));
+    await renderPanel(session);
+    await click('Prepare another attempt');
+    await waitFor(() => expect(discussions.saveDiscussionDraft).toHaveBeenCalledTimes(1));
+    expect(discussions.saveDiscussionDraft).toHaveBeenLastCalledWith(expect.objectContaining({ previousRunId: 'run-1', pinnedDocumentIds: ['old-promise'] }));
+    expect(host.textContent).toContain('Another attempt at the same feedback.');
+    await click('Send');
+    await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledTimes(1));
+    expect(discussions.startDiscussion).toHaveBeenCalledWith(expect.objectContaining({ previousRunId: 'run-1', pinnedDocumentIds: ['old-promise'], instruction: view.messages[0].content }));
+  });
+
+  it('restores retry mode from a saved draft and makes edited feedback a new request', async () => {
+    const session = await makeSession();
+    const view = stoppedView(session);
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...view, draft: { documentId: 'document', version: '4', text: view.messages[0].content, scope: null, pinnedDocumentIds: ['old-promise'], previousRunId: 'run-1', updatedAt: 'now' } });
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => startResult(session, 'new-run', request.operationId));
+    await renderPanel(session);
+    await waitFor(() => expect(host.textContent).toContain('Another attempt at the same feedback.'));
+    await typeInstruction('Different feedback for a new discussion.');
+    expect(host.textContent).not.toContain('Another attempt at the same feedback.');
+    await click('Send');
+    await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledTimes(1));
+    expect(discussions.startDiscussion).toHaveBeenCalledWith(expect.objectContaining({ previousRunId: null, instruction: 'Different feedback for a new discussion.' }));
+  });
+
+  it('does not let a late retry preparation replace a destination composer', async () => {
+    const source = await makeSession(); const destination = await makeSession('document-b');
+    const gate = deferred<discussions.ComposerBody & { previousRunId: string }>();
+    vi.mocked(discussions.readDiscussion).mockImplementation(async (_access, documentId) => documentId === 'document' ? stoppedView(source) : emptyView(documentId));
+    vi.mocked(discussions.discussionRetry).mockReturnValue(gate.promise);
+    await renderPanel(source); await click('Prepare another attempt');
+    await waitFor(() => expect(discussions.discussionRetry).toHaveBeenCalledTimes(1));
+    await renderPanel(destination); await typeInstruction('Keep this destination feedback.');
+    await act(async () => gate.resolve({ text: 'Old retry text.', scope: null, pinnedDocumentIds: ['old-pin'], previousRunId: 'run-1' }));
+    expect((host.querySelector('#discussion-composer') as HTMLTextAreaElement).value).toBe('Keep this destination feedback.');
+    expect(host.textContent).not.toContain('Another attempt at the same feedback.');
+    expect(discussions.saveDiscussionDraft).not.toHaveBeenCalled();
+  });
+
+  it('retains the composer when original retry guidance is no longer valid', async () => {
+    const session = await makeSession();
+    vi.mocked(discussions.readDiscussion).mockResolvedValue(stoppedView(session));
+    vi.mocked(discussions.discussionRetry).mockRejectedValue({ code: 'RetryGuidanceChanged', detail: 'Guidance was retired. Start a new request.' });
+    await renderPanel(session); await typeInstruction('My unsent thought.');
+    await click('Prepare another attempt');
+    await waitFor(() => expect(host.textContent).toContain('Guidance was retired. Start a new request.'));
+    expect((host.querySelector('#discussion-composer') as HTMLTextAreaElement).value).toBe('My unsent thought.');
+    expect(discussions.startDiscussion).not.toHaveBeenCalled();
+  });
+
   it('retries a lost start acknowledgment with the same operation and payload while retaining the composer', async () => {
     const session = await makeSession();
     vi.mocked(discussions.startDiscussion).mockImplementationOnce(async () => { throw { code: 'UncertainOutcome', detail: 'The start response was lost.' }; }).mockImplementationOnce(async request => startResult(session, 'run-1', request.operationId));

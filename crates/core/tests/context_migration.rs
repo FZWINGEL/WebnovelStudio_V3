@@ -258,7 +258,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 6);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 7);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -310,7 +310,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
 }
 
 #[test]
-fn schema3_upgrade_to_schema6_preserves_frozen_snapshot_and_useful_backup() {
+fn schema3_upgrade_to_schema7_preserves_frozen_snapshot_and_useful_backup() {
     let temp = TempDir::new("schema3-upgrade");
     let path = temp.child("legacy");
     let (project, access, _document, _saved) = setup_project(&path);
@@ -323,16 +323,16 @@ fn schema3_upgrade_to_schema6_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 6);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 7);
     let connection =
-        Connection::open(path.join("project.sqlite3")).expect("open migrated schema6 database");
+        Connection::open(path.join("project.sqlite3")).expect("open migrated schema7 database");
     let discussion_tables: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='discussion_runs'",
             [],
             |row| row.get(0),
         )
-        .expect("check schema6 discussion tables");
+        .expect("check schema7 discussion tables");
     assert_eq!(discussion_tables, 1);
     drop(connection);
     let attached = upgraded
@@ -444,7 +444,7 @@ fn schema2_upgrade_failure_rolls_back_and_retains_durable_backup() {
 }
 
 #[test]
-fn schema2_backup_recovers_forward_to_schema6_with_document_view_and_epoch() {
+fn schema2_backup_recovers_forward_to_schema7_with_document_view_and_epoch() {
     let temp = TempDir::new("schema2-recovery");
     let source_path = temp.child("source");
     let (project, access, _document, saved) = setup_project(&source_path);
@@ -468,7 +468,7 @@ fn schema2_backup_recovers_forward_to_schema6_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 6);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 7);
     assert_eq!(
         recovered
             .context_source_epoch()

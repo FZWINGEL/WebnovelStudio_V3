@@ -10,7 +10,7 @@ A native desktop writing application for English webnovels, built with Rust, Tau
 - Chapter, character, world, theme, hook, scene, and note documents, with no required creation order.
 - Rich-text editing, local SQLite autosave, retained document positions, and flush-before-switch behavior.
 - Manual backup, independent recovered projects, and explicit draft-TXT export.
-- Persistent document discussion, selected-passage feedback, unsent drafts, Stop, and retry using the local test model.
+- Persistent document discussion, selected-passage feedback, unsent drafts, Stop, and explicit retry using the local test model. Unchanged retries keep their original one-use guidance, and the retry choice survives restart.
 - Exact recent completed exchanges in follow-up discussion, with visible omissions when context is limited.
 - **Keep as guidance** from a chat message, or directly add a direction. Edit, save, and remove instructions for the next request, this document, or this project.
 - **Story context** inspection that distinguishes saved sources available to a request from the exact material supplied for its response.

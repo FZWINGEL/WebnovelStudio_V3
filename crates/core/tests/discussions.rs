@@ -431,6 +431,7 @@ fn save_draft(
             text: text.into(),
             scope: None,
             pinned_document_ids: Vec::new(),
+            previous_run_id: None,
         })
         .expect("save discussion draft")
 }
@@ -1307,6 +1308,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             text: "changed payload".into(),
             scope: None,
             pinned_document_ids: Vec::new(),
+            previous_run_id: None,
         })
         .expect_err("draft operation payload is immutable");
     assert_eq!(error.code, "OperationIdReusedWithDifferentPayload");
@@ -1319,6 +1321,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             text: "stale version".into(),
             scope: None,
             pinned_document_ids: Vec::new(),
+            previous_run_id: None,
         })
         .expect_err("draft version is a CAS boundary");
     assert_eq!(error.code, "DraftVersionConflict");
@@ -1353,13 +1356,14 @@ fn retry_after_terminal_run_links_a_new_run_to_the_same_project_document() {
     let temp = TempDir::new("retry");
     let (project, access, document) = setup_project(&temp.child("project"));
     let first = start(&project, &access, &document, "terminal-run");
-    begin(&project, &first.run.owner);
-    finish(&project, &first.run.owner, "0", "terminal", "first answer");
+    project
+        .stop_discussion(access.clone(), first.run.id.clone())
+        .unwrap();
     let mut request = start_request(
         &access,
         &document,
         "retry-run",
-        "Try the discussion again.",
+        "What should the next beat emphasize?",
         None,
         Vec::new(),
     );
@@ -1394,4 +1398,372 @@ fn retry_after_terminal_run_links_a_new_run_to_the_same_project_document() {
         .start_discussion(cross_project)
         .expect_err("retry linkage must stay within one project and document");
     assert_eq!(error.code, "PreviousRunNotFound");
+}
+
+fn retry_request(
+    project: &ProjectSession,
+    access: &ProjectAccess,
+    document: &webnovel_core::projects::DocumentRecord,
+    run_id: &str,
+    operation_id: &str,
+) -> StartDiscussion {
+    let draft = project
+        .discussion_retry(access.clone(), run_id.to_owned())
+        .unwrap();
+    let mut request = start_request(
+        access,
+        document,
+        operation_id,
+        &draft.text,
+        draft.scope,
+        draft.pinned_document_ids,
+    );
+    request.previous_run_id = Some(draft.previous_run_id);
+    request
+}
+
+#[test]
+fn linked_retries_keep_exact_guidance_without_consuming_the_next_new_requests_instruction() {
+    use webnovel_core::context::guidance::GuidanceScope;
+    let temp = TempDir::new("retry-guidance");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let original = adopt_guidance(
+        &project,
+        &access,
+        "once",
+        GuidanceScope::Request,
+        "Keep the ending.",
+    );
+    let first = start(&project, &access, &document, "first");
+    project
+        .stop_discussion(access.clone(), first.run.id.clone())
+        .unwrap();
+    let next = adopt_guidance(
+        &project,
+        &access,
+        "next",
+        GuidanceScope::Request,
+        "Discuss the next chapter's hook.",
+    );
+    let request = retry_request(&project, &access, &document, &first.run.id, "retry");
+    let before = counts(&project);
+    let mut too_small = request.clone();
+    too_small.budget = MockContextBudget::new("1", "0", "0");
+    assert!(project.start_discussion(too_small).is_err());
+    assert_eq!(counts(&project), before);
+    let retried = project.start_discussion(request.clone()).unwrap();
+    assert_eq!(
+        retried.packet.receipt.guidance_handles,
+        vec![format!("guidance-{}", original.version_id)]
+    );
+    assert!(!retried.packet.messages[1].content.contains(&next.text));
+    assert_eq!(
+        project.start_discussion(request).unwrap().packet,
+        retried.packet
+    );
+    assert_eq!(
+        project
+            .guidance(access.clone(), "chapter-one".into())
+            .unwrap(),
+        vec![next.clone()]
+    );
+    drop(project);
+    let project = ProjectSession::open(&path).unwrap();
+    let access = project.attach("reopened".into()).unwrap();
+    let chained = project
+        .start_discussion(retry_request(
+            &project,
+            &access,
+            &document,
+            &retried.run.id,
+            "chained",
+        ))
+        .unwrap();
+    assert_eq!(
+        chained.packet.receipt.guidance_handles,
+        retried.packet.receipt.guidance_handles
+    );
+    let connection = Connection::open(path.join("project.sqlite3")).unwrap();
+    let uses: i64 = connection
+        .query_row("SELECT COUNT(*) FROM guidance_request_uses", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(uses, 1);
+    let unrelated = start(&project, &access, &document, "new-request");
+    assert_eq!(
+        unrelated.packet.receipt.guidance_handles,
+        vec![format!("guidance-{}", next.version_id)]
+    );
+    assert_eq!(
+        project
+            .document(access.clone(), "chapter-one".into())
+            .unwrap()
+            .body,
+        document.body
+    );
+    let archive = temp.child("backup.wnsbackup");
+    create_backup(&project, &archive).unwrap();
+    let recovered = recover_backup(&archive, &temp.child("recovered"), "Recovered").unwrap();
+    let recovered_access = recovered.attach("recovered".into()).unwrap();
+    assert_eq!(
+        recovered
+            .discussion_retry(recovered_access, first.run.id)
+            .unwrap_err()
+            .code,
+        "PreviousRunMismatch"
+    );
+}
+
+#[test]
+fn linked_retry_preserves_exact_feedback_scope_and_pins_and_refuses_completed_runs() {
+    let temp = TempDir::new("retry-shape");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let other = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "other".into(),
+            document_id: "other".into(),
+            title: "Old promise".into(),
+            kind: "note".into(),
+            body: body("Keep the key safe."),
+        })
+        .unwrap();
+    let first = project
+        .start_discussion(start_request(
+            &access,
+            &document,
+            "first",
+            "Make this warmer.",
+            Some(scope_input(&document)),
+            vec![other.head.document_id.clone()],
+        ))
+        .unwrap();
+    assert_eq!(
+        project
+            .discussion_retry(access.clone(), first.run.id.clone())
+            .unwrap_err()
+            .code,
+        "PreviousRunActive"
+    );
+    project
+        .stop_discussion(access.clone(), first.run.id.clone())
+        .unwrap();
+    let original = retry_request(&project, &access, &document, &first.run.id, "retry");
+    assert_eq!(original.pinned_document_ids, vec![other.head.document_id]);
+    assert_eq!(original.scope, Some(scope_input(&document)));
+    let before = counts(&project);
+    for change in 0..3 {
+        let mut request = original.clone();
+        match change {
+            0 => request.instruction.push('!'),
+            1 => request.scope = None,
+            _ => request.pinned_document_ids.clear(),
+        }
+        assert_eq!(
+            project.start_discussion(request).unwrap_err().code,
+            "RetryRequestChanged"
+        );
+        assert_eq!(counts(&project), before);
+    }
+    let mut foreign_target = original.clone();
+    foreign_target.expected.document_id = "other".into();
+    assert_eq!(
+        project.start_discussion(foreign_target).unwrap_err().code,
+        "PreviousRunMismatch"
+    );
+    let done = completed_turn(&project, &access, &document, "done", "A complete answer.");
+    assert_eq!(
+        project
+            .discussion_retry(access.clone(), done.run.id)
+            .unwrap_err()
+            .code,
+        "RetryAlreadyCompleted"
+    );
+    let retried = project.start_discussion(original).unwrap();
+    assert_eq!(retried.user_message.scope, first.user_message.scope);
+}
+
+#[test]
+fn retry_rebuilds_current_sources_but_never_revives_revoked_or_changed_guidance() {
+    use webnovel_core::context::guidance::GuidanceScope;
+    for mode in ["source", "edited", "retired", "policy"] {
+        let temp = TempDir::new(mode);
+        let (project, access, document) = setup_project(&temp.child("project"));
+        let guidance = adopt_guidance(
+            &project,
+            &access,
+            "once",
+            GuidanceScope::Request,
+            "Preserve the ending.",
+        );
+        let first = start(&project, &access, &document, "first");
+        project
+            .stop_discussion(access.clone(), first.run.id.clone())
+            .unwrap();
+        let mut request = retry_request(&project, &access, &document, &first.run.id, "retry");
+        match mode {
+            "source" => {
+                let save = project
+                    .save(SaveSnapshot {
+                        access: access.clone(),
+                        operation_id: "new-prose".into(),
+                        expected: document.head.clone(),
+                        local_generation: "1".into(),
+                        body: body("New whole-chapter prose."),
+                        cause: SaveCause::Typing,
+                    })
+                    .unwrap();
+                request.expected = save.head;
+                let result = project.start_discussion(request).unwrap();
+                assert!(
+                    result.packet.messages[1]
+                        .content
+                        .contains("New whole-chapter prose.")
+                );
+                assert!(result.packet.messages[1].content.contains(&guidance.text));
+                assert_ne!(
+                    result.packet.receipt.snapshot_id,
+                    first.packet.receipt.snapshot_id
+                );
+            }
+            "policy" => {
+                project
+                    .revoke_story_context(access.clone(), "0".into())
+                    .unwrap();
+                assert_eq!(
+                    project.start_discussion(request).unwrap_err().code,
+                    "ContextPolicyChanged"
+                );
+            }
+            _ => {
+                project
+                    .save_guidance(webnovel_core::projects::guidance::SaveGuidance {
+                        access: access.clone(),
+                        operation_id: "change-guidance".into(),
+                        guidance_id: guidance.guidance_id,
+                        expected_version: "1".into(),
+                        text: "Use this changed direction.".into(),
+                        scope: GuidanceScope::Request,
+                        document_id: Some("chapter-one".into()),
+                        active: mode != "retired",
+                        origin_message_id: None,
+                    })
+                    .unwrap();
+                assert_eq!(
+                    project.start_discussion(request).unwrap_err().code,
+                    "RetryGuidanceChanged"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn retry_composer_link_is_durable_payload_bound_and_fenced_in_recovered_copies() {
+    let temp = TempDir::new("retry-composer");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let first = start(&project, &access, &document, "first");
+    project
+        .stop_discussion(access.clone(), first.run.id.clone())
+        .unwrap();
+    let retry = project
+        .discussion_retry(access.clone(), first.run.id.clone())
+        .unwrap();
+    let request = SaveDiscussionDraft {
+        access: access.clone(),
+        operation_id: "save-retry".into(),
+        document_id: "chapter-one".into(),
+        expected_version: "0".into(),
+        text: retry.text,
+        scope: retry.scope,
+        pinned_document_ids: retry.pinned_document_ids,
+        previous_run_id: Some(first.run.id.clone()),
+    };
+    let saved = project.save_discussion_draft(request.clone()).unwrap();
+    assert_eq!(
+        saved.previous_run_id.as_deref(),
+        Some(first.run.id.as_str())
+    );
+    let mut changed = request.clone();
+    changed.previous_run_id = None;
+    assert_eq!(
+        project.save_discussion_draft(changed).unwrap_err().code,
+        "OperationIdReusedWithDifferentPayload"
+    );
+    let archive = temp.child("backup.wnsbackup");
+    create_backup(&project, &archive).unwrap();
+    let recovered = recover_backup(&archive, &temp.child("copy"), "Copy").unwrap();
+    let copy_access = recovered.attach("copy".into()).unwrap();
+    assert!(
+        recovered
+            .read_discussion(copy_access.clone(), "chapter-one".into())
+            .unwrap()
+            .draft
+            .is_none()
+    );
+    assert_eq!(
+        recovered
+            .save_discussion_draft(SaveDiscussionDraft {
+                access: copy_access,
+                operation_id: "foreign-retry".into(),
+                ..request.clone()
+            })
+            .unwrap_err()
+            .code,
+        "PreviousRunMismatch"
+    );
+    drop(project);
+    let project = ProjectSession::open(&path).unwrap();
+    let fresh = project.attach("restart".into()).unwrap();
+    assert_eq!(
+        project
+            .read_discussion(fresh.clone(), "chapter-one".into())
+            .unwrap()
+            .draft
+            .unwrap()
+            .previous_run_id,
+        saved.previous_run_id
+    );
+    assert_eq!(
+        project
+            .save_discussion_draft(SaveDiscussionDraft {
+                access: fresh,
+                ..request
+            })
+            .unwrap()
+            .version,
+        saved.version
+    );
+}
+
+#[test]
+fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
+    let temp = TempDir::new("schema-six");
+    let path = temp.child("project");
+    let (project, access, _) = setup_project(&path);
+    let saved = save_draft(&project, &access, "0", "old-save", "A retained thought.");
+    drop(project);
+    let connection = Connection::open(path.join("project.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "ALTER TABLE discussion_drafts DROP COLUMN previous_run_id; PRAGMA user_version=6;",
+        )
+        .unwrap();
+    drop(connection);
+    let project = ProjectSession::open(&path).unwrap();
+    let access = project.attach("upgraded".into()).unwrap();
+    let replayed = save_draft(&project, &access, "0", "old-save", "A retained thought.");
+    assert_eq!(replayed.version, saved.version);
+    assert!(replayed.previous_run_id.is_none());
+    assert_eq!(replayed.text, saved.text);
+    assert!(fs::read_dir(path.join("migrations")).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("schema6-before-schema7-")
+    }));
 }

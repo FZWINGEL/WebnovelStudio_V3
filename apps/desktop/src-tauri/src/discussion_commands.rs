@@ -16,6 +16,16 @@ pub async fn read_discussion(
 }
 
 #[tauri::command]
+pub async fn discussion_retry(
+    access: ProjectAccess,
+    run_id: String,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<DiscussionRetry> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.discussion_retry(access, run_id)).await
+}
+
+#[tauri::command]
 pub async fn save_discussion_draft(
     request: SaveDiscussionDraft,
     state: State<'_, DesktopProjects>,

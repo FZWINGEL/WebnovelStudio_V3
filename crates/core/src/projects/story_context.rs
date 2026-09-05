@@ -504,15 +504,16 @@ pub(super) fn freeze_story_at(
     request: &FreezeStory,
     payload_hash: &str,
 ) -> CoreResult<FrozenContext> {
-    freeze_story_impl(tx, request, payload_hash, false)
+    freeze_story_impl(tx, request, payload_hash, false, None)
 }
 
 pub(super) fn freeze_discussion_story_at(
     tx: &Connection,
     request: &FreezeStory,
     payload_hash: &str,
+    retry_guidance: Option<&[crate::context::guidance::FrozenGuidance]>,
 ) -> CoreResult<FrozenContext> {
-    freeze_story_impl(tx, request, payload_hash, true)
+    freeze_story_impl(tx, request, payload_hash, true, retry_guidance)
 }
 
 fn freeze_story_impl(
@@ -520,6 +521,7 @@ fn freeze_story_impl(
     request: &FreezeStory,
     payload_hash: &str,
     include_request_guidance: bool,
+    retry_guidance: Option<&[crate::context::guidance::FrozenGuidance]>,
 ) -> CoreResult<FrozenContext> {
     if request.basis != BasisKind::Working {
         return Err(CoreError::new(
@@ -654,12 +656,16 @@ fn freeze_story_impl(
         purpose: request.purpose,
         aliases,
         guidance: if request.policy.audience == Audience::AuthorRoom {
-            guidance::select_guidance_at(
+            let mut selected = guidance::select_guidance_at(
                 tx,
                 &request.access.project_id,
                 &request.expected.document_id,
-                include_request_guidance,
-            )?
+                include_request_guidance && retry_guidance.is_none(),
+            )?;
+            if let Some(reused) = retry_guidance {
+                selected.extend_from_slice(reused);
+            }
+            selected
         } else {
             Vec::new()
         },

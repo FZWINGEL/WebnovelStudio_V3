@@ -12,7 +12,7 @@ Author guidance is stored as immutable `author_guidance_versions` with mutable `
 
 | Scope | Meaning |
 | --- | --- |
-| `request` | Apply to the next explicit discussion for the current document. It is consumed only when that new logical request successfully compiles and binds its frozen snapshot in the start transaction. Linked retries do not yet reuse consumed request guidance. |
+| `request` | Apply to the next explicit discussion for the current document. It is consumed only when that new logical request successfully compiles and binds its frozen snapshot in the start transaction. Unchanged explicit retries of unsuccessful attempts reuse the exact instruction while its version remains active. |
 | `document` | Apply to discussions for one document until the author edits or retires it. |
 | `project` | Apply to discussions in the project until the author edits or retires it. |
 
@@ -31,7 +31,7 @@ Only an explicit author action can create, edit, retire, or later promote a guid
 
 A frozen context snapshot stores the selected guidance's exact text, content hash, version ID, and record reference alongside ordinary document `SourceRef` values. Guidance is not represented by pretending that it is a document revision. The selected text and hash are mandatory packet input. If mandatory guidance cannot fit the authorized budget, preparation fails with the existing mandatory-context overflow result; the compiler does not shorten or silently omit it.
 
-Request-scoped guidance is selected and marked consumed in the same start transaction that successfully compiles and binds the discussion snapshot. Consumption does not bump `context_source_epoch`, because the guidance was already selected in that request's frozen basis. Creating, editing, or retiring any guidance does bump the project context epoch and therefore makes later preparation refresh its basis. A failed compile, a changed payload, or an abandoned attempt does not consume request-scoped guidance. A linked retry is currently a new logical request; reuse of consumed request guidance is future work.
+Request-scoped guidance is selected and marked consumed in the same start transaction that successfully compiles and binds the discussion snapshot. Consumption does not bump `context_source_epoch`, because the guidance was already selected in that request's frozen basis. Creating, editing, or retiring any guidance does bump the project context epoch and therefore makes later preparation refresh its basis. A failed compile, a changed payload, or an abandoned attempt does not consume request-scoped guidance. An explicit unchanged retry retains the original request-scoped versions under the rules below.
 
 Generic packet preparation rejects a new operation using a discussion snapshot that contains request-scoped guidance. Reading the original receipt or retrying the original discussion operation remains idempotent; neither creates another use.
 
@@ -44,6 +44,12 @@ The ordinary context freshness rules still apply. A source edit, policy change, 
 New guidance defaults to `AuthorRoom` access. It is available to author-room discussion and planning requests, subject to the request's scope and current project identity. The C3 implementation excludes all current guidance from restricted prose-writing requests. Safe-brief creation is future work; relabeling the same guidance or changing a packet label does not grant restricted access.
 
 Safe-brief creation remains later work. That brief will be a separate, explicit transfer with its own source references, exact text, policy, and review boundary. A restricted request must never inherit private author-room guidance or privileged planning conversation merely because both requests use the same project.
+
+## Explicit retry boundary
+
+An explicit linked retry of a stopped, failed, or interrupted discussion retains its exact original request-scoped guidance when those versions are still active. Feedback, selected scope, and ordered source pins must match the original request; editing any of them starts a new request. Current document/project guidance and current permitted story sources are compiled afresh. Newly waiting request guidance is reserved for the next new request. Edited or retired inherited instructions, revoked policies, completed runs, and recovered-copy links are refused. The schema-7 composer stores the retry link with its draft and immutable save receipt, so navigation/reload preserves the choice. The original guidance-use receipt remains the only consumption record; retries do not consume it again.
+
+The Retry preparation command reads the original instruction, scope, and pins through the validated stored packet. It starts no job. The UI saves the prepared composer, labels the retained guidance behavior, and lets the author use the text as a new request. A final Send revalidates the exact request and current policy; there is no automatic retry. The current mock path refreshes story sources rather than replaying the prior frozen packet. Live-provider replay and usage semantics remain a later qualification boundary.
 
 ## User interaction
 
@@ -67,4 +73,4 @@ This design gives the author a durable place for decisions such as “keep the e
 
 The implementation remains deliberately small: relational records, exact text and hashes, existing snapshot/packet receipts, and the current context epoch. It does not add hidden notes, a second canon database, an independently editable memory graph, provider-side memory, or a new orchestration framework.
 
-The local implementation and tests cover request consumption after successful binding, edit/retire epoch invalidation, mandatory-budget refusal, restricted-writing exclusion, recovery identity fencing, exact packet receipts, and stable empty-field serialization. The native guidance flow also passes. Richer conversation selection, linked retry guidance reuse, persistent pins, safe briefs, and release qualification are separate work; this ADR does not claim a shipped release.
+The local implementation and tests cover request consumption after successful binding, edit/retire epoch invalidation, mandatory-budget refusal, restricted-writing exclusion, recovery identity fencing, exact packet receipts, and stable empty-field serialization. The native guidance flow also passes. Richer conversation selection, persistent pins, safe briefs, and release qualification are separate work; this ADR does not claim a shipped release.

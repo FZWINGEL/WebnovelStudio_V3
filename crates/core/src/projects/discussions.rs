@@ -21,13 +21,15 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod retry;
+
 const MAX_INSTRUCTION_BYTES: usize = 64 * 1024;
 const MAX_SCOPE_QUOTE_BYTES: usize = 256 * 1024;
 const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_EVENT_BYTES: usize = 128 * 1024;
 const MAX_PINNED_DOCUMENTS: usize = 64;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscussionScopeInput {
     pub kind: ScopeKind,
@@ -197,7 +199,18 @@ pub struct DiscussionDraft {
     pub text: String,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_run_id: Option<String>,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscussionRetry {
+    pub text: String,
+    pub scope: Option<DiscussionScopeInput>,
+    pub pinned_document_ids: Vec<String>,
+    pub previous_run_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +223,8 @@ pub struct SaveDiscussionDraft {
     pub text: String,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,10 +276,21 @@ pub(super) enum DiscussionCommand {
     Fail(DiscussionFail, Reply<DiscussionRun>),
     Stop(ProjectAccess, String, Reply<DiscussionStop>),
     Read(ProjectAccess, String, Reply<DiscussionView>),
+    Retry(ProjectAccess, String, Reply<DiscussionRetry>),
     SaveDraft(SaveDiscussionDraft, Reply<DiscussionDraft>),
 }
 
 impl ProjectSession {
+    pub fn discussion_retry(
+        &self,
+        access: ProjectAccess,
+        run_id: String,
+    ) -> CoreResult<DiscussionRetry> {
+        self.request(|reply| {
+            Command::Discussion(Box::new(DiscussionCommand::Retry(access, run_id, reply)))
+        })
+    }
+
     pub fn start_discussion(&self, request: StartDiscussion) -> CoreResult<DiscussionStart> {
         self.request(|reply| {
             Command::Discussion(Box::new(DiscussionCommand::Start(request, reply)))
@@ -370,6 +396,12 @@ impl OwnedProject {
             DiscussionCommand::Read(access, document_id, reply) => {
                 let _ = reply.send(self.read_discussion(access, document_id));
             }
+            DiscussionCommand::Retry(access, run_id, reply) => {
+                let _ = reply.send(
+                    self.check_access(&access)
+                        .and_then(|()| retry::draft(self.db()?, &access, &run_id)),
+                );
+            }
             DiscussionCommand::SaveDraft(request, reply) => {
                 mutate!(reply, self.save_discussion_draft(request));
             }
@@ -408,6 +440,7 @@ impl OwnedProject {
             return Ok(result);
         }
 
+        let retry_guidance = retry::guidance(&tx, &request)?;
         let context_request = FreezeStory {
             access: request.access.clone(),
             operation_id: new_id(),
@@ -417,8 +450,12 @@ impl OwnedProject {
             policy: current_discussion_policy(&tx)?,
         };
         let context_payload = logical_hash(&context_request)?;
-        let frozen_context =
-            story_context::freeze_discussion_story_at(&tx, &context_request, &context_payload)?;
+        let frozen_context = story_context::freeze_discussion_story_at(
+            &tx,
+            &context_request,
+            &context_payload,
+            retry_guidance.as_deref(),
+        )?;
         let target = read_revision(&tx, &frozen_context.snapshot.target.revision_id)?;
         let mandatory_handles =
             resolve_pinned_handles(&frozen_context, &request.pinned_document_ids)?;
@@ -442,19 +479,15 @@ impl OwnedProject {
         })
         .map_err(packet_error)?;
         insert_packet(&tx, &packet, &request, &mandatory_handles, scope.as_ref())?;
-        guidance::consume_request_guidance_at(
-            &tx,
-            &frozen_context.snapshot.snapshot_id,
-            &frozen_context.guidance,
-        )?;
+        if retry_guidance.is_none() {
+            guidance::consume_request_guidance_at(
+                &tx,
+                &frozen_context.snapshot.snapshot_id,
+                &frozen_context.guidance,
+            )?;
+        }
 
         let thread_id = ensure_thread(&tx, &request.access, &request.expected.document_id)?;
-        validate_previous_run(
-            &tx,
-            request.previous_run_id.as_deref(),
-            &request.access,
-            &request.expected.document_id,
-        )?;
         let run_id = new_id();
         tx.execute(
             "INSERT INTO discussion_runs(id,thread_id,project_id,operation_namespace,operation_id,payload_hash,target_document_id,target_version,target_body_hash,packet_id,previous_run_id,status,sequence,output_text) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0,'')",
@@ -949,6 +982,12 @@ impl OwnedProject {
             return Ok(draft);
         }
         read_document(&tx, &request.document_id)?;
+        validate_previous_run(
+            &tx,
+            request.previous_run_id.as_deref(),
+            &request.access,
+            &request.document_id,
+        )?;
         let current: Option<i64> = tx.query_row("SELECT version FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?", params![request.access.project_id,request.access.operation_namespace,request.document_id], |row| row.get(0)).optional()?;
         let current = current.unwrap_or(0);
         if current != expected {
@@ -960,7 +999,7 @@ impl OwnedProject {
         let next = current
             .checked_add(1)
             .ok_or_else(|| CoreError::new("InvalidRequest", "The draft version is exhausted."))?;
-        tx.execute("INSERT INTO discussion_drafts(project_id,operation_namespace,document_id,version,text,scope_json,pinned_document_ids_json) VALUES(?,?,?,?,?,?,?) ON CONFLICT(project_id,operation_namespace,document_id) DO UPDATE SET version=excluded.version,text=excluded.text,scope_json=excluded.scope_json,pinned_document_ids_json=excluded.pinned_document_ids_json,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", params![request.access.project_id,request.access.operation_namespace,request.document_id,next,request.text,request.scope.as_ref().map(serde_json::to_string).transpose()?,serde_json::to_string(&request.pinned_document_ids)?])?;
+        tx.execute("INSERT INTO discussion_drafts(project_id,operation_namespace,document_id,version,text,scope_json,pinned_document_ids_json,previous_run_id) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(project_id,operation_namespace,document_id) DO UPDATE SET version=excluded.version,text=excluded.text,scope_json=excluded.scope_json,pinned_document_ids_json=excluded.pinned_document_ids_json,previous_run_id=excluded.previous_run_id,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", params![request.access.project_id,request.access.operation_namespace,request.document_id,next,request.text,request.scope.as_ref().map(serde_json::to_string).transpose()?,serde_json::to_string(&request.pinned_document_ids)?,request.previous_run_id])?;
         let draft = read_draft(&tx, &request.access, &request.document_id)?.ok_or_else(|| {
             CoreError::new(
                 "PersistenceUnavailable",
@@ -1257,9 +1296,18 @@ fn read_draft(
     access: &ProjectAccess,
     document_id: &str,
 ) -> CoreResult<Option<DiscussionDraft>> {
-    let row: Option<(String, i64, String, Option<String>, String, String)> = db
+    type DraftRow = (
+        String,
+        i64,
+        String,
+        Option<String>,
+        String,
+        String,
+        Option<String>,
+    );
+    let row: Option<DraftRow> = db
         .query_row(
-            "SELECT document_id,version,text,scope_json,pinned_document_ids_json,updated_at FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?",
+            "SELECT document_id,version,text,scope_json,pinned_document_ids_json,updated_at,previous_run_id FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?",
             params![access.project_id, access.operation_namespace, document_id],
             |row| {
                 Ok((
@@ -1269,11 +1317,14 @@ fn read_draft(
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
         .optional()?;
-    let Some((document_id, version, text, scope_json, pins_json, updated_at)) = row else {
+    let Some((document_id, version, text, scope_json, pins_json, updated_at, previous_run_id)) =
+        row
+    else {
         return Ok(None);
     };
     Ok(Some(DiscussionDraft {
@@ -1284,6 +1335,7 @@ fn read_draft(
             .map(|json| serde_json::from_str(&json))
             .transpose()?,
         pinned_document_ids: serde_json::from_str(&pins_json)?,
+        previous_run_id,
         updated_at,
     }))
 }

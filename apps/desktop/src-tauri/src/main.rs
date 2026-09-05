@@ -89,6 +89,7 @@ fn main() {
             guidance_commands::read_guidance,
             guidance_commands::save_guidance,
             discussion_commands::read_discussion,
+            discussion_commands::discussion_retry,
             discussion_commands::save_discussion_draft,
             discussion_commands::start_discussion,
             discussion_commands::stop_discussion,

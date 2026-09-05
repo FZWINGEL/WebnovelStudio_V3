@@ -378,6 +378,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
              DROP TABLE author_guidance_receipts;
              DROP TABLE author_guidance_heads;
              DROP TABLE author_guidance_versions;
+             ALTER TABLE discussion_drafts DROP COLUMN previous_run_id;
              PRAGMA user_version=5;",
         )
         .expect("downgrade synthetic schema");
@@ -389,7 +390,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     for table in [
         "author_guidance_versions",
         "author_guidance_heads",

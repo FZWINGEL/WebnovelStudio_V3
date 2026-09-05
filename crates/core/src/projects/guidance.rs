@@ -620,6 +620,50 @@ pub(super) fn select_guidance_at(
     Ok(records)
 }
 
+/// Reuse only exact, still-active one-use instructions from the validated
+/// preceding attempt. New request guidance stays available for the next new
+/// request. The original consumption receipt remains the single use record.
+pub(super) fn retry_request_guidance_at(
+    db: &Connection,
+    access: &ProjectAccess,
+    frozen: &story_context::FrozenContext,
+) -> CoreResult<Vec<FrozenGuidance>> {
+    let mut reused = Vec::new();
+    for record in &frozen.guidance {
+        if record.version.scope != GuidanceScope::Request {
+            continue;
+        }
+        let current = read_head(db, &record.version.guidance_id)?;
+        if !current.is_some_and(|head| head.active && head.version_id == record.version.version_id)
+        {
+            return Err(CoreError::new(
+                "RetryGuidanceChanged",
+                "Guidance for this attempt was edited or retired. Start a new request with the current guidance.",
+            ));
+        }
+        let valid_use: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM guidance_request_uses u
+             JOIN story_snapshots s ON s.id=u.snapshot_id
+             JOIN snapshot_guidance g ON g.snapshot_id=s.id AND g.version_id=u.version_id
+             WHERE u.version_id=? AND s.project_id=? AND s.operation_namespace=?)",
+            params![
+                record.version.version_id,
+                access.project_id,
+                access.operation_namespace
+            ],
+            |row| row.get(0),
+        )?;
+        if !valid_use {
+            return Err(CoreError::new(
+                "InvalidContext",
+                "The retry instruction has no matching original request use in this project.",
+            ));
+        }
+        reused.push(record.clone());
+    }
+    Ok(reused)
+}
+
 /// Persist the exact selected guidance beside a frozen story snapshot. This
 /// does not consume request guidance; callers do that after packet compile.
 pub(super) fn pin_guidance_at(

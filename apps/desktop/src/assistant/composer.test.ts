@@ -3,8 +3,19 @@ import { ComposerSession } from './composer';
 import type { DiscussionDraft, SaveDiscussionDraft } from '../ipc/discussions';
 
 const access = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
-function ack(request: SaveDiscussionDraft): DiscussionDraft { return { documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, updatedAt: 'today' }; }
+function ack(request: SaveDiscussionDraft): DiscussionDraft { return { documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, updatedAt: 'today' }; }
 describe('unsent discussion persistence', () => {
+  it('does not clear a retry choice when an unrelated send acknowledgment arrives', async () => {
+    const write = vi.fn(async (request: SaveDiscussionDraft) => ack(request));
+    const session = new ComposerSession('document', null, () => access, write);
+    const text = { text: 'Keep the ending.', scope: null, pinnedDocumentIds: [] };
+    session.update({ ...text, previousRunId: 'stopped-run' });
+    expect(session.clearIfUnchanged(text)).toBe(false);
+    await session.save();
+    const restored = new ComposerSession('document', ack(write.mock.calls[0][0]), () => access, write);
+    expect(restored.body.previousRunId).toBe('stopped-run');
+    expect(restored.dirty).toBe(false);
+  });
   it('retains immutable retry content after a lost reply and then saves later typing', async () => {
     let fail = true;
     const requests: SaveDiscussionDraft[] = [];

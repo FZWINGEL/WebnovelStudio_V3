@@ -220,3 +220,4 @@ input::placeholder { color: #637083; }
   .document-sidebar { width: 205px; }.persistent-workspace .app-header { padding-inline: 16px; }
   .persistent-workspace .document-heading { padding: 18px 24px; }.library-heading { align-items: flex-start; }
 }
+.retry-notice { padding: 0.7rem 0.85rem; background: var(--surface-muted, #edf2f8); border-radius: 6px; color: var(--ink-muted, #52627a); font-size: 0.8rem; line-height: 1.5; } .retry-notice p { margin: 0 0 0.4rem; }
