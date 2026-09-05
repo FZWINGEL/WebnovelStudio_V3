@@ -179,6 +179,8 @@ pub struct PacketReceipt {
     pub snapshot_id: String,
     pub invocation_ordinal: String,
     pub source_handles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guidance_handles: Vec<String>,
     pub coverage: Vec<CoverageEntry>,
     pub omissions: Vec<String>,
     pub input_hash: String,

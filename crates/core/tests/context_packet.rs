@@ -110,6 +110,7 @@ fn frozen(
         purpose,
         aliases: BTreeMap::new(),
         excluded_source_count: 0,
+        guidance: Vec::new(),
     })
 }
 
@@ -136,6 +137,165 @@ fn request(frozen: FrozenContext, reads: Vec<SourceRead>) -> PacketRequest {
 
 fn compile(request: PacketRequest) -> CompiledPacket {
     compile_packet(&request).unwrap_or_else(|error| panic!("packet should compile: {error}"))
+}
+
+fn guidance(text: &str) -> webnovel_core::context::guidance::FrozenGuidance {
+    use sha2::{Digest, Sha256};
+    use webnovel_core::context::guidance::{FrozenGuidance, GuidanceScope, GuidanceVersion};
+    FrozenGuidance {
+        handle: "guidance-guidance-version-1".into(),
+        project_id: PROJECT.into(),
+        version: GuidanceVersion {
+            guidance_id: "author-intention".into(),
+            version_id: "guidance-version-1".into(),
+            version: "1".into(),
+            scope: GuidanceScope::Document,
+            document_id: Some("target-doc".into()),
+            text: text.into(),
+            text_hash: Sha256::digest(text.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+            active: true,
+            origin_message_id: None,
+            created_at: "2026-09-05T00:00:00Z".into(),
+        },
+    }
+}
+
+#[test]
+fn adopted_guidance_is_exact_mandatory_context_separate_from_story_sources() {
+    let prose = body(&[("target-1", "A quiet reunion.")]);
+    let target = source("target", "target-doc", &prose);
+    let mut frozen = frozen(
+        vec![target.clone()],
+        ContextPurpose::Discuss,
+        Audience::AuthorRoom,
+    );
+    frozen
+        .guidance
+        .push(guidance("  Keep the ending.\nHer sister must survive.  "));
+    let original = frozen.guidance.clone();
+    let packet = compile(request(frozen, vec![read(&target, &prose)]));
+    let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
+    assert_eq!(
+        envelope["authorGuidance"],
+        serde_json::to_value(&original).unwrap()
+    );
+    assert_eq!(
+        packet.receipt.guidance_handles,
+        vec![original[0].handle.clone()]
+    );
+    assert_eq!(packet.receipt.source_handles, vec!["target"]);
+    assert!(
+        packet.messages[0]
+            .content
+            .contains("not established story facts")
+    );
+    assert_eq!(
+        packet.messages[2].content,
+        "Keep the ending exactly as written."
+    );
+    assert_eq!(
+        packet.receipt.input_hash,
+        packet_input_hash(&packet.messages, &packet.options).unwrap()
+    );
+}
+
+#[test]
+fn guidance_overflow_is_reported_instead_of_silently_shortening_the_instruction() {
+    let prose = body(&[("target-1", "The ending.")]);
+    let target = source("target", "target-doc", &prose);
+    let mut request = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Discuss,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &prose)],
+    );
+    let baseline = compile_packet(&request)
+        .unwrap()
+        .receipt
+        .input_tokens
+        .parse::<usize>()
+        .unwrap();
+    request
+        .frozen
+        .guidance
+        .push(guidance(&"Keep the ending. ".repeat(400)));
+    request.budget = MockContextBudget::new((baseline + 1000).to_string(), "0", "0");
+    match compile_packet(&request).unwrap_err() {
+        PacketError::Budget(error) => {
+            assert_eq!(
+                error.code,
+                webnovel_core::context::BudgetErrorCode::MandatoryContextTooLarge
+            );
+            assert!(
+                error
+                    .mandatory_handles
+                    .contains(&request.frozen.guidance[0].handle)
+            );
+        }
+        error => panic!("expected guidance budget error: {error}"),
+    }
+}
+
+#[test]
+fn guidance_rejects_cross_project_wrong_scope_tampering_and_restricted_disclosure() {
+    let prose = body(&[("target-1", "The chapter.")]);
+    let target = source("target", "target-doc", &prose);
+    let mut base = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Discuss,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &prose)],
+    );
+    base.frozen
+        .guidance
+        .push(guidance("The mentor knows the secret."));
+    for case in 0..6 {
+        let mut changed = base.clone();
+        match case {
+            0 => changed.frozen.guidance[0].project_id = "another-project".into(),
+            1 => changed.frozen.guidance[0].version.document_id = Some("another-document".into()),
+            2 => changed.frozen.guidance[0].version.text.push_str(" Changed"),
+            3 => changed.frozen.policy.audience = Audience::RestrictedWriting,
+            4 => changed.frozen.guidance[0].version.active = false,
+            _ => changed
+                .frozen
+                .guidance
+                .push(changed.frozen.guidance[0].clone()),
+        }
+        assert!(
+            matches!(compile_packet(&changed), Err(PacketError::SourceBinding { code, .. }) if code == "InvalidGuidance"),
+            "case {case}"
+        );
+    }
+}
+
+#[test]
+fn old_snapshot_and_receipt_json_keep_their_shape_when_guidance_is_absent() {
+    let prose = body(&[("target-1", "An older saved chapter.")]);
+    let target = source("target", "target-doc", &prose);
+    let frozen = frozen(
+        vec![target.clone()],
+        ContextPurpose::Discuss,
+        Audience::AuthorRoom,
+    );
+    let frozen_json = serde_json::to_value(&frozen).unwrap();
+    assert!(frozen_json.get("guidance").is_none());
+    let reloaded: FrozenContext = serde_json::from_value(frozen_json.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&reloaded).unwrap(), frozen_json);
+    let packet = compile(request(reloaded, vec![read(&target, &prose)]));
+    let packet_json = serde_json::to_value(&packet).unwrap();
+    assert!(packet_json["receipt"].get("guidanceHandles").is_none());
+    let reloaded: CompiledPacket = serde_json::from_value(packet_json.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&reloaded).unwrap(), packet_json);
+    let envelope: Value = serde_json::from_str(&reloaded.messages[1].content).unwrap();
+    assert!(envelope.get("authorGuidance").is_none());
 }
 
 #[test]

@@ -1,30 +1,54 @@
 # WebnovelStudio V3
 
-WebnovelStudio V3 is the native desktop rewrite of WebnovelStudio for English novel authoring, UI, and export. Optional translated-webnovel, wuxia, and xianxia register or terminology may shape style work later; they are not required genres or language modes. The current checkout is `codex/v3-persistence`: the default native UI provides a persistent Library/Workspace, while the explicit W0 sample editor remains a session-only trial. W1 structural scope validation and shared JS/Rust fixtures are implemented; W2 session/core receipt and reconciliation work is implemented; W3 registry/transfer work remains active. Story Context C0 contracts and adversarial tests are complete, C1 working-basis snapshot/retrieval is implemented, and C2's Rust pure deterministic compiler, durable exact packet receipts, and native IPC path are implemented and pushed. W4 now has a local persistent discussion/draft/mock-job slice with scoped feedback and context inspection; the W4 checkpoint is still in progress. C3 guidance and relevant-history compilation, durable Apply, and C4–C6 remain open.
+A native desktop writing application for English webnovels, built with Rust, Tauri, React, and Tiptap. Create several projects, develop story material in any order, and keep the manuscript at the center of the workspace. Wuxia, xianxia, cultivation, and translated-webnovel register are optional English writing styles.
 
-The default Library/Workspace supports blank projects, optional chapter/character/world/theme/hook/scene/note documents, autosave through Rust-owned SQLite, flush-before-switch, project/document rename, duplicate, archive/unarchive, and native folder, backup, recovery, and draft-TXT dialogs. W0's sample text and feedback remain session-only; it is not an author-data path and has no provider or durable Apply. W3 schema-5 migration takes a durable pre-upgrade backup, recovers schema-1/2/3 databases, and carries exact-head caret/last-document state, metadata compare-and-swap, and `context_source_epoch`; recovered copies receive isolated identities and operation namespaces, and copied historical snapshots cannot authorize operations in a new project. W4 adds persistent author-room discussions, exact selected quotations, scoped drafts, deterministic mock responses, durable output sequencing, Stop/retry/reload recovery, and an inspector for the prepared/delivered context packet. C1 keeps original source, uses source-only alias matches, and keeps aliases private to AuthorRoom until safe grants; reviewed/history/character policies are unavailable until authority work, and AuthorRoom Revise/Continue is blocked. C2 preserves the exact target, instruction, scope, and mandatory pins; includes the full eligible source set when it fits, otherwise packs a stable prefix of whole blocks with explicit omissions; validates source bodies, descriptors, projections, eligibility, and scope; and stores the exact packet, options, and hash across restart. Its mock accounting is UTF-8-byte based and does not qualify live-provider tokenization. The remaining English native author trial, minimum-window behavior, external Word paste, screen-reader use, backup/export/recovery qualification, durable Apply, live providers, C3 guidance/history compilation, and broader qualification remain open. The [W0 qualification record](docs/W0_QUALIFICATION.md) is historical; see the [implementation status](docs/IMPLEMENTATION_STATUS.md) for current gates.
+**In development.** The persistent workspace runs locally, and discussion currently uses a clearly labelled deterministic test model. Live AI, durable suggestion Apply, and release qualification are unfinished. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact test evidence and remaining work.
 
-The private GitHub repository is [FZWINGEL/WebnovelStudio_V3](https://github.com/FZWINGEL/WebnovelStudio_V3), with `main` as its default branch. The current `main` tip is `d0eebfd780e435c068ef1017cac580786360d36b`; active implementation is on `codex/v3-persistence`. V2 remains unchanged in `D:\WebnovelStudio_V2`. The [product requirements](PRODUCT.md), [implementation status](docs/IMPLEMENTATION_STATUS.md), [workspace plan](docs/V3_WORKSPACE_PLAN.md), [first-slice plan](docs/V3_FIRST_SLICE_PLAN.md), and [editor contract](docs/ADR_0001_EDITOR_CONTRACT.md) define the current boundaries.
+## Available in the development build
 
-The adopted [Story Context Engine design](docs/V3_STORY_CONTEXT_SYSTEM.md) and [context implementation plan](docs/V3_STORY_CONTEXT_FIRST_SLICE.md) add retained evidence, frozen request sources, scoped guidance, inspectable packets, and bounded lookup. C0 contracts, C1 working-basis snapshot/retrieval, and C2's pure compiler, durable exact receipts, and native IPC are implemented and published. The context inspector and source pins are partially integrated through the W4 discussion surface; Keep as guidance, permitted conversation compilation, C4–C6, and provider integration remain planned. Current local and GitHub validation evidence is recorded in [implementation status](docs/IMPLEMENTATION_STATUS.md).
+- A project library with create, open, rename, duplicate, archive, and resume flows.
+- Chapter, character, world, theme, hook, scene, and note documents, with no required creation order.
+- Rich-text editing, local SQLite autosave, retained document positions, and flush-before-switch behavior.
+- Manual backup, independent recovered projects, and explicit draft-TXT export.
+- Persistent document discussion, selected-passage feedback, unsent drafts, Stop, and retry using the local test model.
+- **Keep as guidance** from a chat message, or directly add a direction. Edit, save, and remove instructions for the next request, this document, or this project.
+- **Story context** inspection that distinguishes saved sources available to a request from the exact material supplied for its response.
 
-The latest full desktop verification passed the wrapper's rustfmt, workspace Clippy with `-D warnings`, 122 active Rust tests plus one ignored child test, the TypeScript/Vite build, and 86 frontend tests. The rebuilt real Tauri/WebView2 smoke flow passed 16/16 checks on WebView2 `152.0.4191.62`, including persistent discussion, exact selected feedback, context receipt inspection, draft/history retention across project switch and renderer reload, and unchanged editor content. CI run [33975322590](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33975322590) for pushed commit `cd1d8a6` completed successfully across Windows native, Windows, and Ubuntu contract jobs. The Vite build still reports a 569.44KB bundle warning. Native backup/export/recovery dialogs, broad English author trial, accessibility, packaged installation, live providers, and the broader A, N, and W3 qualification remain open.
+Guidance is an explicit author choice and never changes manuscript text or establishes canon. Requests retain the exact instruction versions they used. Restricted writing excludes private author-room guidance. Conversation-history compilation, persistent chapter/project source pins, generated memory digests, and bounded live-provider lookups remain planned parts of the [Story Context Engine](docs/V3_STORY_CONTEXT_SYSTEM.md).
 
-## Run the spike
+The separately opened **sample editor trial** demonstrates session-only replacement preview, local Apply, and undo. Its sample prose disappears on close. The default Library/Workspace uses persistent projects; it does not yet have durable suggestion Apply.
 
-From `D:\WebnovelStudio_V3`, use the root wrapper:
+## Run locally on Windows
+
+From `D:\WebnovelStudio_V3`:
 
 ```powershell
 .\scripts\desktop.ps1 -Command dev
-.\scripts\desktop.ps1 -Command spike
-.\scripts\desktop.ps1 -Command build
-.\scripts\desktop.ps1 -Command check
-.\scripts\desktop.ps1 -Command native
-.\scripts\desktop.ps1 -Command test
 ```
 
-The wrapper selects the pinned Node `24.20.0` through `npm exec` and adds the user Cargo bin directory to its child environment. First use can download Node and install the locked frontend dependencies. Use `-Command setup` to refresh those dependencies. Close the trial window before rebuilding its executable on Windows. `native` requires a successful `spike` build and drives its real WebView2 window through a local debugging endpoint.
+The wrapper selects the pinned Node version, adds the user Cargo bin directory to its child environment, and installs locked frontend dependencies when needed. Rust/MSVC and the Windows build prerequisites are required. Use `-Command setup` to refresh frontend dependencies.
 
-The pinned development surface is Rust `1.98.1` MSVC (`x86_64-pc-windows-msvc`), Node `24.20.0`, npm `11.12.1`, Tauri `2.11.5` with CLI `2.11.4` and build `2.6.3`, React `19.2.8`, Tiptap `3.31.3`, and the ProseMirror packages locked in `apps/desktop/package.json` and `package-lock.json`. The Tauri runtime observed for the spike is WebView2 `152.0.4191.62` on Windows 11 Pro build `26200`. `rusqlite` `0.40.2` is bundled into the Rust core for file-backed project persistence and backup/recovery; this does not imply that the W0 sample editor itself is durable.
+Other development commands:
 
-The trial surface is intentionally small: type and format sample prose, insert scene breaks, undo/redo, select a passage, keep feedback, preview or reject a local replacement, apply it in the current editor session, and ask Rust to validate the canonical snapshot. Closing the window clears the manuscript and feedback. Use sample text only.
+```powershell
+.\scripts\desktop.ps1 -Command check   # Rust checks, TypeScript/build, frontend tests
+.\scripts\desktop.ps1 -Command spike   # Build the native development executable
+.\scripts\desktop.ps1 -Command native  # Exercise that executable in real WebView2
+.\scripts\desktop.ps1 -Command build   # Build the release profile
+```
+
+Close an executable before rebuilding it on Windows. `native` requires a successful `spike` build and uses synthetic projects through a local debugging endpoint. These checks are development evidence; they do not qualify an installed release, a live provider, or literary quality.
+
+## Project and design
+
+V3 lives in its own [private GitHub repository](https://github.com/FZWINGEL/WebnovelStudio_V3). Active implementation is on `codex/v3-persistence`; the default branch is `main`. V2 remains the separate reference at `D:\WebnovelStudio_V2`.
+
+- [Product requirements](PRODUCT.md)
+- [Current implementation and qualification evidence](docs/IMPLEMENTATION_STATUS.md)
+- [Architecture and document index](docs/README.md)
+- [Workspace arrangement](docs/V3_WORKSPACE_PLAN.md)
+- [Implementation order](docs/V3_FIRST_SLICE_PLAN.md)
+- [Story Context first slice](docs/V3_STORY_CONTEXT_FIRST_SLICE.md)
+- [Editor contract](docs/ADR_0001_EDITOR_CONTRACT.md) and [author guidance contract](docs/ADR_0002_AUTHOR_GUIDANCE.md)
+
+Toolchain and dependency versions are pinned in the root manifests and desktop lockfile. Author databases, backups, credentials, and generated native results must stay out of Git.

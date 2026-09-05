@@ -418,7 +418,7 @@ impl OwnedProject {
         };
         let context_payload = logical_hash(&context_request)?;
         let frozen_context =
-            story_context::freeze_story_at(&tx, &context_request, &context_payload)?;
+            story_context::freeze_discussion_story_at(&tx, &context_request, &context_payload)?;
         let target = read_revision(&tx, &frozen_context.snapshot.target.revision_id)?;
         let mandatory_handles =
             resolve_pinned_handles(&frozen_context, &request.pinned_document_ids)?;
@@ -442,6 +442,11 @@ impl OwnedProject {
         })
         .map_err(packet_error)?;
         insert_packet(&tx, &packet, &request, &mandatory_handles, scope.as_ref())?;
+        guidance::consume_request_guidance_at(
+            &tx,
+            &frozen_context.snapshot.snapshot_id,
+            &frozen_context.guidance,
+        )?;
 
         let thread_id = ensure_thread(&tx, &request.access, &request.expected.document_id)?;
         validate_previous_run(
@@ -1094,7 +1099,7 @@ fn insert_packet(
     mandatory_handles: &[String],
     scope: Option<&ScopeGrant>,
 ) -> CoreResult<()> {
-    // context_packets is also validated when the project opens. Persist its
+    // context_packets is validated on packet reads and transfers. Persist its
     // canonical PrepareContext envelope rather than the larger discussion
     // request so the packet remains readable through the shared C2 contract.
     let prepared = PrepareContext {

@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 pub mod context_packets;
 pub mod discussions;
+pub mod guidance;
 pub mod story_context;
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -266,6 +267,7 @@ enum Command {
     Packet(Box<context_packets::PacketCommand>),
     Context(Box<story_context::ContextCommand>),
     Discussion(Box<discussions::DiscussionCommand>),
+    Guidance(Box<guidance::GuidanceCommand>),
     Attach(String, Reply<ProjectAccess>),
     AttachSnapshot(String, Reply<AttachedProject>),
     Create(CreateDocument, Reply<DocumentRecord>),
@@ -404,6 +406,7 @@ impl ProjectSession {
                             Command::Packet(command) => project.handle_packet(*command),
                             Command::Context(command) => project.handle_context(*command),
                             Command::Discussion(command) => project.handle_discussion(*command),
+                            Command::Guidance(command) => project.handle_guidance(*command),
                             Command::Attach(session, reply) => {
                                 let _ = reply.send(project.attach(session));
                             }

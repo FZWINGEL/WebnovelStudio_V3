@@ -1,11 +1,13 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use webnovel_core::context::packet::MockContextBudget;
 use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
+use webnovel_core::projects::discussions::StartDiscussion;
 use webnovel_core::projects::story_context::FreezeStory;
 use webnovel_core::projects::{
     CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
@@ -144,6 +146,53 @@ fn packet_count(project: &ProjectSession) -> i64 {
         .expect("open packet database")
         .query_row("SELECT COUNT(*) FROM context_packets", [], |row| row.get(0))
         .expect("count packet rows")
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(bytes);
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn rewrite_packet(project: &ProjectSession, packet_id: &str, mutate: impl FnOnce(&mut Value)) {
+    let connection = Connection::open(project.path.join("project.sqlite3"))
+        .expect("open packet database for packet tampering");
+    let packet_json: String = connection
+        .query_row(
+            "SELECT packet_json FROM context_packets WHERE id=?",
+            [packet_id],
+            |row| row.get(0),
+        )
+        .expect("read packet JSON for packet tampering");
+    let mut packet: Value = serde_json::from_str(&packet_json).expect("decode packet JSON");
+    mutate(&mut packet);
+    let compiled: webnovel_core::context::packet::CompiledPacket =
+        serde_json::from_value(packet.clone()).expect("decode tampered packet");
+    let input =
+        webnovel_core::context::packet::serialized_input(&compiled.messages, &compiled.options)
+            .expect("serialize tampered packet input");
+    packet["receipt"]["inputHash"] = json!(sha256_hex(input.as_bytes()));
+    packet["receipt"]["inputTokens"] = json!(input.len().to_string());
+    let packet_json = serde_json::to_string(&packet).expect("serialize tampered packet");
+    let packet_hash = sha256_hex(packet_json.as_bytes());
+    connection
+        .execute_batch("DROP TRIGGER immutable_context_packet_update;")
+        .expect("disable packet immutability for tampering fixture");
+    connection
+        .execute(
+            "UPDATE context_packets SET packet_json=?,packet_hash=?,input_hash=? WHERE id=?",
+            params![
+                packet_json,
+                packet_hash,
+                sha256_hex(input.as_bytes()),
+                packet_id
+            ],
+        )
+        .expect("rewrite packet receipt coherently");
 }
 
 #[test]
@@ -292,9 +341,39 @@ fn revoked_policy_blocks_reading_an_old_prepared_packet() {
         .revoke_story_context(access.clone(), "0".into())
         .expect("revoke old policy");
     let error = project
-        .prepared_context(access, packet.receipt.packet_id)
+        .prepared_context(access, packet.receipt.packet_id.clone())
         .expect_err("revoked policy must block packet read");
     assert_eq!(error.code, "ContextPolicyChanged");
+    let archive = temp.child("revoked-history.wnsbackup");
+    create_backup(&project, &archive)
+        .expect("revocation must not prevent backing up retained history");
+    let recovered = recover_backup(&archive, &temp.child("recovered"), "Recovered history")
+        .expect("revoked historical packets remain valid stored evidence");
+    let recovered_access = recovered
+        .attach("recovered-history-session".into())
+        .unwrap();
+    assert_eq!(
+        recovered
+            .prepared_context(recovered_access.clone(), packet.receipt.packet_id)
+            .expect_err("backup retention must not authorize copied packets")
+            .code,
+        "ContextProjectMismatch"
+    );
+    let current = recovered
+        .document(recovered_access.clone(), "chapter-one".into())
+        .unwrap();
+    let frozen = freeze(&recovered, &recovered_access, &current);
+    let fresh = prepared(
+        recovered
+            .prepare_context(prepare_request(
+                &recovered_access,
+                &frozen.snapshot.snapshot_id,
+                "current-copy-packet",
+                budget(),
+            ))
+            .expect("the recovered copy can prepare under its current policy"),
+    );
+    assert_eq!(fresh.receipt.snapshot_id, frozen.snapshot.snapshot_id);
 }
 
 #[test]
@@ -411,4 +490,173 @@ fn packet_insert_failure_rolls_back_without_a_durable_packet_row() {
     connection
         .execute_batch("DROP TRIGGER fail_context_packet;")
         .expect("remove packet insertion fault");
+}
+
+#[test]
+fn coherent_packet_tampering_is_rejected_by_reads_and_transfer() {
+    for (label, mutate) in [
+        (
+            "mandatory-source-omission",
+            Box::new(|packet: &mut Value| {
+                let envelope: Value = serde_json::from_str(
+                    packet["messages"][1]["content"]
+                        .as_str()
+                        .expect("packet evidence envelope"),
+                )
+                .expect("decode packet evidence envelope");
+                let mandatory = packet["receipt"]["sourceHandles"]
+                    .as_array()
+                    .expect("packet source handles")
+                    .last()
+                    .and_then(Value::as_str)
+                    .expect("mandatory source handle")
+                    .to_owned();
+                let mut envelope = envelope;
+                envelope["sources"] = envelope["sources"]
+                    .as_array()
+                    .expect("packet source envelope")
+                    .iter()
+                    .filter(|source| source["handle"].as_str() != Some(mandatory.as_str()))
+                    .cloned()
+                    .collect();
+                packet["messages"][1]["content"] =
+                    json!(serde_json::to_string(&envelope).expect("serialize packet envelope"));
+                packet["receipt"]["sourceHandles"] = packet["receipt"]["sourceHandles"]
+                    .as_array()
+                    .expect("packet source handles")
+                    .iter()
+                    .filter(|handle| handle.as_str() != Some(mandatory.as_str()))
+                    .cloned()
+                    .collect();
+                packet["receipt"]["coverage"] = packet["receipt"]["coverage"]
+                    .as_array()
+                    .expect("packet coverage")
+                    .iter()
+                    .filter(|entry| entry["handle"].as_str() != Some(mandatory.as_str()))
+                    .cloned()
+                    .collect();
+            }) as Box<dyn FnOnce(&mut Value)>,
+        ),
+        (
+            "source-metadata-change",
+            Box::new(|packet: &mut Value| {
+                let mut envelope: Value = serde_json::from_str(
+                    packet["messages"][1]["content"]
+                        .as_str()
+                        .expect("packet evidence envelope"),
+                )
+                .expect("decode packet evidence envelope");
+                envelope["target"]["source"]["bodyHash"] = json!("0".repeat(64));
+                packet["messages"][1]["content"] =
+                    json!(serde_json::to_string(&envelope).expect("serialize packet envelope"));
+            }) as Box<dyn FnOnce(&mut Value)>,
+        ),
+        (
+            "final-instruction-change",
+            Box::new(|packet: &mut Value| {
+                packet["messages"][2]["content"] = json!("A different final instruction.");
+            }) as Box<dyn FnOnce(&mut Value)>,
+        ),
+        (
+            "options-change",
+            Box::new(|packet: &mut Value| {
+                packet["options"]["maxOutputTokens"] = json!("17");
+            }) as Box<dyn FnOnce(&mut Value)>,
+        ),
+    ] {
+        let temp = TempDir::new(label);
+        let (project, access, document) = setup_project(&temp.child("project"));
+        let second = project
+            .create_document(CreateDocument {
+                access: access.clone(),
+                operation_id: format!("create-second-{label}"),
+                document_id: "chapter-two".into(),
+                title: "Chapter two".into(),
+                kind: "chapter".into(),
+                body: body("The mandatory evidence is here."),
+            })
+            .expect("create mandatory source document");
+        let snapshot = freeze(&project, &access, &document);
+        let mandatory_handle = snapshot
+            .snapshot
+            .sources
+            .iter()
+            .find(|source| source.source.document_id == second.head.document_id)
+            .expect("find mandatory source")
+            .handle
+            .clone();
+        let mut request = prepare_request(
+            &access,
+            &snapshot.snapshot.snapshot_id,
+            &format!("tampered-{label}"),
+            budget(),
+        );
+        request.mandatory_handles = vec![mandatory_handle];
+        let packet = prepared(project.prepare_context(request).expect("prepare packet"));
+        rewrite_packet(&project, &packet.receipt.packet_id, mutate);
+
+        let read_error = project
+            .prepared_context(access, packet.receipt.packet_id.clone())
+            .expect_err("coherently tampered packet must fail validated read");
+        assert_eq!(read_error.code, "InvalidContextPacket", "{label}");
+        let transfer_error = create_backup(&project, &temp.child("tampered.wnsbackup"))
+            .expect_err("coherently tampered packet must fail transfer validation");
+        assert_eq!(transfer_error.code, "InvalidBackup", "{label}");
+    }
+}
+
+#[test]
+fn generic_preparation_rejects_consumed_discussion_request_guidance() {
+    use webnovel_core::context::guidance::GuidanceScope;
+
+    let temp = TempDir::new("request-guidance-replay");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    project
+        .save_guidance(webnovel_core::projects::guidance::SaveGuidance {
+            access: access.clone(),
+            operation_id: "adopt-request-guidance".into(),
+            guidance_id: "request-guidance".into(),
+            expected_version: "0".into(),
+            text: "Keep the answer anchored to the pendant.".into(),
+            scope: GuidanceScope::Request,
+            document_id: Some(document.head.document_id.clone()),
+            active: true,
+            origin_message_id: None,
+        })
+        .expect("adopt request guidance");
+
+    let discussion_request = StartDiscussion {
+        access: access.clone(),
+        operation_id: "discussion-consumes-request-guidance".into(),
+        expected: document.head.clone(),
+        instruction: "Discuss the selected passage.".into(),
+        scope: None,
+        pinned_document_ids: Vec::new(),
+        budget: budget(),
+        previous_run_id: None,
+    };
+    let original = project
+        .start_discussion(discussion_request.clone())
+        .expect("start discussion with request guidance");
+
+    let error = project
+        .prepare_context(prepare_request(
+            &access,
+            &original.packet.receipt.snapshot_id,
+            "generic-request-guidance-replay",
+            budget(),
+        ))
+        .expect_err("generic preparation must reject discussion-only guidance");
+    assert_eq!(error.code, "RequestGuidanceRequiresDiscussion");
+
+    let replay = project
+        .start_discussion(discussion_request)
+        .expect("original discussion operation remains idempotent");
+    assert_eq!(replay.packet, original.packet);
+    assert_eq!(
+        project
+            .prepared_context(access, original.packet.receipt.packet_id.clone())
+            .expect("original discussion packet remains readable"),
+        original.packet
+    );
 }

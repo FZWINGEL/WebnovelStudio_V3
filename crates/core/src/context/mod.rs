@@ -18,3 +18,4 @@ pub use eligibility::{
     EligibilityError, EligibilityErrorCode, EligibilityReceipt, EligibleSource,
     evaluate_eligibility, evaluate_sources,
 };
+pub mod guidance;

@@ -118,6 +118,16 @@ impl OwnedProject {
         }
         let frozen =
             story_context::load_snapshot(self.db()?, &request.access, &request.snapshot_id)?;
+        if frozen
+            .guidance
+            .iter()
+            .any(|record| record.version.scope == crate::context::guidance::GuidanceScope::Request)
+        {
+            return Err(CoreError::new(
+                "RequestGuidanceRequiresDiscussion",
+                "Request-scoped author guidance is reserved for an explicit discussion and cannot be replayed by generic packet preparation.",
+            ));
+        }
         if frozen.snapshot.context_source_epoch != self.context_source_epoch()? {
             return Err(CoreError::new(
                 "ContextChanged",
@@ -176,9 +186,9 @@ impl OwnedProject {
     }
 }
 
-/// Validate and read a packet from an actor transaction. This deliberately
-/// checks only the project identity; dispatch workers own a durable run rather
-/// than a renderer writer lease.
+/// Read and validate a packet from an actor transaction. The packet's immutable
+/// receipt, frozen source owner, and exact provider input are checked here;
+/// transfer validation applies the same checks to every stored packet.
 pub(super) fn read_context_packet_at(
     db: &Connection,
     access: &ProjectAccess,
@@ -265,29 +275,47 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
             "The exact request input does not match its receipt.",
         ));
     }
-    let owner: (String, String) = db.query_row(
-        "SELECT project_id,operation_namespace FROM story_snapshots WHERE id=?",
-        [&stored.snapshot_id],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    if owner != (stored.project_id.clone(), stored.namespace.clone()) {
+    // Validate retained history without granting present-day access. Revoked
+    // packets must remain backup-able; request-facing reads separately enforce
+    // current project ownership and policy through load_snapshot.
+    let (frozen, owner_namespace) =
+        story_context::validated_snapshot_record(db, &stored.snapshot_id)?;
+    if (frozen.snapshot.project_id.clone(), owner_namespace)
+        != (stored.project_id.clone(), stored.namespace.clone())
+    {
         return Err(CoreError::new(
             "InvalidContextPacket",
             "The request and snapshot have different owners.",
         ));
     }
-    for handle in &receipt.source_handles {
-        let found: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM snapshot_sources WHERE snapshot_id=? AND handle=?)",
-            params![stored.snapshot_id, handle],
-            |row| row.get(0),
-        )?;
-        if !found {
-            return Err(CoreError::new(
-                "InvalidContextPacket",
-                "A delivered source is outside the pinned snapshot.",
-            ));
-        }
+    let sources = frozen
+        .snapshot
+        .sources
+        .iter()
+        .map(|source| story_context::read_source(db, &frozen, &source.handle))
+        .collect::<CoreResult<Vec<_>>>()?;
+    let expected = compile_packet(&PacketRequest {
+        packet_id: receipt.packet_id.clone(),
+        session_id: receipt.session_id.clone(),
+        invocation_ordinal: receipt.invocation_ordinal.clone(),
+        frozen,
+        instruction: request.instruction,
+        sources,
+        mandatory_handles: request.mandatory_handles,
+        scope: request.scope,
+        budget: request.budget,
+    })
+    .map_err(|error| {
+        CoreError::new(
+            "InvalidContextPacket",
+            &format!("The stored request cannot reproduce its packet: {error}"),
+        )
+    })?;
+    if expected != packet {
+        return Err(CoreError::new(
+            "InvalidContextPacket",
+            "The delivered packet does not match the stored request and frozen source revisions.",
+        ));
     }
     Ok(packet)
 }

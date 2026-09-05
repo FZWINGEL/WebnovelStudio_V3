@@ -60,6 +60,11 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   }
   const items = state?.frozen.snapshot.sources ?? [];
   const supplied = new Set(state?.packet.receipt.sourceHandles ?? []);
+  const guidance = state?.frozen.guidance ?? [];
+  const suppliedGuidance = new Set(state?.packet.receipt.guidanceHandles ?? []);
+  function guidanceRows(used: boolean) {
+    return guidance.filter(item => !used || suppliedGuidance.has(item.handle)).map(item => <li key={item.handle} className="context-guidance"><strong>Author guidance · {item.version.scope === 'project' ? 'Project' : item.version.scope === 'request' ? 'This request' : 'This document'} · version {item.version.version}</strong><p>{item.version.text}</p><span className="small-copy">Adopted writing instruction. It does not establish a story fact.</span></li>);
+  }
   function omission(text: string): string {
     const match = /^handle:([^;]+);reason:(.*)$/u.exec(text);
     if (!match) return text;
@@ -82,8 +87,8 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
     {state && <>
       {!state.current && <p className="stale-notice">Needs refresh. The story changed after this request. These sources show the earlier version.</p>}
       <p className="small-copy">{delivered ? 'Sources supplied for this response.' : 'Prepared sources. This request has not been sent to a model.'} Opening a source reads its saved version.</p>
-      <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} sources</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}</ul></details>
-      <details><summary>Available · {items.length} sources</summary><p className="small-copy">Permitted for this request. Availability does not mean the model read every source.</p><ul>{items.map(row)}</ul></details>
+      <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} {supplied.size === 1 ? 'source' : 'sources'}{guidance.length > 0 ? ` · ${suppliedGuidance.size} ${suppliedGuidance.size === 1 ? 'instruction' : 'instructions'}` : ''}</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}{guidanceRows(true)}</ul></details>
+      <details><summary>Available · {items.length} {items.length === 1 ? 'source' : 'sources'}{guidance.length > 0 ? ` · ${guidance.length} ${guidance.length === 1 ? 'instruction' : 'instructions'}` : ''}</summary><p className="small-copy">Permitted for this request. Availability does not mean the model read every source.</p><ul>{items.map(row)}{guidanceRows(false)}</ul></details>
       <details><summary>Not included</summary>
         {state.packet.receipt.omissions.length ? <ul>{state.packet.receipt.omissions.map((text, i) => <li key={i}>{omission(text)}</li>)}</ul> : <p className="small-copy">All permitted sources fit this request.</p>}
         {state.frozen.excludedSourceCount > 0 && <p className="small-copy">{state.frozen.excludedSourceCount} sources excluded by the request’s information boundary.</p>}

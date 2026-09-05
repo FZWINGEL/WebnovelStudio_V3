@@ -364,6 +364,27 @@ try {
   await page.locator('.persistent-feedback article').filter({ hasText: 'This test confirms discussion and context handling' }).waitFor();
   await page.screenshot({ path: resolve(output, 'persistent-discussion.png') });
   checks.push('Native selected discussion retains its exact quote, mock response and context receipt without replacing prose; unsent composer and conversation survive switching and renderer reload');
+  const beforeGuidance = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
+  await page.locator('.persistent-feedback article').filter({ hasText: /^You/ }).filter({ hasText: 'Keep this image, but make its meaning less obvious.' }).getByRole('button', { name: 'Keep as guidance', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Direction', exact: true }).fill('Preserve the final lantern image and keep the ending intact.');
+  await page.getByRole('combobox', { name: 'Apply to', exact: true }).selectOption('document');
+  await page.getByRole('button', { name: 'Save guidance', exact: true }).click();
+  await page.locator('.guidance-item p').filter({ hasText: /^Preserve the final lantern image and keep the ending intact\.$/ }).waitFor({ state: 'attached' });
+  await page.locator('.guidance-item').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'author-guidance.png') });
+  await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).fill('Discuss the effect of the closing image.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('.persistent-feedback article')].filter(item => item.textContent.includes('This test confirms discussion and context handling')).length === 2);
+  if (await page.locator('.context-inspector').getAttribute('open') === null) await page.locator('.context-inspector>summary').click();
+  await page.locator('.context-inspector details[open] .context-guidance p').filter({ hasText: /^Preserve the final lantern image and keep the ending intact\.$/ }).waitFor();
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
+  await page.locator('.context-inspector details[open] .context-guidance').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'guidance-receipt.png') });
+  await page.reload();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+  await page.locator('.guidance-item p').filter({ hasText: /^Preserve the final lantern image and keep the ending intact\.$/ }).waitFor({ state: 'attached' });
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
+  checks.push('Native Keep as guidance stores the confirmed document instruction, supplies its exact version in the next packet, survives reload and never changes manuscript text');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: 'Archive Harbour C', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor({ state: 'detached' });
@@ -373,7 +394,7 @@ try {
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor();
   checks.push('Native renames preserve the mounted editor; last document and exact caret survive navigation/reload; archive and unarchive preserve the project');
   assert.deepEqual(errors, []);
-  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable: 'target/debug/webnovel-desktop.exe', limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No provider or durable Apply', 'Native backup/export dialog journeys remain separate W3 checks'], dataDirectory: data }, null, 2));
+  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No live provider or durable Apply', 'Native export/recovery dialog journeys remain separate W3 checks'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));
 } catch (error) {
   if (observedPage && !observedPage.isClosed()) {

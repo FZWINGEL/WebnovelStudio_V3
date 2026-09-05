@@ -698,6 +698,7 @@ fn packet_and_budget_contracts_keep_cross_boundary_counters_as_strings() {
         snapshot_id: "snapshot".into(),
         invocation_ordinal: "9007199254740993".into(),
         source_handles: vec!["target".into()],
+        guidance_handles: Vec::new(),
         coverage: Vec::new(),
         omissions: Vec::new(),
         input_hash: "b".repeat(64),

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { WnsDocument } from '../editor/document';
 import type { Endpoint, Head, ProjectAccess } from './projects';
+import type { FrozenGuidance } from './guidance';
 
 export type ContextPurpose = 'discuss' | 'revise' | 'continue' | 'plan' | 'storyQuestion';
 export type ContextAudience = 'authorRoom' | 'restrictedWriting';
@@ -35,6 +36,7 @@ export interface StorySnapshot {
 export interface FrozenContext {
   snapshot: StorySnapshot; policy: InformationPolicy; purpose: ContextPurpose;
   aliases: Record<string, string[]>; excludedSourceCount: number;
+  guidance?: FrozenGuidance[];
 }
 export interface SourcePassage { handle: string; source: SourceRef; blockId: string; blockOrder: number; text: string }
 export interface SourceRead { descriptor: SourceDescriptor; passages: SourcePassage[]; body: WnsDocument; usedValidatedProjection: boolean }
@@ -50,6 +52,7 @@ export interface MockContextBudget {
 export interface PacketReceipt {
   packetId: string; sessionId: string; snapshotId: string; invocationOrdinal: string;
   sourceHandles: string[]; coverage: Array<{ handle: string; label: string; detail: CoverageDetail }>;
+  guidanceHandles?: string[];
   omissions: string[]; inputHash: string; inputTokens: string; tokenAccountingMethod: string;
 }
 export interface CompiledPacket {

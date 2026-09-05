@@ -7,6 +7,7 @@ use tauri::Manager;
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
 mod context_commands;
 mod discussion_commands;
+mod guidance_commands;
 mod library_commands;
 mod project_commands;
 
@@ -85,6 +86,8 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            guidance_commands::read_guidance,
+            guidance_commands::save_guidance,
             discussion_commands::read_discussion,
             discussion_commands::save_discussion_draft,
             discussion_commands::start_discussion,

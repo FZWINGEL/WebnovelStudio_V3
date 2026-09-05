@@ -1,6 +1,7 @@
 //! Frozen, project-owned evidence. Revisions remain the only text authority;
 //! passage projections can be deleted without losing story material.
 use super::*;
+use crate::context::guidance::{FrozenGuidance, validate_frozen_guidance};
 use crate::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
     SourceDescriptor, SourceKind, SourceRef, StorySnapshot, evaluate_sources,
@@ -34,6 +35,8 @@ pub struct FrozenContext {
     pub aliases: BTreeMap<String, Vec<String>>,
     /// No titles or text from excluded material are exposed to a writing packet.
     pub excluded_source_count: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guidance: Vec<FrozenGuidance>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -498,6 +501,23 @@ pub(super) fn freeze_story_at(
     request: &FreezeStory,
     payload_hash: &str,
 ) -> CoreResult<FrozenContext> {
+    freeze_story_impl(tx, request, payload_hash, false)
+}
+
+pub(super) fn freeze_discussion_story_at(
+    tx: &Connection,
+    request: &FreezeStory,
+    payload_hash: &str,
+) -> CoreResult<FrozenContext> {
+    freeze_story_impl(tx, request, payload_hash, true)
+}
+
+fn freeze_story_impl(
+    tx: &Connection,
+    request: &FreezeStory,
+    payload_hash: &str,
+    include_request_guidance: bool,
+) -> CoreResult<FrozenContext> {
     if request.basis != BasisKind::Working {
         return Err(CoreError::new(
             "BasisUnavailable",
@@ -630,6 +650,16 @@ pub(super) fn freeze_story_at(
         policy: request.policy.clone(),
         purpose: request.purpose,
         aliases,
+        guidance: if request.policy.audience == Audience::AuthorRoom {
+            guidance::select_guidance_at(
+                tx,
+                &request.access.project_id,
+                &request.expected.document_id,
+                include_request_guidance,
+            )?
+        } else {
+            Vec::new()
+        },
     };
     let json = serde_json::to_string(&frozen)?;
     tx.execute(
@@ -639,6 +669,7 @@ pub(super) fn freeze_story_at(
     for source in &frozen.snapshot.sources {
         tx.execute("INSERT INTO snapshot_sources(snapshot_id,handle,document_id,revision_id,body_hash) VALUES(?,?,?,?,?)", params![frozen.snapshot.snapshot_id, source.handle, source.source.document_id, source.source.revision_id, source.source.body_hash])?;
     }
+    guidance::pin_guidance_at(tx, &frozen.snapshot.snapshot_id, &frozen.guidance)?;
     Ok(frozen)
 }
 
@@ -688,6 +719,29 @@ pub(super) fn load_snapshot(
     access: &ProjectAccess,
     id: &str,
 ) -> CoreResult<FrozenContext> {
+    let (frozen, namespace) = validated_snapshot_record(db, id)?;
+    if frozen.snapshot.project_id != access.project_id || namespace != access.operation_namespace {
+        return Err(CoreError::new(
+            "ContextProjectMismatch",
+            "This snapshot belongs to another project or an independently recovered copy.",
+        ));
+    }
+    if frozen.policy.version != epochs(db)?.policy {
+        return Err(CoreError::new(
+            "ContextPolicyChanged",
+            "Source permissions changed. Prepare a new request before reading more evidence.",
+        ));
+    }
+    Ok(frozen)
+}
+
+/// Check retained data integrity without granting access under today's policy.
+/// Backup validation must retain valid historical records after revocation;
+/// request-facing readers must additionally use `load_snapshot` above.
+pub(super) fn validated_snapshot_record(
+    db: &Connection,
+    id: &str,
+) -> CoreResult<(FrozenContext, String)> {
     check_id(id)?;
     let row: Option<(String,String,String,String,i64,i64)> = db.query_row("SELECT project_id,operation_namespace,manifest_json,manifest_hash,context_source_epoch,disclosure_policy_epoch FROM story_snapshots WHERE id=?", [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).optional()?;
     let (project, namespace, json, hash, source_epoch, policy_epoch) = row.ok_or_else(|| {
@@ -696,12 +750,6 @@ pub(super) fn load_snapshot(
             "This snapshot is not available in this project.",
         )
     })?;
-    if project != access.project_id || namespace != access.operation_namespace {
-        return Err(CoreError::new(
-            "ContextProjectMismatch",
-            "This snapshot belongs to another project or an independently recovered copy.",
-        ));
-    }
     let frozen = decode_snapshot(&json, &hash)?;
     if frozen.snapshot.snapshot_id != id
         || frozen.snapshot.project_id != project
@@ -713,14 +761,8 @@ pub(super) fn load_snapshot(
             "The context identity does not match its manifest.",
         ));
     }
-    if frozen.policy.version != epochs(db)?.policy {
-        return Err(CoreError::new(
-            "ContextPolicyChanged",
-            "Source permissions changed. Prepare a new request before reading more evidence.",
-        ));
-    }
     validate_pins(db, &frozen)?;
-    Ok(frozen)
+    Ok((frozen, namespace))
 }
 
 fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
@@ -746,6 +788,13 @@ fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
             "Unclassified aliases cannot enter restricted writing context.",
         ));
     }
+    validate_frozen_guidance(
+        &frozen.guidance,
+        &frozen.snapshot.project_id,
+        &frozen.snapshot.target.document_id,
+        frozen.policy.audience,
+    )
+    .map_err(|message| CoreError::new("InvalidContext", &message))?;
     let selected: Vec<_> = frozen
         .snapshot
         .sources
@@ -768,6 +817,20 @@ fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
 }
 
 fn validate_pins(db: &Connection, frozen: &FrozenContext) -> CoreResult<()> {
+    let has_guidance: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='snapshot_guidance')", [], |row| row.get(0))?;
+    if has_guidance {
+        guidance::validate_guidance_at(
+            db,
+            &frozen.snapshot.snapshot_id,
+            &frozen.snapshot.project_id,
+            &frozen.guidance,
+        )?;
+    } else if !frozen.guidance.is_empty() {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The pinned author guidance is missing.",
+        ));
+    }
     let count: i64 = db.query_row(
         "SELECT COUNT(*) FROM snapshot_sources WHERE snapshot_id=?",
         [&frozen.snapshot.snapshot_id],

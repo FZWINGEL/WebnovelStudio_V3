@@ -477,6 +477,12 @@ fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<
             format!("The prepared requests are invalid: {error}"),
         )
     })?;
+    crate::projects::guidance::validate_guidance_storage(&connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The author guidance records are invalid: {error}"),
+        )
+    })?;
     let mut documents = Vec::new();
     let mut statement = connection.prepare(
         "SELECT id,working_version,body_hash,last_checkpoint_id,body_json,schema_version \

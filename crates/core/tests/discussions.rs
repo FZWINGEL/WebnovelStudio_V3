@@ -241,6 +241,282 @@ fn scope_input(document: &webnovel_core::projects::DocumentRecord) -> Discussion
     }
 }
 
+fn adopt_guidance(
+    project: &ProjectSession,
+    access: &ProjectAccess,
+    id: &str,
+    scope: webnovel_core::context::guidance::GuidanceScope,
+    text: &str,
+) -> webnovel_core::context::guidance::GuidanceVersion {
+    use webnovel_core::context::guidance::GuidanceScope;
+    project
+        .save_guidance(webnovel_core::projects::guidance::SaveGuidance {
+            access: access.clone(),
+            operation_id: format!("adopt-{id}"),
+            guidance_id: id.into(),
+            expected_version: "0".into(),
+            text: text.into(),
+            scope,
+            document_id: (scope != GuidanceScope::Project).then(|| "chapter-one".into()),
+            active: true,
+            origin_message_id: None,
+        })
+        .unwrap()
+}
+
+#[test]
+fn guidance_versions_remain_exact_after_edits_and_restart_while_old_requests_become_stale() {
+    use webnovel_core::context::guidance::GuidanceScope;
+    let temp = TempDir::new("guidance-history");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let initial = adopt_guidance(
+        &project,
+        &access,
+        "voice",
+        GuidanceScope::Project,
+        "Keep the ending. Avoid sarcasm.",
+    );
+    let started = start(&project, &access, &document, "guided-run");
+    let original_packet = project
+        .prepared_context(access.clone(), started.run.packet_id.clone())
+        .unwrap();
+    let envelope: Value = serde_json::from_str(&original_packet.messages[1].content).unwrap();
+    assert_eq!(
+        envelope["authorGuidance"][0]["version"]["text"],
+        initial.text
+    );
+    let updated = project
+        .save_guidance(webnovel_core::projects::guidance::SaveGuidance {
+            access: access.clone(),
+            operation_id: "edit-voice".into(),
+            guidance_id: initial.guidance_id.clone(),
+            expected_version: "1".into(),
+            text: "Keep the ending. A little dry humor is fine.".into(),
+            scope: GuidanceScope::Project,
+            document_id: None,
+            active: true,
+            origin_message_id: None,
+        })
+        .unwrap();
+    assert_eq!(updated.version, "2");
+    assert!(
+        !project
+            .prepared_context_is_current(access.clone(), started.run.packet_id.clone())
+            .unwrap()
+    );
+    assert_eq!(
+        project
+            .prepared_context(access.clone(), started.run.packet_id.clone())
+            .unwrap(),
+        original_packet
+    );
+    assert_eq!(
+        project
+            .begin_discussion_run(DiscussionBegin {
+                owner: started.run.owner.clone()
+            })
+            .unwrap_err()
+            .code,
+        "ContextChanged"
+    );
+    drop(project);
+    let reopened = ProjectSession::open(&path).unwrap();
+    let fresh = reopened.attach("guidance-reopen".into()).unwrap();
+    assert_eq!(
+        reopened
+            .guidance(fresh.clone(), "chapter-one".into())
+            .unwrap()[0],
+        updated
+    );
+    assert_eq!(
+        reopened
+            .prepared_context(fresh, started.run.packet_id)
+            .unwrap(),
+        original_packet
+    );
+}
+
+#[test]
+fn next_request_guidance_is_consumed_once_only_after_a_successful_atomic_start() {
+    use webnovel_core::context::guidance::GuidanceScope;
+    let temp = TempDir::new("guidance-once");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    adopt_guidance(
+        &project,
+        &access,
+        "one-request",
+        GuidanceScope::Request,
+        "Discuss the pendant for this request.",
+    );
+    let before = counts(&project);
+    let mut too_small = start_request(
+        &access,
+        &document,
+        "too-small",
+        "Discuss this passage.",
+        None,
+        vec![],
+    );
+    too_small.budget = MockContextBudget::new("1", "0", "0");
+    assert!(project.start_discussion(too_small).is_err());
+    assert_eq!(counts(&project), before);
+    assert_eq!(
+        project
+            .guidance(access.clone(), "chapter-one".into())
+            .unwrap()
+            .len(),
+        1
+    );
+    let injection = Connection::open(project.path.join("project.sqlite3")).unwrap();
+    injection.execute_batch("CREATE TRIGGER fail_guided_message BEFORE INSERT ON discussion_messages BEGIN SELECT RAISE(ABORT,'injected guided message failure'); END;").unwrap();
+    assert!(
+        project
+            .start_discussion(start_request(
+                &access,
+                &document,
+                "guided-message-failure",
+                "Keep the instruction.",
+                None,
+                vec![]
+            ))
+            .is_err()
+    );
+    assert_eq!(counts(&project), before);
+    assert_eq!(
+        project
+            .guidance(access.clone(), "chapter-one".into())
+            .unwrap()
+            .len(),
+        1
+    );
+    injection
+        .execute_batch("DROP TRIGGER fail_guided_message;")
+        .unwrap();
+    let first = start(&project, &access, &document, "guidance-first");
+    assert_eq!(first.packet.receipt.guidance_handles.len(), 1);
+    assert!(
+        project
+            .guidance(access.clone(), "chapter-one".into())
+            .unwrap()
+            .is_empty()
+    );
+    let epoch = project.context_source_epoch().unwrap();
+    let retry = start(&project, &access, &document, "guidance-first");
+    assert_eq!(retry.packet, first.packet);
+    assert_eq!(project.context_source_epoch().unwrap(), epoch);
+    let next = start(&project, &access, &document, "guidance-second");
+    assert!(next.packet.receipt.guidance_handles.is_empty());
+    assert_eq!(
+        project.document(access, "chapter-one".into()).unwrap().body,
+        document.body
+    );
+}
+
+#[test]
+fn guidance_scope_is_local_and_author_room_instructions_do_not_enter_restricted_writing() {
+    use webnovel_core::context::guidance::GuidanceScope;
+    use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
+    use webnovel_core::projects::story_context::FreezeStory;
+    let temp = TempDir::new("guidance-policy");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let other = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "create-other-chapter".into(),
+            document_id: "chapter-two".into(),
+            title: "Other chapter".into(),
+            kind: "chapter".into(),
+            body: body("Another scene."),
+        })
+        .unwrap();
+    adopt_guidance(
+        &project,
+        &access,
+        "local",
+        GuidanceScope::Document,
+        "The mentor is the hidden antagonist.",
+    );
+    adopt_guidance(
+        &project,
+        &access,
+        "project",
+        GuidanceScope::Project,
+        "Keep the voice understated.",
+    );
+    let packet = start(&project, &access, &other, "other-guided-run").packet;
+    assert_eq!(packet.receipt.guidance_handles.len(), 1);
+    assert!(!packet.messages[1].content.contains("hidden antagonist"));
+    let restricted = project
+        .freeze_story(FreezeStory {
+            access,
+            operation_id: "restricted-guidance".into(),
+            expected: document.head,
+            basis: BasisKind::Working,
+            purpose: ContextPurpose::StoryQuestion,
+            policy: InformationPolicy {
+                version: "0".into(),
+                audience: Audience::RestrictedWriting,
+                reader_frontier: Some("100".into()),
+                character_id: None,
+                character_grants: vec![],
+                allow_alternatives: false,
+                allow_historical: false,
+            },
+        })
+        .unwrap();
+    assert!(restricted.guidance.is_empty());
+    assert!(
+        !serde_json::to_string(&restricted)
+            .unwrap()
+            .contains("hidden antagonist")
+    );
+}
+
+#[test]
+fn recovered_copy_keeps_author_guidance_but_cannot_reuse_original_packet_authority() {
+    use webnovel_core::context::guidance::GuidanceScope;
+    let temp = TempDir::new("guidance-recovery");
+    let (source, access, document) = setup_project(&temp.child("source"));
+    adopt_guidance(
+        &source,
+        &access,
+        "ending",
+        GuidanceScope::Project,
+        "Preserve the final reunion.",
+    );
+    let original = start(&source, &access, &document, "original-guidance-run");
+    let backup = temp.child("guidance.wnsbackup");
+    create_backup(&source, &backup).unwrap();
+    let copy = recover_backup(&backup, &temp.child("copy"), "Recovered guidance").unwrap();
+    let copy_access = copy.attach("copy-guidance".into()).unwrap();
+    assert_eq!(
+        copy.guidance(copy_access.clone(), "chapter-one".into())
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        copy.prepared_context(copy_access.clone(), original.run.packet_id)
+            .unwrap_err()
+            .code,
+        "ContextProjectMismatch"
+    );
+    let copy_document = copy
+        .document(copy_access.clone(), "chapter-one".into())
+        .unwrap();
+    let copied = start(&copy, &copy_access, &copy_document, "copy-guidance-run");
+    let frozen = copy
+        .story_snapshot(copy_access.clone(), copied.packet.receipt.snapshot_id)
+        .unwrap();
+    assert_eq!(frozen.guidance[0].project_id, copy_access.project_id);
+    assert_ne!(frozen.guidance[0].project_id, access.project_id);
+    assert_eq!(
+        frozen.guidance[0].version.text,
+        "Preserve the final reunion."
+    );
+}
+
 #[test]
 fn start_is_atomic_and_idempotent_with_payload_binding() {
     let temp = TempDir::new("start");
