@@ -954,8 +954,12 @@ try {
             throw [System.IO.FileNotFoundException]::new("Expected uninstaller was not installed: $uninstallerPath")
         }
         $script:result.sameVersionReinstall.defaultUninstallAttempted = $true
-        Write-Event 'default-uninstall' 'Running the default uninstaller silently with /P and no delete-data option; generated NSIS defaults leave app data in place.'
-        Install-Silently -Path $uninstallerPath -Stage 'default-uninstall' -Arguments '/S /P' | Out-Null
+        # NSIS normally copies the uninstaller to TEMP and returns from its
+        # bootstrap process. Its documented final _?= argument keeps removal
+        # in the process we wait for. Preserve the default data-retention choice.
+        $uninstallRoot = Assert-ContainedPath $InstallRoot $QualificationRoot 'Uninstall root'
+        Write-Event 'default-uninstall' 'Running the uninstaller in place with /S /P and final _?= so process exit covers removal; no delete-data option is supplied.'
+        Install-Silently -Path $uninstallerPath -Stage 'default-uninstall' -Arguments ("/S /P _?={0}" -f $uninstallRoot) | Out-Null
         if (Test-Path -LiteralPath (Join-Path $InstallRoot 'webnovel-desktop.exe') -PathType Leaf) {
             throw 'Default uninstall returned success but the application executable remains.'
         }
