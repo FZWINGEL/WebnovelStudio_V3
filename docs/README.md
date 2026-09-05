@@ -18,9 +18,11 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6f | [Draft export ADR](ADR_0006_DRAFT_EXPORT.md) | Exact frozen Markdown/TXT previews, explicit native save, immutable export records, and partial-failure boundary |
 | 6g | [Discussion source pins ADR](ADR_0007_DISCUSSION_SOURCE_PINS.md) | Persistent source choices, explicit confirmation, mandatory packet binding, retry and recovery boundaries |
 | 6h | [Writing brief ADR](ADR_0008_WRITING_BRIEF.md) | Optional author-approved directions, exact restricted transfer, draft persistence, and approval/reset rules |
+| 6i | [Discussion recovery ADR](ADR_0009_DISCUSSION_RECOVERY.md) | Cleanup-owned Stop, retained partial output, failed local writes, and explicit recovery without generation replay |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |
+| Reference | [Claude qualification](CLAUDE_QUALIFICATION.md) | Exact installed candidate, authentication availability, and pending text-only/streaming qualification |
 | Reference | [Windows process contract](WINDOWS_PROCESS_CONTRACT.md) | Local CLI process ownership, bounded I/O, partial results, and explicit cleanup limits |
 | Reference | [Windows package qualification](WINDOWS_PACKAGE_QUALIFICATION.md) | Stable release data location, offline NSIS configuration, and installed-release evidence gates |
 | Reference | [W0 qualification](W0_QUALIFICATION.md) | Historical W0 execution record; current status is in the implementation status document |

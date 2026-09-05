@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Scope } from '../editor/selection';
 import { bodyHash, canonicalJson, snapshotFromEditor } from '../editor/document';
 import type { DocumentSession, SessionState } from '../editor/session';
-import { discussionRetry, readDiscussion, saveDiscussionDraft, startDiscussion, stopDiscussion, type ComposerBody, type DiscussionRun, type DiscussionView, type StartDiscussion } from '../ipc/discussions';
+import { discussionRetry, readDiscussion, retryDiscussionSave, saveDiscussionDraft, startDiscussion, stopDiscussion, type ComposerBody, type DiscussionRun, type DiscussionView, type StartDiscussion } from '../ipc/discussions';
 import { readProposals, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { ComposerSession, composerIntent, emptyComposer } from './composer';
 import { ContextInspector } from './ContextInspector';
@@ -19,6 +19,17 @@ function sameAccess(left: { projectId: string; operationNamespace: string; sessi
 }
 const activeRun = (run: DiscussionRun) => ['queued', 'running', 'stopping'].includes(run.status);
 
+function ProposalResponse({ run, content, hasCandidates }: { run: DiscussionRun; content: string; hasCandidates: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  return <>
+    <p className="discussion-state">{run.status === 'completed' && hasCandidates ? 'Suggestions are ready to review below.' : run.status === 'completed' ? 'No valid suggestions were retained.' : `The suggestion response is ${run.status} and cannot be applied.`}</p>
+    <details onToggle={event => setExpanded(event.currentTarget.open)}>
+      <summary>View saved response</summary>
+      {expanded && <p>{content}</p>}
+    </details>
+  </>;
+}
+
 export function FeedbackPanel({ session, state, title, documentKind, sources = [], selection, visible, onClose, registerSaver, onPrepareProposal, onApplyProposal }: {
   session: DocumentSession; state: SessionState; title: string; documentKind?: string; selection: { scope: Scope; nonce: number } | null; visible: boolean;
   sources?: SourceChoice[];
@@ -31,6 +42,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   const [body, setBody] = useState<ComposerBody>(emptyComposer);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
+  const [savingResponse, setSavingResponse] = useState(false);
   const [pending, setPending] = useState<StartDiscussion | null>(null);
   const [scopeBusy, setScopeBusy] = useState(false);
   const [scopeStale, setScopeStale] = useState(false);
@@ -93,7 +105,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   useEffect(() => {
     mounted.current = true;
     controller.current = null; polling.current = false; sendingRef.current = false;
-    setView(null); setProposals([]); setBody(emptyComposer()); setPending(null); setSending(false); setScopeBusy(false); setScopeStale(false); setGuidanceAdoption(null);
+    setView(null); setProposals([]); setBody(emptyComposer()); setPending(null); setSending(false); setSavingResponse(false); setScopeBusy(false); setScopeStale(false); setGuidanceAdoption(null);
     registerSaver(() => save.current());
     let cancelled = false;
     const access = session.projectAccess;
@@ -197,7 +209,25 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
     try { await stopDiscussion(session.projectAccess, run.id); if (isCurrent()) await refresh(); }
     catch (reason) { if (isCurrent()) setError(detail(reason)); }
   }
-  const locked = sending || !!pending || scopeBusy;
+  async function checkSavedResponse(runId?: string) {
+    if (sendingRef.current || savingResponse) return;
+    setSavingResponse(true); setError('');
+    try {
+      await session.reconcile();
+      if (!isCurrent()) return;
+      if (runId) {
+        const access = session.projectAccess;
+        const result = await retryDiscussionSave(access, documentId, runId);
+        if (!isCurrent() || !sameAccess(access, session.projectAccess)) return;
+        if (result.documentId !== documentId) throw new Error('This saved response belongs to another document.');
+        setView(result);
+      }
+      await refresh();
+      if (isCurrent() && !controller.current) setReload(value => value + 1);
+    } catch (reason) { if (isCurrent()) setError(detail(reason)); }
+    finally { if (isCurrent()) setSavingResponse(false); }
+  }
+  const locked = sending || !!pending || scopeBusy || savingResponse;
   const latest = view?.runs.at(-1);
   const latestIsCurrentProject = latest?.owner.projectId === session.projectAccess.projectId && latest?.owner.operationNamespace === session.projectAccess.operationNamespace;
   const pin = (id: string) => { if (!locked && controller.current && !controller.current.body.pinnedDocumentIds.includes(id)) update({ ...controller.current.body, pinnedDocumentIds: [...controller.current.body.pinnedDocumentIds, id] }); };
@@ -210,6 +240,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
     <div className="feedback-heading"><h2>Discussion</h2><button onClick={onClose} aria-label="Hide discussion">Hide</button></div>
     <p className="panel-intro">Talk through {title}. Select text to focus on a passage.</p>
     <div className="scope-controls"><span>Local test model</span><span className="session-tag">No live AI connected</span></div>
+    {view?.workerIssues?.map(issue => <div key={issue.runId} className="discussion-error response-save-notice" role="alert"><p>{issue.detail}</p><button disabled={locked} onClick={() => void checkSavedResponse(issue.runId)}>Retry saving response</button></div>)}
     <div className="feedback-scroll">
       {currentIntent === 'proposeEdits' && body.safeBrief && <SafeBriefEditor value={body.safeBrief} disabled={locked} focusKey={briefFocus}
         onChange={safeBrief => update({ ...body, safeBrief })} onRemove={() => { update({ ...body, safeBrief: undefined }); briefLauncher.current?.focus(); }} />}
@@ -221,10 +252,12 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
         const run = view.runs.find(run => run.id === item.runId);
         const isProposalOutput = item.role === 'assistant' && run?.intent === 'proposeEdits';
         const canAdaptBrief = documentKind === 'chapter' && run && run.intent !== 'proposeEdits' && run.owner.projectId === session.projectAccess.projectId && run.owner.operationNamespace === session.projectAccess.operationNamespace;
-        return <article className="feedback-note" key={item.id}><div>{item.role === 'user' ? 'You' : 'Test assistant'}{item.role === 'assistant' && run && run.status !== 'completed' && <span>{run.status} · incomplete</span>}</div>{item.scope && <blockquote>{item.scope.quote}</blockquote>}{isProposalOutput ? <p className="discussion-state">Suggestions are ready to review below.</p> : <p>{item.content}</p>}{!isProposalOutput && <button className="text-button" disabled={locked} onClick={() => setGuidanceAdoption(previous => ({ text: item.content, originMessageId: item.id, nonce: (previous?.nonce ?? 0) + 1 }))}>Keep as guidance</button>}{canAdaptBrief && <button className="quiet-button" disabled={locked} onClick={() => openBrief(item)}>Adapt as writing brief</button>}</article>;
+        return <article className="feedback-note" key={item.id}><div>{item.role === 'user' ? 'You' : 'Test assistant'}{item.role === 'assistant' && run && run.status !== 'completed' && <span>{run.status} · incomplete</span>}</div>{item.scope && <blockquote>{item.scope.quote}</blockquote>}{isProposalOutput && run ? <ProposalResponse run={run} content={item.content} hasCandidates={proposals.some(proposal => proposal.runId === run.id)} /> : <p>{item.content}</p>}{!isProposalOutput && <button className="text-button" disabled={locked} onClick={() => setGuidanceAdoption(previous => ({ text: item.content, originMessageId: item.id, nonce: (previous?.nonce ?? 0) + 1 }))}>Keep as guidance</button>}{canAdaptBrief && <button className="quiet-button" disabled={locked} onClick={() => openBrief(item)}>Adapt as writing brief</button>}</article>;
       })}
-      {view?.runs.filter(run => activeRun(run)).map(run => <section key={run.id} className="feedback-note"><div>Test assistant <span>{run.status === 'queued' ? 'Preparing…' : 'Responding…'}</span></div>{run.intent === 'proposeEdits' ? <p className="discussion-state">Preparing suggestions for the selected passage…</p> : run.outputText && <p>{run.outputText}</p>}<button onClick={() => void stop(run)}>Stop response</button></section>)}
-      {latest?.intent === 'proposeEdits' && !activeRun(latest) && proposals.length === 0 && <p className="proposal-empty" role="status">No valid suggestions were retained. The response remains available as discussion text.</p>}
+      {view?.runs.filter(run => activeRun(run)).map(run => {
+        const issue = view.workerIssues?.find(issue => issue.runId === run.id);
+        return <section key={run.id} className="feedback-note"><div>Test assistant <span>{issue ? 'Response needs saving' : run.status === 'stopping' ? 'Stopping…' : run.status === 'queued' ? 'Preparing…' : 'Responding…'}</span></div>{!issue && run.status === 'stopping' && <p className="discussion-state" role="status">Finishing the stop request. Your partial response stays saved.</p>}{run.intent === 'proposeEdits' ? !issue && run.status !== 'stopping' && <p className="discussion-state">Preparing suggestions for the selected passage…</p> : run.outputText && <p>{run.outputText}</p>}{!issue && <button disabled={run.status === 'stopping' || savingResponse} onClick={() => void stop(run)}>Stop response</button>}</section>;
+      })}
       {proposals.length > 0 && <ProposalPanel key={`${session.projectAccess.projectId}/${session.projectAccess.operationNamespace}/${documentId}`} access={session.projectAccess} proposals={proposals} disabled={!session.state.editable} onPrepareProposal={onPrepareProposal} onApplyProposal={onApplyProposal} onRefresh={refresh} />}
       {latest && !activeRun(latest) && latest.status !== 'completed' && <p className="discussion-state">This response is {latest.status}. {latest.stopReason === 'context_stale' ? 'The story changed before it could start.' : ''}<button disabled={locked || !latestIsCurrentProject} onClick={() => void prepareRetry(latest)}>Prepare another attempt</button></p>}
       {latest && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={latest.packetId} delivered={latest.dispatchState === 'delivered'} refreshKey={`${state.head.version}/${guidanceEpoch}`} onPin={pin} pinDisabled={locked || sourcesPending} onKeepSource={id => { if (!locked && !sourcesPending) setSourceAdoption(previous => ({ documentId: id, nonce: (previous?.nonce ?? 0) + 1 })); }} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
@@ -238,7 +271,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
       {currentIntent === 'proposeEdits' && <div className="safe-brief-status"><span>{body.safeBrief ? body.safeBrief.confirmed ? 'Writing brief approved' : 'Writing brief needs approval' : 'Writing brief · optional'}</span><button ref={briefLauncher} className="text-button" type="button" disabled={locked} onClick={() => openBrief()}>{body.safeBrief ? 'Edit brief' : 'Add writing brief'}</button></div>}
       <label htmlFor="discussion-composer">{currentIntent === 'proposeEdits' ? 'Request edits for this passage' : body.scope ? 'Discuss this passage' : 'Discuss this document'}</label>
       <textarea id="discussion-composer" ref={composer} value={body.text} disabled={!view || locked} maxLength={16000} placeholder="Make this moment more emotional, but keep the ending…" onChange={event => update({ ...body, text: event.target.value })} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; compositionWaiters.current.splice(0).forEach(resolve => resolve()); }} />
-      {error && <div className="discussion-error" role="alert">{error}{!view && <button type="button" onClick={() => setReload(value => value + 1)}>Retry loading discussion</button>}{view && !pending && <button type="button" onClick={() => void save.current().then(() => setError('')).catch(reason => setError(detail(reason)))}>Retry saving discussion</button>}</div>}
+      {error && <div className="discussion-error" role="alert">{error}{!pending && <button type="button" disabled={locked} onClick={() => void checkSavedResponse()}>Check saved discussion</button>}{!view && <button type="button" onClick={() => setReload(value => value + 1)}>Retry loading discussion</button>}{view && !pending && <button type="button" onClick={() => void save.current().then(() => setError('')).catch(reason => setError(detail(reason)))}>Retry saving discussion</button>}</div>}
       <div className="form-actions"><span>{sourcesPending ? 'Check saved sources before sending a new request.' : currentIntent === 'proposeEdits' ? 'Review a suggestion before applying it.' : 'Discussion never changes the manuscript.'}</span>{pending && !sending ? <button type="button" onClick={() => void send(true)}>Check request</button> : <button className="primary-button" disabled={!view || locked || sourcesPending || scopeStale || !body.text.trim() || view.runs.some(activeRun) || (currentIntent === 'proposeEdits' && (!canSuggestEdits || (!!body.safeBrief && (!body.safeBrief.confirmed || !validBriefText(body.safeBrief.text)))))}>Send</button>}</div>
     </form>
   </aside>;

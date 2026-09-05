@@ -9,6 +9,7 @@ use tauri::Manager;
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
 mod context_commands;
 mod discussion_commands;
+mod discussion_recovery;
 mod export_commands;
 mod guidance_commands;
 mod library_commands;
@@ -44,6 +45,7 @@ fn runtime_info() -> RuntimeInfo {
 fn main() {
     tauri::Builder::default()
         .manage(project_commands::DesktopProjects::default())
+        .manage(discussion_recovery::DiscussionRecovery::default())
         .setup(|app| {
             // Installed releases keep their library across rebuilds and upgrades.
             // Development checkouts and synthetic qualification data stay separate.
@@ -105,6 +107,7 @@ fn main() {
             guidance_commands::read_guidance,
             guidance_commands::save_guidance,
             discussion_commands::read_discussion,
+            discussion_commands::retry_discussion_save,
             discussion_commands::discussion_retry,
             discussion_commands::save_discussion_draft,
             discussion_commands::start_discussion,

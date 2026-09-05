@@ -556,9 +556,33 @@ function Get-UiaText {
     return $null
 }
 
+function Get-UiaSelectedValue {
+    param([Parameter(Mandatory = $true)]$Element)
+    try {
+        $pattern = $Element.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern)
+        foreach ($selected in @($pattern.Current.GetSelection())) {
+            try {
+                $name = [string]$selected.Current.Name
+                if (-not [string]::IsNullOrWhiteSpace($name)) { return $name }
+            } catch { }
+        }
+    } catch { }
+    try {
+        $pattern = $Element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        $value = [string]$pattern.Current.Value
+        if (-not [string]::IsNullOrWhiteSpace($value)) { return $value }
+    } catch { }
+    return $null
+}
+
 function Select-Chapter {
     param([Parameter(Mandatory = $true)]$Window)
     $startWith = Wait-Until { Find-UiaByName $Window 'Start with' ([System.Windows.Automation.ControlType]::ComboBox) } 15 'the Start with document-kind selector'
+    $selected = Get-UiaSelectedValue $startWith
+    if ([string]::Equals($selected, 'Chapter', [StringComparison]::OrdinalIgnoreCase)) {
+        Write-Event 'document' 'The Start with selector already has Chapter selected; no option-list interaction was required.'
+        return
+    }
     try {
         $expand = $startWith.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
         $expand.Expand()
@@ -569,6 +593,11 @@ function Select-Chapter {
         $chapter = Wait-Until { Find-UiaByName $Window 'Chapter' ([System.Windows.Automation.ControlType]::ListItem) } 10 'the Chapter option'
         $selection = $chapter.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
         $selection.Select()
+        $selected = Get-UiaSelectedValue $startWith
+        if (-not [string]::Equals($selected, 'Chapter', [StringComparison]::OrdinalIgnoreCase)) {
+            throw [System.InvalidOperationException]::new(("The Start with selector did not confirm Chapter after selection; current value was '{0}'." -f $selected))
+        }
+        Write-Event 'document' 'Selected and confirmed Chapter in the Start with selector.'
     } finally {
         try { $expand.Collapse() } catch { }
     }

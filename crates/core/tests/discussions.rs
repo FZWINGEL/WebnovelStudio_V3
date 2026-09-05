@@ -8,8 +8,9 @@ use webnovel_core::context::packet::MockContextBudget;
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::discussions::{
     DiscussionBegin, DiscussionFail, DiscussionFinish, DiscussionMessageRole,
-    DiscussionOutputAppend, DiscussionRunStatus, DiscussionScopeInput, FeedbackIntent, RunOwner,
-    SafeBriefInput, SaveDiscussionDraft, StartDiscussion,
+    DiscussionOutputAppend, DiscussionRunStatus, DiscussionScopeInput, DiscussionStopCleanup,
+    DiscussionStopSettled, FeedbackIntent, RunOwner, SafeBriefInput, SaveDiscussionDraft,
+    StartDiscussion,
 };
 use webnovel_core::projects::{
     CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
@@ -162,6 +163,25 @@ fn finish(
             assistant_text: assistant_text.into(),
         })
         .expect("finish discussion")
+}
+
+fn settle_stop(
+    project: &ProjectSession,
+    owner: &RunOwner,
+    expected_sequence: &str,
+    event_id: &str,
+    assistant_text: &str,
+    cleanup: DiscussionStopCleanup,
+) -> webnovel_core::projects::discussions::DiscussionRun {
+    project
+        .settle_discussion_stop(DiscussionStopSettled {
+            owner: owner.clone(),
+            expected_sequence: expected_sequence.into(),
+            event_id: event_id.into(),
+            assistant_text: assistant_text.into(),
+            cleanup,
+        })
+        .expect("settle stopped discussion")
 }
 
 fn discussion(
@@ -1006,7 +1026,7 @@ fn begin_is_single_claim_and_output_events_use_sequence_and_event_cas() {
             owner: owner.clone(),
             expected_sequence: "2".into(),
             event_id: "terminal-rollback".into(),
-            assistant_text: "must roll back".into(),
+            assistant_text: "alpha beta final".into(),
         })
         .expect_err("terminal event and message must commit atomically");
     assert_eq!(error.code, "PersistenceUnavailable");
@@ -1022,10 +1042,10 @@ fn begin_is_single_claim_and_output_events_use_sequence_and_event_cas() {
         .expect("reopen db after terminal fault")
         .execute_batch("DROP TRIGGER fail_assistant_message;")
         .expect("remove terminal message fault");
-    let completed = finish(&project, &owner, "2", "terminal-1", "final answer");
+    let completed = finish(&project, &owner, "2", "terminal-1", "alpha beta final");
     assert_eq!(completed.status, DiscussionRunStatus::Completed);
     assert_eq!(completed.sequence, "3");
-    assert_eq!(completed.output_text, "final answer");
+    assert_eq!(completed.output_text, "alpha beta final");
     let view = discussion(&project, &access);
     assert_eq!(view.runs.len(), 1);
     assert_eq!(view.runs[0].status, DiscussionRunStatus::Completed);
@@ -1035,14 +1055,14 @@ fn begin_is_single_claim_and_output_events_use_sequence_and_event_cas() {
         .iter()
         .find(|message| message.role == DiscussionMessageRole::Assistant)
         .expect("terminal output has an assistant message");
-    assert_eq!(assistant.content, "final answer");
+    assert_eq!(assistant.content, "alpha beta final");
 
     let duplicate_terminal = project
         .finish_discussion(DiscussionFinish {
             owner: owner.clone(),
             expected_sequence: "2".into(),
             event_id: "terminal-1".into(),
-            assistant_text: "final answer".into(),
+            assistant_text: "alpha beta final".into(),
         })
         .expect("same terminal event is idempotent");
     assert_eq!(duplicate_terminal.id, completed.id);
@@ -1052,7 +1072,7 @@ fn begin_is_single_claim_and_output_events_use_sequence_and_event_cas() {
             owner,
             expected_sequence: "0".into(),
             event_id: "terminal-1".into(),
-            assistant_text: "final answer".into(),
+            assistant_text: "alpha beta final".into(),
         })
         .expect_err("a terminal retry must retain its original sequence");
     assert_eq!(error.code, "EventIdReused");
@@ -1069,9 +1089,22 @@ fn stop_linearizes_late_output_and_terminal_delivery() {
     let stopped = project
         .stop_discussion(access.clone(), owner.run_id.clone())
         .expect("stop exact run");
-    assert_eq!(stopped.run.status, DiscussionRunStatus::Stopped);
+    assert_eq!(stopped.run.status, DiscussionRunStatus::Stopping);
     assert_eq!(stopped.run.stop_reason.as_deref(), Some("author_stopped"));
-    assert_eq!(stopped.run.sequence, "2");
+    assert_eq!(stopped.run.sequence, "1");
+    let stopping_view = discussion(&project, &access);
+    assert_eq!(stopping_view.messages.len(), 1);
+    let settled = settle_stop(
+        &project,
+        &owner,
+        "1",
+        "stop-settle",
+        "partial output",
+        DiscussionStopCleanup::Settled,
+    );
+    assert_eq!(settled.status, DiscussionRunStatus::Stopped);
+    assert_eq!(settled.sequence, "2");
+    assert_eq!(settled.output_text, "partial output");
     let stopped_view = discussion(&project, &access);
     assert_eq!(stopped_view.messages.len(), 2);
     let stop_message = stopped_view
@@ -1109,6 +1142,12 @@ fn stop_linearizes_late_output_and_terminal_delivery() {
     assert_eq!(reopened_view.runs[0].status, DiscussionRunStatus::Stopped);
     assert_eq!(reopened_view.runs[0].sequence, "2");
     assert!(reopened_view.messages[1].content.contains("partial output"));
+    assert!(
+        reopened_view.messages[1]
+            .content
+            .to_ascii_lowercase()
+            .contains("stopp")
+    );
     let repeated = reopened
         .stop_discussion(reopened_access, owner.run_id)
         .expect("repeated stop is idempotent");
@@ -1120,6 +1159,282 @@ fn stop_linearizes_late_output_and_terminal_delivery() {
             .len(),
         2
     );
+}
+
+#[test]
+fn queued_stop_seals_with_terminal_message_and_repeats() {
+    let temp = TempDir::new("queued-stop");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let started = start(&project, &access, &document, "queued-stop-run");
+    let first = project
+        .stop_discussion(access.clone(), started.run.id.clone())
+        .expect("queued stop is durable");
+    assert_eq!(first.run.status, DiscussionRunStatus::Stopped);
+    assert_eq!(first.run.sequence, "1");
+    assert_eq!(discussion(&project, &access).messages.len(), 2);
+    let repeated = project
+        .stop_discussion(access.clone(), started.run.id.clone())
+        .expect("terminal stop is idempotent");
+    assert_eq!(repeated.run.status, DiscussionRunStatus::Stopped);
+    assert_eq!(repeated.run.sequence, "1");
+    let error = project
+        .settle_discussion_stop(DiscussionStopSettled {
+            owner: started.run.owner,
+            expected_sequence: "1".into(),
+            event_id: "queued-settle".into(),
+            assistant_text: String::new(),
+            cleanup: DiscussionStopCleanup::Settled,
+        })
+        .expect_err("a queued stop has no worker settlement to acknowledge");
+    assert_eq!(error.code, "RunSealed");
+}
+
+#[test]
+fn stopping_blocks_retry_and_settlement_replay_is_idempotent() {
+    let temp = TempDir::new("stopping-replay");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let started = start(&project, &access, &document, "stopping-replay-run");
+    let owner = started.run.owner.clone();
+    begin(&project, &owner);
+    append(&project, &owner, "0", "partial", "partial");
+    let stopping = project
+        .stop_discussion(access.clone(), owner.run_id.clone())
+        .expect("stop intent");
+    assert_eq!(stopping.run.status, DiscussionRunStatus::Stopping);
+    assert_eq!(stopping.run.sequence, "1");
+    let error = project
+        .mark_discussion_delivered(owner.clone())
+        .expect_err("stop intent prevents delivery acknowledgement");
+    assert_eq!(error.code, "RunStopping");
+    let error = project
+        .discussion_retry(access.clone(), owner.run_id.clone())
+        .expect_err("retry waits for worker settlement");
+    assert_eq!(error.code, "PreviousRunActive");
+    let settled = settle_stop(
+        &project,
+        &owner,
+        "1",
+        "settlement-replay",
+        "partial plus cleanup",
+        DiscussionStopCleanup::Settled,
+    );
+    assert_eq!(settled.status, DiscussionRunStatus::Stopped);
+    assert_eq!(settled.sequence, "2");
+    assert_eq!(settled.output_text, "partial plus cleanup");
+    let replay = project
+        .settle_discussion_stop(DiscussionStopSettled {
+            owner: owner.clone(),
+            expected_sequence: "1".into(),
+            event_id: "settlement-replay".into(),
+            assistant_text: "partial plus cleanup".into(),
+            cleanup: DiscussionStopCleanup::Settled,
+        })
+        .expect("identical settlement replay");
+    assert_eq!(replay.id, settled.id);
+    assert_eq!(replay.sequence, "2");
+    let error = project
+        .settle_discussion_stop(DiscussionStopSettled {
+            owner,
+            expected_sequence: "1".into(),
+            event_id: "settlement-replay".into(),
+            assistant_text: "partial changed".into(),
+            cleanup: DiscussionStopCleanup::Settled,
+        })
+        .expect_err("changed settlement payload reuses the event ID");
+    assert_eq!(error.code, "EventIdReused");
+}
+
+#[test]
+fn unresolved_stop_settlement_interrupts_without_proposals() {
+    let temp = TempDir::new("stopping-unresolved");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let started = start(&project, &access, &document, "stopping-unresolved-run");
+    let owner = started.run.owner.clone();
+    begin(&project, &owner);
+    append(&project, &owner, "0", "partial", "partial");
+    project
+        .stop_discussion(access.clone(), owner.run_id.clone())
+        .expect("stop intent");
+    let interrupted = settle_stop(
+        &project,
+        &owner,
+        "1",
+        "unresolved-settlement",
+        "partial cleanup tail",
+        DiscussionStopCleanup::Unresolved,
+    );
+    assert_eq!(interrupted.status, DiscussionRunStatus::Interrupted);
+    assert_eq!(
+        interrupted.stop_reason.as_deref(),
+        Some("stop_cleanup_unresolved")
+    );
+    assert_eq!(interrupted.output_text, "partial cleanup tail");
+    let interrupted_message = discussion(&project, &access)
+        .messages
+        .into_iter()
+        .find(|message| message.role == DiscussionMessageRole::Assistant)
+        .expect("unresolved stop keeps a terminal explanation");
+    assert!(interrupted_message.content.contains("partial cleanup tail"));
+    assert!(
+        interrupted_message
+            .content
+            .to_ascii_lowercase()
+            .contains("interrupted")
+    );
+    assert!(
+        project
+            .proposals(access, "chapter-one".into())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn empty_stop_settlement_keeps_terminal_explanation() {
+    let temp = TempDir::new("stopping-empty");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let started = start(&project, &access, &document, "stopping-empty-run");
+    let owner = started.run.owner.clone();
+    begin(&project, &owner);
+    project
+        .stop_discussion(access.clone(), owner.run_id.clone())
+        .expect("stop intent");
+    let stopped = settle_stop(
+        &project,
+        &owner,
+        "0",
+        "empty-settlement",
+        "",
+        DiscussionStopCleanup::Settled,
+    );
+    assert_eq!(stopped.status, DiscussionRunStatus::Stopped);
+    assert_eq!(stopped.sequence, "1");
+    assert!(stopped.output_text.is_empty());
+    let message = discussion(&project, &access)
+        .messages
+        .into_iter()
+        .find(|message| message.role == DiscussionMessageRole::Assistant)
+        .expect("empty settlement keeps a terminal explanation");
+    assert!(message.content.to_ascii_lowercase().contains("stopp"));
+}
+
+#[test]
+fn completion_wins_when_stop_arrives_after_terminal_commit() {
+    let temp = TempDir::new("stopping-complete");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let started = start(&project, &access, &document, "stopping-complete-run");
+    let owner = started.run.owner.clone();
+    begin(&project, &owner);
+    let completed = finish(&project, &owner, "0", "complete", "complete answer");
+    assert_eq!(completed.status, DiscussionRunStatus::Completed);
+    assert_eq!(completed.sequence, "1");
+    let before = discussion(&project, &access);
+    let stopped = project
+        .stop_discussion(access.clone(), owner.run_id.clone())
+        .expect("stop after completion is idempotent")
+        .run;
+    assert_eq!(stopped.status, DiscussionRunStatus::Completed);
+    assert_eq!(stopped.sequence, "1");
+    let after = discussion(&project, &access);
+    assert_eq!(after.messages.len(), before.messages.len());
+    for (after_message, before_message) in after.messages.iter().zip(before.messages.iter()) {
+        assert_eq!(after_message.id, before_message.id);
+        assert_eq!(after_message.content, before_message.content);
+    }
+}
+
+#[test]
+fn failed_stop_settlement_retains_stopping_prefix_and_finish_rejects_replacement() {
+    let temp = TempDir::new("stopping-rollback");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let started = start(&project, &access, &document, "stopping-rollback-run");
+    let owner = started.run.owner.clone();
+    begin(&project, &owner);
+    append(&project, &owner, "0", "partial", "prefix");
+    let error = project
+        .finish_discussion(DiscussionFinish {
+            owner: owner.clone(),
+            expected_sequence: "1".into(),
+            event_id: "replace".into(),
+            assistant_text: "replacement".into(),
+        })
+        .expect_err("terminal completion cannot replace persisted output");
+    assert_eq!(error.code, "OutputConflict");
+    project
+        .stop_discussion(access.clone(), owner.run_id.clone())
+        .expect("stop intent");
+    Connection::open(project.path.join("project.sqlite3"))
+        .expect("open rollback database")
+        .execute_batch(
+            "CREATE TRIGGER fail_stopped_message BEFORE INSERT ON discussion_messages
+             WHEN NEW.role='assistant'
+             BEGIN SELECT RAISE(ABORT,'injected stopped message failure'); END;",
+        )
+        .expect("install stopped message fault");
+    let error = project
+        .settle_discussion_stop(DiscussionStopSettled {
+            owner: owner.clone(),
+            expected_sequence: "1".into(),
+            event_id: "rollback-settlement".into(),
+            assistant_text: "prefix tail".into(),
+            cleanup: DiscussionStopCleanup::Settled,
+        })
+        .expect_err("settlement message and run must commit atomically");
+    assert_eq!(error.code, "PersistenceUnavailable");
+    let after = discussion(&project, &access);
+    assert_eq!(after.runs[0].status, DiscussionRunStatus::Stopping);
+    assert_eq!(after.runs[0].sequence, "1");
+    assert_eq!(after.runs[0].output_text, "prefix");
+    Connection::open(project.path.join("project.sqlite3"))
+        .expect("reopen rollback database")
+        .execute_batch("DROP TRIGGER fail_stopped_message;")
+        .expect("remove stopped message fault");
+    let settled = settle_stop(
+        &project,
+        &owner,
+        "1",
+        "rollback-settlement",
+        "prefix tail",
+        DiscussionStopCleanup::Settled,
+    );
+    assert_eq!(settled.status, DiscussionRunStatus::Stopped);
+}
+
+#[test]
+fn stopping_run_becomes_interrupted_on_reopen() {
+    let temp = TempDir::new("stopping-recovery");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let started = start(&project, &access, &document, "stopping-recovery-run");
+    let owner = started.run.owner.clone();
+    begin(&project, &owner);
+    append(&project, &owner, "0", "partial", "prefix");
+    project
+        .stop_discussion(access, owner.run_id.clone())
+        .expect("stop intent");
+    let archive = temp.child("stopping-recovery.wnsbackup");
+    create_backup(&project, &archive).expect("backup stopping project");
+    let recovered = recover_backup(&archive, &temp.child("stopping-copy"), "Copy")
+        .expect("recover stopping project");
+    let recovered_access = recovered.attach("stopping-copy-session".into()).unwrap();
+    let error = recovered
+        .settle_discussion_stop(DiscussionStopSettled {
+            owner: owner.clone(),
+            expected_sequence: "1".into(),
+            event_id: "foreign-settlement".into(),
+            assistant_text: "prefix".into(),
+            cleanup: DiscussionStopCleanup::Settled,
+        })
+        .expect_err("a recovered copy cannot acknowledge the original stop");
+    assert_eq!(error.code, "DiscussionProjectMismatch");
+    drop(recovered_access);
+    drop(recovered);
+    drop(project);
+    let reopened = ProjectSession::open(&path).expect("reopen stopping project");
+    let reopened_access = reopened.attach("stopping-recovery-session".into()).unwrap();
+    let view = discussion(&reopened, &reopened_access);
+    assert_eq!(view.runs[0].status, DiscussionRunStatus::Interrupted);
+    assert_eq!(view.runs[0].output_text, "prefix");
 }
 
 #[test]

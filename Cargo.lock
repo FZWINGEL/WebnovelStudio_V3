@@ -4235,6 +4235,7 @@ name = "webnovel-desktop"
 version = "0.1.0"
 dependencies = [
  "rfd",
+ "rusqlite",
  "serde",
  "serde_json",
  "tauri",

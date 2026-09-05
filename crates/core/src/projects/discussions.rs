@@ -33,6 +33,10 @@ const MAX_SCOPE_QUOTE_BYTES: usize = 256 * 1024;
 const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_EVENT_BYTES: usize = 128 * 1024;
 const MAX_PINNED_DOCUMENTS: usize = 64;
+const STOP_SETTLED_MESSAGE: &str =
+    "You stopped this response. Any partial text shown here is saved.";
+const STOP_UNRESOLVED_MESSAGE: &str =
+    "This response was interrupted. Any partial text shown here is saved.";
 
 /// The two author-room actions supported by a discussion request.  `Discuss`
 /// is intentionally the wire default so older clients produce the same
@@ -335,6 +339,23 @@ pub struct DiscussionFinish {
     pub assistant_text: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DiscussionStopCleanup {
+    Settled,
+    Unresolved,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DiscussionStopSettled {
+    pub owner: RunOwner,
+    pub expected_sequence: String,
+    pub event_id: String,
+    pub assistant_text: String,
+    pub cleanup: DiscussionStopCleanup,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionStop {
@@ -355,6 +376,7 @@ pub(super) enum DiscussionCommand {
     Finish(DiscussionFinish, Reply<DiscussionRun>),
     Fail(DiscussionFail, Reply<DiscussionRun>),
     Stop(ProjectAccess, String, Reply<DiscussionStop>),
+    SettleStop(DiscussionStopSettled, Reply<DiscussionRun>),
     Read(ProjectAccess, String, Reply<DiscussionView>),
     Retry(ProjectAccess, String, Reply<DiscussionRetry>),
     SaveDraft(SaveDiscussionDraft, Reply<DiscussionDraft>),
@@ -418,6 +440,15 @@ impl ProjectSession {
         })
     }
 
+    pub fn settle_discussion_stop(
+        &self,
+        request: DiscussionStopSettled,
+    ) -> CoreResult<DiscussionRun> {
+        self.request(|reply| {
+            Command::Discussion(Box::new(DiscussionCommand::SettleStop(request, reply)))
+        })
+    }
+
     pub fn read_discussion(
         &self,
         access: ProjectAccess,
@@ -472,6 +503,9 @@ impl OwnedProject {
             }
             DiscussionCommand::Stop(access, run_id, reply) => {
                 mutate!(reply, self.stop_discussion(access, run_id));
+            }
+            DiscussionCommand::SettleStop(request, reply) => {
+                mutate!(reply, self.settle_discussion_stop(request));
             }
             DiscussionCommand::Read(access, document_id, reply) => {
                 let _ = reply.send(self.read_discussion(access, document_id));
@@ -807,6 +841,12 @@ impl OwnedProject {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current = read_run(&tx, &owner.run_id)?;
         validate_owner(&current, &owner)?;
+        if current.status == DiscussionRunStatus::Stopping {
+            return Err(CoreError::new(
+                "RunStopping",
+                "The discussion is stopping and cannot be marked delivered before cleanup settles.",
+            ));
+        }
         if current.status != DiscussionRunStatus::Running {
             return Err(CoreError::new(
                 "RunSealed",
@@ -823,7 +863,7 @@ impl OwnedProject {
         &mut self,
         request: DiscussionFinish,
     ) -> CoreResult<DiscussionRun> {
-        validate_output_event(&request.owner, &request.event_id, &request.assistant_text)?;
+        validate_finish_request(&request.owner, &request.event_id, &request.assistant_text)?;
         validate_runtime_owner(self, &request.owner)?;
         let expected = parse_version(&request.expected_sequence)?;
         let tx = self
@@ -848,6 +888,7 @@ impl OwnedProject {
             ));
         }
         ensure_run_started(current.status)?;
+        validate_final_output(&current.output_text, &request.assistant_text, false)?;
         let sequence = parse_version(&current.sequence)?;
         if expected != sequence {
             return Err(CoreError::new(
@@ -925,6 +966,12 @@ impl OwnedProject {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current = read_run(&tx, &request.owner.run_id)?;
         validate_owner(&current, &request.owner)?;
+        if current.status == DiscussionRunStatus::Stopping {
+            return Err(CoreError::new(
+                "RunStopping",
+                "The discussion is stopping and cannot be failed before cleanup settles.",
+            ));
+        }
         if let Some((kind, text, event_sequence)) =
             existing_event(&tx, &request.owner.run_id, &request.event_id)?
         {
@@ -979,20 +1026,138 @@ impl OwnedProject {
                 "This run belongs to another project session.",
             ));
         }
-        let run = if current.status.active() {
-            seal_run(
+        let run = match current.status {
+            DiscussionRunStatus::Queued => seal_run(
                 &tx,
                 &current,
                 DiscussionRunStatus::Stopped,
                 "author_stopped",
                 &format!("system-stop-{}", current.id),
-                "The author stopped this discussion before a complete response was received.",
-            )?
-        } else {
-            current
+                STOP_SETTLED_MESSAGE,
+            )?,
+            DiscussionRunStatus::Running => {
+                tx.execute(
+                    "UPDATE discussion_runs SET status='stopping',stop_reason='author_stopped',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND project_id=? AND operation_namespace=? AND status='running'",
+                    params![run_id, access.project_id, access.operation_namespace],
+                )?;
+                read_run(&tx, &run_id)?
+            }
+            DiscussionRunStatus::Stopping
+            | DiscussionRunStatus::Completed
+            | DiscussionRunStatus::Stopped
+            | DiscussionRunStatus::Failed
+            | DiscussionRunStatus::Interrupted => current,
         };
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(DiscussionStop { run })
+    }
+
+    pub(super) fn settle_discussion_stop(
+        &mut self,
+        request: DiscussionStopSettled,
+    ) -> CoreResult<DiscussionRun> {
+        validate_settlement_request(&request)?;
+        validate_runtime_owner(self, &request.owner)?;
+        let expected = parse_version(&request.expected_sequence)?;
+        let tx = self
+            .db_mut()?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = read_run(&tx, &request.owner.run_id)?;
+        validate_owner(&current, &request.owner)?;
+        let status = match request.cleanup {
+            DiscussionStopCleanup::Settled => DiscussionRunStatus::Stopped,
+            DiscussionStopCleanup::Unresolved => DiscussionRunStatus::Interrupted,
+        };
+        if let Some((kind, text, event_sequence)) =
+            existing_event(&tx, &request.owner.run_id, &request.event_id)?
+        {
+            if kind == "terminal"
+                && text == request.assistant_text
+                && expected.checked_add(1) == Some(event_sequence)
+                && current.status == status
+                && current.output_text == request.assistant_text
+            {
+                tx.commit().map_err(CoreError::uncertain)?;
+                return Ok(current);
+            }
+            return Err(CoreError::new(
+                "EventIdReused",
+                "A stop settlement event ID was reused with a different outcome, content, or sequence.",
+            ));
+        }
+        if current.status != DiscussionRunStatus::Stopping {
+            return Err(CoreError::new(
+                "RunSealed",
+                "Only a stopping discussion can be settled.",
+            ));
+        }
+        let sequence = parse_version(&current.sequence)?;
+        if expected != sequence {
+            return Err(CoreError::new(
+                "SequenceConflict",
+                "The stop settlement sequence is stale; reconcile the run before retrying.",
+            ));
+        }
+        validate_final_output(&current.output_text, &request.assistant_text, true)?;
+        let next = sequence
+            .checked_add(1)
+            .ok_or_else(|| CoreError::new("InvalidRequest", "The output sequence is exhausted."))?;
+        tx.execute(
+            "INSERT INTO discussion_output_events(run_id,sequence,event_id,kind,chunk) VALUES(?,?,?,?,?)",
+            params![
+                request.owner.run_id,
+                next,
+                request.event_id,
+                "terminal",
+                request.assistant_text
+            ],
+        )?;
+        let reason = match request.cleanup {
+            DiscussionStopCleanup::Settled => "author_stopped",
+            DiscussionStopCleanup::Unresolved => "stop_cleanup_unresolved",
+        };
+        let changed = tx.execute(
+            "UPDATE discussion_runs SET status=?,sequence=?,output_text=?,stop_reason=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND project_id=? AND operation_namespace=? AND status='stopping' AND sequence=?",
+            params![
+                status.as_str(),
+                next,
+                request.assistant_text,
+                reason,
+                request.owner.run_id,
+                request.owner.project_id,
+                request.owner.operation_namespace,
+                sequence
+            ],
+        )?;
+        if changed != 1 {
+            return Err(CoreError::new(
+                "SequenceConflict",
+                "The stop settlement changed before its terminal state was committed.",
+            ));
+        }
+        let explanation = match request.cleanup {
+            DiscussionStopCleanup::Settled => STOP_SETTLED_MESSAGE,
+            DiscussionStopCleanup::Unresolved => STOP_UNRESOLVED_MESSAGE,
+        };
+        let message = if request.assistant_text.is_empty() {
+            explanation.to_owned()
+        } else {
+            format!("{}\n\n[{}]", request.assistant_text, explanation)
+        };
+        tx.execute(
+            "INSERT INTO discussion_messages(id,thread_id,run_id,role,content,packet_id) VALUES(?,?,?,?,?,?)",
+            params![
+                new_id(),
+                current.thread_id,
+                request.owner.run_id,
+                DiscussionMessageRole::Assistant.as_str(),
+                message,
+                current.packet_id
+            ],
+        )?;
+        let result = read_run(&tx, &request.owner.run_id)?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(result)
     }
 
     /// The open path calls this once after migration. Active jobs are not
@@ -1867,6 +2032,62 @@ fn validate_output_event(owner: &RunOwner, event_id: &str, text: &str) -> CoreRe
         return Err(CoreError::new(
             "InvalidRequest",
             "A discussion output event must be nonempty and at most 128 KiB.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_finish_request(owner: &RunOwner, event_id: &str, text: &str) -> CoreResult<()> {
+    check_id(&owner.project_id)?;
+    check_id(&owner.operation_namespace)?;
+    check_id(&owner.run_id)?;
+    check_id(event_id)?;
+    if text.is_empty() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A completed discussion must include assistant output.",
+        ));
+    }
+    if text.len() > MAX_OUTPUT_BYTES {
+        return Err(CoreError::new(
+            "OutputTooLarge",
+            "The discussion output exceeds the durable limit.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_settlement_request(request: &DiscussionStopSettled) -> CoreResult<()> {
+    check_id(&request.owner.project_id)?;
+    check_id(&request.owner.operation_namespace)?;
+    check_id(&request.owner.run_id)?;
+    check_id(&request.event_id)?;
+    if request.assistant_text.len() > MAX_OUTPUT_BYTES {
+        return Err(CoreError::new(
+            "OutputTooLarge",
+            "The stopped discussion output exceeds the durable limit.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_final_output(current: &str, final_text: &str, allow_empty: bool) -> CoreResult<()> {
+    if !allow_empty && final_text.is_empty() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A completed discussion must include assistant output.",
+        ));
+    }
+    if final_text.len() > MAX_OUTPUT_BYTES {
+        return Err(CoreError::new(
+            "OutputTooLarge",
+            "The discussion output exceeds the durable limit.",
+        ));
+    }
+    if !final_text.starts_with(current) {
+        return Err(CoreError::new(
+            "OutputConflict",
+            "A terminal discussion result cannot replace persisted output.",
         ));
     }
     Ok(())

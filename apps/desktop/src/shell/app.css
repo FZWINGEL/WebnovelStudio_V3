@@ -180,6 +180,8 @@ input::placeholder { color: #637083; }
 .persistent-feedback .feedback-note blockquote { max-height: 140px; }
 .discussion-state { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .discussion-error { padding: 10px 0; font-size: 12px; color: #9b2932; line-height: 1.6; }
+.response-save-notice { padding: 10px 22px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.response-save-notice p { margin: 0 0 6px; }
 .context-inspector { margin-top: 15px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 12px; line-height: 1.6; }
 .context-inspector summary { cursor: pointer; padding: 5px 0; font-weight: 600; }
 .context-inspector details { margin-block: 5px; }

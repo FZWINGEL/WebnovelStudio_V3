@@ -17,7 +17,7 @@ export interface DiscussionRun {
   status: 'queued' | 'running' | 'stopping' | 'completed' | 'stopped' | 'failed' | 'interrupted';
   dispatchState: string; sequence: string; outputText: string; stopReason: string | null; createdAt: string; updatedAt: string;
 }
-export interface DiscussionView { documentId: string; threadId: string | null; messages: DiscussionMessage[]; runs: DiscussionRun[]; draft: DiscussionDraft | null }
+export interface DiscussionView { documentId: string; threadId: string | null; messages: DiscussionMessage[]; runs: DiscussionRun[]; draft: DiscussionDraft | null; workerIssues?: Array<{ runId: string; detail: string }> }
 export interface StartDiscussion {
   access: ProjectAccess; operationId: string; expected: Head; instruction: string; scope: DiscussionScope | null;
   intent?: FeedbackIntent; pinnedDocumentIds: string[]; budget: MockContextBudget; previousRunId: string | null;
@@ -26,6 +26,7 @@ export interface StartDiscussion {
 export interface DiscussionStart { threadId: string; run: DiscussionRun; userMessage: DiscussionMessage; packet: CompiledPacket }
 export interface SaveDiscussionDraft extends ComposerBody { access: ProjectAccess; operationId: string; documentId: string; expectedVersion: string }
 export const readDiscussion = (access: ProjectAccess, documentId: string): Promise<DiscussionView> => invoke('read_discussion', { access, documentId });
+export const retryDiscussionSave = (access: ProjectAccess, documentId: string, runId: string): Promise<DiscussionView> => invoke('retry_discussion_save', { access, documentId, runId });
 export const discussionRetry = (access: ProjectAccess, runId: string): Promise<ComposerBody & { previousRunId: string }> => invoke('discussion_retry', { access, runId });
 export const startDiscussion = (request: StartDiscussion): Promise<DiscussionStart> => invoke('start_discussion', { request });
 export const stopDiscussion = (access: ProjectAccess, runId: string): Promise<{ run: DiscussionRun }> => invoke('stop_discussion', { access, runId });

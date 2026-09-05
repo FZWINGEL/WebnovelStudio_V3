@@ -18,6 +18,7 @@ vi.mock('../ipc/discussions', () => ({
   startDiscussion: vi.fn(),
   stopDiscussion: vi.fn(),
   discussionRetry: vi.fn(),
+  retryDiscussionSave: vi.fn(),
 }));
 vi.mock('../ipc/proposals', () => ({
   readProposals: vi.fn(),
@@ -76,8 +77,8 @@ async function renderPanel(session: DocumentSession) {
   await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
 }
 
-async function waitFor<T>(assertion: () => T) {
-  await act(async () => { await vi.waitFor(assertion); });
+async function waitFor<T>(assertion: () => T, timeout = 1000) {
+  await act(async () => { await vi.waitFor(assertion, { timeout }); });
 }
 
 async function typeInstruction(text: string) {
@@ -152,7 +153,12 @@ describe('persistent FeedbackPanel safeguards', () => {
     const request = vi.mocked(discussions.startDiscussion).mock.calls[0][0];
     expect(request.safeBrief).toEqual({ text: 'He notices the pendant. Mei reads the pause as grief.', originMessageId: view.messages[0].id, confirmed: true });
     expect(request.instruction).not.toContain('killed her father'); expect(request.intent).toBe('proposeEdits');
-    await waitFor(() => expect(host.querySelector('.safe-brief-editor')).toBeNull());
+    // Observing dispatch is earlier than async receipt hashing and draft save.
+    // Wait for the completed author action on slower hosted runners.
+    await waitFor(() => {
+      expect(host.querySelector('.safe-brief-editor')).toBeNull();
+      expect((host.querySelector('#discussion-composer') as HTMLTextAreaElement).disabled).toBe(false);
+    }, 4000);
     expect(session.body).toEqual(emptyBody);
   });
 
@@ -372,5 +378,88 @@ describe('persistent FeedbackPanel safeguards', () => {
     await renderPanel(session);
     expect(host.textContent).not.toContain('{"suggestions"');
     expect(host.textContent).toContain('No valid suggestions were retained');
+    expect(host.textContent).not.toContain('Suggestions are ready');
+    const details = host.querySelector('.feedback-note details') as HTMLDetailsElement;
+    await act(async () => { details.open = true; details.dispatchEvent(new Event('toggle')); });
+    await waitFor(() => expect(details.textContent).toContain(run.outputText));
+    expect(host.querySelector('.proposal-panel')).toBeNull();
+    expect(session.body).toEqual(emptyBody);
+  });
+
+  it.each(['stopped', 'failed', 'interrupted'] as const)('keeps an incomplete %s suggestion response inspectable without claiming it is ready', async status => {
+    const session = await makeSession(); const started = startResult(session);
+    const run = { ...started.run, intent: 'proposeEdits' as const, status, outputText: 'Retained partial response.' };
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, runs: [run], messages: [started.userMessage, { ...started.userMessage, id: 'assistant', role: 'assistant', content: 'Retained partial response. The response could not finish.' }] });
+    await renderPanel(session);
+    expect(host.textContent).toContain(`The suggestion response is ${status} and cannot be applied.`);
+    expect(host.textContent).not.toContain('Suggestions are ready');
+    const details = host.querySelector('.feedback-note details') as HTMLDetailsElement;
+    await act(async () => { details.open = true; details.dispatchEvent(new Event('toggle')); });
+    await waitFor(() => expect(details.textContent).toContain('The response could not finish.'));
+    expect(proposals.applyProposal).not.toHaveBeenCalled();
+    expect(session.body).toEqual(emptyBody);
+  });
+
+  it('shows Stopping until cleanup settles and keeps another attempt unavailable', async () => {
+    const session = await makeSession(); const started = startResult(session);
+    const run = { ...started.run, status: 'stopping' as const, outputText: 'A saved partial response.' };
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, runs: [run], messages: [started.userMessage] });
+    await renderPanel(session);
+    expect(host.textContent).toContain('Stopping…');
+    expect(host.textContent).toContain('A saved partial response.');
+    expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Stop response')?.disabled).toBe(true);
+    expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Send')?.disabled).toBe(true);
+    expect(host.textContent).not.toContain('Prepare another attempt');
+    expect(discussions.stopDiscussion).not.toHaveBeenCalled();
+    expect(session.body).toEqual(emptyBody);
+  });
+
+  it('reconciles then retries only local response storage without sending another request', async () => {
+    const session = await makeSession(); const started = startResult(session);
+    const run = { ...started.run, status: 'stopping' as const, outputText: 'Saved partial text.' };
+    const pendingView = { ...emptyView('document'), threadId: started.threadId, runs: [run], messages: [started.userMessage], workerIssues: [{ runId: run.id, detail: 'The final state could not be saved. Retry locally.' }] };
+    const settledView = { ...pendingView, runs: [{ ...run, status: 'stopped' as const }], workerIssues: [] };
+    vi.mocked(discussions.readDiscussion).mockResolvedValue(pendingView);
+    vi.mocked(discussions.retryDiscussionSave).mockImplementation(async () => {
+      vi.mocked(discussions.readDiscussion).mockResolvedValue(settledView);
+      return settledView;
+    });
+    await renderPanel(session);
+    expect(host.textContent).toContain('Response needs saving');
+    expect(host.textContent).not.toContain('Stopping…');
+    await click('Retry saving response');
+    await waitFor(() => expect(discussions.retryDiscussionSave).toHaveBeenCalledWith(expect.objectContaining({ writerLease: 'fresh-lease' }), 'document', run.id));
+    await waitFor(() => expect(host.textContent).toContain('This response is stopped.'));
+    expect(discussions.startDiscussion).not.toHaveBeenCalled();
+    expect(discussions.discussionRetry).not.toHaveBeenCalled();
+    expect(proposals.applyProposal).not.toHaveBeenCalled();
+    expect(session.body).toEqual(emptyBody);
+  });
+
+  it('retains the local retry action when saving the response still fails', async () => {
+    const session = await makeSession(); const started = startResult(session);
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), runs: [{ ...started.run, status: 'running' }], workerIssues: [{ runId: started.run.id, detail: 'Retry saving locally.' }] });
+    vi.mocked(discussions.retryDiscussionSave).mockRejectedValue({ code: 'PersistenceUnavailable', detail: 'Storage is still unavailable.' });
+    await renderPanel(session);
+    await click('Retry saving response');
+    await waitFor(() => expect(discussions.retryDiscussionSave).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(host.textContent).toContain('Storage is still unavailable.'));
+    expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Retry saving response')?.disabled).toBe(false);
+    expect(discussions.startDiscussion).not.toHaveBeenCalled();
+  });
+
+  it('does not show a completed local retry in a different document after navigation', async () => {
+    const source = await makeSession(); const destination = await makeSession('document-b');
+    const started = startResult(source); const gate = deferred<discussions.DiscussionView>();
+    const view = { ...emptyView('document'), runs: [{ ...started.run, status: 'stopping' as const }], workerIssues: [{ runId: started.run.id, detail: 'Only source document.' }] };
+    vi.mocked(discussions.readDiscussion).mockImplementation(async (_access, documentId) => documentId === 'document' ? view : emptyView(documentId));
+    vi.mocked(discussions.retryDiscussionSave).mockReturnValue(gate.promise);
+    await renderPanel(source); await click('Retry saving response');
+    await waitFor(() => expect(discussions.retryDiscussionSave).toHaveBeenCalledTimes(1));
+    await renderPanel(destination);
+    await act(async () => gate.resolve({ ...view, workerIssues: [] }));
+    expect(host.textContent).not.toContain('Only source document.');
+    expect(host.textContent).not.toContain('Prepare another attempt');
+    expect(discussions.startDiscussion).not.toHaveBeenCalled();
   });
 });

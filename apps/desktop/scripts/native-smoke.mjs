@@ -2,11 +2,12 @@
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep, toNamespacedPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
+import { DatabaseSync } from 'node:sqlite';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const executable = process.env.WNS_V3_NATIVE_EXE ? resolve(process.env.WNS_V3_NATIVE_EXE) : resolve(root, 'target/debug/webnovel-desktop.exe');
@@ -475,6 +476,36 @@ try {
   await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'detached' });
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
   checks.push('Native stopped discussion retry retains one-use guidance and the saved retry choice across navigation/reload, then supplies the exact instruction without changing prose');
+  const retryLibrary = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
+  const retryProjectPath = await realpath(retryLibrary.entries.find(entry => entry.title === 'Harbour C').path);
+  const retryRelative = relative(toNamespacedPath(await realpath(data)), toNamespacedPath(retryProjectPath));
+  assert(retryRelative && !isAbsolute(retryRelative) && retryRelative !== '..' && !retryRelative.startsWith(`..${sep}`), 'Fault injection must stay in this synthetic run directory');
+  const retryDatabase = new DatabaseSync(resolve(retryProjectPath, 'project.sqlite3'));
+  try {
+    retryDatabase.exec("CREATE TRIGGER native_terminal_failure BEFORE INSERT ON discussion_messages WHEN NEW.role='assistant' BEGIN SELECT RAISE(ABORT,'synthetic terminal save fault'); END;");
+    await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).fill('Check local saving recovery without changing this ending.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByRole('button', { name: 'Retry saving response', exact: true }).waitFor();
+    const runsBeforeLocalRetry = retryDatabase.prepare('SELECT count(*) AS count FROM discussion_runs').get().count;
+    await page.getByRole('button', { name: 'All projects', exact: true }).click();
+    await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+    await page.reload();
+    await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+    await page.getByRole('button', { name: 'Retry saving response', exact: true }).waitFor();
+    await page.screenshot({ path: resolve(output, 'response-save-recovery.png') });
+    retryDatabase.exec('DROP TRIGGER native_terminal_failure;');
+    await page.getByRole('button', { name: 'Retry saving response', exact: true }).click();
+    await page.getByRole('button', { name: 'Retry saving response', exact: true }).waitFor({ state: 'detached' });
+    assert.equal(retryDatabase.prepare('SELECT count(*) AS count FROM discussion_runs').get().count, runsBeforeLocalRetry);
+    const recoveredRun = retryDatabase.prepare('SELECT status,output_text FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+    assert.equal(recoveredRun.status, 'completed');
+    assert(recoveredRun.output_text.includes('Check local saving recovery'));
+    assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
+  } finally {
+    retryDatabase.exec('DROP TRIGGER IF EXISTS native_terminal_failure;');
+    retryDatabase.close();
+  }
+  checks.push('Native failed response save stays visible across navigation and renderer reload; local retry commits the retained response without another run or manuscript change');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByLabel('Start with', { exact: true }).selectOption('chapter');
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('The promise on the pier');
