@@ -7,7 +7,7 @@ use webnovel_core::context::packet::MockContextBudget;
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::discussions::{
     DiscussionBegin, DiscussionFail, DiscussionFinish, DiscussionMessageRole,
-    DiscussionOutputAppend, DiscussionRunStatus, DiscussionScopeInput, RunOwner,
+    DiscussionOutputAppend, DiscussionRunStatus, DiscussionScopeInput, FeedbackIntent, RunOwner,
     SaveDiscussionDraft, StartDiscussion,
 };
 use webnovel_core::projects::{
@@ -90,6 +90,7 @@ fn start_request(
         operation_id: operation_id.into(),
         expected: document.head.clone(),
         instruction: instruction.into(),
+        intent: Default::default(),
         scope,
         pinned_document_ids,
         budget: budget(),
@@ -429,6 +430,7 @@ fn save_draft(
             document_id: "chapter-one".into(),
             expected_version: expected_version.into(),
             text: text.into(),
+            intent: Default::default(),
             scope: None,
             pinned_document_ids: Vec::new(),
             previous_run_id: None,
@@ -1306,6 +1308,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             document_id: "chapter-one".into(),
             expected_version: "0".into(),
             text: "changed payload".into(),
+            intent: Default::default(),
             scope: None,
             pinned_document_ids: Vec::new(),
             previous_run_id: None,
@@ -1319,6 +1322,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             document_id: "chapter-one".into(),
             expected_version: "0".into(),
             text: "stale version".into(),
+            intent: Default::default(),
             scope: None,
             pinned_document_ids: Vec::new(),
             previous_run_id: None,
@@ -1418,6 +1422,7 @@ fn retry_request(
         draft.scope,
         draft.pinned_document_ids,
     );
+    request.intent = draft.intent;
     request.previous_run_id = Some(draft.previous_run_id);
     request
 }
@@ -1678,6 +1683,7 @@ fn retry_composer_link_is_durable_payload_bound_and_fenced_in_recovered_copies()
         document_id: "chapter-one".into(),
         expected_version: "0".into(),
         text: retry.text,
+        intent: retry.intent,
         scope: retry.scope,
         pinned_document_ids: retry.pinned_document_ids,
         previous_run_id: Some(first.run.id.clone()),
@@ -1749,7 +1755,10 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "ALTER TABLE discussion_drafts DROP COLUMN previous_run_id; PRAGMA user_version=6;",
+            "DROP TRIGGER command_receipts_no_proposal_collision;
+             DROP TABLE proposal_receipts; DROP TABLE proposal_decisions; DROP TABLE proposal_versions; DROP TABLE proposals;
+             ALTER TABLE discussion_drafts DROP COLUMN intent;
+             ALTER TABLE discussion_drafts DROP COLUMN previous_run_id; PRAGMA user_version=6;",
         )
         .unwrap();
     drop(connection);
@@ -1764,6 +1773,211 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema7-")
+            .starts_with("schema6-before-schema8-")
     }));
+}
+
+#[test]
+fn propose_edits_uses_restricted_chapter_context_without_author_room_material() {
+    let temp = TempDir::new("propose-policy");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let future = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "future-chapter".into(),
+            document_id: "chapter-two".into(),
+            title: "Chapter two".into(),
+            kind: "chapter".into(),
+            body: body("A future revelation."),
+        })
+        .unwrap();
+    let private = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "private-note".into(),
+            document_id: "private-note".into(),
+            title: "Private planning".into(),
+            kind: "note".into(),
+            body: body("The mentor's secret."),
+        })
+        .unwrap();
+    adopt_guidance(
+        &project,
+        &access,
+        "author-room-guide",
+        webnovel_core::context::guidance::GuidanceScope::Project,
+        "Keep the ending private.",
+    );
+    completed_turn(
+        &project,
+        &access,
+        &document,
+        "author-room-chat",
+        "A private planning answer.",
+    );
+
+    let mut request = start_request(
+        &access,
+        &document,
+        "restricted-proposal",
+        "Make this selected passage more vivid.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    request.intent = FeedbackIntent::ProposeEdits;
+    let started = project.start_discussion(request).unwrap();
+    assert_eq!(started.run.intent, FeedbackIntent::ProposeEdits);
+    let frozen = project
+        .story_snapshot(access.clone(), started.packet.receipt.snapshot_id)
+        .unwrap();
+    assert_eq!(
+        frozen.purpose,
+        webnovel_core::context::ContextPurpose::Revise
+    );
+    assert_eq!(
+        frozen.policy.audience,
+        webnovel_core::context::Audience::RestrictedWriting
+    );
+    assert_eq!(frozen.policy.reader_frontier.as_deref(), Some("0"));
+    assert!(frozen.guidance.is_empty());
+    assert!(frozen.conversation.is_none());
+    assert_eq!(frozen.snapshot.sources.len(), 1);
+    assert_eq!(
+        frozen.snapshot.sources[0].source.document_id,
+        document.head.document_id
+    );
+    assert_ne!(
+        frozen.snapshot.sources[0].source.document_id,
+        future.head.document_id
+    );
+    assert_ne!(
+        frozen.snapshot.sources[0].source.document_id,
+        private.head.document_id
+    );
+    assert!(
+        !started.packet.messages[1]
+            .content
+            .contains("Keep the ending private")
+    );
+}
+
+#[test]
+fn proposal_retry_exposes_and_preserves_intent() {
+    let temp = TempDir::new("propose-retry");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let mut request = start_request(
+        &access,
+        &document,
+        "proposal-first",
+        "Revise the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    request.intent = FeedbackIntent::ProposeEdits;
+    let first = project.start_discussion(request).unwrap();
+    project
+        .stop_discussion(access.clone(), first.run.id.clone())
+        .unwrap();
+    let retry = project
+        .discussion_retry(access.clone(), first.run.id.clone())
+        .unwrap();
+    assert_eq!(retry.intent, FeedbackIntent::ProposeEdits);
+    let saved = project
+        .save_discussion_draft(SaveDiscussionDraft {
+            access: access.clone(),
+            operation_id: "proposal-retry-draft".into(),
+            document_id: document.head.document_id.clone(),
+            expected_version: "0".into(),
+            text: retry.text.clone(),
+            intent: retry.intent,
+            scope: retry.scope.clone(),
+            pinned_document_ids: retry.pinned_document_ids.clone(),
+            previous_run_id: Some(first.run.id.clone()),
+        })
+        .unwrap();
+    assert_eq!(saved.intent, FeedbackIntent::ProposeEdits);
+    let mut changed_draft = SaveDiscussionDraft {
+        access: access.clone(),
+        operation_id: "proposal-retry-draft".into(),
+        document_id: document.head.document_id.clone(),
+        expected_version: "0".into(),
+        text: retry.text.clone(),
+        intent: FeedbackIntent::Discuss,
+        scope: retry.scope.clone(),
+        pinned_document_ids: retry.pinned_document_ids.clone(),
+        previous_run_id: Some(first.run.id.clone()),
+    };
+    assert_eq!(
+        project
+            .save_discussion_draft(changed_draft.clone())
+            .unwrap_err()
+            .code,
+        "OperationIdReusedWithDifferentPayload"
+    );
+    changed_draft.operation_id = "proposal-retry-draft-2".into();
+    assert_eq!(
+        project
+            .save_discussion_draft(changed_draft)
+            .unwrap_err()
+            .code,
+        "RetryRequestChanged"
+    );
+    let mut changed = retry_request(
+        &project,
+        &access,
+        &document,
+        &first.run.id,
+        "proposal-retry-changed",
+    );
+    changed.intent = FeedbackIntent::Discuss;
+    assert_eq!(
+        project.start_discussion(changed).unwrap_err().code,
+        "RetryRequestChanged"
+    );
+    let retried = project
+        .start_discussion(retry_request(
+            &project,
+            &access,
+            &document,
+            &first.run.id,
+            "proposal-retry",
+        ))
+        .unwrap();
+    assert_eq!(retried.run.intent, FeedbackIntent::ProposeEdits);
+}
+
+#[test]
+fn completed_prose_run_is_excluded_from_later_discussion_context() {
+    let temp = TempDir::new("propose-conversation");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let mut request = start_request(
+        &access,
+        &document,
+        "proposal-complete",
+        "Revise the selected passage.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    request.intent = FeedbackIntent::ProposeEdits;
+    let proposal = project.start_discussion(request).unwrap();
+    begin(&project, &proposal.run.owner);
+    project
+        .mark_discussion_delivered(proposal.run.owner.clone())
+        .unwrap();
+    finish(
+        &project,
+        &proposal.run.owner,
+        "0",
+        "proposal-finish",
+        "A completed prose response.",
+    );
+
+    let discussion = start(&project, &access, &document, "discussion-after-proposal");
+    assert!(
+        discussion
+            .packet
+            .receipt
+            .conversation_message_ids
+            .is_empty()
+    );
 }

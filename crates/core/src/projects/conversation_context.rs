@@ -24,7 +24,9 @@ pub(super) fn select_conversation_at(
         "SELECT COUNT(*) FROM discussion_runs r JOIN context_packets p ON p.id=r.packet_id
          JOIN story_snapshots s ON s.id=p.snapshot_id
          WHERE r.thread_id=? AND r.status='completed' AND r.dispatch_state='delivered'
-           AND s.disclosure_policy_epoch=?",
+           AND s.disclosure_policy_epoch=?
+           AND json_extract(s.manifest_json,'$.policy.audience')='authorRoom'
+           AND json_extract(s.manifest_json,'$.purpose')='discuss'",
         params![thread_id, parse_version(policy)?],
         |row| row.get(0),
     )?;
@@ -36,7 +38,10 @@ pub(super) fn select_conversation_at(
          FROM discussion_runs r JOIN context_packets p ON p.id=r.packet_id
          JOIN story_snapshots s ON s.id=p.snapshot_id
          WHERE r.thread_id=? AND r.status='completed' AND r.dispatch_state='delivered'
-           AND s.disclosure_policy_epoch=? ORDER BY r.created_at DESC,r.rowid DESC LIMIT ?",
+           AND s.disclosure_policy_epoch=?
+           AND json_extract(s.manifest_json,'$.policy.audience')='authorRoom'
+           AND json_extract(s.manifest_json,'$.purpose')='discuss'
+         ORDER BY r.created_at DESC,r.rowid DESC LIMIT ?",
     )?;
     let rows = query
         .query_map(

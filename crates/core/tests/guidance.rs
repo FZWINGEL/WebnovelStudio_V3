@@ -305,6 +305,7 @@ fn guidance_is_copied_into_recovery_and_remains_editable_with_local_history() {
             operation_id: "origin-discussion".into(),
             expected: document.head.clone(),
             instruction: "Describe the lantern's role in this chapter.".into(),
+            intent: Default::default(),
             scope: None,
             pinned_document_ids: Vec::new(),
             budget: MockContextBudget::new("100000", "100", "100"),
@@ -373,11 +374,14 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let connection = Connection::open(&database).expect("open current database");
     connection
         .execute_batch(
-            "DROP TABLE guidance_request_uses;
+            "DROP TRIGGER command_receipts_no_proposal_collision;
+             DROP TABLE proposal_receipts; DROP TABLE proposal_decisions; DROP TABLE proposal_versions; DROP TABLE proposals;
+             DROP TABLE guidance_request_uses;
              DROP TABLE snapshot_guidance;
              DROP TABLE author_guidance_receipts;
              DROP TABLE author_guidance_heads;
              DROP TABLE author_guidance_versions;
+             ALTER TABLE discussion_drafts DROP COLUMN intent;
              ALTER TABLE discussion_drafts DROP COLUMN previous_run_id;
              PRAGMA user_version=5;",
         )
@@ -390,7 +394,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 7);
+    assert_eq!(version, 8);
     for table in [
         "author_guidance_versions",
         "author_guidance_heads",

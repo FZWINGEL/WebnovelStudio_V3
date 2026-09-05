@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { WnsDocument } from '../editor/document';
 import { validateSnapshot } from './native';
+import { applyProposal, type AppliedDecision, type ApplyAck, type ApplyProposal } from './proposals';
 
 export interface ProjectAccess { projectId: string; session: string; writerLease: string; operationNamespace: string }
 export interface Head { documentId: string; version: string; bodyHash: string }
@@ -26,7 +27,7 @@ export interface SaveAck {
 }
 export interface OperationReceipt {
   operationId: string; operationKind: string; payloadHash: string;
-  result: { head: Head; savedGeneration: string };
+  result: { head: Head; savedGeneration: string; applied?: AppliedDecision };
 }
 export interface ReconcileRequest {
   projectId: string; operationNamespace: string; session: string; documentId: string; pendingOperationIds: string[];
@@ -41,12 +42,14 @@ export interface ProjectTransport {
   save(request: SaveSnapshot): Promise<SaveAck>;
   reconcile(request: ReconcileRequest): Promise<ReconciledDocument>;
   checkpoint(request: CheckpointRequest): Promise<Revision>;
+  apply?(request: ApplyProposal): Promise<ApplyAck>;
 }
 export const projectTransport: ProjectTransport = {
   validate: async body => { await validateSnapshot(body); },
   save: request => invoke('save_snapshot', { request }),
   reconcile: request => invoke('reconcile_document', { request }),
   checkpoint: request => invoke('checkpoint_document', { request }),
+  apply: applyProposal,
 };
 export const createProject = (path: string, title: string, session: string): Promise<OpenedProject> => invoke('create_project', { path, title, session });
 export const openProject = (path: string, session: string): Promise<OpenedProject> => invoke('open_project', { path, session });

@@ -29,6 +29,65 @@ const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_EVENT_BYTES: usize = 128 * 1024;
 const MAX_PINNED_DOCUMENTS: usize = 64;
 
+/// The two author-room actions supported by a discussion request.  `Discuss`
+/// is intentionally the wire default so older clients produce the same
+/// request hash they did before intent was added to the contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum FeedbackIntent {
+    #[default]
+    Discuss,
+    ProposeEdits,
+}
+
+impl FeedbackIntent {
+    fn is_discuss(self) -> bool {
+        self == Self::Discuss
+    }
+
+    fn purpose(self) -> ContextPurpose {
+        match self {
+            Self::Discuss => ContextPurpose::Discuss,
+            Self::ProposeEdits => ContextPurpose::Revise,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Discuss => "discuss",
+            Self::ProposeEdits => "proposeEdits",
+        }
+    }
+
+    fn parse(value: &str) -> CoreResult<Self> {
+        match value {
+            "discuss" => Ok(Self::Discuss),
+            "proposeEdits" => Ok(Self::ProposeEdits),
+            _ => Err(CoreError::new(
+                "InvalidProject",
+                "The saved discussion draft has an unknown intent.",
+            )),
+        }
+    }
+
+    fn from_purpose(purpose: ContextPurpose) -> CoreResult<Self> {
+        match purpose {
+            ContextPurpose::Discuss => Ok(Self::Discuss),
+            ContextPurpose::Revise => Ok(Self::ProposeEdits),
+            ContextPurpose::Continue | ContextPurpose::Plan | ContextPurpose::StoryQuestion => {
+                Err(CoreError::new(
+                    "InvalidContext",
+                    "The discussion snapshot has an unsupported purpose.",
+                ))
+            }
+        }
+    }
+}
+
+fn skip_default_feedback_intent(intent: &FeedbackIntent) -> bool {
+    intent.is_discuss()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscussionScopeInput {
@@ -46,6 +105,8 @@ pub struct StartDiscussion {
     pub operation_id: String,
     pub expected: Head,
     pub instruction: String,
+    #[serde(default, skip_serializing_if = "skip_default_feedback_intent")]
+    pub intent: FeedbackIntent,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
     pub budget: MockContextBudget,
@@ -153,6 +214,7 @@ pub struct DiscussionRun {
     pub thread_id: String,
     pub owner: RunOwner,
     pub operation_id: String,
+    pub intent: FeedbackIntent,
     pub payload_hash: String,
     pub target: Head,
     pub packet_id: String,
@@ -197,6 +259,8 @@ pub struct DiscussionDraft {
     pub document_id: String,
     pub version: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "skip_default_feedback_intent")]
+    pub intent: FeedbackIntent,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,6 +272,7 @@ pub struct DiscussionDraft {
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionRetry {
     pub text: String,
+    pub intent: FeedbackIntent,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
     pub previous_run_id: String,
@@ -221,6 +286,8 @@ pub struct SaveDiscussionDraft {
     pub document_id: String,
     pub expected_version: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "skip_default_feedback_intent")]
+    pub intent: FeedbackIntent,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -441,13 +508,14 @@ impl OwnedProject {
         }
 
         let retry_guidance = retry::guidance(&tx, &request)?;
+        let (purpose, policy) = discussion_context_policy(&tx, &request)?;
         let context_request = FreezeStory {
             access: request.access.clone(),
             operation_id: new_id(),
             expected: request.expected.clone(),
             basis: BasisKind::Working,
-            purpose: ContextPurpose::Discuss,
-            policy: current_discussion_policy(&tx)?,
+            purpose,
+            policy,
         };
         let context_payload = logical_hash(&context_request)?;
         let frozen_context = story_context::freeze_discussion_story_at(
@@ -757,6 +825,11 @@ impl OwnedProject {
                 request.assistant_text
             ],
         )?;
+        // Propose-edits runs retain their bounded candidate set in the same
+        // transaction as the terminal assistant message. A malformed or
+        // non-proposal response remains a normal completed discussion; the
+        // proposal store simply retains no candidates for it.
+        proposals::retain_candidates_at(&tx, &current, &request.assistant_text)?;
         let result = read_run(&tx, &request.owner.run_id)?;
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(result)
@@ -988,6 +1061,15 @@ impl OwnedProject {
             &request.access,
             &request.document_id,
         )?;
+        if let Some(previous) = request.previous_run_id.as_deref() {
+            let previous_run = read_run(&tx, previous)?;
+            if previous_run.intent != request.intent {
+                return Err(CoreError::new(
+                    "RetryRequestChanged",
+                    "The saved retry intent changed. Start a new discussion instead.",
+                ));
+            }
+        }
         let current: Option<i64> = tx.query_row("SELECT version FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?", params![request.access.project_id,request.access.operation_namespace,request.document_id], |row| row.get(0)).optional()?;
         let current = current.unwrap_or(0);
         if current != expected {
@@ -999,7 +1081,7 @@ impl OwnedProject {
         let next = current
             .checked_add(1)
             .ok_or_else(|| CoreError::new("InvalidRequest", "The draft version is exhausted."))?;
-        tx.execute("INSERT INTO discussion_drafts(project_id,operation_namespace,document_id,version,text,scope_json,pinned_document_ids_json,previous_run_id) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(project_id,operation_namespace,document_id) DO UPDATE SET version=excluded.version,text=excluded.text,scope_json=excluded.scope_json,pinned_document_ids_json=excluded.pinned_document_ids_json,previous_run_id=excluded.previous_run_id,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", params![request.access.project_id,request.access.operation_namespace,request.document_id,next,request.text,request.scope.as_ref().map(serde_json::to_string).transpose()?,serde_json::to_string(&request.pinned_document_ids)?,request.previous_run_id])?;
+        tx.execute("INSERT INTO discussion_drafts(project_id,operation_namespace,document_id,version,text,intent,scope_json,pinned_document_ids_json,previous_run_id) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,operation_namespace,document_id) DO UPDATE SET version=excluded.version,text=excluded.text,intent=excluded.intent,scope_json=excluded.scope_json,pinned_document_ids_json=excluded.pinned_document_ids_json,previous_run_id=excluded.previous_run_id,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", params![request.access.project_id,request.access.operation_namespace,request.document_id,next,request.text,request.intent.as_str(),request.scope.as_ref().map(serde_json::to_string).transpose()?,serde_json::to_string(&request.pinned_document_ids)?,request.previous_run_id])?;
         let draft = read_draft(&tx, &request.access, &request.document_id)?.ok_or_else(|| {
             CoreError::new(
                 "PersistenceUnavailable",
@@ -1049,21 +1131,80 @@ fn validate_start(request: &StartDiscussion) -> CoreResult<()> {
     Ok(())
 }
 
-fn current_discussion_policy(tx: &Connection) -> CoreResult<InformationPolicy> {
+fn discussion_context_policy(
+    tx: &Connection,
+    request: &StartDiscussion,
+) -> CoreResult<(ContextPurpose, InformationPolicy)> {
     let policy_epoch: i64 = tx.query_row(
         "SELECT disclosure_policy_epoch FROM project WHERE singleton=1",
         [],
         |row| row.get(0),
     )?;
-    Ok(InformationPolicy {
-        version: policy_epoch.to_string(),
-        audience: Audience::AuthorRoom,
-        reader_frontier: None,
-        character_id: None,
-        character_grants: Vec::new(),
-        allow_alternatives: false,
-        allow_historical: false,
-    })
+    let version = policy_epoch.to_string();
+    let purpose = request.intent.purpose();
+    match request.intent {
+        FeedbackIntent::Discuss => Ok((
+            purpose,
+            InformationPolicy {
+                version,
+                audience: Audience::AuthorRoom,
+                reader_frontier: None,
+                character_id: None,
+                character_grants: Vec::new(),
+                allow_alternatives: false,
+                allow_historical: false,
+            },
+        )),
+        FeedbackIntent::ProposeEdits => {
+            if request
+                .scope
+                .as_ref()
+                .is_none_or(|scope| !matches!(scope.kind, ScopeKind::Passage))
+            {
+                return Err(CoreError::new(
+                    "InvalidScope",
+                    "Propose edits requires an explicit passage selection.",
+                ));
+            }
+            let target: Option<(String, i64)> = tx
+                .query_row(
+                    "SELECT kind,position FROM documents WHERE id=? AND trashed=0",
+                    [&request.expected.document_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            let Some((kind, position)) = target else {
+                return Err(CoreError::new(
+                    "DocumentNotFound",
+                    "The selected chapter is not available.",
+                ));
+            };
+            if kind != "chapter" {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "Propose edits currently supports chapter documents only.",
+                ));
+            }
+            if position < 0 {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "The selected chapter has an invalid reader position.",
+                ));
+            }
+            Ok((
+                purpose,
+                InformationPolicy {
+                    version,
+                    audience: Audience::RestrictedWriting,
+                    reader_frontier: Some(position.to_string()),
+                    character_id: None,
+                    character_grants: Vec::new(),
+                    allow_alternatives: false,
+                    allow_historical: false,
+                },
+            ))
+        }
+    }
 }
 
 fn resolve_pinned_handles(
@@ -1240,6 +1381,7 @@ fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
         String,
     );
     let row: RunRow = db.query_row("SELECT id,thread_id,project_id,operation_namespace,operation_id,payload_hash,target_document_id,target_version,target_body_hash,packet_id,previous_run_id,status,dispatch_state,sequence,output_text,stop_reason,created_at,updated_at FROM discussion_runs WHERE id=?", [run_id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?,row.get(10)?,row.get(11)?,row.get(12)?,row.get(13)?,row.get(14)?,row.get(15)?,row.get(16)?,row.get(17)?))).optional()?.ok_or_else(|| CoreError::new("DiscussionRunNotFound", "The discussion run is not available."))?;
+    let intent = intent_for_packet(db, &row.9)?;
     Ok(DiscussionRun {
         id: row.0.clone(),
         thread_id: row.1,
@@ -1249,6 +1391,7 @@ fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
             run_id: row.0,
         },
         operation_id: row.4,
+        intent,
         payload_hash: row.5,
         target: Head {
             document_id: row.6,
@@ -1265,6 +1408,35 @@ fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
         created_at: row.16,
         updated_at: row.17,
     })
+}
+
+/// Discussion intent is part of the immutable context contract. Keeping it
+/// there means a recovered database and old run rows do not need a second,
+/// mutable intent column whose value could drift from the packet.
+fn intent_for_packet(db: &Connection, packet_id: &str) -> CoreResult<FeedbackIntent> {
+    let (snapshot_id, manifest, manifest_hash): (String, String, String) = db
+        .query_row(
+            "SELECT p.snapshot_id,s.manifest_json,s.manifest_hash
+             FROM context_packets p JOIN story_snapshots s ON s.id=p.snapshot_id
+             WHERE p.id=?",
+            [packet_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            CoreError::new(
+                "InvalidContext",
+                "The discussion packet has no frozen story context.",
+            )
+        })?;
+    let frozen = story_context::decode_snapshot(&manifest, &manifest_hash)?;
+    if frozen.snapshot.snapshot_id != snapshot_id {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The discussion packet points to a different story snapshot.",
+        ));
+    }
+    FeedbackIntent::from_purpose(frozen.purpose)
 }
 
 fn read_message(db: &Connection, message_id: &str) -> CoreResult<DiscussionMessage> {
@@ -1300,6 +1472,7 @@ fn read_draft(
         String,
         i64,
         String,
+        String,
         Option<String>,
         String,
         String,
@@ -1307,7 +1480,7 @@ fn read_draft(
     );
     let row: Option<DraftRow> = db
         .query_row(
-            "SELECT document_id,version,text,scope_json,pinned_document_ids_json,updated_at,previous_run_id FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?",
+            "SELECT document_id,version,text,intent,scope_json,pinned_document_ids_json,updated_at,previous_run_id FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?",
             params![access.project_id, access.operation_namespace, document_id],
             |row| {
                 Ok((
@@ -1318,12 +1491,21 @@ fn read_draft(
                     row.get(4)?,
                     row.get(5)?,
                     row.get(6)?,
+                    row.get(7)?,
                 ))
             },
         )
         .optional()?;
-    let Some((document_id, version, text, scope_json, pins_json, updated_at, previous_run_id)) =
-        row
+    let Some((
+        document_id,
+        version,
+        text,
+        intent,
+        scope_json,
+        pins_json,
+        updated_at,
+        previous_run_id,
+    )) = row
     else {
         return Ok(None);
     };
@@ -1331,6 +1513,7 @@ fn read_draft(
         document_id,
         version: parse_stored_version(version)?,
         text,
+        intent: FeedbackIntent::parse(&intent)?,
         scope: scope_json
             .map(|json| serde_json::from_str(&json))
             .transpose()?,

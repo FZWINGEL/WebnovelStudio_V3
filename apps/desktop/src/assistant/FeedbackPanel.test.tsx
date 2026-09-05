@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FeedbackPanel } from './FeedbackPanel';
 import * as discussions from '../ipc/discussions';
+import * as proposals from '../ipc/proposals';
 import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
 import { DocumentSession } from '../editor/session';
 import type { DocumentRecord, Head, ProjectAccess, ProjectTransport } from '../ipc/projects';
@@ -14,6 +15,12 @@ vi.mock('../ipc/discussions', () => ({
   startDiscussion: vi.fn(),
   stopDiscussion: vi.fn(),
   discussionRetry: vi.fn(),
+}));
+vi.mock('../ipc/proposals', () => ({
+  readProposals: vi.fn(),
+  prepareProposal: vi.fn(),
+  applyProposal: vi.fn(),
+  rejectProposal: vi.fn(),
 }));
 vi.mock('./ContextInspector', () => ({ ContextInspector: () => <div data-testid="context-inspector" /> }));
 vi.mock('./GuidancePanel', () => ({ GuidancePanel: () => <div data-testid="guidance-panel" /> }));
@@ -61,7 +68,7 @@ let host: HTMLDivElement;
 let root: Root;
 
 async function renderPanel(session: DocumentSession) {
-  await act(async () => root.render(<FeedbackPanel session={session} state={session.state} title="Chapter" selection={null} visible onClose={() => {}} registerSaver={() => {}} />));
+  await act(async () => root.render(<FeedbackPanel session={session} state={session.state} title="Chapter" documentKind="chapter" selection={null} visible onClose={() => {}} registerSaver={() => {}} />));
   await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
 }
 
@@ -83,7 +90,8 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.resetAllMocks();
   vi.mocked(discussions.readDiscussion).mockImplementation(async (_access, documentId) => emptyView(documentId));
-  vi.mocked(discussions.saveDiscussionDraft).mockImplementation(async request => ({ documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, updatedAt: 'now' }));
+  vi.mocked(proposals.readProposals).mockResolvedValue([]);
+  vi.mocked(discussions.saveDiscussionDraft).mockImplementation(async request => ({ documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, updatedAt: 'now' }));
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 
@@ -216,5 +224,41 @@ describe('persistent FeedbackPanel safeguards', () => {
     await waitFor(() => expect(host.textContent).toContain('Draft storage is unavailable.'));
     expect((host.querySelector('#discussion-composer') as HTMLTextAreaElement).value).toBe('Keep this unsent thought.');
     expect(discussions.startDiscussion).not.toHaveBeenCalled();
+  });
+
+  it('persists the explicit Suggest edits intent and requires a chapter passage', async () => {
+    const session = await makeSession();
+    const hash = await bodyHash(canonicalJson(emptyBody));
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), draft: {
+      documentId: 'document', version: '1', text: 'Tighten this passage.', intent: 'discuss',
+      scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 16 }, quote: 'A quiet chapter.', sourceBodyHash: hash }, pinnedDocumentIds: [], previousRunId: null, updatedAt: 'now',
+    } });
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => startResult(session, 'proposal-run', request.operationId));
+    await renderPanel(session);
+    await waitFor(() => expect(host.textContent).toContain('Selected passage'));
+    await click('Suggest edits');
+    await waitFor(() => expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement).disabled).toBe(false));
+    await click('Send');
+    await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledTimes(1));
+    expect(discussions.startDiscussion).toHaveBeenCalledWith(expect.objectContaining({ intent: 'proposeEdits', scope: expect.objectContaining({ kind: 'passage' }) }));
+
+    const noteSession = await makeSession('document-b');
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document-b'), draft: {
+      documentId: 'document-b', version: '1', text: 'Try this.', intent: 'proposeEdits', scope: null, pinnedDocumentIds: [], previousRunId: null, updatedAt: 'now',
+    } });
+    await act(async () => root.render(<FeedbackPanel session={noteSession} state={noteSession.state} title="Note" documentKind="note" selection={null} visible onClose={() => {}} registerSaver={() => {}} />));
+    await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
+    expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement).disabled).toBe(true);
+    expect(host.textContent).toContain('Select a passage');
+  });
+
+  it('keeps malformed Suggest edits output out of the author conversation', async () => {
+    const session = await makeSession();
+    const started = startResult(session, 'malformed-run');
+    const run = { ...started.run, intent: 'proposeEdits' as const, status: 'completed' as const, outputText: '{"suggestions": [{"title": "raw"}]}' };
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, messages: [started.userMessage, { ...started.userMessage, id: 'assistant-message', role: 'assistant', content: run.outputText }], runs: [run] });
+    await renderPanel(session);
+    expect(host.textContent).not.toContain('{"suggestions"');
+    expect(host.textContent).toContain('No valid suggestions were retained');
   });
 });

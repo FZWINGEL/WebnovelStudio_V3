@@ -221,6 +221,13 @@ struct PacketRow {
     input_hash: String,
 }
 
+/// Historical integrity without current permission. For durable terminal
+/// results and backup validation only; request-facing reads use the owner and
+/// current-policy checks in `read_context_packet_at`.
+pub(super) fn validated_packet_record(db: &Connection, id: &str) -> CoreResult<CompiledPacket> {
+    validate_packet_row(db, &read_packet_row(db, id)?)
+}
+
 fn read_packet_row(db: &Connection, id: &str) -> CoreResult<PacketRow> {
     check_id(id)?;
     db.query_row("SELECT id,project_id,operation_namespace,operation_id,payload_hash,request_json,snapshot_id,session_id,invocation_ordinal,packet_json,packet_hash,input_hash FROM context_packets WHERE id=?", [id], |row| Ok(PacketRow { id:row.get(0)?,project_id:row.get(1)?,namespace:row.get(2)?,operation:row.get(3)?,payload:row.get(4)?,request_json:row.get(5)?,snapshot_id:row.get(6)?,session_id:row.get(7)?,ordinal:row.get(8)?,json:row.get(9)?,hash:row.get(10)?,input_hash:row.get(11)? })).optional()?.ok_or_else(|| CoreError::new("ContextPacketNotFound", "The prepared request is not available in this project."))

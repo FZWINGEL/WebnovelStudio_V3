@@ -1,8 +1,9 @@
-import type { ComposerBody, DiscussionDraft, SaveDiscussionDraft } from '../ipc/discussions';
+import type { ComposerBody, DiscussionDraft, FeedbackIntent, SaveDiscussionDraft } from '../ipc/discussions';
 import type { ProjectAccess } from '../ipc/projects';
 
 export const emptyComposer = (): ComposerBody => ({ text: '', scope: null, pinnedDocumentIds: [] });
-function key(body: ComposerBody): string { return JSON.stringify({ text: body.text, scope: body.scope, pinnedDocumentIds: body.pinnedDocumentIds, previousRunId: body.previousRunId ?? null }); }
+export function composerIntent(body: ComposerBody): FeedbackIntent { return body.intent ?? 'discuss'; }
+function key(body: ComposerBody): string { return JSON.stringify({ text: body.text, scope: body.scope, pinnedDocumentIds: body.pinnedDocumentIds, intent: composerIntent(body), previousRunId: body.previousRunId ?? null }); }
 
 /** Immutable retry payloads and save watermarks for the unsent composer only. */
 export class ComposerSession {
@@ -12,7 +13,7 @@ export class ComposerSession {
   private pending: { request: SaveDiscussionDraft; signature: string } | null = null;
   private flight: Promise<void> | null = null;
   constructor(private documentId: string, draft: DiscussionDraft | null, private access: () => ProjectAccess, private write: (request: SaveDiscussionDraft) => Promise<DiscussionDraft>) {
-    this.body = structuredClone(draft ? { text: draft.text, scope: draft.scope, pinnedDocumentIds: draft.pinnedDocumentIds, previousRunId: draft.previousRunId } : emptyComposer());
+    this.body = structuredClone(draft ? { text: draft.text, scope: draft.scope, pinnedDocumentIds: draft.pinnedDocumentIds, intent: draft.intent, previousRunId: draft.previousRunId } : emptyComposer());
     this.version = draft?.version ?? '0'; this.saved = key(this.body);
   }
   update(body: ComposerBody): void { this.body = structuredClone(body); }

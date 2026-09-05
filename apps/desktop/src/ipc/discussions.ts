@@ -2,20 +2,24 @@ import { invoke } from '@tauri-apps/api/core';
 import type { CompiledPacket, MockContextBudget, ScopeGrant } from './context';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 
+/** The author action encoded in a discussion's immutable context packet. */
+export type FeedbackIntent = 'discuss' | 'proposeEdits';
+export const DEFAULT_FEEDBACK_INTENT: FeedbackIntent = 'discuss';
+
 export interface DiscussionScope { kind: ScopeGrant['kind']; start: Endpoint | null; end: Endpoint | null; quote: string; sourceBodyHash: string }
-export interface ComposerBody { text: string; scope: DiscussionScope | null; pinnedDocumentIds: string[]; previousRunId?: string | null }
+export interface ComposerBody { text: string; scope: DiscussionScope | null; pinnedDocumentIds: string[]; intent?: FeedbackIntent; previousRunId?: string | null }
 export interface DiscussionDraft extends ComposerBody { documentId: string; version: string; updatedAt: string }
 export interface DiscussionMessage { id: string; threadId: string; runId: string | null; role: 'user' | 'assistant'; content: string; scope: ScopeGrant | null; packetId: string | null; createdAt: string }
 export interface DiscussionRun {
   id: string; threadId: string; owner: { projectId: string; operationNamespace: string; runId: string };
-  operationId: string; payloadHash: string; target: Head; packetId: string; previousRunId: string | null;
+  operationId: string; intent?: FeedbackIntent; payloadHash: string; target: Head; packetId: string; previousRunId: string | null;
   status: 'queued' | 'running' | 'stopping' | 'completed' | 'stopped' | 'failed' | 'interrupted';
   dispatchState: string; sequence: string; outputText: string; stopReason: string | null; createdAt: string; updatedAt: string;
 }
 export interface DiscussionView { documentId: string; threadId: string | null; messages: DiscussionMessage[]; runs: DiscussionRun[]; draft: DiscussionDraft | null }
 export interface StartDiscussion {
   access: ProjectAccess; operationId: string; expected: Head; instruction: string; scope: DiscussionScope | null;
-  pinnedDocumentIds: string[]; budget: MockContextBudget; previousRunId: string | null;
+  intent?: FeedbackIntent; pinnedDocumentIds: string[]; budget: MockContextBudget; previousRunId: string | null;
 }
 export interface DiscussionStart { threadId: string; run: DiscussionRun; userMessage: DiscussionMessage; packet: CompiledPacket }
 export interface SaveDiscussionDraft extends ComposerBody { access: ProjectAccess; operationId: string; documentId: string; expectedVersion: string }

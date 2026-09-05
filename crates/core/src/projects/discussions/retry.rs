@@ -25,7 +25,8 @@ pub(super) fn guidance(
         &request.expected.document_id,
     )?;
     let (original, frozen) = original(db, &request.access, previous)?;
-    if request.instruction != original.text
+    if request.intent != original.intent
+        || request.instruction != original.text
         || request.scope != original.scope
         || request.pinned_document_ids != original.pinned_document_ids
     {
@@ -58,6 +59,7 @@ fn original(
     // Request-facing reads enforce current permission, while retained packet
     // integrity remains independently verifiable for backup and recovery.
     let frozen = story_context::load_snapshot(db, access, &started.packet.receipt.snapshot_id)?;
+    let intent = FeedbackIntent::from_purpose(frozen.purpose)?;
     let request_json: String = db.query_row(
         "SELECT request_json FROM context_packets WHERE id=?",
         [&run.packet_id],
@@ -92,6 +94,7 @@ fn original(
     Ok((
         DiscussionRetry {
             text: started.user_message.content,
+            intent,
             scope,
             pinned_document_ids: pins,
             previous_run_id: run_id.to_owned(),

@@ -630,6 +630,7 @@ fn generic_preparation_rejects_consumed_discussion_request_guidance() {
         operation_id: "discussion-consumes-request-guidance".into(),
         expected: document.head.clone(),
         instruction: "Discuss the selected passage.".into(),
+        intent: Default::default(),
         scope: None,
         pinned_document_ids: Vec::new(),
         budget: budget(),

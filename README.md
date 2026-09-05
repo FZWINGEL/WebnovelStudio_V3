@@ -2,7 +2,7 @@
 
 A native desktop writing application for English webnovels, built with Rust, Tauri, React, and Tiptap. Create several projects, develop story material in any order, and keep the manuscript at the center of the workspace. Wuxia, xianxia, cultivation, and translated-webnovel register are optional English writing styles.
 
-**In development.** The persistent workspace runs locally, and discussion currently uses a clearly labelled deterministic test model. Live AI, durable suggestion Apply, and release qualification are unfinished. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact test evidence and remaining work.
+**In development.** The persistent workspace runs locally, and discussion currently uses a clearly labelled deterministic test model. This W5 checkpoint contains an unqualified proposal/review/Apply slice; live AI and release qualification are unfinished. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact test evidence and remaining work.
 
 ## Available in the development build
 
@@ -14,8 +14,9 @@ A native desktop writing application for English webnovels, built with Rust, Tau
 - Exact recent completed exchanges in follow-up discussion, with visible omissions when context is limited.
 - **Keep as guidance** from a chat message, or directly add a direction. Edit, save, and remove instructions for the next request, this document, or this project.
 - **Story context** inspection that distinguishes saved sources available to a request from the exact material supplied for its response.
+- **This W5 checkpoint:** suggest edits for a selected chapter passage with deterministic review cards, editable previews, Apply, and Reject; integrated qualification is pending.
 
-Guidance is an explicit author choice and never changes manuscript text or establishes canon. Requests retain the exact instruction versions and prior exchanges they used. Restricted writing excludes private author-room guidance and conversation. Persistent chapter/project source pins, generated memory digests, and bounded live-provider lookups remain planned parts of the [Story Context Engine](docs/V3_STORY_CONTEXT_SYSTEM.md).
+Guidance is an explicit author choice and never changes manuscript text or establishes canon. Requests retain the exact instruction versions and prior exchanges they used. Restricted chapter-passage edit requests use a reader frontier and exclude author-room private material, future material, current guidance, and recent chat. Persistent chapter/project source pins, generated memory digests, and bounded live-provider lookups remain planned parts of the [Story Context Engine](docs/V3_STORY_CONTEXT_SYSTEM.md). The V2 Codex adapter/model-picker is an authorized reference for future integration; no provider is connected or tested.
 
 The separately opened **sample editor trial** demonstrates session-only replacement preview, local Apply, and undo. Its sample prose disappears on close. The default Library/Workspace uses persistent projects; it does not yet have durable suggestion Apply.
 
@@ -51,5 +52,6 @@ V3 lives in its own [private GitHub repository](https://github.com/FZWINGEL/Webn
 - [Implementation order](docs/V3_FIRST_SLICE_PLAN.md)
 - [Story Context first slice](docs/V3_STORY_CONTEXT_FIRST_SLICE.md)
 - [Editor contract](docs/ADR_0001_EDITOR_CONTRACT.md) and [author guidance contract](docs/ADR_0002_AUTHOR_GUIDANCE.md)
+- [Proposal and Apply contract](docs/ADR_0004_PROPOSAL_APPLY.md)
 
 Toolchain and dependency versions are pinned in the root manifests and desktop lockfile. Author databases, backups, credentials, and generated native results must stay out of Git.

@@ -3,6 +3,7 @@ use crate::project_commands::{DesktopProjects, execute};
 use tauri::State;
 use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, packet_input_hash};
 use webnovel_core::projects::discussions::*;
+use webnovel_core::projects::proposals::*;
 use webnovel_core::projects::{CoreError, CoreResult, ProjectAccess, ProjectSession};
 
 #[tauri::command]
@@ -45,6 +46,43 @@ pub async fn stop_discussion(
 }
 
 #[tauri::command]
+pub async fn proposals(
+    access: ProjectAccess,
+    document_id: String,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<Vec<Proposal>> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.proposals(access, document_id)).await
+}
+
+#[tauri::command]
+pub async fn prepare_proposal(
+    request: PrepareProposal,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<PreparedProposal> {
+    let project = state.project(&request.access.project_id)?;
+    execute(move || project.prepare_proposal(request)).await
+}
+
+#[tauri::command]
+pub async fn apply_proposal(
+    request: ApplyProposal,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<ApplyAck> {
+    let project = state.project(&request.access.project_id)?;
+    execute(move || project.apply_proposal(request)).await
+}
+
+#[tauri::command]
+pub async fn reject_proposal(
+    request: RejectProposal,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<ProposalDecision> {
+    let project = state.project(&request.access.project_id)?;
+    execute(move || project.reject_proposal(request)).await
+}
+
+#[tauri::command]
 pub async fn start_discussion(
     request: StartDiscussion,
     state: State<'_, DesktopProjects>,
@@ -84,7 +122,7 @@ fn run_mock(project: ProjectSession, owner: RunOwner) {
         Ok(dispatch) => dispatch,
         Err(_) => return, // Already claimed, stopped, stale, or unavailable.
     };
-    let chunks = match mock_output(&dispatch.packet) {
+    let chunks = match mock_output(&dispatch.packet, dispatch.run.intent) {
         Ok(chunks) => chunks,
         Err(error) => {
             let event_id = format!("{}-input-failed", owner.run_id);
@@ -153,7 +191,7 @@ fn record_worker_failure(
 }
 
 /// A fixed local fixture, deliberately labelled and incapable of writing prose.
-fn mock_output(packet: &CompiledPacket) -> CoreResult<Vec<String>> {
+fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Vec<String>> {
     let invalid = || {
         CoreError::new(
             "InvalidMockInput",
@@ -201,6 +239,35 @@ fn mock_output(packet: &CompiledPacket) -> CoreResult<Vec<String>> {
         .max_output_tokens
         .parse::<usize>()
         .map_err(|_| invalid())?;
+    if intent == FeedbackIntent::ProposeEdits {
+        let output = serde_json::json!({
+            "suggestions": [
+                {
+                    "title": "Mock clarity option",
+                    "replacementText": "A clearer test phrase.",
+                    "explanation": "Deterministic local test alternative; not generated prose."
+                },
+                {
+                    "title": "Mock focus option",
+                    "replacementText": "A more focused test phrase.",
+                    "explanation": "Deterministic local test alternative; not generated prose."
+                },
+                {
+                    "title": "Mock simplicity option",
+                    "replacementText": "A simpler test phrase.",
+                    "explanation": "Deterministic local test alternative; not generated prose."
+                }
+            ]
+        });
+        let encoded = serde_json::to_string(&output).map_err(|_| invalid())?;
+        if encoded.len() > allowance {
+            return Err(CoreError::new(
+                "OutputBudgetTooSmall",
+                "The reserved response allowance is too small for the local test response.",
+            ));
+        }
+        return Ok(vec![encoded]);
+    }
     if chunks.iter().map(String::len).sum::<usize>() > allowance {
         return Err(CoreError::new(
             "OutputBudgetTooSmall",
@@ -208,4 +275,76 @@ fn mock_output(packet: &CompiledPacket) -> CoreResult<Vec<String>> {
         ));
     }
     Ok(chunks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use webnovel_core::context::PacketReceipt;
+    use webnovel_core::context::packet::{PacketMessage, PacketOptions};
+
+    fn packet() -> CompiledPacket {
+        let messages = vec![
+            PacketMessage {
+                role: "system".into(),
+                content: "system".into(),
+            },
+            PacketMessage {
+                role: "user".into(),
+                content: r#"{"scope":{"quote":"selected"}}"#.into(),
+            },
+            PacketMessage {
+                role: "user".into(),
+                content: "Revise the selected passage.".into(),
+            },
+        ];
+        let options = PacketOptions {
+            model_id: MOCK_MODEL_ID.into(),
+            max_output_tokens: "4096".into(),
+            token_accounting_method: "mock".into(),
+        };
+        let input_hash = packet_input_hash(&messages, &options).unwrap();
+        CompiledPacket {
+            messages,
+            options,
+            receipt: PacketReceipt {
+                packet_id: "packet".into(),
+                session_id: "session".into(),
+                snapshot_id: "snapshot".into(),
+                invocation_ordinal: "0".into(),
+                source_handles: vec!["source".into()],
+                guidance_handles: Vec::new(),
+                conversation_message_ids: Vec::new(),
+                omitted_discussion_turns: 0,
+                coverage: Vec::new(),
+                omissions: Vec::new(),
+                input_hash,
+                input_tokens: "100".into(),
+                token_accounting_method: "mock".into(),
+            },
+        }
+    }
+
+    #[test]
+    fn proposal_mock_output_is_strict_json_and_discuss_stays_textual() {
+        let packet = packet();
+        let proposal_chunks = mock_output(&packet, FeedbackIntent::ProposeEdits).unwrap();
+        assert_eq!(proposal_chunks.len(), 1);
+        let output: ProposalOutput = serde_json::from_str(&proposal_chunks.concat()).unwrap();
+        assert_eq!(output.suggestions.len(), 3);
+        assert_eq!(
+            output.suggestions[0].replacement_text,
+            "A clearer test phrase."
+        );
+        assert!(
+            output
+                .suggestions
+                .iter()
+                .all(|candidate| !candidate.replacement_text.contains(['\n', '\r']))
+        );
+
+        let discussion_chunks = mock_output(&packet, FeedbackIntent::Discuss).unwrap();
+        assert_eq!(discussion_chunks.len(), 3);
+        assert!(discussion_chunks[0].contains("no live AI model"));
+    }
 }

@@ -3,19 +3,27 @@ import type { Scope } from '../editor/selection';
 import { bodyHash, canonicalJson, snapshotFromEditor } from '../editor/document';
 import type { DocumentSession, SessionState } from '../editor/session';
 import { discussionRetry, readDiscussion, saveDiscussionDraft, startDiscussion, stopDiscussion, type ComposerBody, type DiscussionRun, type DiscussionView, type StartDiscussion } from '../ipc/discussions';
-import { ComposerSession, emptyComposer } from './composer';
+import { readProposals, type PreparedProposal, type Proposal } from '../ipc/proposals';
+import { ComposerSession, composerIntent, emptyComposer } from './composer';
 import { ContextInspector } from './ContextInspector';
 import { GuidancePanel } from './GuidancePanel';
+import { ProposalPanel } from './ProposalPanel';
 
 function detail(reason: unknown): string { return reason && typeof reason === 'object' && 'detail' in reason ? String(reason.detail) : reason instanceof Error ? reason.message : 'The discussion could not be updated. Your text is retained.'; }
 function uncertain(reason: unknown): boolean { return !reason || typeof reason !== 'object' || !('code' in reason) || ['UncertainOutcome', 'ReconciliationRequired', 'StaleWriterLease'].includes(String(reason.code)); }
+function sameAccess(left: { projectId: string; operationNamespace: string; session: string; writerLease: string }, right: { projectId: string; operationNamespace: string; session: string; writerLease: string }): boolean {
+  return left.projectId === right.projectId && left.operationNamespace === right.operationNamespace && left.session === right.session && left.writerLease === right.writerLease;
+}
 const activeRun = (run: DiscussionRun) => ['queued', 'running', 'stopping'].includes(run.status);
 
-export function FeedbackPanel({ session, state, title, selection, visible, onClose, registerSaver }: {
-  session: DocumentSession; state: SessionState; title: string; selection: { scope: Scope; nonce: number } | null; visible: boolean;
+export function FeedbackPanel({ session, state, title, documentKind, selection, visible, onClose, registerSaver, onPrepareProposal, onApplyProposal }: {
+  session: DocumentSession; state: SessionState; title: string; documentKind?: string; selection: { scope: Scope; nonce: number } | null; visible: boolean;
   onClose: () => void; registerSaver: (save: (() => Promise<void>) | null) => void;
+  onPrepareProposal?: (proposal: Proposal, text: string, operationId: string) => Promise<PreparedProposal>;
+  onApplyProposal?: (proposal: Proposal, prepared: PreparedProposal) => Promise<void>;
 }) {
   const [view, setView] = useState<DiscussionView | null>(null);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
   const [body, setBody] = useState<ComposerBody>(emptyComposer);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
@@ -37,6 +45,8 @@ export function FeedbackPanel({ session, state, title, selection, visible, onClo
   const polling = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const documentId = state.head.documentId;
+  const currentIntent = composerIntent(body);
+  const canSuggestEdits = documentKind === 'chapter' && body.scope?.kind === 'passage';
   const save = useRef(async () => {});
   save.current = async () => {
     if (composing.current) await new Promise<void>(resolve => compositionWaiters.current.push(resolve));
@@ -53,22 +63,26 @@ export function FeedbackPanel({ session, state, title, selection, visible, onClo
     polling.current = true;
     const access = session.projectAccess;
     try {
-      const result = await readDiscussion(access, documentId);
-      if (isCurrent() && access.writerLease === session.projectAccess.writerLease && result.documentId === documentId) setView(result);
-    } catch (reason) { if (isCurrent() && access.writerLease === session.projectAccess.writerLease) setError(detail(reason)); }
+      const [result, retained] = await Promise.all([readDiscussion(access, documentId), readProposals(access, documentId)]);
+      if (isCurrent() && sameAccess(access, session.projectAccess) && result.documentId === documentId) {
+        setView(result); setProposals(retained);
+      }
+    } catch (reason) { if (isCurrent() && sameAccess(access, session.projectAccess)) setError(detail(reason)); }
     finally { if (isCurrent()) polling.current = false; }
   }
   useEffect(() => {
     mounted.current = true;
     controller.current = null; polling.current = false; sendingRef.current = false;
-    setView(null); setBody(emptyComposer()); setPending(null); setSending(false); setScopeBusy(false); setScopeStale(false); setGuidanceAdoption(null);
+    setView(null); setProposals([]); setBody(emptyComposer()); setPending(null); setSending(false); setScopeBusy(false); setScopeStale(false); setGuidanceAdoption(null);
     registerSaver(() => save.current());
     let cancelled = false;
-    void readDiscussion(session.projectAccess, documentId).then(result => {
+    const access = session.projectAccess;
+    void Promise.all([readDiscussion(access, documentId), readProposals(access, documentId)]).then(([result, retained]) => {
       if (cancelled) return;
       if (result.documentId !== documentId) throw new Error('This discussion belongs to another document.');
+      if (!isCurrent() || !sameAccess(access, session.projectAccess)) return;
       const restored = new ComposerSession(documentId, result.draft, () => session.projectAccess, saveDiscussionDraft);
-      controller.current = restored; setBody(structuredClone(restored.body)); setView(result); setError('');
+      controller.current = restored; setBody(structuredClone(restored.body)); setView(result); setProposals(retained); setError('');
     }).catch(reason => { if (!cancelled) setError(detail(reason)); });
     return () => { cancelled = true; mounted.current = false; registerSaver(null); if (timer.current) clearTimeout(timer.current); };
   }, [session, reload]);
@@ -100,6 +114,11 @@ export function FeedbackPanel({ session, state, title, selection, visible, onClo
     const submittedController = controller.current;
     const submitted = structuredClone(submittedController.body);
     if (!submitted.text.trim() && !pending) return;
+    const submittedIntent = composerIntent(submitted);
+    if (!checkPending && submittedIntent === 'proposeEdits' && !canSuggestEdits) {
+      setError(documentKind === 'chapter' ? 'Select a passage before requesting suggested edits.' : 'Suggested edits are available for chapter passages only.');
+      return;
+    }
     sendingRef.current = true; setSending(true); setError('');
     let request: StartDiscussion | null = checkPending ? pending : null;
     let confirmed = false;
@@ -110,7 +129,7 @@ export function FeedbackPanel({ session, state, title, selection, visible, onClo
         if (!isCurrent()) throw { code: 'RetiredDiscussion', detail: 'This discussion is no longer open.' };
         if (!request) {
           if (submitted.scope && await bodyHash(canonicalJson(session.body)) !== submitted.scope.sourceBodyHash) throw { code: 'StaleScope', detail: 'The text changed. Select the passage again, or discuss the whole document.' };
-          request = { access: session.projectAccess, operationId: crypto.randomUUID(), expected: session.state.head, instruction: submitted.text, scope: submitted.scope, pinnedDocumentIds: submitted.pinnedDocumentIds,
+          request = { access: session.projectAccess, operationId: crypto.randomUUID(), expected: session.state.head, instruction: submitted.text, intent: submittedIntent === 'discuss' ? undefined : submittedIntent, scope: submitted.scope, pinnedDocumentIds: submitted.pinnedDocumentIds,
             budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' }, previousRunId: submitted.previousRunId ?? null };
         }
         setPending(request);
@@ -122,7 +141,7 @@ export function FeedbackPanel({ session, state, title, selection, visible, onClo
       confirmed = true;
       setPending(null);
       setView(previous => previous ? { ...previous, threadId: result.threadId, messages: [...previous.messages.filter(item => item.id !== result.userMessage.id), result.userMessage], runs: [...previous.runs.filter(item => item.id !== result.run.id), result.run] } : previous);
-      const sentBody = request ? { text: request.instruction, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId } : submitted;
+      const sentBody = request ? { text: request.instruction, intent: request.intent, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId } : submitted;
       if (submittedController.clearIfUnchanged(sentBody)) { setBody(structuredClone(submittedController.body)); await submittedController.save(); }
       if (!isCurrent()) return;
       await refresh();
@@ -141,7 +160,7 @@ export function FeedbackPanel({ session, state, title, selection, visible, onClo
       const draft = await discussionRetry(access, run.id);
       if (!isCurrent() || controller.current !== currentController) return;
       if (session.projectAccess.writerLease !== access.writerLease || draft.previousRunId !== run.id) throw new Error('The discussion changed while preparing another attempt. Try again.');
-      update(draft, true);
+      update({ ...draft, intent: draft.intent ?? run.intent ?? 'discuss' }, true);
       await currentController.save();
       if (isCurrent()) composer.current?.focus();
     } catch (reason) { if (isCurrent()) setError(detail(reason)); }
@@ -165,9 +184,12 @@ export function FeedbackPanel({ session, state, title, selection, visible, onClo
       {view && !view.messages.length && <div className="feedback-empty"><p>What would you like to improve?</p><span>Ask about pacing, a character’s choices, or an earlier detail. Your discussion is saved with this document.</span></div>}
       {view?.messages.map(item => {
         const run = view.runs.find(run => run.id === item.runId);
-        return <article className="feedback-note" key={item.id}><div>{item.role === 'user' ? 'You' : 'Test assistant'}{item.role === 'assistant' && run && run.status !== 'completed' && <span>{run.status} · incomplete</span>}</div>{item.scope && <blockquote>{item.scope.quote}</blockquote>}<p>{item.content}</p><button className="text-button" disabled={locked} onClick={() => setGuidanceAdoption(previous => ({ text: item.content, originMessageId: item.id, nonce: (previous?.nonce ?? 0) + 1 }))}>Keep as guidance</button></article>;
+        const isProposalOutput = item.role === 'assistant' && run?.intent === 'proposeEdits';
+        return <article className="feedback-note" key={item.id}><div>{item.role === 'user' ? 'You' : 'Test assistant'}{item.role === 'assistant' && run && run.status !== 'completed' && <span>{run.status} · incomplete</span>}</div>{item.scope && <blockquote>{item.scope.quote}</blockquote>}{isProposalOutput ? <p className="discussion-state">Suggestions are ready to review below.</p> : <p>{item.content}</p>}{!isProposalOutput && <button className="text-button" disabled={locked} onClick={() => setGuidanceAdoption(previous => ({ text: item.content, originMessageId: item.id, nonce: (previous?.nonce ?? 0) + 1 }))}>Keep as guidance</button>}</article>;
       })}
-      {view?.runs.filter(run => activeRun(run)).map(run => <section key={run.id} className="feedback-note"><div>Test assistant <span>{run.status === 'queued' ? 'Preparing…' : 'Responding…'}</span></div>{run.outputText && <p>{run.outputText}</p>}<button onClick={() => void stop(run)}>Stop response</button></section>)}
+      {view?.runs.filter(run => activeRun(run)).map(run => <section key={run.id} className="feedback-note"><div>Test assistant <span>{run.status === 'queued' ? 'Preparing…' : 'Responding…'}</span></div>{run.intent === 'proposeEdits' ? <p className="discussion-state">Preparing suggestions for the selected passage…</p> : run.outputText && <p>{run.outputText}</p>}<button onClick={() => void stop(run)}>Stop response</button></section>)}
+      {latest?.intent === 'proposeEdits' && !activeRun(latest) && proposals.length === 0 && <p className="proposal-empty" role="status">No valid suggestions were retained. The response remains available as discussion text.</p>}
+      {proposals.length > 0 && <ProposalPanel key={`${session.projectAccess.projectId}/${session.projectAccess.operationNamespace}/${documentId}`} access={session.projectAccess} proposals={proposals} disabled={!session.state.editable} onPrepareProposal={onPrepareProposal} onApplyProposal={onApplyProposal} onRefresh={refresh} />}
       {latest && !activeRun(latest) && latest.status !== 'completed' && <p className="discussion-state">This response is {latest.status}. {latest.stopReason === 'context_stale' ? 'The story changed before it could start.' : ''}<button disabled={locked || !latestIsCurrentProject} onClick={() => void prepareRetry(latest)}>Prepare another attempt</button></p>}
       {latest && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={latest.packetId} delivered={latest.dispatchState === 'delivered'} refreshKey={`${state.head.version}/${guidanceEpoch}`} onPin={pin} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
     </div>
@@ -175,10 +197,12 @@ export function FeedbackPanel({ session, state, title, selection, visible, onClo
       {body.previousRunId && <div className="retry-notice"><p>Another attempt at the same feedback. Uses current story sources and retains the original one-use guidance if it is still active. Editing the feedback, selection, or included sources starts a new request.</p><button type="button" className="text-button" disabled={locked} onClick={() => update({ ...body, previousRunId: null })}>Use as a new request</button></div>}
       {body.scope && <div className="quoted-scope"><div className="scope-title"><strong>Selected passage</strong><button type="button" disabled={locked} className="text-button" onClick={() => update({ ...body, scope: null })}>Use whole document</button></div><blockquote>{body.scope.quote}</blockquote>{scopeStale && <p className="stale-notice">The manuscript changed. Select the passage again before sending.</p>}</div>}
       {body.pinnedDocumentIds.length > 0 && <div className="source-pins">{body.pinnedDocumentIds.map((id, index) => <button type="button" key={id} disabled={locked} onClick={() => update({ ...body, pinnedDocumentIds: body.pinnedDocumentIds.filter(pin => pin !== id) })}>Included source {index + 1} · remove</button>)}</div>}
-      <label htmlFor="discussion-composer">{body.scope ? 'Discuss this passage' : 'Discuss this document'}</label>
+      <div className="intent-controls" role="group" aria-label="Feedback action"><span className="intent-label">Work with the manuscript</span><button type="button" className={currentIntent === 'discuss' ? 'intent-button active' : 'intent-button'} aria-pressed={currentIntent === 'discuss'} disabled={locked} onClick={() => update({ ...body, intent: 'discuss' })}>Discuss</button><button type="button" className={currentIntent === 'proposeEdits' ? 'intent-button active' : 'intent-button'} aria-pressed={currentIntent === 'proposeEdits'} disabled={locked} onClick={() => update({ ...body, intent: 'proposeEdits' })}>Suggest edits</button></div>
+      {currentIntent === 'proposeEdits' && !canSuggestEdits && <p className="small-copy proposal-requirement">Select a passage in a chapter to request suggested edits. Discussion remains available for this document.</p>}
+      <label htmlFor="discussion-composer">{currentIntent === 'proposeEdits' ? 'Request edits for this passage' : body.scope ? 'Discuss this passage' : 'Discuss this document'}</label>
       <textarea id="discussion-composer" ref={composer} value={body.text} disabled={!view || locked} maxLength={16000} placeholder="Make this moment more emotional, but keep the ending…" onChange={event => update({ ...body, text: event.target.value })} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; compositionWaiters.current.splice(0).forEach(resolve => resolve()); }} />
       {error && <div className="discussion-error" role="alert">{error}{!view && <button type="button" onClick={() => setReload(value => value + 1)}>Retry loading discussion</button>}{view && !pending && <button type="button" onClick={() => void save.current().then(() => setError('')).catch(reason => setError(detail(reason)))}>Retry saving discussion</button>}</div>}
-      <div className="form-actions"><span>Discussion never changes the manuscript.</span>{pending && !sending ? <button type="button" onClick={() => void send(true)}>Check request</button> : <button className="primary-button" disabled={!view || locked || scopeStale || !body.text.trim() || view.runs.some(activeRun)}>Send</button>}</div>
+      <div className="form-actions"><span>{currentIntent === 'proposeEdits' ? 'Review a suggestion before applying it.' : 'Discussion never changes the manuscript.'}</span>{pending && !sending ? <button type="button" onClick={() => void send(true)}>Check request</button> : <button className="primary-button" disabled={!view || locked || scopeStale || !body.text.trim() || view.runs.some(activeRun) || (currentIntent === 'proposeEdits' && !canSuggestEdits)}>Send</button>}</div>
     </form>
   </aside>;
 }

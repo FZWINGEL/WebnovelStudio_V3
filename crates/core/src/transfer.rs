@@ -483,6 +483,12 @@ fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<
             format!("The author guidance records are invalid: {error}"),
         )
     })?;
+    crate::projects::proposals::validate_proposal_storage(&connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The suggestion history is invalid: {error}"),
+        )
+    })?;
     let mut documents = Vec::new();
     let mut statement = connection.prepare(
         "SELECT id,working_version,body_hash,last_checkpoint_id,body_json,schema_version \

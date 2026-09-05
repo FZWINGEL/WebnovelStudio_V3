@@ -1,10 +1,12 @@
 import { Editor, type JSONContent } from '@tiptap/core';
 import { TextSelection } from '@tiptap/pm/state';
+import { closeHistory, undo, redo } from '@tiptap/pm/history';
 import { afterEach, describe, expect, it } from 'vitest';
 import golden from '../../../../contracts/fixtures/w1_scope_golden.json';
 import { canonicalJson, snapshotFromEditor, type WnsDocument } from './document';
 import { editorExtensions } from './schema';
-import { captureSelection, prepareReplacement } from './selection';
+import { captureSelection, prepareReplacement, prepareScopedReplacement } from './selection';
+import type { ScopeGrant } from '../ipc/context';
 
 type GoldenCase = (typeof golden.cases)[number];
 const editors: Editor[] = [];
@@ -37,6 +39,32 @@ afterEach(() => {
 });
 
 describe('W1 scope golden snapshots through the real ProseMirror schema', () => {
+  it('preflights stored endpoints without changing selection, then isolates Apply from later typing in history', () => {
+    const testCase = golden.cases.find(item => item.name === 'repeated-quote-targets-second-occurrence')!;
+    const editor = createEditor(testCase.request.sourceSnapshot as WnsDocument);
+    const original = editor.state.doc; const selection = editor.state.selection;
+    const tr = prepareScopedReplacement(editor.state, testCase.request.scope as ScopeGrant, 'changed').setMeta('durableApply', true);
+    const expected = editor.state.applyTransaction(tr).state.doc;
+    expect(editor.state.doc.eq(original)).toBe(true); expect(editor.state.selection.eq(selection)).toBe(true);
+    editor.view.dispatch(tr); editor.view.dispatch(closeHistory(editor.state.tr));
+    expect(editor.state.doc.eq(expected)).toBe(true);
+    expect(canonicalJson(snapshot(editor))).toBe(canonicalJson(testCase.request.resultSnapshot));
+    editor.view.dispatch(editor.state.tr.insertText(' later'));
+    const later = editor.state.doc;
+    undo(editor.state, editor.view.dispatch); expect(editor.state.doc.eq(expected)).toBe(true);
+    undo(editor.state, editor.view.dispatch); expect(editor.state.doc.eq(original)).toBe(true);
+    redo(editor.state, editor.view.dispatch); expect(editor.state.doc.eq(expected)).toBe(true);
+    redo(editor.state, editor.view.dispatch); expect(editor.state.doc.eq(later)).toBe(true);
+  });
+
+  it('refuses malformed stored endpoints rather than widening or searching for a quote', () => {
+    const testCase = golden.cases.find(item => item.name === 'repeated-quote-targets-second-occurrence')!;
+    const editor = createEditor(testCase.request.sourceSnapshot as WnsDocument);
+    const grant = testCase.request.scope as ScopeGrant;
+    expect(() => prepareScopedReplacement(editor.state, { ...grant, start: { blockId: 'missing', utf16Offset: 0 } }, 'changed')).toThrow(/unavailable/u);
+    expect(() => prepareScopedReplacement(editor.state, { ...grant, quote: 'different words' }, 'changed')).toThrow(/exact source/u);
+    expect(canonicalJson(snapshot(editor))).toBe(canonicalJson(testCase.request.sourceSnapshot));
+  });
   it.each(golden.cases)('round-trips the literal source and result for $name', (testCase: GoldenCase) => {
     const source = createEditor(testCase.request.sourceSnapshot as WnsDocument);
     const result = createEditor(testCase.request.resultSnapshot as WnsDocument);

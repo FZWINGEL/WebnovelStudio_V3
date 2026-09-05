@@ -605,7 +605,9 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let connection = Connection::open(&database_path).expect("open source database");
     connection
         .execute_batch(
-            "DROP TABLE guidance_request_uses; DROP TABLE snapshot_guidance;
+            "DROP TRIGGER command_receipts_no_proposal_collision;
+             DROP TABLE proposal_receipts; DROP TABLE proposal_decisions; DROP TABLE proposal_versions; DROP TABLE proposals;
+             DROP TABLE guidance_request_uses; DROP TABLE snapshot_guidance;
              DROP TABLE author_guidance_receipts; DROP TABLE author_guidance_heads;
              DROP TABLE author_guidance_versions;
              DROP TABLE discussion_output_events; DROP TABLE discussion_messages;
@@ -661,5 +663,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 7);
+    assert_eq!(version, 8);
 }

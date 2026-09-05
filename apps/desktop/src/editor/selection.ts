@@ -1,8 +1,9 @@
 import type { Editor } from '@tiptap/core';
 import { Fragment, Slice, type Mark, type Node as PMNode } from '@tiptap/pm/model';
-import { TextSelection, type Transaction } from '@tiptap/pm/state';
+import { TextSelection, type Transaction, type EditorState, type Selection } from '@tiptap/pm/state';
 import { ReplaceStep } from '@tiptap/pm/transform';
 import { closeHistory } from '@tiptap/pm/history';
+import type { ScopeGrant } from '../ipc/context';
 
 export interface Scope {
   generation: number;
@@ -29,6 +30,10 @@ function snap(text: string, offset: number, end: boolean): number {
 
 export function captureSelection(editor: Editor): Scope | null {
   const { doc, selection } = editor.state;
+  return captureAt(doc, selection, generation(editor));
+}
+
+function captureAt(doc: PMNode, selection: Selection, sourceGeneration: number): Scope | null {
   if (selection.empty || !selection.$from.parent.isTextblock || !selection.$to.parent.isTextblock) return null;
   const startText = selection.$from.parent.textBetween(0, selection.$from.parent.content.size, '', '\n');
   const endText = selection.$to.parent.textBetween(0, selection.$to.parent.content.size, '', '\n');
@@ -45,7 +50,7 @@ export function captureSelection(editor: Editor): Scope | null {
   const first = selectedMarks[0] ?? [];
   const uniform = selectedMarks.every(marks => JSON.stringify(marks) === JSON.stringify(first));
   return {
-    generation: generation(editor),
+    generation: sourceGeneration,
     from, to, quote: doc.textBetween(from, to, '\n\n', '\n'), source: doc,
     start: { blockId: selection.$from.parent.attrs.id, utf16Offset: startOffset },
     end: { blockId: selection.$to.parent.attrs.id, utf16Offset: endOffset },
@@ -57,16 +62,37 @@ export function captureSelection(editor: Editor): Scope | null {
 
 export function prepareReplacement(editor: Editor, scope: Scope, text: string): Transaction {
   if (generation(editor) !== scope.generation || !editor.state.doc.eq(scope.source)) throw new Error('The chapter changed. Select the passage again before applying.');
-  if (!scope.replacementAllowed) throw new Error('This trial cannot replace scene breaks or mixed block styles. Select text within matching paragraphs.');
-  if (/[\r\n]/u.test(text)) throw new Error('Use a single line for this trial replacement. Paragraph restructuring comes in the next contract slice.');
-  if (text.length > 100_000) throw new Error('The trial replacement is too large. Use a shorter passage.');
-  const content = text ? Fragment.from(editor.schema.text(text, scope.uniformMarks)) : Fragment.empty;
-  const tr = closeHistory(editor.state.tr);
+  return replacement(editor.state, scope, text).setMeta('localTrialApply', true);
+}
+
+function replacement(state: EditorState, scope: Scope, text: string): Transaction {
+  if (!scope.replacementAllowed) throw new Error('Select text within matching paragraphs. Scene breaks and mixed paragraph styles need separate edits.');
+  if (/[\r\n]/u.test(text)) throw new Error('Use a single line for this passage replacement.');
+  if (text.length > 100_000) throw new Error('The replacement is too large. Use a shorter passage.');
+  const content = text ? Fragment.from(state.schema.text(text, scope.uniformMarks)) : Fragment.empty;
+  const tr = closeHistory(state.tr);
   const result = tr.maybeStep(new ReplaceStep(scope.from, scope.to, new Slice(content, 0, 0)));
   if (result.failed) throw new Error(`This selection cannot be replaced exactly: ${result.failed}`);
   tr.setSelection(TextSelection.create(tr.doc, scope.from + text.length));
-  tr.setMeta('localTrialApply', true);
   return tr;
+}
+
+/** Resolve exact persisted endpoints, never the first matching quotation. */
+export function prepareScopedReplacement(state: EditorState, grant: ScopeGrant, text: string): Transaction {
+  if (grant.kind !== 'passage' || !grant.start || !grant.end) throw new Error('This suggestion needs an exact selected passage.');
+  const locate = (endpoint: { blockId: string; utf16Offset: number }): number => {
+    let position: number | null = null;
+    state.doc.forEach((node, offset) => {
+      if (node.attrs.id === endpoint.blockId && node.isTextblock && Number.isInteger(endpoint.utf16Offset) && endpoint.utf16Offset >= 0 && endpoint.utf16Offset <= node.content.size) position = offset + 1 + endpoint.utf16Offset;
+    });
+    if (position === null) throw new Error('The original selected passage is unavailable.');
+    return position;
+  };
+  const from = locate(grant.start); const to = locate(grant.end);
+  if (from >= to) throw new Error('The selected passage has invalid endpoints.');
+  const scope = captureAt(state.doc, TextSelection.create(state.doc, from, to), 0);
+  if (!scope || scope.from !== from || scope.to !== to || scope.quote !== grant.quote) throw new Error('The selected passage no longer matches its exact source.');
+  return replacement(state, scope, text);
 }
 
 export function generation(editor: Editor): number {

@@ -158,13 +158,32 @@ try {
     return editor.getJSON();
   });
   await page.waitForFunction(() => document.activeElement.classList.contains('tiptap'));
+  await page.evaluate(() => {
+    window.nativeClipboardProbe = { focused: document.hasFocus(), copied: 0, pasted: 0, matched: false };
+    document.addEventListener('copy', event => {
+      window.nativeClipboardProbe.copied++;
+      window.nativeClipboardProbe.copySelectionMatches = window.getSelection()?.toString().includes('Clipboard 灯火🙂') ?? false;
+      window.nativeClipboardProbe.copyDataMatches = event.clipboardData?.getData('text/plain').includes('Clipboard 灯火🙂') ?? false;
+      window.nativeClipboardProbe.copyPrevented = event.defaultPrevented;
+    }, { once: true });
+    document.addEventListener('paste', event => {
+      window.nativeClipboardProbe.pasted++;
+      window.nativeClipboardProbe.matched = event.clipboardData?.getData('text/plain').includes('Clipboard 灯火🙂') ?? false;
+      window.nativeClipboardProbe.pasteTypes = [...event.clipboardData.types];
+      window.nativeClipboardProbe.pasteLength = event.clipboardData.getData('text/plain').length;
+    }, { once: true });
+  });
+  await page.waitForFunction(() => window.getSelection()?.toString().includes('Clipboard 灯火🙂'));
   await page.keyboard.press('Control+c');
   await page.evaluate(() => {
     const editor = document.querySelector('.tiptap').editor;
     editor.commands.setTextSelection(editor.state.doc.content.size - 1);
   });
   await page.keyboard.press('Control+v');
-  await page.waitForFunction(() => document.querySelector('.tiptap').editor.state.doc.textContent.split('Clipboard 灯火🙂').length === 3);
+  await page.waitForFunction(() => document.querySelector('.tiptap').editor.state.doc.textContent.split('Clipboard 灯火🙂').length === 3).catch(async error => {
+    appLog += `\nClipboard event probe: ${JSON.stringify(await page.evaluate(() => ({ ...window.nativeClipboardProbe, focusedAfter: document.hasFocus(), selected: window.getSelection()?.toString().length })))}`;
+    throw error;
+  });
   const pasted = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
   assert.deepEqual(pasted.content.slice(0, 2), clipboardSource.content.slice(0, 2));
   assert.equal(new Set(pasted.content.map(block => block.attrs.id)).size, pasted.content.length);
@@ -408,6 +427,7 @@ try {
   await page.getByRole('button', { name: 'Prepare another attempt', exact: true }).click();
   await page.locator('.retry-notice').waitFor();
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await page.reload();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
   await page.locator('.retry-notice').waitFor();
@@ -421,6 +441,67 @@ try {
   await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'detached' });
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
   checks.push('Native stopped discussion retry retains one-use guidance and the saved retry choice across navigation/reload, then supplies the exact instruction without changing prose');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByLabel('Start with', { exact: true }).selectOption('chapter');
+  await page.getByRole('textbox', { name: 'Title', exact: true }).fill('The promise on the pier');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('heading', { name: 'The promise on the pier', exact: true }).waitFor();
+  const originalProse = 'Mei held the lantern. The ending stays unchanged.';
+  const appliedProse = 'Her sister held the lantern. The ending stays unchanged.';
+  await fillManuscript(originalProse);
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  await page.evaluate(() => document.querySelector('.tiptap').editor.commands.setTextSelection({ from: 1, to: 4 }));
+  await page.getByRole('button', { name: 'Discuss selection', exact: true }).click();
+  await page.locator('.persistent-feedback .quoted-scope blockquote').filter({ hasText: /^Mei$/ }).waitFor();
+  await page.getByRole('button', { name: 'Suggest edits', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Request edits for this passage', exact: true }).fill('Change who holds the lantern. Preserve everything outside the selected name.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.proposal-card').length === 3);
+  let chosen = page.locator('.proposal-card').filter({ hasText: 'Mock clarity option' });
+  await chosen.getByRole('textbox', { name: 'Replacement wording', exact: true }).fill('Her sister');
+  await chosen.getByRole('button', { name: 'Preview', exact: true }).click();
+  await chosen.locator('.after-text').filter({ hasText: /^Her sister$/ }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), originalProse);
+  await chosen.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'proposal-preview.png') });
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.reload();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+  chosen = page.locator('.proposal-card').filter({ hasText: 'Mock clarity option' });
+  await chosen.locator('.after-text').filter({ hasText: /^Her sister$/ }).waitFor();
+  assert.equal(await chosen.getByRole('textbox', { name: 'Replacement wording', exact: true }).inputValue(), 'Her sister');
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), originalProse);
+  await page.evaluate(() => { window.beforeDurableApply = document.querySelector('.tiptap').editor; });
+  await chosen.getByRole('button', { name: 'Apply', exact: true }).click();
+  await chosen.locator('.proposal-status').filter({ hasText: /^Applied$/ }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), appliedProse);
+  assert(await page.evaluate(() => document.querySelector('.tiptap').editor === window.beforeDurableApply));
+  assert.equal(await page.locator('.proposal-stale').count(), 2);
+  const rejected = page.locator('.proposal-card').filter({ hasText: 'Mock focus option' });
+  assert.equal(await rejected.getByRole('button', { name: 'Apply', exact: true }).isEnabled(), false);
+  await rejected.getByRole('button', { name: 'Reject', exact: true }).click();
+  await rejected.locator('.proposal-status').filter({ hasText: /^Rejected$/ }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), appliedProse);
+  await chosen.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'proposal-applied.png') });
+  checks.push('Native chapter passage suggestions retain three alternatives and edited previews across reload; explicit Apply preserves the mounted editor and protected ending, leaves other options pending/stale, and Reject does not change prose');
+  await page.getByRole('textbox', { name: 'Manuscript', exact: true }).focus();
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(text => document.querySelector('.tiptap').editor.getText() === text, originalProse);
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  await page.keyboard.press('Control+Shift+z');
+  await page.waitForFunction(text => document.querySelector('.tiptap').editor.getText() === text, appliedProse);
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.reload();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+  await page.getByRole('heading', { name: 'The promise on the pier', exact: true }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), appliedProse);
+  await page.locator('.proposal-card').filter({ hasText: 'Mock clarity option' }).locator('.proposal-status').filter({ hasText: /^Applied$/ }).waitFor();
+  await page.locator('.proposal-card').filter({ hasText: 'Mock focus option' }).locator('.proposal-status').filter({ hasText: /^Rejected$/ }).waitFor();
+  checks.push('Native durable Apply is one undo event; undo and redo save through Rust and the final body plus explicit decisions survive navigation and renderer reload');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: 'Archive Harbour C', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor({ state: 'detached' });
@@ -430,7 +511,7 @@ try {
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor();
   checks.push('Native renames preserve the mounted editor; last document and exact caret survive navigation/reload; archive and unarchive preserve the project');
   assert.deepEqual(errors, []);
-  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No live provider or durable Apply', 'Native export/recovery dialog journeys remain separate W3 checks'], dataDirectory: data }, null, 2));
+  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No live provider; durable Apply currently supports single-line passage replacements only', 'Native export/recovery dialog journeys remain separate W3 checks'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));
 } catch (error) {
   if (observedPage && !observedPage.isClosed()) {

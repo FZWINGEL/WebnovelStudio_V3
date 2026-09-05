@@ -1,13 +1,14 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Editor, Extension } from '@tiptap/core';
 import { EditorContent } from '@tiptap/react';
-import { Plugin, Selection, TextSelection } from '@tiptap/pm/state';
-import { redo, redoDepth, undo, undoDepth } from '@tiptap/pm/history';
+import { EditorState, Plugin, Selection, TextSelection } from '@tiptap/pm/state';
+import { closeHistory, redo, redoDepth, undo, undoDepth } from '@tiptap/pm/history';
 import { editorExtensions } from '../editor/schema';
 import { snapshotFromEditor } from '../editor/document';
 import { DocumentSession, SessionError } from '../editor/session';
 import { saveViewState, type DocumentRecord, type Endpoint, type ViewState } from '../ipc/projects';
-import { captureSelection, type Scope } from '../editor/selection';
+import { captureSelection, prepareScopedReplacement, type Scope } from '../editor/selection';
+import { prepareProposal, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { FeedbackPanel } from '../assistant/FeedbackPanel';
 
 const Manuscript = memo(({ editor }: { editor: Editor }) => <EditorContent editor={editor} />);
@@ -25,7 +26,7 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
   const [editor] = useState(() => new Editor({
     extensions: [...editorExtensions, Extension.create({
       name: 'persistentEditing', priority: 1000,
-      addProseMirrorPlugins: () => [new Plugin({ filterTransaction: tr => !tr.docChanged || session.state.editable || tr.getMeta('authorConflictChoice') === true })],
+      addProseMirrorPlugins: () => [new Plugin({ filterTransaction: tr => !tr.docChanged || session.state.editable || tr.getMeta('authorConflictChoice') === true || tr.getMeta('durableApply') === true })],
       addKeyboardShortcuts() { return {
         'Mod-z': () => undo(this.editor.state, tr => this.editor.view.dispatch(tr.setMeta('saveCause', 'undo'))),
         'Mod-Shift-z': () => redo(this.editor.state, tr => this.editor.view.dispatch(tr.setMeta('saveCause', 'redo'))),
@@ -37,10 +38,35 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
     content: structuredClone(session.body.body),
     editorProps: { attributes: { 'aria-label': 'Manuscript', role: 'textbox', 'aria-multiline': 'true', spellcheck: 'true' }, handleClick: (_view, _pos, event) => { if ((event.target as HTMLElement).closest('a')) { event.preventDefault(); return true; } return false; } },
     onUpdate: ({ editor, transaction }) => {
-      if (transaction.getMeta('authorConflictChoice')) return;
+      if (transaction.getMeta('authorConflictChoice') || transaction.getMeta('durableApply')) return;
       session.update(snapshotFromEditor(editor.getJSON()), transaction.getMeta('saveCause') ?? 'typing');
     },
   }));
+  const prepare = async (proposal: Proposal, text: string, operationId: string): Promise<PreparedProposal> => {
+    let source: EditorState; let tr;
+    try {
+      source = EditorState.create({ schema: editor.schema, doc: editor.schema.nodeFromJSON(proposal.sourceBody.body) });
+      tr = prepareScopedReplacement(source, proposal.scope, text);
+    } catch (error) { throw new SessionError('InvalidProposal', (error as Error).message); }
+    return prepareProposal({ access: session.projectAccess, operationId, proposalId: proposal.id, expectedPreparedVersion: proposal.prepared?.version ?? '0',
+      replacementText: text, body: snapshotFromEditor(tr.doc.toJSON()) });
+  };
+  const apply = async (proposal: Proposal, prepared: PreparedProposal): Promise<void> => {
+    await session.applyPrepared(proposal, prepared, () => {
+      const tr = prepareScopedReplacement(editor.state, proposal.scope, prepared.replacementText).setMeta('durableApply', true);
+      const expected = editor.state.applyTransaction(tr).state.doc;
+      return { body: snapshotFromEditor(expected.toJSON()), read: () => snapshotFromEditor(editor.getJSON()), commit: () => {
+        // Reconciliation can revisit a callback after dispatch succeeded but
+        // a later callback threw. The exact displayed result is already done.
+        if (!editor.state.doc.eq(expected)) {
+          if (!editor.state.doc.eq(tr.before)) throw new Error('The live editor changed before the saved suggestion could be displayed.');
+          editor.view.dispatch(tr);
+        }
+        editor.view.dispatch(closeHistory(editor.state.tr));
+        return snapshotFromEditor(editor.getJSON());
+      } };
+    });
+  };
   discuss.current = () => {
     const scope = captureSelection(editor);
     if (!scope) return false;
@@ -98,7 +124,7 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
       }
     } catch (error) { onError((error as Error).message); }
   }
-  const saving = state.phase === 'reconciling' ? 'Checking saved version…' : state.phase === 'conflict' ? 'Choose which version to keep' : state.phase === 'saveFailed' ? "Couldn't save" : state.dirty || state.saving ? 'Saving…' : 'Saved';
+  const saving = state.phase === 'applying' ? 'Applying change…' : state.phase === 'reconciling' ? 'Checking saved version…' : state.phase === 'conflict' ? 'Choose which version to keep' : state.phase === 'saveFailed' ? "Couldn't save" : state.dirty || state.saving ? 'Saving…' : 'Saved';
   return <><main className="writing" aria-label="Writing desk">
     <div className="document-heading"><h1>{record.title}</h1><button disabled={!state.editable} onClick={onRename}>Rename document</button><button aria-pressed={discussionVisible} onClick={() => setDiscussionVisible(value => !value)}>Discussion</button><span className="save-status" role="status" aria-live="polite">{saving}</span></div>
     <div className="formatbar" role="toolbar" aria-label="Manuscript formatting">
@@ -116,7 +142,7 @@ export function Writer({ active, onError, onRename }: { active: { record: Docume
     <div className="manuscript-scroll" onContextMenu={event => { if (!editor.state.selection.empty && state.editable) { event.preventDefault(); setMenu({ x: Math.min(event.clientX, window.innerWidth - 270), y: Math.min(event.clientY, window.innerHeight - 60) }); } }} onPaste={event => { if (/<(?:table|img|ul|ol|pre|video|iframe|script|blockquote|code|s|strike|del|u|sub|sup|h[4-6])\b/iu.test(event.clipboardData.getData('text/html'))) setPasteNotice('Pasted text with supported formatting. Other formatting or embedded content was omitted.'); }}><div className="manuscript-page"><Manuscript editor={editor} /></div></div>
     <footer className="writing-status"><span>{pasteNotice || 'Writing on this computer'}</span><span>Offline writing</span></footer>
   </main>
-  <FeedbackPanel session={session} state={state} title={record.title} selection={discussionSelection} visible={discussionVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} />
+  <FeedbackPanel session={session} state={state} title={record.title} documentKind={record.kind} selection={discussionSelection} visible={discussionVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} onPrepareProposal={prepare} onApplyProposal={apply} />
   {menu && <><div className="menu-dismiss" onClick={() => setMenu(null)} /><div className="selection-menu" role="menu" aria-label="Selected passage" style={{ left: menu.x, top: menu.y }} onKeyDown={event => { if (event.key === 'Escape') { setMenu(null); editor.commands.focus(); } }}><button role="menuitem" autoFocus onMouseDown={event => event.preventDefault()} onClick={() => discuss.current()}>Discuss selection · Ctrl+Shift+F</button></div></>}
   </>;
 }

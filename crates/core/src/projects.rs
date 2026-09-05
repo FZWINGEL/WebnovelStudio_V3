@@ -16,6 +16,7 @@ pub mod context_packets;
 mod conversation_context;
 pub mod discussions;
 pub mod guidance;
+pub mod proposals;
 pub mod story_context;
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -218,6 +219,8 @@ pub struct OperationReceipt {
 pub struct StoredResult {
     pub head: Head,
     pub saved_generation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied: Option<proposals::AppliedDecision>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -269,6 +272,7 @@ enum Command {
     Context(Box<story_context::ContextCommand>),
     Discussion(Box<discussions::DiscussionCommand>),
     Guidance(Box<guidance::GuidanceCommand>),
+    Proposal(Box<proposals::ProposalCommand>),
     Attach(String, Reply<ProjectAccess>),
     AttachSnapshot(String, Reply<AttachedProject>),
     Create(CreateDocument, Reply<DocumentRecord>),
@@ -408,6 +412,7 @@ impl ProjectSession {
                             Command::Context(command) => project.handle_context(*command),
                             Command::Discussion(command) => project.handle_discussion(*command),
                             Command::Guidance(command) => project.handle_guidance(*command),
+                            Command::Proposal(command) => project.handle_proposal(*command),
                             Command::Attach(session, reply) => {
                                 let _ = reply.send(project.attach(session));
                             }
@@ -1132,6 +1137,7 @@ impl OwnedProject {
             &StoredResult {
                 head,
                 saved_generation: "0".into(),
+                applied: None,
             },
         )?;
         let record = read_document(&tx, &request.document_id)?;
@@ -1208,6 +1214,7 @@ impl OwnedProject {
             let result = StoredResult {
                 head,
                 saved_generation: request.local_generation.clone(),
+                applied: None,
             };
             insert_receipt(
                 &tx,
@@ -1721,6 +1728,20 @@ fn existing_receipt(
     kind: &str,
     payload: &str,
 ) -> CoreResult<Option<StoredResult>> {
+    let proposal_receipt: Option<(String, String)> = connection
+        .query_row(
+            "SELECT kind,payload_hash FROM proposal_receipts \
+             WHERE operation_namespace=? AND operation_id=?",
+            params![namespace, id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if proposal_receipt.is_some() {
+        return Err(CoreError::new(
+            "OperationIdReusedWithDifferentPayload",
+            "This operation ID was already used for a proposal command.",
+        ));
+    }
     let found: Option<(String, String, String)> = connection.query_row("SELECT operation_kind,payload_hash,result_json FROM command_receipts WHERE operation_namespace=? AND operation_id=?", params![namespace, id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
     found
         .map(|(stored_kind, stored_payload, result)| {
@@ -1754,12 +1775,14 @@ mod tests {
 
     // Compiled only into the Rust unit-test binary, never the desktop/core library.
     pub(super) fn hold_after_commit_before_ack(operation_id: &str) {
-        if operation_id == "crash-save"
+        if matches!(operation_id, "crash-save" | "crash-apply")
             && let Some(root) = std::env::var_os("WNS_UNIT_CRASH_ROOT")
         {
             let mut marker = File::create_new(PathBuf::from(root).join("committed")).unwrap();
             marker
-                .write_all(b"COMMIT returned successfully; no SaveAck has been sent")
+                .write_all(
+                    b"COMMIT returned successfully; no document acknowledgment has been sent",
+                )
                 .unwrap();
             marker.sync_all().unwrap();
             loop {
@@ -1774,10 +1797,17 @@ mod tests {
         let root = PathBuf::from(std::env::var_os("WNS_UNIT_CRASH_ROOT").unwrap());
         let project = ProjectSession::open(root.join("project")).unwrap();
         let access = project.attach("crash-child".into()).unwrap();
-        let mut request: SaveSnapshot =
-            serde_json::from_slice(&std::fs::read(root.join("request.json")).unwrap()).unwrap();
-        request.access = access;
-        project.save(request).unwrap();
+        let json = std::fs::read(root.join("request.json")).unwrap();
+        let value: Value = serde_json::from_slice(&json).unwrap();
+        if value.get("preparedId").is_some() {
+            let mut request: proposals::ApplyProposal = serde_json::from_slice(&json).unwrap();
+            request.access = access;
+            project.apply_proposal(request).unwrap();
+        } else {
+            let mut request: SaveSnapshot = serde_json::from_slice(&json).unwrap();
+            request.access = access;
+            project.save(request).unwrap();
+        }
         panic!("The deterministic after-commit barrier did not hold");
     }
 
@@ -1857,6 +1887,168 @@ mod tests {
         assert_eq!(replay.head, snapshot.document.head);
         assert_eq!(replay.saved_generation, "9");
         assert_eq!(replay.session, "new-renderer");
+        drop(recovered);
+        assert!(root.starts_with(std::env::temp_dir()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn killed_apply_after_commit_recovers_decision_and_checkpoint_once() {
+        use crate::context::packet::MockContextBudget;
+        use crate::documents::{Endpoint, ScopeKind};
+        use discussions::*;
+        use proposals::*;
+        let root = std::env::temp_dir().join(format!("wns-apply-crash-{}", new_id()));
+        std::fs::create_dir(&root).unwrap();
+        let project = ProjectSession::create(root.join("project"), "Apply crash fixture").unwrap();
+        let access = project.attach("parent".into()).unwrap();
+        let body = |text: &str| json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p"},"content":[{"type":"text","text":text}]}]}});
+        let document = project
+            .create_document(CreateDocument {
+                access: access.clone(),
+                operation_id: "create".into(),
+                document_id: "chapter".into(),
+                title: "Chapter".into(),
+                kind: "chapter".into(),
+                body: body("original"),
+            })
+            .unwrap();
+        let started = project
+            .start_discussion(StartDiscussion {
+                access: access.clone(),
+                operation_id: "feedback".into(),
+                expected: document.head.clone(),
+                instruction: "Revise this passage.".into(),
+                intent: FeedbackIntent::ProposeEdits,
+                scope: Some(DiscussionScopeInput {
+                    kind: ScopeKind::Passage,
+                    start: Some(Endpoint {
+                        block_id: "p".into(),
+                        utf16_offset: 0,
+                    }),
+                    end: Some(Endpoint {
+                        block_id: "p".into(),
+                        utf16_offset: 8,
+                    }),
+                    quote: "original".into(),
+                    source_body_hash: document.head.body_hash.clone(),
+                }),
+                pinned_document_ids: vec![],
+                budget: MockContextBudget::new("100000", "1000", "100"),
+                previous_run_id: None,
+            })
+            .unwrap();
+        project
+            .begin_discussion_run(DiscussionBegin {
+                owner: started.run.owner.clone(),
+            })
+            .unwrap();
+        project
+            .mark_discussion_delivered(started.run.owner.clone())
+            .unwrap();
+        project
+            .finish_discussion(DiscussionFinish {
+                owner: started.run.owner,
+                expected_sequence: "0".into(),
+                event_id: "terminal".into(),
+                assistant_text: serde_json::to_string(&ProposalOutput {
+                    suggestions: vec![ProposalCandidate {
+                        title: "Alternative".into(),
+                        replacement_text: "survived".into(),
+                        explanation: "Crash test.".into(),
+                    }],
+                })
+                .unwrap(),
+            })
+            .unwrap();
+        let proposal = project
+            .proposals(access.clone(), "chapter".into())
+            .unwrap()
+            .remove(0);
+        let prepared = project
+            .prepare_proposal(PrepareProposal {
+                access: access.clone(),
+                operation_id: "prepare".into(),
+                proposal_id: proposal.id.clone(),
+                expected_prepared_version: "0".into(),
+                replacement_text: "survived".into(),
+                body: body("survived"),
+            })
+            .unwrap();
+        let mut request = ApplyProposal {
+            access,
+            operation_id: "crash-apply".into(),
+            proposal_id: proposal.id,
+            prepared_id: prepared.id,
+            expected: document.head,
+            result_hash: prepared.body_hash,
+            local_generation: "1".into(),
+        };
+        std::fs::write(
+            root.join("request.json"),
+            serde_json::to_vec(&request).unwrap(),
+        )
+        .unwrap();
+        drop(project);
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "projects::tests::crash_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("WNS_UNIT_CRASH_ROOT", &root)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        while !root.join("committed").exists() && started.elapsed() < Duration::from_secs(15) {
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "Child stopped before Apply COMMIT"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let committed = root.join("committed").exists();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(committed, "Child did not reach the Apply commit barrier");
+        let recovered = ProjectSession::open(root.join("project")).unwrap();
+        let snapshot = recovered
+            .reconcile(ReconcileRequest {
+                project_id: recovered.info.project_id.clone(),
+                operation_namespace: recovered.info.operation_namespace.clone(),
+                session: "new-renderer".into(),
+                document_id: "chapter".into(),
+                pending_operation_ids: vec!["crash-apply".into()],
+            })
+            .unwrap();
+        assert_eq!(snapshot.document.body, body("survived"));
+        assert_eq!(snapshot.document.head.version, "1");
+        assert_eq!(snapshot.receipts.len(), 1);
+        assert!(snapshot.receipts[0].result.applied.is_some());
+        request.access = snapshot.access.clone();
+        let repeated = recovered.apply_proposal(request).unwrap();
+        assert!(repeated.already_applied);
+        assert_eq!(repeated.document.head, snapshot.document.head);
+        assert_eq!(
+            recovered
+                .history(snapshot.access.clone(), "chapter".into())
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            recovered
+                .proposals(snapshot.access, "chapter".into())
+                .unwrap()[0]
+                .decision
+                .as_ref()
+                .unwrap()
+                .kind,
+            "apply"
+        );
         drop(recovered);
         assert!(root.starts_with(std::env::temp_dir()));
         std::fs::remove_dir_all(root).unwrap();
