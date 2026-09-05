@@ -1,4 +1,5 @@
 //! One locked project, one owned SQLite connection, and explicit renderer leases.
+use crate::documents::Endpoint;
 use crate::{sha256_hex, storage, validate_snapshot_json};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -87,14 +88,69 @@ pub struct ProjectInfo {
     pub title: String,
     pub format_version: u32,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectMetadata {
+    pub project: ProjectInfo,
+    pub metadata_version: String,
+}
+/// Identity of the library operation that installed this independent folder.
+/// Kept beside the database so registry recovery does not require a schema upgrade.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreationOrigin {
+    pub operation_namespace: String,
+    pub operation_id: String,
+}
+pub fn write_creation_origin(path: &Path, origin: &CreationOrigin) -> CoreResult<()> {
+    check_id(&origin.operation_namespace)?;
+    check_id(&origin.operation_id)?;
+    let mut file = File::create_new(path.join("creation.json"))?;
+    file.write_all(&serde_json::to_vec(origin)?)?;
+    file.sync_all()?;
+    Ok(())
+}
+pub fn read_creation_origin(path: &Path) -> CoreResult<CreationOrigin> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    File::open(path.join("creation.json"))?
+        .take(4097)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > 4096 {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "Invalid project creation record.",
+        ));
+    }
+    let origin: CreationOrigin = serde_json::from_slice(&bytes)?;
+    check_id(&origin.operation_namespace)?;
+    check_id(&origin.operation_id)?;
+    Ok(origin)
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ViewState {
+    pub document_id: String,
+    pub head: Head,
+    pub anchor: Endpoint,
+    pub focus: Endpoint,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentRecord {
     pub head: Head,
     pub title: String,
     pub kind: String,
+    pub metadata_version: String,
     pub body: Value,
     pub last_checkpoint_id: Option<String>,
+}
+#[derive(Debug)]
+pub struct AttachedProject {
+    pub metadata: ProjectMetadata,
+    pub access: ProjectAccess,
+    pub documents: Vec<DocumentRecord>,
+    pub view_state: Option<ViewState>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -204,6 +260,7 @@ pub struct StorageInfo {
 type Reply<T> = mpsc::SyncSender<CoreResult<T>>;
 enum Command {
     Attach(String, Reply<ProjectAccess>),
+    AttachSnapshot(String, Reply<AttachedProject>),
     Create(CreateDocument, Reply<DocumentRecord>),
     List(ProjectAccess, Reply<Vec<DocumentRecord>>),
     Read(ProjectAccess, String, Reply<DocumentRecord>),
@@ -211,6 +268,12 @@ enum Command {
     Checkpoint(CheckpointRequest, Reply<Revision>),
     History(ProjectAccess, String, Reply<Vec<Revision>>),
     Reconcile(ReconcileRequest, Reply<ReconciledDocument>),
+    ProjectMetadata(Reply<ProjectMetadata>),
+    RenameProject(ProjectAccess, String, String, Reply<ProjectMetadata>),
+    RenameDocument(ProjectAccess, String, String, String, Reply<DocumentRecord>),
+    ViewState(ProjectAccess, Reply<Option<ViewState>>),
+    SaveViewState(ProjectAccess, Head, Endpoint, Endpoint, Reply<ViewState>),
+    ContextSourceEpoch(Reply<String>),
     StorageInfo(Reply<StorageInfo>),
     Shutdown,
 }
@@ -238,8 +301,80 @@ pub struct ProjectSession {
 impl ProjectSession {
     /// The destination must not exist. No existing author folder is overwritten.
     pub fn create(path: impl AsRef<Path>, title: &str) -> CoreResult<Self> {
+        let destination = path.as_ref();
+        let parent = destination
+            .parent()
+            .ok_or_else(|| CoreError::new("InvalidRequest", "Choose a project folder."))?;
+        Self::create_staged(
+            &parent.join(format!(".wns-create-{}", new_id())),
+            destination,
+            title,
+            &CreationOrigin {
+                operation_namespace: new_id(),
+                operation_id: new_id(),
+            },
+        )
+    }
+    /// Resume only the exact recorded staging/final paths. Incomplete staging is
+    /// retained for diagnosis; it is never silently replaced or listed as complete.
+    pub fn create_staged(
+        staging: &Path,
+        destination: &Path,
+        title: &str,
+        origin: &CreationOrigin,
+    ) -> CoreResult<Self> {
         validate_title(title)?;
-        Self::start(path.as_ref().to_owned(), Some(title.to_owned()))
+        check_id(&origin.operation_namespace)?;
+        check_id(&origin.operation_id)?;
+        let parent = |path: &Path| -> CoreResult<PathBuf> {
+            Ok(std::fs::canonicalize(path.parent().ok_or_else(|| {
+                CoreError::new("InvalidRequest", "Choose a project folder.")
+            })?)?)
+        };
+        if staging.file_name().is_none()
+            || destination.file_name().is_none()
+            || parent(staging)? != parent(destination)?
+            || staging.file_name() == destination.file_name()
+        {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "Staging must be a separate folder beside the destination.",
+            ));
+        }
+        if destination.try_exists()? {
+            if read_creation_origin(destination).ok().as_ref() == Some(origin) {
+                return Self::open(destination);
+            }
+            return Err(CoreError::new(
+                "ProjectExists",
+                "Choose a new folder for this project.",
+            ));
+        }
+        let initialized = if staging.try_exists()? {
+            if read_creation_origin(staging).ok().as_ref() != Some(origin) {
+                return Err(CoreError::new(
+                    "IncompleteCreation",
+                    "The unfinished project folder needs inspection. It has been retained.",
+                ));
+            }
+            OwnedProject::open_direct(staging.to_owned(), None)?
+        } else {
+            let project = OwnedProject::open_direct(staging.to_owned(), Some(title.to_owned()))?;
+            write_creation_origin(staging, origin)?;
+            project
+        };
+        initialized
+            .db()?
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
+        drop(initialized);
+        if destination.try_exists()? {
+            return Err(CoreError::new(
+                "ProjectExists",
+                "The destination was created while preparing the project.",
+            ));
+        }
+        install_project_directory(staging, destination)?;
+        Self::open(destination)
     }
     pub fn open(path: impl AsRef<Path>) -> CoreResult<Self> {
         Self::start(path.as_ref().to_owned(), None)
@@ -249,7 +384,7 @@ impl ProjectSession {
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let thread = std::thread::Builder::new()
             .name("webnovel-project".into())
-            .spawn(move || match OwnedProject::open(path, title) {
+            .spawn(move || match OwnedProject::open_direct(path, title) {
                 Ok(mut project) => {
                     if ready_tx
                         .send(Ok((project.info.clone(), project.path.clone())))
@@ -293,6 +428,38 @@ impl ProjectSession {
                             Command::Reconcile(request, reply) => {
                                 let _ = reply.send(project.reconcile(request));
                             }
+                            Command::ProjectMetadata(reply) => {
+                                let _ = reply.send(
+                                    project
+                                        .recover_connection()
+                                        .and_then(|()| project.project_metadata()),
+                                );
+                            }
+                            Command::AttachSnapshot(session, reply) => {
+                                let _ = reply.send(project.attach_snapshot(session));
+                            }
+                            Command::RenameProject(access, expected, title, reply) => {
+                                let result = project.rename_project(access, &expected, &title);
+                                project.fence_uncertain(&result);
+                                let _ = reply.send(result);
+                            }
+                            Command::RenameDocument(access, id, expected, title, reply) => {
+                                let result =
+                                    project.rename_document(access, &id, &expected, &title);
+                                project.fence_uncertain(&result);
+                                let _ = reply.send(result);
+                            }
+                            Command::ViewState(access, reply) => {
+                                let _ = reply.send(project.view_state(access));
+                            }
+                            Command::SaveViewState(access, head, anchor, focus, reply) => {
+                                let result = project.save_view_state(access, head, anchor, focus);
+                                project.fence_uncertain(&result);
+                                let _ = reply.send(result);
+                            }
+                            Command::ContextSourceEpoch(reply) => {
+                                let _ = reply.send(project.context_source_epoch());
+                            }
                             Command::StorageInfo(reply) => {
                                 let _ = reply.send(project.storage_info());
                             }
@@ -332,6 +499,11 @@ impl ProjectSession {
     pub fn attach(&self, session: String) -> CoreResult<ProjectAccess> {
         self.request(|r| Command::Attach(session, r))
     }
+    /// Read destination state before replacing the current lease. Failed opens
+    /// must not retire an editor whose manuscript remains on screen.
+    pub fn attach_snapshot(&self, session: String) -> CoreResult<AttachedProject> {
+        self.request(|r| Command::AttachSnapshot(session, r))
+    }
     pub fn create_document(&self, request: CreateDocument) -> CoreResult<DocumentRecord> {
         self.request(|r| Command::Create(request, r))
     }
@@ -353,9 +525,121 @@ impl ProjectSession {
     pub fn reconcile(&self, request: ReconcileRequest) -> CoreResult<ReconciledDocument> {
         self.request(|r| Command::Reconcile(request, r))
     }
+    /// Read project metadata without a renderer lease so an unknown metadata
+    /// commit can be reconciled even when the project has no documents.
+    pub fn project_metadata(&self) -> CoreResult<ProjectMetadata> {
+        self.request(Command::ProjectMetadata)
+    }
+    pub fn rename_project(
+        &self,
+        access: ProjectAccess,
+        expected_metadata_version: String,
+        title: String,
+    ) -> CoreResult<ProjectMetadata> {
+        self.request(|r| Command::RenameProject(access, expected_metadata_version, title, r))
+    }
+    pub fn rename_document(
+        &self,
+        access: ProjectAccess,
+        document_id: String,
+        expected_metadata_version: String,
+        title: String,
+    ) -> CoreResult<DocumentRecord> {
+        self.request(|r| {
+            Command::RenameDocument(access, document_id, expected_metadata_version, title, r)
+        })
+    }
+    pub fn view_state(&self, access: ProjectAccess) -> CoreResult<Option<ViewState>> {
+        self.request(|r| Command::ViewState(access, r))
+    }
+    pub fn save_view_state(
+        &self,
+        access: ProjectAccess,
+        head: Head,
+        anchor: Endpoint,
+        focus: Endpoint,
+    ) -> CoreResult<ViewState> {
+        self.request(|r| Command::SaveViewState(access, head, anchor, focus, r))
+    }
+    pub fn context_source_epoch(&self) -> CoreResult<String> {
+        self.request(Command::ContextSourceEpoch)
+    }
     pub fn storage_info(&self) -> CoreResult<StorageInfo> {
         self.request(Command::StorageInfo)
     }
+}
+
+fn install_project_directory(staging: &Path, destination: &Path) -> CoreResult<()> {
+    // The existence check alone cannot prevent replacing a directory that
+    // appears between the check and rename. Use the OS no-replace operation.
+    #[cfg(target_os = "linux")]
+    {
+        use rustix::fs::{CWD, RenameFlags, renameat_with};
+        renameat_with(CWD, staging, CWD, destination, RenameFlags::NOREPLACE)
+            .map_err(|e| CoreError::from(std::io::Error::from(e)))?;
+        File::open(
+            destination
+                .parent()
+                .ok_or_else(|| CoreError::new("InvalidRequest", "Missing destination parent."))?,
+        )?
+        .sync_all()?;
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_WRITE_THROUGH, MoveFileExW};
+        let wide = |path: &Path| -> CoreResult<Vec<u16>> {
+            let mut units: Vec<_> = path.as_os_str().encode_wide().collect();
+            if units.contains(&0) {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A project path cannot contain NUL.",
+                ));
+            }
+            units.push(0);
+            Ok(units)
+        };
+        let from = wide(staging)?;
+        let to = wide(destination)?;
+        // SAFETY: both buffers are owned, NUL-terminated UTF-16 and remain live
+        // for this synchronous call. REPLACE_EXISTING is deliberately absent.
+        if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) } == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(())
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = (staging, destination);
+        Err(CoreError::new(
+            "UnsupportedPlatform",
+            "Safe project installation has not been qualified on this platform.",
+        ))
+    }
+}
+
+#[test]
+fn installation_refuses_an_empty_directory_that_appeared_late() {
+    let root = std::env::temp_dir().join(format!("wns-install-test-{}", new_id()));
+    std::fs::create_dir(&root).unwrap();
+    let staging = root.join("staging");
+    let destination = root.join("existing");
+    std::fs::create_dir(&staging).unwrap();
+    std::fs::create_dir(&destination).unwrap();
+    std::fs::write(staging.join("prose.txt"), "retained").unwrap();
+    assert!(install_project_directory(&staging, &destination).is_err());
+    assert!(staging.join("prose.txt").exists());
+    assert!(std::fs::read_dir(&destination).unwrap().next().is_none());
+    assert!(
+        root.starts_with(std::env::temp_dir())
+            && root
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("wns-install-test-")
+    );
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 struct OwnedProject {
@@ -432,41 +716,6 @@ impl OwnedProject {
         self.needs_reopen = false;
         Ok(())
     }
-    fn open(path: PathBuf, title: Option<String>) -> CoreResult<Self> {
-        let Some(title) = title else {
-            return Self::open_direct(path, None);
-        };
-        if path.try_exists()? {
-            return Err(CoreError::new(
-                "ProjectExists",
-                "Choose a new folder for this project.",
-            ));
-        }
-        let parent = std::fs::canonicalize(
-            path.parent()
-                .ok_or_else(|| CoreError::new("InvalidRequest", "Choose a project folder."))?,
-        )?;
-        let name = path
-            .file_name()
-            .ok_or_else(|| CoreError::new("InvalidRequest", "Choose a project folder."))?;
-        let destination = parent.join(name);
-        let staging = parent.join(format!(".wns-create-{}", new_id()));
-        // A failed initialization remains unregistered staging, never a completed
-        // destination. Do not delete recovery evidence on an uncertain write.
-        let initialized = Self::open_direct(staging.clone(), Some(title))?;
-        initialized
-            .db()?
-            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
-        drop(initialized);
-        if destination.try_exists()? {
-            return Err(CoreError::new(
-                "ProjectExists",
-                "The destination was created while preparing the project.",
-            ));
-        }
-        std::fs::rename(&staging, &destination)?;
-        Self::open_direct(destination, None)
-    }
     fn open_direct(path: PathBuf, title: Option<String>) -> CoreResult<Self> {
         if title.is_some() {
             std::fs::create_dir(&path)?;
@@ -492,14 +741,14 @@ impl OwnedProject {
             };
         let mut connection = Connection::open_with_flags(path.join("project.sqlite3"), flags)?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 1 || (title.is_none() && version == 0) {
+        if version > 2 || (title.is_none() && version == 0) {
             return Err(CoreError::new(
                 "UnsupportedSchema",
                 "This project format is not supported.",
             ));
         }
+        storage::migrate(&mut connection, &path)?;
         storage::configure(&connection)?;
-        storage::migrate(&mut connection)?;
         let info = if let Some(title) = title {
             let info = ProjectInfo {
                 project_id: new_id(),
@@ -587,6 +836,20 @@ impl OwnedProject {
         self.access = Some(access.clone());
         Ok(access)
     }
+    fn attach_snapshot(&mut self, session: String) -> CoreResult<AttachedProject> {
+        check_id(&session)?;
+        self.recover_connection()?;
+        let metadata = self.project_metadata()?;
+        let documents = self.document_records()?;
+        let view_state = self.current_view_state()?;
+        let access = self.attach(session)?;
+        Ok(AttachedProject {
+            metadata,
+            access,
+            documents,
+            view_state,
+        })
+    }
     fn check_access(&self, access: &ProjectAccess) -> CoreResult<()> {
         if access.project_id != self.info.project_id
             || access.operation_namespace != self.info.operation_namespace
@@ -609,6 +872,192 @@ impl OwnedProject {
             ));
         }
         Ok(())
+    }
+    fn project_metadata(&self) -> CoreResult<ProjectMetadata> {
+        let row: (String, String, String, u32, i64) = self.db()?.query_row(
+            "SELECT id,operation_namespace,title,format_version,metadata_version FROM project WHERE singleton=1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )?;
+        Ok(ProjectMetadata {
+            project: ProjectInfo {
+                project_id: row.0,
+                operation_namespace: row.1,
+                title: row.2,
+                format_version: row.3,
+            },
+            metadata_version: parse_stored_version(row.4)?,
+        })
+    }
+    fn rename_project(
+        &mut self,
+        access: ProjectAccess,
+        expected_metadata_version: &str,
+        title: &str,
+    ) -> CoreResult<ProjectMetadata> {
+        self.check_access(&access)?;
+        let expected = parse_version(expected_metadata_version)?;
+        validate_title(title)?;
+        let current = self.project_metadata()?;
+        let current_version = parse_version(&current.metadata_version)?;
+        if current_version != expected {
+            return Err(CoreError::new(
+                "MetadataConflict",
+                format!(
+                    "The project metadata changed; expected version {expected_metadata_version}, current version {}.",
+                    current.metadata_version
+                )
+                .as_str(),
+            ));
+        }
+        if current.project.title == title {
+            return Ok(current);
+        }
+        let tx = self
+            .db_mut()?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = tx.execute(
+            "UPDATE project SET title=?,metadata_version=metadata_version+1,context_source_epoch=context_source_epoch+1 WHERE singleton=1 AND metadata_version=?",
+            params![title, expected],
+        )?;
+        if changed != 1 {
+            return Err(CoreError::new(
+                "MetadataConflict",
+                "The project metadata changed before the rename committed.",
+            ));
+        }
+        tx.commit().map_err(CoreError::uncertain)?;
+        let metadata = self.project_metadata().map_err(|error| {
+            CoreError::new(
+                "UncertainOutcome",
+                format!("The project title committed but metadata needs reconciliation: {error}")
+                    .as_str(),
+            )
+        })?;
+        if let Err(error) = write_project_marker(&self.path, &metadata.project) {
+            return Err(CoreError::new(
+                "UncertainOutcome",
+                format!("The project title committed but its marker needs reconciliation: {error}")
+                    .as_str(),
+            ));
+        }
+        self.info.title = title.to_owned();
+        Ok(metadata)
+    }
+    fn rename_document(
+        &mut self,
+        access: ProjectAccess,
+        document_id: &str,
+        expected_metadata_version: &str,
+        title: &str,
+    ) -> CoreResult<DocumentRecord> {
+        self.check_access(&access)?;
+        check_id(document_id)?;
+        let expected = parse_version(expected_metadata_version)?;
+        validate_title(title)?;
+        let current = read_document(self.db()?, document_id)?;
+        let current_version = parse_version(&current.metadata_version)?;
+        if current_version != expected {
+            return Err(CoreError::new(
+                "MetadataConflict",
+                format!(
+                    "The document metadata changed; expected version {expected_metadata_version}, current version {}.",
+                    current.metadata_version
+                )
+                .as_str(),
+            ));
+        }
+        if current.title == title {
+            return Ok(current);
+        }
+        let tx = self
+            .db_mut()?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = tx.execute(
+            "UPDATE documents SET title=?,metadata_version=metadata_version+1 WHERE id=? AND metadata_version=?",
+            params![title, document_id, expected],
+        )?;
+        if changed != 1 {
+            return Err(CoreError::new(
+                "MetadataConflict",
+                "The document metadata changed before the rename committed.",
+            ));
+        }
+        tx.execute(
+            "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
+            [],
+        )?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        read_document(self.db()?, document_id).map_err(|error| {
+            CoreError::new(
+                "UncertainOutcome",
+                format!("The document title committed but metadata needs reconciliation: {error}")
+                    .as_str(),
+            )
+        })
+    }
+    fn view_state(&self, access: ProjectAccess) -> CoreResult<Option<ViewState>> {
+        self.check_access(&access)?;
+        self.current_view_state()
+    }
+    fn current_view_state(&self) -> CoreResult<Option<ViewState>> {
+        let state = read_view_state(self.db()?)?;
+        if let Some(state) = &state {
+            let current = match read_document(self.db()?, &state.document_id) {
+                Ok(current) => current,
+                Err(error) if error.code == "DocumentNotFound" => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            if current.head == state.head {
+                validate_endpoint(&current.body, &state.anchor)?;
+                validate_endpoint(&current.body, &state.focus)?;
+            }
+        }
+        Ok(state)
+    }
+    fn save_view_state(
+        &mut self,
+        access: ProjectAccess,
+        head: Head,
+        anchor: Endpoint,
+        focus: Endpoint,
+    ) -> CoreResult<ViewState> {
+        self.check_access(&access)?;
+        let current = read_document(self.db()?, &head.document_id)?;
+        require_head(&current.head, &head)?;
+        validate_endpoint(&current.body, &anchor)?;
+        validate_endpoint(&current.body, &focus)?;
+        let state = ViewState {
+            document_id: head.document_id.clone(),
+            head: head.clone(),
+            anchor: anchor.clone(),
+            focus: focus.clone(),
+        };
+        let tx = self
+            .db_mut()?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "INSERT INTO view_state(singleton,document_id,head_version,head_body_hash,anchor_block_id,anchor_utf16_offset,focus_block_id,focus_utf16_offset) VALUES(1,?,?,?,?,?,?,?) ON CONFLICT(singleton) DO UPDATE SET document_id=excluded.document_id,head_version=excluded.head_version,head_body_hash=excluded.head_body_hash,anchor_block_id=excluded.anchor_block_id,anchor_utf16_offset=excluded.anchor_utf16_offset,focus_block_id=excluded.focus_block_id,focus_utf16_offset=excluded.focus_utf16_offset",
+            params![
+                state.document_id,
+                parse_version(&head.version)?,
+                head.body_hash,
+                anchor.block_id,
+                i64::from(anchor.utf16_offset),
+                focus.block_id,
+                i64::from(focus.utf16_offset),
+            ],
+        )?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(state)
+    }
+    fn context_source_epoch(&self) -> CoreResult<String> {
+        let epoch: i64 = self.db()?.query_row(
+            "SELECT context_source_epoch FROM project WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )?;
+        parse_stored_version(epoch)
     }
     fn create_document(&mut self, request: CreateDocument) -> CoreResult<DocumentRecord> {
         self.check_access(&request.access)?;
@@ -649,6 +1098,10 @@ impl OwnedProject {
             return Ok(record);
         }
         tx.execute("INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash) VALUES(?,?,?,(SELECT COUNT(*) FROM documents),0,1,?,?)", params![request.document_id, request.kind, request.title, validated.canonical_json, validated.hash])?;
+        tx.execute(
+            "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
+            [],
+        )?;
         let head = Head {
             document_id: request.document_id.clone(),
             version: "0".into(),
@@ -671,6 +1124,9 @@ impl OwnedProject {
     }
     fn list(&self, access: ProjectAccess) -> CoreResult<Vec<DocumentRecord>> {
         self.check_access(&access)?;
+        self.document_records()
+    }
+    fn document_records(&self) -> CoreResult<Vec<DocumentRecord>> {
         let mut statement = self
             .db()?
             .prepare("SELECT id FROM documents WHERE trashed=0 ORDER BY position,id")?;
@@ -721,6 +1177,10 @@ impl OwnedProject {
                 }
                 head.version = next.to_string();
                 head.body_hash = validated.hash;
+                tx.execute(
+                    "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
+                    [],
+                )?;
                 if request.cause != SaveCause::Typing {
                     checkpoint_at(
                         &tx,
@@ -872,6 +1332,59 @@ fn validate_title(title: &str) -> CoreResult<()> {
     }
     Ok(())
 }
+fn write_project_marker(path: &Path, info: &ProjectInfo) -> CoreResult<()> {
+    let marker = path.join("project.wns.json");
+    let temporary = path.join(format!(".project.wns.json-{}", new_id()));
+    let result = (|| -> CoreResult<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(&serde_json::to_vec_pretty(info)?)?;
+        file.sync_all()?;
+        drop(file);
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            use windows_sys::Win32::Storage::FileSystem::{
+                MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+            };
+            let wide = |value: &Path| -> CoreResult<Vec<u16>> {
+                let mut units: Vec<u16> = value.as_os_str().encode_wide().collect();
+                if units.contains(&0) {
+                    return Err(CoreError::new(
+                        "InvalidRequest",
+                        "A project path cannot contain NUL.",
+                    ));
+                }
+                units.push(0);
+                Ok(units)
+            };
+            let from = wide(&temporary)?;
+            let to = wide(&marker)?;
+            // SAFETY: both buffers are owned, NUL-terminated UTF-16 and stay
+            // live for this synchronous call.
+            if unsafe {
+                MoveFileExW(
+                    from.as_ptr(),
+                    to.as_ptr(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+                )
+            } == 0
+            {
+                return Err(std::io::Error::last_os_error().into());
+            }
+        }
+        #[cfg(not(windows))]
+        std::fs::rename(&temporary, &marker)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
 pub fn blank_document() -> Value {
     json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":new_id()}}]}})
 }
@@ -889,13 +1402,212 @@ fn parse_version(value: &str) -> CoreResult<i64> {
         .parse()
         .map_err(|_| CoreError::new("InvalidRequest", "Version exceeds the supported range."))
 }
+fn parse_stored_version(value: i64) -> CoreResult<String> {
+    if value < 0 {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The project contains a negative metadata version.",
+        ));
+    }
+    Ok(value.to_string())
+}
+fn valid_hash(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+pub(crate) fn read_view_state(connection: &Connection) -> CoreResult<Option<ViewState>> {
+    let row: Option<(String, i64, String, String, i64, String, i64)> = connection
+        .query_row(
+            "SELECT document_id,head_version,head_body_hash,anchor_block_id,anchor_utf16_offset,focus_block_id,focus_utf16_offset FROM view_state WHERE singleton=1",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((document_id, version, hash, anchor_block, anchor_offset, focus_block, focus_offset)) =
+        row
+    else {
+        return Ok(None);
+    };
+    check_id(&document_id)?;
+    let version = parse_stored_version(version)?;
+    if !valid_hash(&hash) || anchor_offset < 0 || focus_offset < 0 {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The saved view state contains an invalid head or endpoint.",
+        ));
+    }
+    let anchor_offset = u32::try_from(anchor_offset).map_err(|_| {
+        CoreError::new(
+            "InvalidProject",
+            "The saved view anchor exceeds the supported UTF-16 range.",
+        )
+    })?;
+    let focus_offset = u32::try_from(focus_offset).map_err(|_| {
+        CoreError::new(
+            "InvalidProject",
+            "The saved view focus exceeds the supported UTF-16 range.",
+        )
+    })?;
+    check_id(&anchor_block)?;
+    check_id(&focus_block)?;
+    Ok(Some(ViewState {
+        document_id: document_id.clone(),
+        head: Head {
+            document_id,
+            version,
+            body_hash: hash,
+        },
+        anchor: Endpoint {
+            block_id: anchor_block,
+            utf16_offset: anchor_offset,
+        },
+        focus: Endpoint {
+            block_id: focus_block,
+            utf16_offset: focus_offset,
+        },
+    }))
+}
+pub(crate) fn validate_stored_view_state(connection: &Connection) -> CoreResult<()> {
+    let Some(state) = read_view_state(connection)? else {
+        return Ok(());
+    };
+    let current = match read_document(connection, &state.document_id) {
+        Ok(current) => current,
+        Err(error) if error.code == "DocumentNotFound" => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if current.head == state.head {
+        validate_endpoint(&current.body, &state.anchor)?;
+        validate_endpoint(&current.body, &state.focus)?;
+    }
+    Ok(())
+}
+fn validate_endpoint(body: &Value, endpoint: &Endpoint) -> CoreResult<()> {
+    check_id(&endpoint.block_id)?;
+    let blocks = body
+        .get("body")
+        .and_then(Value::as_object)
+        .and_then(|body| body.get("content"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| CoreError::new("InvalidDocument", "The document has no block content."))?;
+    let block = blocks.iter().find(|block| {
+        block
+            .get("attrs")
+            .and_then(Value::as_object)
+            .and_then(|attrs| attrs.get("id"))
+            .and_then(Value::as_str)
+            == Some(endpoint.block_id.as_str())
+    });
+    let block = block.ok_or_else(|| {
+        CoreError::new(
+            "InvalidRequest",
+            "The saved view endpoint refers to an unknown block.",
+        )
+    })?;
+    let block_type = block
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if block_type == "sceneBreak" && endpoint.utf16_offset == 0 {
+        return Ok(());
+    }
+    if !matches!(block_type, "paragraph" | "heading") {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "View endpoints must be inside a paragraph or heading.",
+        ));
+    }
+    let content = block
+        .get("content")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut offset = 0_u32;
+    let mut boundaries = HashSet::from([0_u32]);
+    for inline in content {
+        match inline.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                let text = inline
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| CoreError::new("InvalidDocument", "A text node has no text."))?;
+                for (byte_offset, _) in
+                    unicode_segmentation::UnicodeSegmentation::grapheme_indices(text, true)
+                {
+                    let units = u32::try_from(text[..byte_offset].encode_utf16().count())
+                        .map_err(|_| CoreError::new("InvalidDocument", "Text is too long."))?;
+                    boundaries.insert(offset + units);
+                }
+                offset = offset
+                    .checked_add(
+                        u32::try_from(text.encode_utf16().count())
+                            .map_err(|_| CoreError::new("InvalidDocument", "Text is too long."))?,
+                    )
+                    .ok_or_else(|| CoreError::new("InvalidDocument", "Text is too long."))?;
+                boundaries.insert(offset);
+            }
+            Some("hardBreak") => {
+                offset = offset
+                    .checked_add(1)
+                    .ok_or_else(|| CoreError::new("InvalidDocument", "Text is too long."))?;
+                boundaries.insert(offset);
+            }
+            _ => {
+                return Err(CoreError::new(
+                    "InvalidDocument",
+                    "The document contains an unsupported inline node.",
+                ));
+            }
+        }
+    }
+    if !boundaries.contains(&endpoint.utf16_offset) {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The saved view endpoint is not at a grapheme boundary.",
+        ));
+    }
+    Ok(())
+}
 fn logical_hash<T: Serialize>(request: &T) -> CoreResult<String> {
     let mut value = serde_json::to_value(request)?;
     if let Some(access) = value.get_mut("access").and_then(Value::as_object_mut) {
         access.remove("session");
         access.remove("writerLease");
     }
-    Ok(sha256_hex(serde_json::to_string(&value)?.as_bytes()))
+    Ok(sha256_hex(
+        serde_json::to_string(&crate::canonicalize_value(value))?.as_bytes(),
+    ))
+}
+#[test]
+fn save_receipt_matches_shared_literal_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../contracts/fixtures/w2_save_receipt.json"
+    ))
+    .unwrap();
+    let request: SaveSnapshot = serde_json::from_value(fixture["request"].clone()).unwrap();
+    assert_eq!(
+        logical_hash(&request).unwrap(),
+        fixture["payloadHash"].as_str().unwrap()
+    );
+    let mut logical = serde_json::to_value(request).unwrap();
+    logical["access"].as_object_mut().unwrap().remove("session");
+    logical["access"]
+        .as_object_mut()
+        .unwrap()
+        .remove("writerLease");
+    assert_eq!(
+        serde_json::to_string(&crate::canonicalize_value(logical)).unwrap(),
+        fixture["logicalJson"].as_str().unwrap()
+    );
 }
 fn require_head(current: &Head, expected: &Head) -> CoreResult<()> {
     parse_version(&expected.version)?;
@@ -909,14 +1621,16 @@ fn require_head(current: &Head, expected: &Head) -> CoreResult<()> {
     }
     Ok(())
 }
+type DocumentRow = (String, String, i64, i64, String, String, Option<String>);
 fn read_document(connection: &Connection, id: &str) -> CoreResult<DocumentRecord> {
-    let row: Option<(String, String, i64, String, String, Option<String>)> = connection.query_row("SELECT title,kind,working_version,body_hash,body_json,last_checkpoint_id FROM documents WHERE id=? AND trashed=0", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
-    let (title, kind, version, hash, body, checkpoint) = row.ok_or_else(|| {
-        CoreError::new(
-            "DocumentNotFound",
-            "This document is not available in this project.",
-        )
-    })?;
+    let row: Option<DocumentRow> = connection.query_row("SELECT title,kind,working_version,metadata_version,body_hash,body_json,last_checkpoint_id FROM documents WHERE id=? AND trashed=0", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional()?;
+    let (title, kind, version, metadata_version, hash, body, checkpoint) =
+        row.ok_or_else(|| {
+            CoreError::new(
+                "DocumentNotFound",
+                "This document is not available in this project.",
+            )
+        })?;
     let valid = validate_snapshot_json(&body).map_err(|e| CoreError::new("InvalidDocument", &e))?;
     if valid.hash != hash || valid.canonical_json != body {
         return Err(CoreError::new(
@@ -932,6 +1646,7 @@ fn read_document(connection: &Connection, id: &str) -> CoreResult<DocumentRecord
         },
         title,
         kind,
+        metadata_version: parse_stored_version(metadata_version)?,
         body: valid.snapshot,
         last_checkpoint_id: checkpoint,
     })

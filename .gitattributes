@@ -5,3 +5,4 @@
 *.woff2 binary
 # Preserve the supplied Pro evidence byte-for-byte, including line endings.
 docs/references/pro/*.md -text -whitespace
+docs/references/pro/story-context/*.md -text -whitespace

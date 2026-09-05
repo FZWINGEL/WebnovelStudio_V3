@@ -13,7 +13,7 @@
     "windows": [{
       "label": "main",
       "create": false,
-      "title": "WebnovelStudio V3 — Editor trial",
+      "title": "WebnovelStudio V3 — Desktop preview",
       "width": 1240,
       "height": 840,
       "minWidth": 800,

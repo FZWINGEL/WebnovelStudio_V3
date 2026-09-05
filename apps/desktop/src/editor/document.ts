@@ -59,7 +59,7 @@ export function snapshotFromEditor(body: unknown): WnsDocument {
   return { schemaVersion: 1, body: result };
 }
 
-export function canonicalJson(snapshot: WnsDocument): string { return JSON.stringify(sorted(snapshot)); }
+export function canonicalJson(snapshot: unknown): string { return JSON.stringify(sorted(snapshot)); }
 export async function bodyHash(json: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(json));
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');

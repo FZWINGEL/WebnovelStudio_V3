@@ -3,7 +3,9 @@
 use serde::Serialize;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
+use tauri::Manager;
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
+mod library_commands;
 mod project_commands;
 
 #[tauri::command]
@@ -26,7 +28,7 @@ fn runtime_info() -> RuntimeInfo {
         host: "Tauri",
         app_version: env!("CARGO_PKG_VERSION"),
         webview_version: tauri::webview_version().unwrap_or_else(|error| error.to_string()),
-        persistence: false,
+        persistence: true,
     }
 }
 
@@ -39,10 +41,17 @@ fn main() {
             let root = std::env::var_os("LOCALAPPDATA")
                 .map(PathBuf::from)
                 .unwrap_or_else(std::env::temp_dir);
-            let data_directory = root
+            let library_root = root
                 .join("WebnovelStudioV3-Dev")
-                .join(format!("{:016x}", checkout.finish()))
-                .join("webview");
+                .join(format!("{:016x}", checkout.finish()));
+            #[cfg(debug_assertions)]
+            let library_root = std::env::var_os("WNS_V3_TEST_DATA_DIR")
+                .map(PathBuf::from)
+                .unwrap_or(library_root);
+            let data_directory = library_root.join("webview");
+            app.manage(library_commands::DesktopLibrary(std::sync::Arc::new(
+                std::sync::Mutex::new(webnovel_core::library::Library::open(library_root)?),
+            )));
             #[cfg(debug_assertions)]
             let data_directory = std::env::var_os("WNS_V3_TRIAL_WEBVIEW_DIR")
                 .map(PathBuf::from)
@@ -84,7 +93,20 @@ fn main() {
             project_commands::save_snapshot,
             project_commands::reconcile_document,
             project_commands::checkpoint_document,
-            project_commands::document_history
+            project_commands::document_history,
+            project_commands::project_metadata,
+            project_commands::rename_project,
+            project_commands::rename_document,
+            project_commands::read_view_state,
+            project_commands::save_view_state,
+            library_commands::library_snapshot,
+            library_commands::library_create,
+            library_commands::library_open,
+            library_commands::library_archive,
+            library_commands::library_recover,
+            library_commands::library_duplicate,
+            library_commands::project_backup,
+            library_commands::project_export_draft
         ])
         .run(tauri::generate_context!())
         .expect("Could not launch the editor trial");

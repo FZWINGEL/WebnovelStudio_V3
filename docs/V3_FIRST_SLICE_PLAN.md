@@ -1,6 +1,6 @@
 # WebnovelStudio V3 — first-slice implementation plan
 
-**5 September 2026 · W0 implemented as a native editor spike; remaining author qualification is open. Later work packages remain planned.**
+**5 September 2026 · W0 is implemented as a native editor spike; W1/W2 implementation work has landed at the stated boundaries and W3 registry/transfer work is active. Remaining author qualification and later gates are open.**
 
 **Language scope:** English authoring, UI, and export. Wuxia, xianxia, cultivation, and translated-Chinese-webnovel register/terminology are optional English writing styles. Chinese-language authoring and Pinyin qualification are not product requirements. Unicode regression fixtures remain internal correctness checks.
 
@@ -10,7 +10,9 @@
 
 **Companions:** [Workspace plan](V3_WORKSPACE_PLAN.md) and [V2 migration evidence](V2_MIGRATION_EVIDENCE.md).
 
-The W0 native editor and shared contract fixtures are now exercised. See [W0 qualification](W0_QUALIFICATION.md) for 6 Rust tests, 21 frontend tests, 10 actual Tauri/WebView2 checks, and the remaining English native author trials. This does not close milestone A or later native release gates.
+**Adopted context extension:** [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and its [first-slice plan](V3_STORY_CONTEXT_FIRST_SLICE.md) add planned C0–C6 work to this dependency order. They preserve the base document, save, Apply, lifecycle, and authority contracts; they do not replace them.
+
+The W0 native editor and shared contract fixtures are now exercised. See [W0 qualification](W0_QUALIFICATION.md) for the executed evidence and remaining English native author trials. This does not close milestone A or later native release gates.
 
 ## 1. Three milestones, one traceable dependency order
 
@@ -68,7 +70,7 @@ Create the smallest Tauri development window with the intended restricted Tiptap
 
 **Done when:** English keyboard/dead-key input, formatted cross-paragraph selection, repeated English quotations and Unicode names/emoji, focus transfer to a selection composer, scene breaks, clipboard paste, and a strict replacement/undo cycle work in the actual development window. Capture failures as reproducible fixtures. A browser-only prototype does not close this package. This is a qualification spike, not the production shell or the N release gate.
 
-**Current W0 status:** source and automated native checks exist, with [ADR 0001](ADR_0001_EDITOR_CONTRACT.md) fixing the implemented snapshot/identity boundary. Feedback and replacement are session-only; Rust validates snapshots but does not persist or independently validate replacement scope yet. The English author trial, minimum-window/DPI behavior, external Word paste, and assistive-technology trial remain open.
+**Current W0 status:** source and automated native checks exist, with [ADR 0001](ADR_0001_EDITOR_CONTRACT.md) fixing the implemented snapshot/identity boundary. Feedback and replacement are session-only; Rust validates snapshots but does not persist them. The English author trial, minimum-window/DPI behavior, external Word paste, and assistive-technology trial remain open.
 
 ### W1 — Canonical documents and scope validation
 
@@ -78,6 +80,8 @@ Implement the restricted document schema, canonicalization/hash contract, block 
 
 **Done when:** shared JS/Rust fixtures agree on body hashes, quote boundaries, valid/invalid anchors, split/merge/move/copy IDs, and proposed result snapshots. Mutation tests reject changes to every kind of unselected content: text, marks, links, block style/identity, and scene boundaries. Include surrogate-pair and combining/ZWJ cases, repeated occurrences, empty blocks, inline-only grants, cross-paragraph replacement, and malformed/oversized input. No general PM-step interpreter is introduced in Rust.
 
+**Current W1 status:** Rust structural scope validation is implemented with fixtures. The complete validator evidence, mutation/failure coverage, and JS/Rust qualification remain open.
+
 ### W2 — Real project persistence and document session
 
 **Dependencies:** W1. **Gate:** P.
@@ -86,9 +90,13 @@ Build the core project's owned connection thread, migrations, working documents,
 
 **Done when:** delayed acknowledgments never replace newer editor text; the same operation/payload is idempotent; changed payload with a reused ID fails; stale versions/leases fail; definite save errors retain the live buffer; uncertain outcomes fence and reconcile before further writes; and every command carries the project/document/session identity needed to reject late callbacks. Kill the process after commit but before acknowledgment and recover the correct current body. Read back WAL/FULL/foreign-key configuration in the test binary. These safeguards precede the A author trial and a polished editor toolbar.
 
+**Current W2 status:** core and frontend session work is implemented, while persistent UI integration and the remaining file-backed persistence/reconciliation evidence are open. This status does not establish an integrated UI/persistence path.
+
 ### W3 — Library, free-order work, recovery, and the A trial
 
 **Dependencies:** W2. **Gates:** M/P plus development-native author trial.
+
+**Current W3 status:** registry and transfer work is active; the package remains incomplete and its A-trial gate is open.
 
 Implement New/Open/Rename/Duplicate/Archive/Locate, blank note/character/chapter creation, last item/caret persistence, and detach-after-flush switching. Add thread/composer resume state with W4 when conversations exist. Add the OS project lock and normal second-launch activation behavior. Keep project identity and receipt namespaces explicit across copies. Do not add Import V2; its evidence gate is F1.
 
@@ -104,6 +112,8 @@ W3 tests connection/session isolation using a controlled background ownership fi
 
 **Dependencies:** W2/W3. **Gates:** M/P; no B trial yet.
 
+Before or alongside the persistent conversation work, integrate C0–C3 from the adopted Story Context extension. Freeze source snapshots and exact eligible sources with a source epoch; provide deterministic exact retrieval with dirty-index fallback; reject requests when mandatory content exceeds the selected budget; carry scoped author guidance; and persist the actual delivered packet plus an inspectable receipt. These are planned context packages, not implemented behavior, and do not transfer save/Apply or authority ownership into the context subsystem.
+
 Implement threads/messages, source checkpoints, frozen context receipts, model descriptors, durable jobs/output sequences, and a mock provider with controllable barriers. The mock supports delayed first output, malformed structured response, partial failure, slow cancellation, completion/Stop order reversal, and exact repeatable edit suggestions. Create no manuscript mutation path in the provider layer.
 
 Keep the author room separate from prose-producing context. Whole-chapter discussion may use the saved whole chapter and author-room material. When privileged author-room material is deliberately selected for transfer, the prose-producing request requires an author-approved safe brief and permitted source set; privileged discussion text is not replayed automatically. Merely having private notes does not add a confirmation step. An ordinary explicit edit is one author request that yields a reviewable proposal from permitted context. Saving or opening a chapter never starts a request.
@@ -116,6 +126,8 @@ Keep the author room separate from prose-producing context. Whole-chapter discus
 
 Implement source-bound proposal preparation, editable prepared versions, exact diff preview, single Apply, and Reject. Apply uses the short local mutation barrier, a preflighted in-place editor transaction, a durable decision/before/after/receipt transaction, and saved-generation handoff. Add selection toolbar, context-menu action, and keyboard/menu alternative. Do not implement Apply all or a batch control in this milestone.
 
+Every proposal also binds the frozen context snapshot, exact target and scope, source epoch, policy, and context receipt. F2 alone owns reviewed authority; a context packet or generated digest cannot accept canon.
+
 **Done when:** architecture scenarios 2 and 3 pass through real IPC/database commands; applying one of three edits leaves the others undecided and stale; repeated Apply cannot mutate twice, including with a new operation ID; and a selected sentence cannot change neighboring paragraph text, style, or boundaries. A whole-chapter rewrite is explicitly different. Composition is allowed to finish before Apply, and no provider wait occurs behind the barrier. If batch Apply is added later, its all-or-nothing contract must be separately tested.
 
 ### W6 — Lost acknowledgment, shared lifecycle, history, and interruption hardening
@@ -123,6 +135,8 @@ Implement source-bound proposal preparation, editable prepared versions, exact d
 **Dependencies:** W3/W4/W5. **Gate:** P with native reruns; this closes the B trial gate.
 
 Implement in-session history boundaries, significant undo/redo checkpoints, post-restart comparison/explicit restore, and full reconciliation of pending operation IDs and latest heads. Use the shared document lifecycle guard for Apply/reconciliation, editor disposal, switching, normal close, and application-controlled reload. Forced renderer loss starts a new fenced session. Background jobs retain their own project/run ownership outside that guard. Add process-level crash tests and Windows process-tree fixture support. Prioritize fixing invariants over adding UI surface.
+
+Restart, fence, and Stop coverage includes the context snapshot, source epoch, policy, delivered packet, and receipt so a late or repeated context operation cannot alter a newer request or trigger an implicit paid retry.
 
 Run the early E4 friction check before considering selective invalidation or rebase: type while a mock feedback request runs, make the proposal stale, and record whether the author understands refresh and scope. Keep conservative staleness after the check unless measured evidence justifies a bounded alternative.
 
@@ -146,6 +160,8 @@ Finish keyboard navigation, accessible labels, focus restoration, resizing, nati
 
 Qualify one exact installed provider/model configuration, initially the documented noninteractive Claude Code adapter if E3 supports its containment and honesty contract. Use explicit model/traits, frozen application input, disabled tools, a qualified executable path, Windows Job Object containment, and visible internal-retry limitations. If safe text-only isolation cannot be demonstrated, use the direct HTTP Responses adapter for the first supported live path and leave the CLI version disabled. This is a qualification decision, not permission to add a generic shell runner.
 
+Use one deterministic, fully recorded context packet for the first provider qualification. The C6 bounded read loop is an additional qualification step after that one-packet route; it is not required to establish the offline writing path.
+
 Qualification order is not the author's default selection. Preserve explicit model preferences, including a configured Codex preference, and label an unqualified adapter unavailable. Any choice of a different adapter for a live trial is explicit; a failed run never silently retries on the qualification candidate or HTTP fallback.
 
 **Done when:** opt-in trials verify selected/reported model handling, supported/unsupported traits, streamed completion, refusal/truncation, authentication error, partial/broken stream, Stop behavior, process cleanup, and recovered terminal history. Qualify native key entry/credential storage and inspect logs/backups for credential leakage. Record where the provider's final upstream prompt or internal retries are opaque. Explain that local cancellation/idempotency do not prove one external billable attempt.
@@ -156,15 +172,15 @@ The mock remains the reproducible failure harness. A second live adapter or broa
 
 | Package | Dependency and scope | Claim it enables |
 |---|---|---|
-| F1 — V2 migration | Use the source and schema evidence recorded in [V2_MIGRATION_EVIDENCE.md](V2_MIGRATION_EVIDENCE.md); implement staged read-only import and reconciliation for the tested schema, preserving active semantics versus inert legacy evidence | Safe migration of those tested schemas, not arbitrary versions or lossless inference of missing anchors |
-| F2 — Reviewed story boundary | Implement typed accepted rules/records, staged ready bundles, basis manifests, explicit exceptions, dependency links, and conservative suffix fences; run architecture scenario 5 | Reviewed-source continuation and current ready export with explicit validity, not exhaustive continuity |
-| F3 — Context quality | Add task-specific source packing, author-room/prose-context separation, safe briefs, exact previous prose, aliases/search, and freshness checks; evaluate permissions and omissions | Measurable task-appropriate context, not guaranteed knowledge safety or better novels |
-| F4 — Narrative evaluation | Run author-labelled retrieval/continuity cases and independent prose/author-acceptance trials in supported languages | Evidence for a specific memory/prompt improvement; possible justification for richer retrieval or less conservative rebasing |
-| F5 — Batch Apply | After B, implement same-base disjoint preparation and one atomic Apply/decision transaction; test overlap, repeated operation IDs, stale/already-decided members, and lost acknowledgment | Apply selected batch with all-or-nothing behavior; individual Apply never implicitly accepts the rest |
+| F1 — V2 migration | Use the source and schema evidence recorded in [V2_MIGRATION_EVIDENCE.md](V2_MIGRATION_EVIDENCE.md); implement staged read-only import and reconciliation for the tested schema, preserving active semantics versus inert legacy evidence; import context evidence and rebuild projections | Safe migration of those tested schemas, not arbitrary versions or lossless inference of missing anchors |
+| F2 — Reviewed story boundary | Implement typed accepted rules/records, staged ready bundles, basis manifests, explicit exceptions, dependency links, and conservative suffix fences; run architecture scenario 5; retain sole ownership of reviewed authority | Reviewed-source continuation and current ready export with explicit validity, not exhaustive continuity |
+| F3 — Context quality | Own C4 generated digests, C5 thin temporal/relationship/thread views, richer source packing, author-room/prose-context separation, safe briefs, exact previous prose, aliases/search, and freshness checks; C5 depends on F2; evaluate permissions and omissions | Measurable task-appropriate context, not guaranteed knowledge safety or better novels |
+| F4 — Narrative evaluation | Run author-labelled retrieval/continuity cases and independent prose/author-acceptance trials for supported English tasks | Evidence for a specific memory/prompt improvement; possible justification for richer retrieval or less conservative rebasing |
+| F5 — Batch Apply | After B, implement same-base disjoint preparation and one atomic Apply/decision transaction; validate the common context snapshot, policy, and source epoch in that batch; test overlap, repeated operation IDs, stale/already-decided members, and lost acknowledgment | Apply selected batch with all-or-nothing behavior; individual Apply never implicitly accepts the rest |
 
 The V2 schema/source inventory is now available in the migration evidence document; an implemented importer and representative snapshot reconciliation remain F1 work. No Import V2 affordance is presented before F1. Backups and safe restores are already part of W3. V2 retirement for a real manuscript requires W7, the applicable W8 provider gate when used, F1's tested-schema reconciliation, a successful recovered-copy exercise, and export checked against chosen source revisions. Keep the original V2 snapshot/application until the author accepts those results.
 
-Basic source freezing, exact scope, and exclusion of privileged planning material from prose-producing requests belong to B and are not deferred to F3. F3 extends context quality and narrative coverage.
+Basic source freezing, exact scope, and exclusion of privileged planning material from prose-producing requests belong to B and are not deferred to F3. C0–C3 add the deterministic context evidence foundation before or alongside W4; F3 owns C4/C5 and extends context quality and narrative coverage. C0–C6 are planned and tracked in the maintained Story Context documents.
 
 ## 5. Experiments that can change the architecture
 

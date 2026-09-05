@@ -1,0 +1,45 @@
+{
+  "request": {
+    "access": {
+      "projectId": "project-1",
+      "session": "renderer-1",
+      "writerLease": "lease-1",
+      "operationNamespace": "namespace-1"
+    },
+    "operationId": "save-1",
+    "expected": {
+      "documentId": "chapter-1",
+      "version": "0",
+      "bodyHash": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "localGeneration": "1",
+    "body": {
+      "schemaVersion": 1,
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "id": "p1"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Mei keeps the key.",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "cause": "typing"
+  },
+  "logicalJson": "{\"access\":{\"operationNamespace\":\"namespace-1\",\"projectId\":\"project-1\"},\"body\":{\"body\":{\"content\":[{\"attrs\":{\"id\":\"p1\"},\"content\":[{\"marks\":[{\"type\":\"italic\"}],\"text\":\"Mei keeps the key.\",\"type\":\"text\"}],\"type\":\"paragraph\"}],\"type\":\"doc\"},\"schemaVersion\":1},\"cause\":\"typing\",\"expected\":{\"bodyHash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"documentId\":\"chapter-1\",\"version\":\"0\"},\"localGeneration\":\"1\",\"operationId\":\"save-1\"}",
+  "payloadHash": "9d26282b900b1a9a37ba89ff6db45ac190102c18cd3beca4919a0eb6ea8a51fb"
+}

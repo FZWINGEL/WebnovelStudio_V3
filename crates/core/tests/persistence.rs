@@ -500,7 +500,7 @@ fn refuses_existing_creation_mismatched_marker_and_newer_database() {
     );
     std::fs::write(&marker_path, serde_json::to_vec(&info).unwrap()).unwrap();
     let connection = Connection::open(temp.path.join("project.sqlite3")).unwrap();
-    connection.pragma_update(None, "user_version", 2).unwrap();
+    connection.pragma_update(None, "user_version", 99).unwrap();
     drop(connection);
     assert_eq!(
         ProjectSession::open(&temp.path).err().unwrap().code,

@@ -16,16 +16,21 @@ const server = createServer();
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const port = server.address().port;
 await new Promise(resolve => server.close(resolve));
-const app = spawn(resolve(root, 'target/debug/webnovel-desktop.exe'), [], {
-  cwd: root, windowsHide: true, stdio: 'pipe',
-  env: { ...process.env, WNS_V3_NATIVE_CDP_PORT: String(port), WNS_V3_TRIAL_WEBVIEW_DIR: data },
-});
 let appLog = '';
 let spawnError;
-app.stdout.on('data', chunk => { appLog += chunk; });
-app.stderr.on('data', chunk => { appLog += chunk; });
-app.on('error', error => { spawnError = error; appLog += error.stack; });
+function launch() {
+  const process = spawn(resolve(root, 'target/debug/webnovel-desktop.exe'), [], {
+    cwd: root, windowsHide: true, stdio: 'pipe',
+    env: { ...globalThis.process.env, WNS_V3_NATIVE_CDP_PORT: String(port), WNS_V3_TRIAL_WEBVIEW_DIR: resolve(data, 'webview'), WNS_V3_TEST_DATA_DIR: resolve(data, 'library') },
+  });
+  process.stdout.on('data', chunk => { appLog += chunk; });
+  process.stderr.on('data', chunk => { appLog += chunk; });
+  process.on('error', error => { spawnError = error; appLog += error.stack; });
+  return process;
+}
+let app = launch();
 let browser;
+let observedPage;
 const checks = [];
 try {
   const startup = Date.now();
@@ -46,14 +51,18 @@ try {
   const context = browser.contexts()[0];
   let page = context.pages()[0];
   if (!page) page = await context.waitForEvent('page', { timeout: 10000 });
+  observedPage = page;
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  await page.getByRole('button', { name: 'Open editor trial', exact: true }).click();
   await page.getByRole('textbox', { name: 'Chapter manuscript' }).waitFor();
-  await page.getByText(/Tauri · WebView2/).waitFor();
+  // The diagnostic is intentionally hidden at smaller native window widths.
+  // Qualification reads the real runtime through IPC below, not CSS visibility.
+  await page.getByText(/Tauri · WebView2/).waitFor({ state: 'attached' });
   assert.equal(new URL(page.url()).hostname, 'tauri.localhost');
   const runtime = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('runtime_info'));
   assert.equal(runtime.host, 'Tauri');
-  assert.equal(runtime.persistence, false);
+  assert.equal(runtime.persistence, true);
   checks.push(`Real Tauri IPC, WebView2 ${runtime.webviewVersion}`);
   await page.getByRole('button', { name: 'Check with Rust', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Fingerprints match' }).waitFor();
@@ -198,10 +207,112 @@ try {
   assert.equal(persisted.reopened.documents[0].body.body.content[0].content[0].text, 'Saved in Rust. Mei waited beneath the lantern. 👩‍🚀');
   assert.equal(persisted.reopened.documents[0].lastCheckpointId, persisted.revision.id);
   checks.push('Real project IPC creates file-backed prose, saves once, checkpoints, fences stale writers and reopens the latest head');
+  await page.getByRole('button', { name: 'Back to library', exact: true }).click();
+  async function createWritingProject(title, kind, documentTitle, text) {
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Project title', exact: true }).fill(title);
+    await page.getByRole('button', { name: 'Create project', exact: true }).click();
+    await page.getByRole('button', { name: 'Add your first document', exact: true }).click();
+    await page.getByLabel('Start with', { exact: true }).selectOption(kind);
+    await page.getByRole('textbox', { name: 'Title', exact: true }).fill(documentTitle);
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill(text);
+    await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  }
+  await createWritingProject('Harbour A', 'character', 'Mei', 'Mei keeps the brass key. Her voice is quiet.');
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await createWritingProject('Harbour B', 'chapter', 'The empty pier', 'The tide carries a red lantern towards the pier.');
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('button', { name: /^Harbour A Last opened/ }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei keeps the brass key. Her voice is quiet.');
+  await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill('Mei keeps the brass key. She has made her choice.');
+  // Navigate while debounce is pending: the lifecycle guard must drain it.
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('button', { name: /^Harbour B Last opened/ }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'The tide carries a red lantern towards the pier.');
+  await page.reload();
+  await page.getByRole('button', { name: /^Harbour A Last opened/ }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei keeps the brass key. She has made her choice.');
+  await page.screenshot({ path: resolve(output, 'persistent-workspace.png') });
+  checks.push('Native library creates character-first and chapter-first projects; typing, detach-after-flush switching and renderer reload retain isolated prose');
+  await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.trial-label')?.textContent.includes('Harbour A copy') || !!document.querySelector('[role="alert"]'));
+  assert.equal(await page.getByRole('alert').count(), 0, await page.getByRole('alert').allTextContents().then(text => text.join('\n')));
+  await page.locator('.trial-label').filter({ hasText: 'Harbour A copy' }).waitFor();
+  await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill('Only the independent copy changes.');
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  const libraryBeforeRestart = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
+  assert.equal(libraryBeforeRestart.entries.length, 3);
+  assert.equal(new Set(libraryBeforeRestart.entries.map(entry => entry.projectId)).size, 3);
+  assert.equal(libraryBeforeRestart.pending.length, 0);
+  await browser.close(); browser = undefined;
+  const exited = new Promise(resolve => app.once('exit', resolve));
+  app.kill(); await exited;
+  app = launch();
+  const restartedAt = Date.now(); let restarted = false;
+  while (Date.now() - restartedAt < 90000) {
+    if (app.exitCode !== null || spawnError) throw new Error(`Native restart failed: ${appLog}`);
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(2000) });
+      if (response.ok && (await response.json()).webSocketDebuggerUrl) { restarted = true; break; }
+    } catch { /* A new WebView2 process is starting. */ }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  assert(restarted, `Native restart did not expose CDP: ${appLog}`);
+  browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 10000 });
+  const restartedContext = browser.contexts()[0];
+  page = restartedContext.pages()[0] ?? await restartedContext.waitForEvent('page', { timeout: 10000 });
+  observedPage = page;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.getByRole('button', { name: /^Harbour A Last opened/ }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei keeps the brass key. She has made her choice.');
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('button', { name: /^Harbour A copy Last opened/ }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Only the independent copy changes.');
+  checks.push('Native duplicate uses an independent project; original and copy reopen with distinct prose after the desktop process is killed and restarted');
+  const editorBeforeRename = await page.evaluate(() => { window.editorBeforeRename = document.querySelector('.tiptap').editor; return window.editorBeforeRename.getJSON(); });
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Project title', exact: true }).fill('Harbour C');
+  await page.getByRole('button', { name: 'Save title', exact: true }).click();
+  await page.locator('.trial-label').filter({ hasText: /^Harbour C$/ }).waitFor();
+  await page.getByRole('button', { name: 'Rename document', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Document title', exact: true }).fill("Mei's voice");
+  await page.getByRole('button', { name: 'Save document title', exact: true }).click();
+  await page.getByRole('heading', { name: "Mei's voice", exact: true }).waitFor();
+  assert(await page.evaluate(() => document.querySelector('.tiptap').editor === window.editorBeforeRename));
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), editorBeforeRename);
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByLabel('Start with', { exact: true }).selectOption('note');
+  await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Ending to protect');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('heading', { name: 'Ending to protect', exact: true }).waitFor();
+  await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill('Keep the final lantern burning.');
+  await page.evaluate(() => document.querySelector('.tiptap').editor.commands.setTextSelection(7));
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+  await page.getByRole('heading', { name: 'Ending to protect', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector('.tiptap').editor.state.selection.anchor), 7);
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Keep the final lantern burning.');
+  await page.reload();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+  await page.getByRole('heading', { name: 'Ending to protect', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector('.tiptap').editor.state.selection.anchor), 7);
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Archive Harbour C', exact: true }).click();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Archived', exact: true }).click();
+  await page.getByRole('button', { name: 'Unarchive Harbour C', exact: true }).click();
+  await page.getByRole('button', { name: 'Show active', exact: true }).click();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor();
+  checks.push('Native renames preserve the mounted editor; last document and exact caret survive navigation/reload; archive and unarchive preserve the project');
   assert.deepEqual(errors, []);
-  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable: 'target/debug/webnovel-desktop.exe', limitations: ['Visible trial manuscript is session-only; project persistence is exercised through real IPC on synthetic data', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No provider or durable Apply'], dataDirectory: data }, null, 2));
+  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable: 'target/debug/webnovel-desktop.exe', limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'No provider or durable Apply', 'Native backup/export dialog journeys remain separate W3 checks'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));
 } catch (error) {
+  if (observedPage && !observedPage.isClosed()) {
+    await observedPage.screenshot({ path: resolve(output, 'failure.png') }).catch(() => {});
+    appLog += `\nVisible native state:\n${await observedPage.locator('body').innerText().catch(() => '(unavailable)')}`;
+  }
   await writeFile(resolve(output, 'failure.txt'), `${error.stack}\n${appLog}`);
   throw error;
 } finally {

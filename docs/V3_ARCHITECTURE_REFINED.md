@@ -673,6 +673,10 @@ A changed global rule may conservatively affect all applicable chapters; changed
 
 ## 10. Context assembly and knowledge boundaries
 
+The adopted [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-slice plan](V3_STORY_CONTEXT_FIRST_SLICE.md) are the maintained §10 extension for context-specific behavior. They replace the minimal context-compiler treatment below where the two documents are more precise, while preserving this architecture's existing document, save, Apply, lifecycle, and authority contracts. C0–C3 are planned before or alongside W4: freeze snapshots and exact sources, bind a source epoch, use deterministic exact retrieval with dirty-index fallback, reject mandatory-budget overflow, carry scoped author guidance, and persist the actual packet with an inspectable receipt. C4/C5 belong to F3 (with C5 depending on F2), C6 is additional W8 qualification, F1 imports evidence and rebuilds projections, and F5 validates a common snapshot/policy/epoch in one atomic batch. None of C0–C6 is implemented by this design note.
+
+The public promise remains layered: stored evidence is not the same as a permitted source available for lookup, which is not the same as the packet actually delivered to a model; what the model understood is an evaluation question. The extension does not introduce paid analysis on autosave, automatic canon, or replacement of source text with a large rolling summary. The first live-provider qualification uses one deterministic packet before any bounded read loop is considered.
+
 ### 10.1 One compiler, task-specific recipes
 
 The Rust context compiler builds a frozen `ContextReceipt` from authoritative source revisions. It does not read the renderer's unsaved body, silently substitute an outline for prose, or ask a second model what was probably in the chapter.

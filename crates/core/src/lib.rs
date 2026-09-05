@@ -11,8 +11,10 @@ use std::collections::HashSet;
 use url::Url;
 
 pub mod documents;
+pub mod library;
 pub mod projects;
 mod storage;
+pub mod transfer;
 
 const MAX_RAW_BYTES: usize = 2 * 1024 * 1024;
 const MAX_UTF16_UNITS: u64 = 1_000_000;
