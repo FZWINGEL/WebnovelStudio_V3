@@ -7,9 +7,10 @@
 
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn main() {
     let mode = std::env::args().nth(1).unwrap_or_default();
@@ -17,6 +18,8 @@ fn main() {
         "--child" => child(),
         "--grandchild" => grandchild(),
         "--oneshot" => oneshot(),
+        "--early-output" => early_output(),
+        "--two-streams" => two_streams(),
         "--early-exit" => println!("EARLY_EXIT"),
         "--args-and-stdin" => args_and_stdin(),
         "--flood" => flood(),
@@ -56,6 +59,44 @@ fn oneshot() {
     let mut packet = Vec::new();
     let _ = io::stdin().read_to_end(&mut packet);
     println!("ONESHOT_READY {}", packet.len());
+}
+
+fn early_output() {
+    let release_marker = std::env::args_os()
+        .nth(2)
+        .map(PathBuf::from)
+        .expect("early-output release marker");
+    println!("EARLY_OUTPUT");
+    let _ = io::stdout().flush();
+    // Keep the root alive after the first output until the observer explicitly
+    // releases it. The timeout prevents a broken test from hanging forever.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !release_marker.exists() {
+        if Instant::now() >= deadline {
+            eprintln!("early-output release marker timeout");
+            std::process::exit(2);
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let mut packet = Vec::new();
+    let _ = io::stdin().read_to_end(&mut packet);
+    println!("EARLY_DONE {}", packet.len());
+    let _ = io::stdout().flush();
+}
+
+fn two_streams() {
+    let mut stdout = io::stdout();
+    let mut stderr = io::stderr();
+    stdout
+        .write_all(b"STDOUT_OBSERVER_PREFIX")
+        .expect("write stdout fixture output");
+    stdout.flush().expect("flush stdout fixture output");
+    stderr
+        .write_all(b"STDERR_OBSERVER_PREFIX")
+        .expect("write stderr fixture output");
+    stderr.flush().expect("flush stderr fixture output");
+    let mut packet = Vec::new();
+    let _ = io::stdin().read_to_end(&mut packet);
 }
 
 fn args_and_stdin() {

@@ -9,8 +9,8 @@ use std::thread;
 use std::time::Duration;
 
 use webnovel_core::providers::cli::windows_process::{
-    ChildLimits, ChildTermination, CliInvocation, EnvironmentPolicy, MAX_PACKET_BYTES, StopSignal,
-    spawn,
+    ChildLimits, ChildStream, ChildTermination, CliInvocation, EnvironmentPolicy, MAX_PACKET_BYTES,
+    StopSignal, spawn,
 };
 use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
@@ -91,6 +91,14 @@ fn new_pid_file() -> PathBuf {
     ));
     File::create(&path).expect("create fixture PID file");
     path
+}
+
+fn new_marker_path() -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "webnovel-studio-fixture-release-{}-{}.txt",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ))
 }
 
 fn invocation_with_pid_file(
@@ -203,6 +211,135 @@ fn normal_completion_reports_packet_only_on_stdin_path() {
     assert!(String::from_utf8_lossy(&outcome.output.stdout).contains("ONESHOT_READY 32"));
     assert_eq!(outcome.output.stdin_bytes_written, 32);
     assert!(!String::from_utf8_lossy(&outcome.output.stdout).contains("packet-marker"));
+}
+
+#[test]
+fn observer_sees_first_chunk_before_normal_child_exit() {
+    let mut bounded = limits();
+    bounded.overall = Duration::from_secs(5);
+    let release_marker = new_marker_path();
+    let mut request = invocation(&["--early-output"], bounded);
+    request
+        .arguments
+        .push(release_marker.as_os_str().to_owned());
+    let running = spawn(request).expect("spawn early output fixture");
+    let process = retained_process_handle(running.process_id());
+    let mut observed = Vec::new();
+    let mut alive_for_first_chunk = false;
+    let outcome = running
+        .finish_or_stop_with_output(StopSignal::new(), |stream, bytes| {
+            assert_eq!(stream, ChildStream::Stdout);
+            if observed.is_empty() {
+                alive_for_first_chunk =
+                    unsafe { WaitForSingleObject(process.as_raw_handle() as _, 0) == WAIT_TIMEOUT };
+                File::create(&release_marker).expect("release early-output fixture");
+            }
+            observed.extend_from_slice(bytes);
+        })
+        .expect("early output cleanup settles");
+    assert_eq!(outcome.termination, ChildTermination::Completed);
+    assert!(
+        alive_for_first_chunk,
+        "first chunk arrived after process exit"
+    );
+    assert_eq!(outcome.output.exit_code, Some(0));
+    assert_eq!(observed, outcome.output.stdout);
+    let observed_text = String::from_utf8_lossy(&observed);
+    assert!(observed_text.contains("EARLY_OUTPUT"));
+    assert!(observed_text.contains("EARLY_DONE 32"));
+    let _ = fs::remove_file(release_marker);
+}
+
+#[test]
+fn observer_stop_cleans_tree_without_later_observer_chunks() {
+    let pid_file = new_pid_file();
+    let running = spawn(invocation_with_pid_file(&[], limits(), &pid_file)).expect("spawn fixture");
+    let handles = retained_fixture_handles(&pid_file, &["root", "child", "grandchild"]);
+    let stop = StopSignal::new();
+    let callback_stop = stop.clone();
+    let mut observed_chunks = 0_usize;
+    let mut callbacks_after_stop = 0_usize;
+    let outcome = running
+        .finish_or_stop_with_output(stop, |_, bytes| {
+            if callback_stop.is_requested() {
+                callbacks_after_stop += 1;
+            } else {
+                observed_chunks += 1;
+                assert!(!bytes.is_empty());
+                callback_stop.request_stop();
+            }
+        })
+        .expect("observer stop cleanup settles");
+    assert_eq!(outcome.termination, ChildTermination::Stopped);
+    assert_eq!(observed_chunks, 1);
+    assert_eq!(callbacks_after_stop, 0);
+    assert_all_signaled(&handles, "observer Stop cleanup");
+    let _ = fs::remove_file(pid_file);
+}
+
+#[test]
+fn observer_receives_fast_exit_final_tail() {
+    let running = spawn(invocation(&["--oneshot"], limits())).expect("spawn oneshot fixture");
+    let mut observed = Vec::new();
+    let outcome = running
+        .finish_or_stop_with_output(StopSignal::new(), |stream, bytes| {
+            assert_eq!(stream, ChildStream::Stdout);
+            observed.extend_from_slice(bytes);
+        })
+        .expect("oneshot observer cleanup settles");
+    assert_eq!(outcome.termination, ChildTermination::Completed);
+    assert_eq!(observed, outcome.output.stdout);
+    assert!(String::from_utf8_lossy(&observed).contains("ONESHOT_READY 32"));
+}
+
+#[test]
+fn observer_stop_on_fast_exit_is_not_reported_completed() {
+    let running = spawn(invocation(&["--oneshot"], limits())).expect("spawn oneshot fixture");
+    let stop = StopSignal::new();
+    let callback_stop = stop.clone();
+    let outcome = running
+        .finish_or_stop_with_output(stop, |_, _| callback_stop.request_stop())
+        .expect("observer stop cleanup settles");
+    assert_eq!(outcome.termination, ChildTermination::Stopped);
+}
+
+#[test]
+fn observer_never_receives_bytes_beyond_combined_cap() {
+    let mut bounded = limits();
+    bounded.max_total_output_bytes = 32 * 1024;
+    let running = spawn(invocation(&["--fast-flood"], bounded)).expect("spawn fast flood fixture");
+    let mut observed_stdout = Vec::new();
+    let mut observed_stderr = Vec::new();
+    let outcome = running
+        .finish_or_stop_with_output(StopSignal::new(), |stream, bytes| match stream {
+            ChildStream::Stdout => observed_stdout.extend_from_slice(bytes),
+            ChildStream::Stderr => observed_stderr.extend_from_slice(bytes),
+        })
+        .expect("fast output-limit observer cleanup settles");
+    assert_eq!(outcome.termination, ChildTermination::OutputLimitExceeded);
+    assert!(outcome.output.truncated);
+    assert!(observed_stdout.len() + observed_stderr.len() <= bounded.max_total_output_bytes);
+    assert_eq!(observed_stdout, outcome.output.stdout);
+    assert_eq!(observed_stderr, outcome.output.stderr);
+}
+
+#[test]
+fn observer_preserves_each_stream_prefix() {
+    let running =
+        spawn(invocation(&["--two-streams"], limits())).expect("spawn two-stream fixture");
+    let mut observed_stdout = Vec::new();
+    let mut observed_stderr = Vec::new();
+    let outcome = running
+        .finish_or_stop_with_output(StopSignal::new(), |stream, bytes| match stream {
+            ChildStream::Stdout => observed_stdout.extend_from_slice(bytes),
+            ChildStream::Stderr => observed_stderr.extend_from_slice(bytes),
+        })
+        .expect("two-stream observer cleanup settles");
+    assert_eq!(outcome.termination, ChildTermination::Completed);
+    assert_eq!(observed_stdout, b"STDOUT_OBSERVER_PREFIX");
+    assert_eq!(observed_stderr, b"STDERR_OBSERVER_PREFIX");
+    assert_eq!(observed_stdout, outcome.output.stdout);
+    assert_eq!(observed_stderr, outcome.output.stderr);
 }
 
 #[test]

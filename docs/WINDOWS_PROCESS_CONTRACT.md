@@ -12,8 +12,10 @@ accepts one absolute executable, a fixed argument vector, an explicit working
 directory and environment policy, one bounded packet, and per-invocation
 limits. Packet bytes are written to stdin; they are never appended to command
 arguments. The primitive does not parse provider protocols, expose shell
-commands, read credentials, retry upstream requests, or provide a stream
-callback.
+commands, read credentials, or retry upstream requests. Callers may use the
+bounded `finish_or_stop_with_output` observer when they need incremental
+bytes; it remains a local capture hook rather than a provider protocol
+streaming contract.
 
 `spawn` validates paths and limits, creates the child suspended, assigns it to
 a kill-on-close Job Object before `ResumeThread`, and passes only the three
@@ -39,6 +41,15 @@ the root process, waits for Job Object `ActiveProcesses == 0`, drains both
 reader streams, and joins both reader workers. Completion also terminates the
 Job Object so a descendant cannot keep inherited pipes open.
 
+`finish_or_stop_with_output` uses the same proof path and invokes its
+synchronous callback only for bytes accepted into the combined bounded
+prefix. It preserves per-stream read order and also observes the final drain.
+Once the finish path observes `Stop`, the callback receives no later bytes;
+those bytes may still be retained in `ChildOutput` while cleanup settles. The
+callback must be short and nonblocking. The process deadline cannot bound an
+arbitrarily blocking callback, so provider adapters must keep callback work
+bounded.
+
 `ChildOutput` reports the exit code when available, confirmed
 `stdin_bytes_written`, typed stdout/stderr bytes, truncation, and typed I/O
 errors. A zero-exit process with incomplete stdin delivery is a
@@ -58,7 +69,7 @@ contract; neither path claims a universal kernel or host-process guarantee.
 
 ## Evidence and limits
 
-The focused Windows integration suite is currently 14/14, and the module unit
+The focused Windows integration suite is currently 20/20, and the module unit
 subset is 3/3. The tests retain live process handles for root/child/grandchild
 fixtures and assert those handles become signaled for Stop, timeout, and
 completion cleanup. They also cover combined output caps, packet-only stdin,
@@ -67,8 +78,8 @@ argument quoting, and the restricted handle list. See
 [`windows_process.rs` tests](../crates/core/tests/windows_process.rs).
 
 This evidence does not qualify a live provider, model budgets, upstream retry
-or billing semantics, protocol parsing, streaming callbacks, credentials,
-provider interruption semantics, or author-data isolation. No live provider
-call was made for this contract. The separate
+or billing semantics, protocol parsing, provider streaming semantics,
+credentials, provider interruption semantics, or author-data isolation. No
+live provider call was made for this contract. The separate
 [Codex qualification](CODEX_QUALIFICATION.md) remains synthetic evidence and
 does not enable the adapter.

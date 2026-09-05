@@ -159,6 +159,13 @@ impl StopSignal {
     }
 }
 
+/// Which captured child stream produced an observed output chunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChildStream {
+    Stdout,
+    Stderr,
+}
+
 /// Terminal reason after local cleanup settled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChildTermination {
@@ -499,11 +506,34 @@ impl RunningChild {
     /// The process tree is terminated through the Job Object when required;
     /// the returned output is the exact bounded prefix captured before that
     /// terminal action.
-    pub fn finish_or_stop(mut self, stop: StopSignal) -> Result<ChildOutcome, ContainmentError> {
+    pub fn finish_or_stop(self, stop: StopSignal) -> Result<ChildOutcome, ContainmentError> {
+        self.finish_or_stop_with_output(stop, |_stream, _bytes| {})
+    }
+
+    /// Finish the child while synchronously observing each accepted bounded
+    /// output prefix. The callback runs on this caller's thread and must be
+    /// short and nonblocking; an arbitrary blocking callback can delay local
+    /// cleanup beyond the configured process deadlines.
+    ///
+    /// The callback receives each stream's bytes in that stream's read order,
+    /// including bytes accepted during the final drain. Bytes beyond the
+    /// combined output cap are retained neither in the outcome nor delivered
+    /// to the callback. Once the finish path observes `Stop`, subsequent
+    /// accepted bytes remain available in the bounded outcome but are not
+    /// observed.
+    pub fn finish_or_stop_with_output<F>(
+        mut self,
+        stop: StopSignal,
+        mut observer: F,
+    ) -> Result<ChildOutcome, ContainmentError>
+    where
+        F: FnMut(ChildStream, &[u8]),
+    {
         let mut capture = Capture::default();
         let mut terminal = None;
         let mut stop_deadline = None;
         let mut termination_sent = false;
+        let mut observer_requested_stop = false;
 
         loop {
             if !stop.is_requested() {
@@ -541,7 +571,13 @@ impl RunningChild {
 
             let wait = self.next_wait(stop_deadline);
             match self.output_rx.recv_timeout(wait) {
-                Ok(message) => capture.accept(message, self.limits.max_total_output_bytes),
+                Ok(message) => capture.accept(
+                    message,
+                    self.limits.max_total_output_bytes,
+                    &stop,
+                    &mut observer_requested_stop,
+                    &mut observer,
+                ),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     if unsafe {
@@ -582,12 +618,21 @@ impl RunningChild {
             }
             self.wait_for_job_empty(&mut capture)?;
         }
-        self.drain_output(&mut capture)?;
+        self.drain_output(
+            &mut capture,
+            &stop,
+            &mut observer_requested_stop,
+            &mut observer,
+        )?;
         if capture.limit_reached && terminal == Some(ChildTermination::Completed) {
             // A fast root can exit before its final output has been drained.
             // Keep the terminal reason consistent with the same cap observed
             // while the root was still running.
             terminal = Some(ChildTermination::OutputLimitExceeded);
+        } else if observer_requested_stop && terminal == Some(ChildTermination::Completed) {
+            // The observer may request Stop while the final drain is still
+            // delivering output after the root process has exited.
+            terminal = Some(ChildTermination::Stopped);
         }
         let exit_code = match exit_code(&self.process) {
             Ok(code) => code,
@@ -820,7 +865,16 @@ impl RunningChild {
         Ok(())
     }
 
-    fn drain_output(&self, capture: &mut Capture) -> Result<(), ContainmentError> {
+    fn drain_output<F>(
+        &self,
+        capture: &mut Capture,
+        stop: &StopSignal,
+        observer_requested_stop: &mut bool,
+        observer: &mut F,
+    ) -> Result<(), ContainmentError>
+    where
+        F: FnMut(ChildStream, &[u8]),
+    {
         let deadline = Instant::now() + CLEANUP_TIMEOUT;
         loop {
             if Instant::now() >= deadline {
@@ -832,7 +886,13 @@ impl RunningChild {
             {
                 Ok(message) => {
                     let ended = matches!(message, OutputMessage::End);
-                    capture.accept(message, self.limits.max_total_output_bytes);
+                    capture.accept(
+                        message,
+                        self.limits.max_total_output_bytes,
+                        stop,
+                        observer_requested_stop,
+                        observer,
+                    );
                     if ended && capture.ends == 2 {
                         return Ok(());
                     }
@@ -1001,6 +1061,15 @@ enum OutputStream {
     Stderr,
 }
 
+impl From<OutputStream> for ChildStream {
+    fn from(stream: OutputStream) -> Self {
+        match stream {
+            OutputStream::Stdout => Self::Stdout,
+            OutputStream::Stderr => Self::Stderr,
+        }
+    }
+}
+
 enum OutputMessage {
     Data(OutputStream, Vec<u8>),
     ReadFailure(OutputStream, u32),
@@ -1024,7 +1093,16 @@ struct Capture {
 }
 
 impl Capture {
-    fn accept(&mut self, message: OutputMessage, limit: usize) {
+    fn accept<F>(
+        &mut self,
+        message: OutputMessage,
+        limit: usize,
+        stop: &StopSignal,
+        observer_requested_stop: &mut bool,
+        observer: &mut F,
+    ) where
+        F: FnMut(ChildStream, &[u8]),
+    {
         match message {
             OutputMessage::End => self.ends = self.ends.saturating_add(1),
             OutputMessage::ReadFailure(stream, code) => {
@@ -1041,6 +1119,12 @@ impl Capture {
                     OutputStream::Stderr => self.stderr.extend_from_slice(&bytes[..retained]),
                 }
                 self.bytes += retained;
+                if retained > 0 && !stop.is_requested() {
+                    observer(stream.into(), &bytes[..retained]);
+                    if stop.is_requested() {
+                        *observer_requested_stop = true;
+                    }
+                }
                 if retained < bytes.len() {
                     self.truncated = true;
                     self.limit_reached = true;
