@@ -154,7 +154,7 @@ fn setup_project(
 fn downgrade_to_schema2(path: &Path) {
     let database = path.join("project.sqlite3");
     let connection = Connection::open(&database).expect("open current database");
-    remove_post_schema11_tables(&connection);
+    remove_post_schema14_tables(&connection);
     connection
         .execute_batch(
             "DROP TRIGGER source_pin_receipts_no_update;
@@ -193,7 +193,7 @@ fn downgrade_to_schema2(path: &Path) {
 fn downgrade_to_schema3(path: &Path) {
     let database = path.join("project.sqlite3");
     let connection = Connection::open(&database).expect("open current database");
-    remove_post_schema11_tables(&connection);
+    remove_post_schema14_tables(&connection);
     connection
         .execute_batch(
             "DROP TRIGGER source_pin_receipts_no_update;
@@ -228,12 +228,22 @@ fn schema_version(path: &Path) -> i64 {
         .expect("read schema version")
 }
 
-fn remove_post_schema11_tables(connection: &Connection) {
+fn remove_post_schema14_tables(connection: &Connection) {
     connection
         .execute_batch(
-            "DROP TABLE provider_results;
-        DROP TABLE import_manifest; DROP TABLE import_id_map;
-        DROP TABLE import_body_decisions; DROP TABLE import_legacy_records;",
+            "DROP TRIGGER review_stages_no_update;
+             DROP TRIGGER review_stages_no_delete;
+             DROP TRIGGER ready_bundles_no_update;
+             DROP TRIGGER ready_bundles_no_delete;
+             DROP TRIGGER review_fences_no_update;
+             DROP TRIGGER review_fences_no_delete;
+             DROP TABLE review_fences;
+             DROP TABLE ready_heads;
+             DROP TABLE ready_bundles;
+             DROP TABLE review_stages;
+             DROP TABLE provider_results;
+             DROP TABLE import_manifest; DROP TABLE import_id_map;
+             DROP TABLE import_body_decisions; DROP TABLE import_legacy_records;",
         )
         .expect("remove later tables from synthetic legacy fixture");
 }
@@ -287,7 +297,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 13);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 14);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -352,16 +362,16 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 13);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 14);
     let connection =
-        Connection::open(path.join("project.sqlite3")).expect("open migrated schema11 database");
+        Connection::open(path.join("project.sqlite3")).expect("open migrated schema14 database");
     let discussion_tables: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='discussion_runs'",
             [],
             |row| row.get(0),
         )
-        .expect("check schema11 discussion tables");
+        .expect("check migrated discussion tables");
     assert_eq!(discussion_tables, 1);
     drop(connection);
     let attached = upgraded
@@ -448,7 +458,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(project);
 
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
-    remove_post_schema11_tables(&connection);
+    remove_post_schema14_tables(&connection);
     connection
         .execute_batch(
             "ALTER TABLE discussion_drafts DROP COLUMN safe_brief_json;
@@ -458,7 +468,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 13);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 14);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     let safe_brief_column: i64 = connection
         .query_row(
@@ -486,13 +496,13 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     let reopened = upgraded.attach("schema10-reader".into()).unwrap();
     let restored = upgraded
         .prepared_context(reopened.clone(), packet.receipt.packet_id)
-        .expect("old packet remains readable after schema11 migration");
+        .expect("old packet remains readable after latest migration");
     assert_eq!(restored.receipt.input_hash, packet.receipt.input_hash);
     let restored_draft = upgraded
         .read_discussion(reopened, document.head.document_id)
         .unwrap()
         .draft
-        .expect("old draft remains readable after schema11 migration");
+        .expect("old draft remains readable after latest migration");
     assert_eq!(restored_draft.text, draft.text);
     assert!(restored_draft.safe_brief.is_none());
 }
@@ -591,7 +601,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 13);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 14);
     assert_eq!(
         recovered
             .context_source_epoch()

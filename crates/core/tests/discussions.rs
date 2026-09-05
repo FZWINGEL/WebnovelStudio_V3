@@ -2096,7 +2096,17 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "DROP TRIGGER source_pin_receipts_no_update;
+            "DROP TRIGGER review_stages_no_update;
+             DROP TRIGGER review_stages_no_delete;
+             DROP TRIGGER ready_bundles_no_update;
+             DROP TRIGGER ready_bundles_no_delete;
+             DROP TRIGGER review_fences_no_update;
+             DROP TRIGGER review_fences_no_delete;
+             DROP TABLE review_fences;
+             DROP TABLE ready_heads;
+             DROP TABLE ready_bundles;
+             DROP TABLE review_stages;
+             DROP TRIGGER source_pin_receipts_no_update;
              DROP TRIGGER source_pin_receipts_no_delete;
              DROP TABLE source_pin_receipts;
              DROP TABLE source_pin_sets;
@@ -2125,7 +2135,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema13-")
+            .starts_with("schema6-before-schema14-")
     }));
 }
 

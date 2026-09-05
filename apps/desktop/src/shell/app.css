@@ -318,3 +318,14 @@ input::placeholder { color: #637083; }
 .v2-import-row { display: grid; gap: 6px; margin-top: 8px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; line-height: 1.45; }
 .v2-import-row span { color: var(--muted); }
 .v2-import-row select { width: 100%; border: 1px solid #aebccc; background: #fff; border-radius: 5px; padding: 8px 10px; color: inherit; }
+.review-panel { overflow: auto; }
+.review-summary, .review-basis, .review-empty { padding: 16px 22px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.review-summary h3, .review-basis h3 { font-size: 13px; margin: 16px 0 6px; }
+.review-summary p, .review-basis p, .review-empty p { margin: 0 0 10px; }
+.review-basis { border-top: 1px solid var(--line); padding-block: 0 12px; }
+.review-basis ul { margin: 6px 0 0; padding-left: 18px; }
+.review-basis summary { cursor: pointer; padding-block: 5px; }
+.review-earlier-prose { max-height: 210px; overflow: auto; padding: 10px; background: #fff; border: 1px solid var(--line); }
+.review-panel .history-preview { flex: 1 0 180px; }
+.review-panel .history-restore { flex-shrink: 0; }
+.review-empty { color: var(--muted); }

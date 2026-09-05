@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 13;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 14;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -75,6 +75,9 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         }
         if version < 13 {
             tx.execute_batch(include_str!("013_provider_results.sql"))?;
+        }
+        if version < 14 {
+            tx.execute_batch(include_str!("014_reviewed_story.sql"))?;
         }
         tx.pragma_update(None, "user_version", LATEST_SCHEMA_VERSION)?;
         tx.commit().map_err(CoreError::uncertain)?;

@@ -18,6 +18,7 @@ mod live_discussion;
 mod project_commands;
 mod provider_commands;
 mod provider_runtime;
+mod review_commands;
 mod source_pin_commands;
 mod v2_import_commands;
 
@@ -108,6 +109,10 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            review_commands::chapter_review_status,
+            review_commands::stage_author_review,
+            review_commands::read_review_stage,
+            review_commands::mark_ready,
             provider_commands::provider_state,
             v2_import_commands::v2_import_list_projects,
             v2_import_commands::v2_import_preview,

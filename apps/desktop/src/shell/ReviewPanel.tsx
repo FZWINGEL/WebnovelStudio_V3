@@ -1,0 +1,188 @@
+import { useEffect, useRef, useState } from 'react';
+import { bodyHash, canonicalJson } from '../editor/document';
+import type { DocumentSession, SessionState } from '../editor/session';
+import { chapterReviewStatus, markReady, readReviewStage, stageAuthorReview, type MarkReady, type ReviewMember, type ReviewStage, type ReviewStatus, type StageAuthorReview } from '../ipc/reviews';
+import { readDocumentRevision } from '../ipc/history';
+import type { ProjectAccess, Revision } from '../ipc/projects';
+import { SavedProse } from './HistoryPanel';
+
+type Pending = { kind: 'stage'; request: StageAuthorReview } | { kind: 'mark'; request: MarkReady; reviewed: ReviewStage };
+const labels: Record<ReviewStatus['state'], string> = {
+  noReview: 'Not reviewed yet', ready: 'Reviewed version is current', changedProse: 'Writing changed since review',
+  earlierBasisChanged: 'Earlier story needs review', reviewNeeded: 'Review needs attention',
+};
+function message(error: unknown): string {
+  return error && typeof error === 'object' && 'detail' in error ? String(error.detail)
+    : error instanceof Error ? error.message : 'Could not confirm the review. Check its saved result before trying again.';
+}
+function uncertain(error: unknown): boolean {
+  return !error || typeof error !== 'object' || !('code' in error)
+    || ['UncertainOutcome', 'ReconciliationRequired', 'PersistenceUnavailable', 'ProtocolError'].includes(String(error.code));
+}
+
+function EarlierReview({ access, member }: { access: ProjectAccess; member: ReviewMember }) {
+  const [open, setOpen] = useState(false);
+  const [revision, setRevision] = useState<Revision | null>(null);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true; setRevision(null); setError('');
+    if (!open) return;
+    void readDocumentRevision(access, member.documentId, member.revisionId).then(async result => {
+      if (!active) return;
+      if (result.id !== member.revisionId || canonicalJson(result.head) !== canonicalJson(member.head)
+        || await bodyHash(canonicalJson(result.body)) !== member.head.bodyHash) throw new Error('The earlier writing did not match this review. Try reading it again.');
+      if (active) setRevision(result);
+    }).catch(reason => { if (active) setError(message(reason)); });
+    return () => { active = false; };
+  }, [open, access.projectId, access.operationNamespace, access.writerLease, member.revisionId, attempt]);
+  return <details onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>{member.title}</summary>
+    {open && <div className="review-earlier-prose">{error ? <><p role="alert">{error}</p><button onClick={() => setAttempt(value => value + 1)}>Try reading again</button></>
+      : revision ? <SavedProse body={revision.body} /> : <p role="status">Reading the reviewed version…</p>}</div>}
+  </details>;
+}
+
+/** Original prose and explicit author review only; no model or manuscript write. */
+export function ReviewPanel({ session, state, visible, onClose }: {
+  session: DocumentSession; state: SessionState; visible: boolean; onClose(): void;
+}) {
+  const [status, setStatus] = useState<ReviewStatus | null>(null);
+  const [stage, setStage] = useState<ReviewStage | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState('');
+  const [readError, setReadError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [retry, setRetry] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const pending = useRef<Pending | null>(null);
+  const busy = useRef(false);
+  const sequence = useRef(0);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const focusAfterSave = useRef(false);
+  const access = session.projectAccess;
+  const owner = `${access.projectId}/${access.operationNamespace}/${state.head.documentId}`;
+  const liveOwner = useRef(owner); liveOwner.current = owner;
+  const liveVisible = useRef(visible); liveVisible.current = visible;
+  const owns = () => liveOwner.current === owner;
+
+  useEffect(() => { setStage(null); setNotice(''); setError(''); setReadError(''); setRetry(false); pending.current = null; }, [owner]);
+  useEffect(() => { if (visible) heading.current?.focus(); }, [visible]);
+  useEffect(() => {
+    if (visible && !working && focusAfterSave.current) { focusAfterSave.current = false; heading.current?.focus(); }
+  }, [visible, working]);
+  useEffect(() => {
+    const read = ++sequence.current;
+    if (!visible || !state.editable || working) return;
+    setLoading(true);
+    void chapterReviewStatus(access, state.head.documentId).then(result => {
+      if (read !== sequence.current || !owns() || !liveVisible.current) return;
+      if (result.documentId !== state.head.documentId || canonicalJson(result.head) !== canonicalJson(state.head)) throw new Error('The review status belongs to a different saved version. Refresh to read it again.');
+      setStatus(result); setReadError('');
+    }).catch(reason => { if (read === sequence.current && owns() && liveVisible.current) setReadError(message(reason)); })
+      .finally(() => { if (read === sequence.current && owns()) setLoading(false); });
+    return () => { ++sequence.current; };
+  }, [owner, access.writerLease, visible, state.head.version, state.head.bodyHash, state.editable, working, refresh]);
+
+  async function perform(operation: Pending) {
+    // Reconciliation rotates only the lease. Every logical payload stays fixed.
+    const currentAccess = session.projectAccess;
+    if (operation.kind === 'stage') {
+      const result = await stageAuthorReview({ ...operation.request, access: currentAccess });
+      if (result.projectId !== currentAccess.projectId || result.operationNamespace !== currentAccess.operationNamespace
+        || canonicalJson(result.target) !== canonicalJson(operation.request.expected)
+        || canonicalJson(result.revision.head) !== canonicalJson(result.target)
+        || await bodyHash(canonicalJson(result.revision.body)) !== result.target.bodyHash) throw new Error('The saved review did not match the selected writing. Check the review save.');
+      if (owns()) { setStage(result); setNotice('Read this saved version, then confirm your review.'); }
+    } else {
+      const result = await markReady({ ...operation.request, access: currentAccess });
+      if (result.projectId !== currentAccess.projectId || result.operationNamespace !== currentAccess.operationNamespace
+        || result.stageId !== operation.request.stageId || canonicalJson(result.target) !== canonicalJson(operation.reviewed.target)) throw new Error('The review acknowledgment did not match your decision. Check the review save.');
+      if (owns()) { setStage(null); setNotice('Your review is saved. The chapter remains editable.'); }
+    }
+    if (owns()) { pending.current = null; setRetry(false); focusAfterSave.current = true; setRefresh(value => value + 1); }
+  }
+  async function resume() {
+    const stageId = status?.pendingStageId;
+    if (!stageId || busy.current || !state.editable) return;
+    busy.current = true; setWorking(true); setError(''); setNotice('');
+    try {
+      const currentAccess = session.projectAccess;
+      const saved = await readReviewStage(currentAccess, stageId);
+      if (saved.id !== stageId || saved.projectId !== currentAccess.projectId || saved.operationNamespace !== currentAccess.operationNamespace
+        || saved.target.documentId !== state.head.documentId || canonicalJson(saved.revision.head) !== canonicalJson(saved.target)
+        || await bodyHash(canonicalJson(saved.revision.body)) !== saved.target.bodyHash) throw new Error('The saved review did not match this chapter. Refresh its review status.');
+      if (owns()) { setStage(saved); setNotice('Your saved review is open. Read it before confirming.'); focusAfterSave.current = true; }
+    } catch (reason) { if (owns()) setError(message(reason)); }
+    finally { busy.current = false; if (owns()) setWorking(false); }
+  }
+  async function act(kind: 'stage' | 'mark' | 'retry') {
+    if (busy.current || (!state.editable && kind !== 'retry')) return;
+    busy.current = true; setWorking(true); setError(''); setNotice('');
+    try {
+      if (kind === 'retry' && session.state.phase === 'reconciling') await session.reconcile();
+      let reviewRejection: unknown;
+      await session.projectWrite(async () => {
+        if (kind === 'stage') {
+          pending.current = { kind: 'stage', request: { access: session.projectAccess, operationId: crypto.randomUUID(), expected: session.state.head } };
+        } else if (kind === 'mark') {
+          if (!stage) return;
+          pending.current = { kind: 'mark', reviewed: stage, request: { access: session.projectAccess, operationId: crypto.randomUUID(), stageId: stage.id } };
+        }
+        if (pending.current) {
+          try { await perform(pending.current); }
+          catch (reason) {
+            if (reason && typeof reason === 'object' && 'code' in reason
+              && ['ReviewStageStale', 'ReviewBasisUnavailable', 'ReviewStageNotFound', 'ReviewLimitExceeded', 'OperationIdReusedWithDifferentPayload'].includes(String(reason.code))) {
+              reviewRejection = reason;
+            } else { throw reason; }
+          }
+        }
+      });
+      // A definite review rejection did not change prose or its save outcome.
+      // Unknown outcomes still pass through the shared reconciliation fence.
+      if (reviewRejection) throw reviewRejection;
+    } catch (reason) {
+      if (owns()) {
+        setError(message(reason));
+        const keep = !!pending.current && uncertain(reason);
+        setRetry(keep); if (!keep) {
+          pending.current = null;
+          if (reason && typeof reason === 'object' && 'code' in reason
+            && ['ReviewStageStale', 'ReviewBasisUnavailable', 'VersionConflict'].includes(String(reason.code))) {
+            setStage(null); setRefresh(value => value + 1);
+          }
+        }
+      }
+    } finally { busy.current = false; if (owns()) { setWorking(false); setLoading(false); } }
+  }
+  if (!visible) return null;
+  const outdated = !!stage && (state.dirty || canonicalJson(stage.target) !== canonicalJson(state.head));
+  return <aside className="history-panel review-panel" aria-labelledby="review-heading">
+    <div className="feedback-heading"><h2 id="review-heading" tabIndex={-1} ref={heading}>Story review</h2><button disabled={working} onClick={onClose}>Back to writing</button></div>
+    <div className="review-summary">
+      <p>Keep an exact chapter version as reviewed story material. This records your own review; it runs no AI analysis.</p>
+      {status && <><h3>{labels[status.state]}</h3>{status.reason && <p>{status.reason}</p>}</>}
+      {loading && <p role="status">Reading review status…</p>}
+      <div className="history-list-actions"><button disabled={!state.editable || working || loading} onClick={() => setRefresh(value => value + 1)}>Refresh review</button>
+        {!stage && status?.pendingStageId && !retry && <button disabled={!state.editable || working} onClick={() => void resume()}>Resume saved review</button>}
+        {!stage && status?.canStage && status.state !== 'ready' && <button className="primary-button" disabled={!state.editable || working || retry} onClick={() => void act('stage')}>Review saved chapter</button>}</div>
+      {error && <p className="history-error" role="alert">{error}</p>}
+      {readError && <p className="history-error" role="alert">{readError}</p>}
+      {retry && <button disabled={working || state.phase === 'conflict' || state.phase === 'disposed'} onClick={() => void act('retry')}>Check review save</button>}
+      {notice && <p role="status">{notice}</p>}
+    </div>
+    {stage ? <>
+      <div className="review-basis"><h3>Saved version {stage.target.version}</h3><p>{stage.prefix.length ? 'Reviewed against these earlier chapters:' : 'This is the first chapter in the reviewed story.'}</p>
+        {!!stage.prefix.length && <ul>{stage.prefix.map(member => <li key={member.documentId}><EarlierReview access={access} member={member} /></li>)}</ul>}
+      </div>
+      <div className="history-preview" aria-label="Chapter under review"><SavedProse body={stage.revision.body} /></div>
+      <div className="history-restore">{outdated ? <p role="status">Your writing changed. Prepare a new review of the saved chapter.</p>
+        : <p>Confirm that you have reviewed this chapter against the earlier story. You can keep writing afterward.</p>}
+        <button className="primary-button" disabled={!state.editable || working || retry} onClick={() => void act(outdated ? 'stage' : 'mark')}>
+          {working ? 'Saving review…' : outdated ? 'Review latest saved chapter' : 'Mark this version reviewed'}
+        </button></div>
+    </> : <div className="review-empty"><p>Your manuscript stays editable. Reviewing chapters is optional.</p><p>Reviewed generation and accepted story facts are not available yet.</p></div>}
+  </aside>;
+}

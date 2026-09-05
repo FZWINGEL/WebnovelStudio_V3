@@ -225,10 +225,10 @@ pub fn list_v2_projects(path: &Path) -> CoreResult<Vec<V2ProjectSummary>> {
     #[cfg(not(windows))]
     {
         let _ = path;
-        return Err(v2_error(
+        Err(v2_error(
             "UnsupportedPlatform",
             "V2 import preview currently requires the Windows source snapshot boundary",
-        ));
+        ))
     }
     #[cfg(windows)]
     {

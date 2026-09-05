@@ -11,6 +11,7 @@ import { captureSelection, prepareScopedReplacement, type Scope } from '../edito
 import { prepareProposal, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { FeedbackPanel } from '../assistant/FeedbackPanel';
 import { HistoryPanel } from './HistoryPanel';
+import { ReviewPanel } from './ReviewPanel';
 import type { SourceChoice } from '../ipc/sourcePins';
 
 const Manuscript = memo(({ editor }: { editor: Editor }) => <EditorContent editor={editor} />);
@@ -21,6 +22,8 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
   const [pasteNotice, setPasteNotice] = useState('');
   const [discussionVisible, setDiscussionVisible] = useState(true);
   const [historyVisible, setHistoryVisible] = useState(false);
+  const [reviewVisible, setReviewVisible] = useState(false);
+  const reviewButton = useRef<HTMLButtonElement>(null);
   const historyButton = useRef<HTMLButtonElement>(null);
   const [discussionSelection, setDiscussionSelection] = useState<{ scope: Scope; nonce: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -79,14 +82,14 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
     });
   };
   async function openHistory() {
-    try { await session.checkpoint('manual'); setHistoryVisible(true); }
+    try { await session.checkpoint('manual'); setReviewVisible(false); setHistoryVisible(true); }
     catch (error) { onError((error as Error).message); }
   }
   discuss.current = () => {
     const scope = captureSelection(editor);
     if (!scope || !session.state.editable) return false;
     setDiscussionSelection(previous => ({ scope, nonce: (previous?.nonce ?? 0) + 1 }));
-    setHistoryVisible(false); setDiscussionVisible(true); setMenu(null); return true;
+    setHistoryVisible(false); setReviewVisible(false); setDiscussionVisible(true); setMenu(null); return true;
   };
   useEffect(() => {
     let disposed = false;
@@ -175,7 +178,9 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
   }
   const saving = state.phase === 'applying' ? 'Applying change…' : state.phase === 'reconciling' ? 'Checking saved version…' : state.phase === 'conflict' ? 'Choose which version to keep' : state.phase === 'saveFailed' ? "Couldn't save" : state.dirty || state.saving ? 'Saving…' : 'Saved';
   return <><main className="writing" aria-label="Writing desk">
-    <div className="document-heading"><h1>{record.title}</h1><button disabled={!state.editable} onClick={onRename}>Rename document</button><button ref={historyButton} aria-pressed={historyVisible} disabled={!state.editable} onClick={() => { if (historyVisible) setHistoryVisible(false); else void openHistory(); }}>History</button><button aria-pressed={discussionVisible && !historyVisible} disabled={historyVisible && !state.editable} onClick={() => { setHistoryVisible(false); setDiscussionVisible(value => historyVisible || !value); }}>Discussion</button><span className="save-status" role="status" aria-live="polite">{saving}</span></div>
+    <div className="document-heading"><h1>{record.title}</h1><button disabled={!state.editable} onClick={onRename}>Rename document</button><button ref={historyButton} aria-pressed={historyVisible} disabled={!state.editable} onClick={() => { if (historyVisible) setHistoryVisible(false); else void openHistory(); }}>History</button>
+      {record.kind === 'chapter' && <button ref={reviewButton} aria-pressed={reviewVisible} disabled={!state.editable} onClick={() => { setHistoryVisible(false); setReviewVisible(value => !value); }}>Story review</button>}
+      <button aria-pressed={discussionVisible && !historyVisible && !reviewVisible} disabled={(historyVisible || reviewVisible) && !state.editable} onClick={() => { setHistoryVisible(false); setReviewVisible(false); setDiscussionVisible(value => historyVisible || reviewVisible || !value); }}>Discussion</button><span className="save-status" role="status" aria-live="polite">{saving}</span></div>
     <div className="formatbar" role="toolbar" aria-label="Manuscript formatting">
       <select aria-label="Paragraph style" disabled={!state.editable} value={editor.isActive('heading') ? `h${editor.getAttributes('heading').level}` : 'p'} onChange={event => { if (event.target.value === 'p') editor.chain().focus().setNode('paragraph').run(); else editor.chain().focus().setNode('heading', { level: Number(event.target.value.slice(1)) }).run(); }}><option value="p">Paragraph</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option></select>
       <button className="format-button bold" aria-label="Bold" aria-pressed={editor.isActive('bold')} disabled={!state.editable} onMouseDown={event => event.preventDefault()} onClick={() => editor.chain().focus().toggleMark('bold').run()}>B</button>
@@ -191,8 +196,9 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
     <div className="manuscript-scroll" onContextMenu={event => { if (!editor.state.selection.empty && state.editable) { event.preventDefault(); setMenu({ x: Math.min(event.clientX, window.innerWidth - 270), y: Math.min(event.clientY, window.innerHeight - 60) }); } }} onPaste={event => { if (/<(?:table|img|ul|ol|pre|video|iframe|script|blockquote|code|s|strike|del|u|sub|sup|h[4-6])\b/iu.test(event.clipboardData.getData('text/html'))) setPasteNotice('Pasted text with supported formatting. Other formatting or embedded content was omitted.'); }}><div className="manuscript-page"><Manuscript editor={editor} /></div></div>
     <footer className="writing-status"><span>{pasteNotice || 'Writing on this computer'}</span><span>Offline writing</span></footer>
   </main>
-  <FeedbackPanel session={session} state={state} title={record.title} documentKind={record.kind} sources={sources} selection={discussionSelection} visible={discussionVisible && !historyVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} onPrepareProposal={prepare} onApplyProposal={apply} />
+  <FeedbackPanel session={session} state={state} title={record.title} documentKind={record.kind} sources={sources} selection={discussionSelection} visible={discussionVisible && !historyVisible && !reviewVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} onPrepareProposal={prepare} onApplyProposal={apply} />
   <HistoryPanel access={session.projectAccess} documentId={state.head.documentId} body={session.body} visible={historyVisible} disabled={!state.editable} onClose={() => { setHistoryVisible(false); historyButton.current?.focus(); }} onRestore={restore} />
+  {record.kind === 'chapter' && <ReviewPanel session={session} state={state} visible={reviewVisible} onClose={() => { setReviewVisible(false); reviewButton.current?.focus(); }} />}
   {menu && <><div className="menu-dismiss" onClick={() => setMenu(null)} /><div className="selection-menu" role="menu" aria-label="Selected passage" style={{ left: menu.x, top: menu.y }} onKeyDown={event => { if (event.key === 'Escape') { setMenu(null); editor.commands.focus(); } }}><button role="menuitem" autoFocus onMouseDown={event => event.preventDefault()} onClick={() => discuss.current()}>Discuss selection · Ctrl+Shift+F</button></div></>}
   </>;
 }

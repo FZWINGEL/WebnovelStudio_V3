@@ -1,6 +1,6 @@
 # V3 documentation index
 
-Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The native development app has persistent writing, project management, discussion, exact context inspection, adopted guidance, saved sources, optional approved writing briefs, selected-passage Apply/Reject, history, export previews, bounded Codex integration, and schema-8 V2 import. Reviewed-story authority, richer memory, broader providers, and full release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
+Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The native development app has persistent writing, project management, discussion, exact context inspection, adopted guidance, saved sources, optional approved writing briefs, selected-passage Apply/Reject, history, export previews, bounded Codex integration, author-only exact chapter review, and schema-8 V2 import. Reviewed-story authority, richer memory, broader providers, and full release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
 
 | Read | Document | Responsibility |
 | --- | --- | --- |
@@ -22,6 +22,7 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6j | [Model preferences ADR](ADR_0010_MODEL_PREFERENCES.md) | Persistent native selector, separate traits, confirmed settings, and preference persistence and historical mock binding; extended by ADR 0011 |
 | 6k | [V2 import](V2_IMPORT_PREVIEW.md) | Schema-8 preview, explicit missing-prose choices, staged independent import, inert evidence, and reconciliation |
 | 6l | [Bounded Codex ADR](ADR_0011_LIVE_CODEX.md) | Explicit connection, immutable live packet, response format, owned Stop, and durable provider results |
+| 6m | [Author review ADR](ADR_0012_AUTHOR_REVIEW.md) | Development slice for exact staged chapter/revision review, explicit Mark, restart/changed-earlier status, and recovered-copy boundaries; full F2 remains open |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |

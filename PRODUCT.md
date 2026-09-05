@@ -1,6 +1,6 @@
 # WebnovelStudio V3 product requirements
 
-**Status:** native development application with persistent English writing, project management, discussion, scoped Apply, context inspection, bounded Codex integration, and schema-8 V2 import. Full V3, author-trial, and release gates remain open, 6 September 2026.
+**Status:** native development application with persistent English writing, project management, discussion, scoped Apply, context inspection, bounded Codex integration, author-only exact chapter review, and schema-8 V2 import. Full V3, author-trial, and release gates remain open, 6 September 2026.
 
 WebnovelStudio helps an author manage several webnovel projects, develop story material in any order, write chapters, and revise them through discussion. It should feel like a writing application with an assistant.
 
@@ -18,9 +18,11 @@ WebnovelStudio helps an author manage several webnovel projects, develop story m
 
 ## Current native surface
 
-The native Library/Workspace supports blank projects and optional chapter, character, world, theme, hook, scene, and note documents. It connects rich-text editing to Rust-owned SQLite autosave, flush-before-switch, rename, duplicate, archive, native folder/backup/recovery dialogs, saved versions, and exact Markdown/TXT export previews. Author projects use schema 13; non-secret model preferences use library schema 2. Recovered projects have independent identities and operation namespaces. Copied history cannot authorize new operations.
+The native Library/Workspace supports blank projects and optional chapter, character, world, theme, hook, scene, and note documents. It connects rich-text editing to Rust-owned SQLite autosave, flush-before-switch, rename, duplicate, archive, native folder/backup/recovery dialogs, saved versions, and exact Markdown/TXT export previews. Author projects use schema 14; non-secret model preferences use library schema 2. Recovered projects have independent identities and operation namespaces. Copied history cannot authorize new operations.
 
 The persistent assistant supports whole-document discussion, selected-passage feedback, adopted guidance, saved discussion sources, optional approved writing briefs, and reviewable single-line passage suggestions. JavaScript prepares editor transactions; Rust validates scope and atomically accepts Apply. Other suggestions become stale after an intervening manuscript change. Whole-chapter/block replacement, manual rebind, and atomic batch Apply remain open.
+
+Author-only chapter review is available as the first F2-A development slice. It stages an immutable exact saved chapter, previews the exact earlier selected revisions, and records an explicit **Mark this version reviewed** decision without changing prose. Review remains optional for writing; a saved stage can be resumed after restart, changed earlier selections are surfaced as unavailable, and recovered or duplicated copies clear active review heads. No model call, typed accepted fact or summary, reviewed context/generation, or ready export is part of this slice. See the [author review contract](docs/ADR_0012_AUTHOR_REVIEW.md).
 
 An explicit Settings check enables the bounded Windows Codex development path for the exact supported executable and GPT-5.6-Luna/Max/Fast profile. Each request freezes its model, exact context packet, byte allowance, and ownership. The runtime streams validated text and retains terminal outcomes, reported usage, stdin delivery, and cleanup state. Missing effective settings or usage remain unknown. Stop and failed local saves never trigger automatic generation replay. The local test model remains available offline; other saved model choices stay unavailable. This is development integration, not full W8 qualification. See [the provider contract](docs/ADR_0011_LIVE_CODEX.md) and [live evidence](docs/CODEX_QUALIFICATION.md).
 
@@ -28,7 +30,7 @@ The Story Context core implements C0 contracts, C1 exact working-basis evidence 
 
 V2 schema-8 imports now have a native Library action. The importer previews a stable read-only source, requires a choice where working text is missing, and installs an independent V3 project with inert legacy evidence. Original V2 approvals are not promoted into reviewed V3 authority. Imports and recovery retain source/operation identities for reconciliation. See [supported imports and limitations](docs/V2_IMPORT_PREVIEW.md).
 
-The latest committed baseline `be1d93c` passed Windows/Ubuntu contracts and all 28 strict native checks in [CI 33994609086](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33994609086). Its [installed lifecycle run 33994616334](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33994616334) also passed. Those runs predate the live-provider/import integration. Current local checks and exact evidence boundaries are maintained in [implementation status](docs/IMPLEMENTATION_STATUS.md). Generated digests, reviewed-story records, temporal/thread views, bounded model lookups, narrative evaluation, broader native author trials, and full installed-release qualification remain open.
+Current test, native, live-provider, and installed-package evidence is maintained in [implementation status](docs/IMPLEMENTATION_STATUS.md). These are separate qualification gates. Generated digests, typed reviewed-story records, temporal/thread views, bounded model lookups, narrative evaluation, broader native author trials, and full installed-release qualification remain open.
 
 ## Explicit W0 trial
 

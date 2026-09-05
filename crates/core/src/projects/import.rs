@@ -594,7 +594,11 @@ fn narrative_documents(
             if *record_table != table {
                 continue;
             }
-            lines.push((source_id.to_owned(), narrative_record_text(table, payload)));
+            lines.push((
+                source_id.to_owned(),
+                narrative_record_label(table, payload),
+                narrative_record_text(table, payload),
+            ));
         }
         if !lines.is_empty() {
             lines.sort_by(|left, right| left.0.cmp(right.0));
@@ -603,7 +607,7 @@ fn narrative_documents(
                 kind,
                 lines
                     .into_iter()
-                    .map(|(source_id, text)| format!("{source_id}: {text}"))
+                    .map(|(_, label, text)| format!("{label}: {text}"))
                     .collect::<Vec<_>>()
                     .join("\n"),
                 table,
@@ -612,6 +616,41 @@ fn narrative_documents(
         }
     }
     Ok(output)
+}
+
+fn narrative_record_label(table: &str, payload: &Value) -> String {
+    let text_field = |field: &str| {
+        payload
+            .get(field)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    };
+    match table {
+        "story_bibles" => "Story Bible".to_owned(),
+        "canon_entities" => text_field("name").unwrap_or_else(|| "Story entity".to_owned()),
+        "termbase" => text_field("english_translation")
+            .or_else(|| text_field("source_term"))
+            .unwrap_or_else(|| "Terminology entry".to_owned()),
+        "plot_threads" => text_field("title").unwrap_or_else(|| "Plot thread".to_owned()),
+        "story_arcs" => {
+            let title = text_field("title");
+            let number = payload.get("arc_number").and_then(|value| {
+                value
+                    .as_i64()
+                    .map(|number| number.to_string())
+                    .or_else(|| value.as_str().map(str::to_owned))
+            });
+            match (number, title) {
+                (Some(number), Some(title)) => format!("Arc {number}: {title}"),
+                (None, Some(title)) => title,
+                (Some(number), None) => format!("Arc {number}"),
+                (None, None) => "Story arc".to_owned(),
+            }
+        }
+        _ => "Imported note".to_owned(),
+    }
 }
 
 fn narrative_record_text(table: &str, payload: &Value) -> String {

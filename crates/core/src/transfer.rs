@@ -558,6 +558,7 @@ fn validate_project_connection_heads(
             "SQLite project identity is invalid.",
         ));
     }
+    crate::projects::reviewed_story::validate_review_storage(connection)?;
     if let Some(expected) = expected
         && info != *expected
     {
@@ -1483,6 +1484,9 @@ fn rotate_identity(path: &Path, old: &ProjectInfo, new: &ProjectInfo) -> CoreRes
             "The recovered project identity could not be rotated.",
         ));
     }
+    // Reviews in a recovered project remain historical author decisions.
+    // A new independent project needs its own explicit current selections.
+    tx.execute("DELETE FROM ready_heads", [])?;
     // Mutable source-pin sets follow the recovered live identity.  Receipts
     // are intentionally left untouched: their original namespace is the
     // historical authority and cannot authorize writes in the new copy.

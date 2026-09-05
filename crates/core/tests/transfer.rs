@@ -1084,7 +1084,17 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
     let connection = Connection::open(source.join("project.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "DROP TRIGGER source_pin_receipts_no_update;
+            "DROP TRIGGER review_stages_no_update;
+             DROP TRIGGER review_stages_no_delete;
+             DROP TRIGGER ready_bundles_no_update;
+             DROP TRIGGER ready_bundles_no_delete;
+             DROP TRIGGER review_fences_no_update;
+             DROP TRIGGER review_fences_no_delete;
+             DROP TABLE review_fences;
+             DROP TABLE ready_heads;
+             DROP TABLE ready_bundles;
+             DROP TABLE review_stages;
+             DROP TRIGGER source_pin_receipts_no_update;
              DROP TRIGGER source_pin_receipts_no_delete;
              DROP TABLE source_pin_receipts;
              DROP TABLE source_pin_sets;
@@ -1101,12 +1111,12 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
         )
         .unwrap();
     drop(connection);
-    let migrated = ProjectSession::open(&source).expect("migrate schema eight to eleven");
+    let migrated = ProjectSession::open(&source).expect("migrate schema eight to fourteen");
     let version: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 13);
+    assert_eq!(version, 14);
     let table: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row(
@@ -1174,7 +1184,17 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let connection = Connection::open(&database_path).expect("open source database");
     connection
         .execute_batch(
-            "DROP TRIGGER source_pin_receipts_no_update;
+            "DROP TRIGGER review_stages_no_update;
+             DROP TRIGGER review_stages_no_delete;
+             DROP TRIGGER ready_bundles_no_update;
+             DROP TRIGGER ready_bundles_no_delete;
+             DROP TRIGGER review_fences_no_update;
+             DROP TRIGGER review_fences_no_delete;
+             DROP TABLE review_fences;
+             DROP TABLE ready_heads;
+             DROP TABLE ready_bundles;
+             DROP TABLE review_stages;
+             DROP TRIGGER source_pin_receipts_no_update;
              DROP TRIGGER source_pin_receipts_no_delete;
              DROP TABLE source_pin_receipts;
              DROP TABLE source_pin_sets;
@@ -1244,5 +1264,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 13);
+    assert_eq!(version, 14);
 }

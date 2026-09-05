@@ -298,6 +298,39 @@ fn staged_import_replays_by_operation_and_recovery_keeps_inert_evidence() {
         .expect("count inert records");
     assert_eq!(documents, 9, "chapters plus five narrative source groups");
     assert!(legacy > 0);
+    for (table, expected_label, source_id) in [
+        ("story_bibles", "Story Bible: premise: premise", "b-alpha"),
+        ("canon_entities", "Ari: category: character", "c-alpha"),
+        ("termbase", "Qi: concept_id: qi", "t-alpha"),
+        ("plot_threads", "The Gate: title: The Gate", "pt-alpha"),
+        ("story_arcs", "Arc 1: Arrival: arc_number: 1", "arc-alpha"),
+    ] {
+        let body: String = connection
+            .query_row(
+                "SELECT d.body_json FROM documents d
+                 JOIN import_id_map m ON m.v3_document_id=d.id
+                 WHERE m.source_table=? AND m.source_id=?",
+                [table, "p-alpha-summary"],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|error| panic!("read imported {table} note: {error}"));
+        assert!(
+            body.contains(expected_label),
+            "{table} note should use its readable label"
+        );
+        assert!(
+            !body.contains(&format!("{source_id}:")),
+            "{table} note must not expose its internal source id"
+        );
+        let preserved_id: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM import_legacy_records WHERE source_table=? AND source_id=?",
+                [table, source_id],
+                |row| row.get(0),
+            )
+            .expect("read preserved legacy source id");
+        assert_eq!(preserved_id, 1, "legacy evidence keeps exact source id");
+    }
     drop(connection);
 
     let registry =
