@@ -17,12 +17,15 @@ if ($Action -eq 'Save') {
 }
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
 public static class OwnedSaveDialog {
+    [DllImport("user32.dll", CharSet=CharSet.Unicode, EntryPoint="SendMessageTimeoutW")]
+    public static extern IntPtr WriteText(IntPtr window, uint message, IntPtr w, string text, uint flags, uint timeout, out IntPtr result);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode, EntryPoint="SendMessageTimeoutW")]
+    public static extern IntPtr SendScalar(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
     [DllImport("user32.dll", CharSet=CharSet.Unicode, EntryPoint="SendMessageTimeoutW")]
     public static extern IntPtr ReadText(IntPtr window, uint message, IntPtr w, StringBuilder text, uint flags, uint timeout, out IntPtr result);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr window, StringBuilder text, int capacity);
@@ -30,8 +33,9 @@ public static class OwnedSaveDialog {
     [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr window);
     [DllImport("user32.dll")] public static extern bool IsChild(IntPtr parent, IntPtr child);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr window);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", EntryPoint="PostMessageW")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
 }
 "@
@@ -67,8 +71,13 @@ function Find-Control([int]$id, [string]$className) {
         [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, [string]$id),
         [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ClassNameProperty, $className)
     )
-    $control = $dialogElement.FindFirst([Windows.Automation.TreeScope]::Descendants, $condition)
-    if ($null -eq $control) { throw "The owned dialog did not expose control $id." }
+    $candidates = $dialogElement.FindAll([Windows.Automation.TreeScope]::Descendants, $condition)
+    $visible = @($candidates | Where-Object {
+        $candidateHandle = [IntPtr]$_.Current.NativeWindowHandle
+        -not $_.Current.IsOffscreen -and [OwnedSaveDialog]::IsWindowVisible($candidateHandle) -and [OwnedSaveDialog]::IsWindowEnabled($candidateHandle)
+    })
+    if ($visible.Count -ne 1) { throw "The owned dialog exposed $($visible.Count) visible controls for $id ($($candidates.Count) total); expected one." }
+    $control = $visible[0]
     Assert-OwnedControl ([IntPtr]$control.Current.NativeWindowHandle) $id $className
     return $control
 }
@@ -76,40 +85,23 @@ if ($Action -eq 'Save') {
     $field = Find-Control 1001 'Edit'
     $fieldHandle = [IntPtr]$field.Current.NativeWindowHandle
     # The common item dialog can retain its original filename after WM_SETTEXT
-    # even when WM_GETTEXT reads the replacement. Use its actual input path.
-    [OwnedSaveDialog]::SetForegroundWindow($dialogHandle) | Out-Null
-    $field.SetFocus()
-    function Assert-FilenameFocus {
-        $focused = [Windows.Automation.AutomationElement]::FocusedElement
-        if ([OwnedSaveDialog]::GetForegroundWindow() -ne $dialogHandle -or
-            $null -eq $focused -or $focused.Current.ProcessId -ne $OwnerPid -or
-            [IntPtr]$focused.Current.NativeWindowHandle -ne $fieldHandle) {
-            throw 'The owned filename field does not have foreground keyboard focus; no input was sent.'
-        }
-        Assert-OwnedControl $fieldHandle 1001 'Edit'
+    # even when WM_GETTEXT reads the replacement. EM_REPLACESEL also sends the
+    # native edit notifications that update the dialog's filename state.
+    # All input targets verified owned handles; no global keystrokes are sent.
+    if (-not [OwnedSaveDialog]::PostMessage($dialogHandle, 0x0028, $fieldHandle, [IntPtr]1)) {
+        throw 'The owned dialog rejected its filename focus request.'
     }
-    Assert-FilenameFocus
-    $pattern = $null
-    $filenameMethod = 'UIA ValuePattern'
-    if ($field.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
-        $pattern.SetValue($resolvedDestination)
-    } else {
-        $filenameMethod = 'verified foreground filename input'
-        [Windows.Forms.SendKeys]::SendWait('^a')
-        # Escape each literal character, without interpreting path punctuation
-        # as SendKeys modifiers. Recheck focus immediately before each send.
-        foreach ($character in $resolvedDestination.ToCharArray()) {
-            Assert-FilenameFocus
-            $literal = [string]$character
-            if ('+^%~()[]{}'.Contains($literal)) { $literal = '{' + $literal + '}' }
-            [Windows.Forms.SendKeys]::SendWait($literal)
-        }
-    }
-    $text = [Text.StringBuilder]::new(4096)
+    Start-Sleep -Milliseconds 100
+    Assert-OwnedControl $fieldHandle 1001 'Edit'
     $result = [IntPtr]::Zero
+    $sent = [OwnedSaveDialog]::SendScalar($fieldHandle, 0x00B1, [IntPtr]::Zero, [IntPtr](-1), 2, 1000, [ref]$result)
+    if ($sent -eq [IntPtr]::Zero) { throw 'The owned filename selection was not accepted.' }
+    $sent = [OwnedSaveDialog]::WriteText($fieldHandle, 0x00C2, [IntPtr]1, $resolvedDestination, 2, 1000, [ref]$result)
+    if ($sent -eq [IntPtr]::Zero) { throw 'The owned filename replacement was not accepted.' }
+    $text = [Text.StringBuilder]::new(4096)
     $sent = [OwnedSaveDialog]::ReadText($fieldHandle, 0x000D, [IntPtr]$text.Capacity, $text, 2, 1000, [ref]$result)
     if ($sent -eq [IntPtr]::Zero -or $text.ToString() -ne $resolvedDestination) { throw 'The filename field does not contain the exact synthetic destination.' }
-    Write-Output ("Filename input verified through {0}." -f $filenameMethod)
+    Write-Output 'Filename input verified through the owned native edit control.'
 }
 $buttonId = if ($Action -eq 'Save') { 1 } else { 2 }
 $button = Find-Control $buttonId 'Button'

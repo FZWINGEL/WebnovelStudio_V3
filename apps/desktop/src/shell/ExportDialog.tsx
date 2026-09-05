@@ -47,6 +47,12 @@ export function ExportDialog({ access, documentId, title, onPrepare, onExport, o
       .finally(() => { if (owns()) setLoading(false); });
     return () => { ++sequence.current; };
   }, [owner, format, refresh]);
+  function close() {
+    if (saving) return;
+    // Release the modal's inert background before the parent restores focus.
+    dialog.current?.close();
+    callbacks.current.onClose();
+  }
   async function save() {
     if (!preview || saving || (saveFlight.current?.owner === owner && saveFlight.current.sequence === sequence.current) || loading || exported) return;
     const flight = { owner, sequence: sequence.current }; saveFlight.current = flight;
@@ -68,9 +74,9 @@ export function ExportDialog({ access, documentId, title, onPrepare, onExport, o
     } finally { if (saveFlight.current === flight) saveFlight.current = null; if (owns()) setSaving(false); }
   }
   return <dialog className="export-dialog" ref={dialog} aria-labelledby="export-heading" onCancel={event => {
-    event.preventDefault(); if (!saving) callbacks.current.onClose();
+    event.preventDefault(); close();
   }}>
-    <div className="export-heading"><div><p className="export-kicker">Working draft</p><h2 id="export-heading">Export draft</h2></div><button disabled={saving} onClick={onClose} aria-label="Close export">Close</button></div>
+    <div className="export-heading"><div><p className="export-kicker">Working draft</p><h2 id="export-heading">Export draft</h2></div><button disabled={saving} onClick={close} aria-label="Close export">Close</button></div>
     <p className="export-document">{title}</p><p className="export-format-note">Export this document to a new file. Existing files are kept.</p>
     <label htmlFor="export-format">File format</label>
     <select autoFocus id="export-format" value={format} disabled={saving} onChange={event => setFormat(event.target.value as DraftFormat)}>
@@ -82,7 +88,7 @@ export function ExportDialog({ access, documentId, title, onPrepare, onExport, o
     {error && <p className="export-error" role="alert">{error}</p>}
     {notice && <p className="export-notice" role="status">{notice}</p>}
     <footer className="export-actions"><button disabled={loading || saving} onClick={() => setRefresh(value => value + 1)}>{preview ? 'Refresh preview' : 'Prepare export again'}</button>
-      {exported ? <button className="primary-button" onClick={onClose}>Done</button>
+      {exported ? <button className="primary-button" onClick={close}>Done</button>
         : <button className="primary-button" disabled={loading || saving || !preview} onClick={() => void save()}>{saving ? 'Saving draft…' : 'Choose destination…'}</button>}</footer>
   </dialog>;
 }
