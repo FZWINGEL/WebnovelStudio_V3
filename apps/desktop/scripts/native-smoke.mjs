@@ -21,7 +21,7 @@ let appLog = '';
 let spawnError;
 function launch() {
   const process = spawn(executable, [], {
-    cwd: root, windowsHide: true, stdio: 'pipe',
+    cwd: data, windowsHide: true, stdio: 'pipe',
     env: { ...globalThis.process.env, WNS_V3_NATIVE_CDP_PORT: String(port), WNS_V3_TRIAL_WEBVIEW_DIR: resolve(data, 'webview'), WNS_V3_TEST_DATA_DIR: resolve(data, 'library') },
   });
   process.stdout.on('data', chunk => { appLog += chunk; });
