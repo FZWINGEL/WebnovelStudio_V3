@@ -2,7 +2,7 @@
 
 A native desktop writing application for English webnovels, built with Rust, Tauri, React, and Tiptap. Create several projects, develop story material in any order, and keep the manuscript at the center of the workspace. Wuxia, xianxia, cultivation, and translated-webnovel register are optional English writing styles.
 
-**In development.** The persistent workspace runs locally, and discussion currently uses a clearly labelled deterministic test model. This W5 checkpoint contains an unqualified proposal/review/Apply slice; live AI and release qualification are unfinished. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact test evidence and remaining work.
+**In development.** The persistent workspace runs locally, and discussion currently uses a clearly labelled deterministic test model. The W5 proposal/review/Apply slice is implemented for development and covered by the pushed [CI run 33981203728](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33981203728); installed-release qualification and production live AI remain unfinished. The separate native Codex discovery and synthetic request are recorded in [Codex qualification](docs/CODEX_QUALIFICATION.md). See [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact test evidence and remaining work.
 
 ## Available in the development build
 
@@ -14,11 +14,12 @@ A native desktop writing application for English webnovels, built with Rust, Tau
 - Exact recent completed exchanges in follow-up discussion, with visible omissions when context is limited.
 - **Keep as guidance** from a chat message, or directly add a direction. Edit, save, and remove instructions for the next request, this document, or this project.
 - **Story context** inspection that distinguishes saved sources available to a request from the exact material supplied for its response.
-- **This W5 checkpoint:** suggest edits for a selected chapter passage with deterministic review cards, editable previews, Apply, and Reject; integrated qualification is pending.
+- **This W5 checkpoint:** suggest edits for a selected chapter passage with deterministic review cards, editable previews, Apply, and Reject; development contracts are covered by [CI run 33981203728](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33981203728), while broader installed-release/native qualification remains pending.
+- **Current W6 development slice:** compare saved document versions and explicitly restore a selected version through History; see the [document history contract](docs/ADR_0005_DOCUMENT_HISTORY.md). Final W6 qualification remains pending.
 
-Guidance is an explicit author choice and never changes manuscript text or establishes canon. Requests retain the exact instruction versions and prior exchanges they used. Restricted chapter-passage edit requests use a reader frontier and exclude author-room private material, future material, current guidance, and recent chat. Persistent chapter/project source pins, generated memory digests, and bounded live-provider lookups remain planned parts of the [Story Context Engine](docs/V3_STORY_CONTEXT_SYSTEM.md). The V2 Codex adapter/model-picker is an authorized reference for future integration; no provider is connected or tested.
+Guidance is an explicit author choice and never changes manuscript text or establishes canon. Requests retain the exact instruction versions and prior exchanges they used. Restricted chapter-passage edit requests use a reader frontier and exclude author-room private material, future material, current guidance, and recent chat. Persistent chapter/project source pins, generated memory digests, and bounded live-provider lookups remain planned parts of the [Story Context Engine](docs/V3_STORY_CONTEXT_SYSTEM.md). The V2 Codex adapter/model-picker remains an authorized reference; [Codex qualification](docs/CODEX_QUALIFICATION.md) records native discovery and one synthetic request, while production discussions remain mock-only and live-provider support stays unqualified.
 
-The separately opened **sample editor trial** demonstrates session-only replacement preview, local Apply, and undo. Its sample prose disappears on close. The default Library/Workspace uses persistent projects; it does not yet have durable suggestion Apply.
+The separately opened **sample editor trial** demonstrates session-only replacement preview, local Apply, and undo. Its sample prose disappears on close. The default Library/Workspace provides durable proposal review and single-author Apply/Reject for the selected-passage W5 development slice; the sample trial remains session-only.
 
 ## Run locally on Windows
 

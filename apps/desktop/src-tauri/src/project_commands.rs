@@ -7,10 +7,43 @@ use std::{
 };
 use tauri::State;
 use webnovel_core::documents::scope::Endpoint;
+use webnovel_core::projects::history::{HistoryPage, RestoreAck, RestoreRevision};
 use webnovel_core::projects::*;
 
 #[derive(Clone, Default)]
 pub struct DesktopProjects(Arc<Mutex<HashMap<String, ProjectSession>>>);
+
+#[tauri::command]
+pub async fn list_document_history(
+    access: ProjectAccess,
+    document_id: String,
+    before_version: Option<String>,
+    limit: u32,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<HistoryPage> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.list_document_history(access, document_id, before_version, limit)).await
+}
+
+#[tauri::command]
+pub async fn read_document_revision(
+    access: ProjectAccess,
+    document_id: String,
+    revision_id: String,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<Revision> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.read_document_revision(access, document_id, revision_id)).await
+}
+
+#[tauri::command]
+pub async fn restore_revision(
+    request: RestoreRevision,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<RestoreAck> {
+    let project = state.project(&request.access.project_id)?;
+    execute(move || project.restore_revision(request)).await
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

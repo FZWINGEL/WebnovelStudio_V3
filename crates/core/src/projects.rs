@@ -16,6 +16,7 @@ pub mod context_packets;
 mod conversation_context;
 pub mod discussions;
 pub mod guidance;
+pub mod history;
 pub mod proposals;
 pub mod story_context;
 
@@ -221,6 +222,8 @@ pub struct StoredResult {
     pub saved_generation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub applied: Option<proposals::AppliedDecision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restored: Option<history::RestoredDecision>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -272,6 +275,7 @@ enum Command {
     Context(Box<story_context::ContextCommand>),
     Discussion(Box<discussions::DiscussionCommand>),
     Guidance(Box<guidance::GuidanceCommand>),
+    History(Box<history::HistoryCommand>),
     Proposal(Box<proposals::ProposalCommand>),
     Attach(String, Reply<ProjectAccess>),
     AttachSnapshot(String, Reply<AttachedProject>),
@@ -280,7 +284,7 @@ enum Command {
     Read(ProjectAccess, String, Reply<DocumentRecord>),
     Save(SaveSnapshot, Reply<SaveAck>),
     Checkpoint(CheckpointRequest, Reply<Revision>),
-    History(ProjectAccess, String, Reply<Vec<Revision>>),
+    LegacyHistory(ProjectAccess, String, Reply<Vec<Revision>>),
     Reconcile(ReconcileRequest, Reply<ReconciledDocument>),
     ProjectMetadata(Reply<ProjectMetadata>),
     RenameProject(ProjectAccess, String, String, Reply<ProjectMetadata>),
@@ -412,6 +416,7 @@ impl ProjectSession {
                             Command::Context(command) => project.handle_context(*command),
                             Command::Discussion(command) => project.handle_discussion(*command),
                             Command::Guidance(command) => project.handle_guidance(*command),
+                            Command::History(command) => project.handle_history(*command),
                             Command::Proposal(command) => project.handle_proposal(*command),
                             Command::Attach(session, reply) => {
                                 let _ = reply.send(project.attach(session));
@@ -441,7 +446,7 @@ impl ProjectSession {
                                 project.fence_uncertain(&result);
                                 let _ = reply.send(result);
                             }
-                            Command::History(access, id, reply) => {
+                            Command::LegacyHistory(access, id, reply) => {
                                 let _ = reply.send(project.history(access, &id));
                             }
                             Command::Reconcile(request, reply) => {
@@ -539,7 +544,7 @@ impl ProjectSession {
         self.request(|r| Command::Checkpoint(request, r))
     }
     pub fn history(&self, access: ProjectAccess, id: String) -> CoreResult<Vec<Revision>> {
-        self.request(|r| Command::History(access, id, r))
+        self.request(|r| Command::LegacyHistory(access, id, r))
     }
     pub fn reconcile(&self, request: ReconcileRequest) -> CoreResult<ReconciledDocument> {
         self.request(|r| Command::Reconcile(request, r))
@@ -1138,6 +1143,7 @@ impl OwnedProject {
                 head,
                 saved_generation: "0".into(),
                 applied: None,
+                restored: None,
             },
         )?;
         let record = read_document(&tx, &request.document_id)?;
@@ -1215,6 +1221,7 @@ impl OwnedProject {
                 head,
                 saved_generation: request.local_generation.clone(),
                 applied: None,
+                restored: None,
             };
             insert_receipt(
                 &tx,
@@ -1775,7 +1782,7 @@ mod tests {
 
     // Compiled only into the Rust unit-test binary, never the desktop/core library.
     pub(super) fn hold_after_commit_before_ack(operation_id: &str) {
-        if matches!(operation_id, "crash-save" | "crash-apply")
+        if matches!(operation_id, "crash-save" | "crash-apply" | "crash-restore")
             && let Some(root) = std::env::var_os("WNS_UNIT_CRASH_ROOT")
         {
             let mut marker = File::create_new(PathBuf::from(root).join("committed")).unwrap();
@@ -1803,6 +1810,10 @@ mod tests {
             let mut request: proposals::ApplyProposal = serde_json::from_slice(&json).unwrap();
             request.access = access;
             project.apply_proposal(request).unwrap();
+        } else if value.get("revisionId").is_some() {
+            let mut request: history::RestoreRevision = serde_json::from_slice(&json).unwrap();
+            request.access = access;
+            project.restore_revision(request).unwrap();
         } else {
             let mut request: SaveSnapshot = serde_json::from_slice(&json).unwrap();
             request.access = access;
@@ -2049,6 +2060,111 @@ mod tests {
                 .kind,
             "apply"
         );
+        drop(recovered);
+        assert!(root.starts_with(std::env::temp_dir()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn killed_restore_after_commit_recovers_historical_result_once() {
+        let root = std::env::temp_dir().join(format!("wns-restore-crash-{}", new_id()));
+        std::fs::create_dir(&root).unwrap();
+        let project =
+            ProjectSession::create(root.join("project"), "Restore crash fixture").unwrap();
+        let access = project.attach("parent".into()).unwrap();
+        let initial_body = blank_document();
+        let document = project
+            .create_document(CreateDocument {
+                access: access.clone(),
+                operation_id: "create".into(),
+                document_id: "chapter".into(),
+                title: "Chapter".into(),
+                kind: "chapter".into(),
+                body: initial_body.clone(),
+            })
+            .unwrap();
+        let source = project
+            .checkpoint(CheckpointRequest {
+                access: access.clone(),
+                expected: document.head.clone(),
+                reason: CheckpointReason::Manual,
+            })
+            .unwrap();
+        let current = project
+            .save(SaveSnapshot {
+                access: access.clone(),
+                operation_id: "restore-current".into(),
+                expected: document.head,
+                local_generation: "11".into(),
+                body: json!({
+                    "schemaVersion": 1,
+                    "body": {"type": "doc", "content": [{
+                        "type": "paragraph",
+                        "attrs": {"id": "p"},
+                        "content": [{"type": "text", "text": "later edit"}]
+                    }]}
+                }),
+                cause: SaveCause::Typing,
+            })
+            .unwrap();
+        let mut request = history::RestoreRevision {
+            access,
+            operation_id: "crash-restore".into(),
+            expected: current.head,
+            revision_id: source.id,
+            revision_hash: source.head.body_hash,
+            local_generation: "12".into(),
+        };
+        std::fs::write(
+            root.join("request.json"),
+            serde_json::to_vec(&request).unwrap(),
+        )
+        .unwrap();
+        drop(project);
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "projects::tests::crash_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("WNS_UNIT_CRASH_ROOT", &root)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        while !root.join("committed").exists() && started.elapsed() < Duration::from_secs(15) {
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "Child stopped before Restore COMMIT"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let committed = root.join("committed").exists();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(committed, "Child did not reach the Restore commit barrier");
+        let recovered = ProjectSession::open(root.join("project")).unwrap();
+        let snapshot = recovered
+            .reconcile(ReconcileRequest {
+                project_id: recovered.info.project_id.clone(),
+                operation_namespace: recovered.info.operation_namespace.clone(),
+                session: "new-renderer".into(),
+                document_id: "chapter".into(),
+                pending_operation_ids: vec!["crash-restore".into()],
+            })
+            .unwrap();
+        assert_eq!(snapshot.document.body, initial_body);
+        assert_eq!(snapshot.document.head.version, "2");
+        assert_eq!(snapshot.receipts.len(), 1);
+        assert_eq!(snapshot.receipts[0].operation_kind, "restore");
+        assert!(snapshot.receipts[0].result.restored.is_some());
+        request.access = snapshot.access.clone();
+        let replay = recovered.restore_revision(request).unwrap();
+        assert!(replay.already_applied);
+        assert_eq!(replay.result, snapshot.receipts[0].result);
+        assert_eq!(replay.document.head, snapshot.document.head);
         drop(recovered);
         assert!(root.starts_with(std::env::temp_dir()));
         std::fs::remove_dir_all(root).unwrap();

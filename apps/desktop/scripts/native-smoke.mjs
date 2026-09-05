@@ -502,6 +502,66 @@ try {
   await page.locator('.proposal-card').filter({ hasText: 'Mock clarity option' }).locator('.proposal-status').filter({ hasText: /^Applied$/ }).waitFor();
   await page.locator('.proposal-card').filter({ hasText: 'Mock focus option' }).locator('.proposal-status').filter({ hasText: /^Rejected$/ }).waitFor();
   checks.push('Native durable Apply is one undo event; undo and redo save through Rust and the final body plus explicit decisions survive navigation and renderer reload');
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.getByRole('heading', { name: 'Saved versions', exact: true }).waitFor();
+  const versions = page.getByRole('combobox', { name: 'Saved version', exact: true });
+  await page.waitForFunction(() => document.querySelector('#saved-version')?.options.length > 1);
+  const labels = await versions.locator('option').allTextContents();
+  const originalVersion = labels.find(label => label.endsWith('Version 1'));
+  assert(originalVersion, 'The original writing must be available in saved versions');
+  await versions.selectOption({ label: originalVersion });
+  await page.locator('.history-preview .saved-prose').filter({ hasText: originalProse }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), appliedProse);
+  await page.screenshot({ path: resolve(output, 'history-comparison.png') });
+  // Drop only this renderer acknowledgement after the real Rust command has
+  // committed. The subsequent reconciliation still calls the native actor.
+  await page.evaluate(() => {
+    window.beforeDurableRestore = document.querySelector('.tiptap').editor;
+    const fetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await fetch.apply(window, args);
+      if (String(args[0]).endsWith('/restore_revision') && response.headers.get('Tauri-Response') === 'ok') {
+        const committed = await response.clone().json();
+        if (!committed.result?.restored) throw new Error('Expected a real committed restore receipt');
+        window.fetch = fetch; window.restoreAcknowledgmentDropped = true;
+        // Return a synthetic IPC error after COMMIT. Rejecting fetch itself
+        // would exercise Tauri's alternate transport replay instead.
+        return new Response(JSON.stringify({ code: 'UncertainOutcome', detail: 'Synthetic lost acknowledgment after restore commit' }),
+          { headers: { 'Content-Type': 'application/json', 'Tauri-Response': 'error' } });
+      }
+      return response;
+    };
+  });
+  await page.getByRole('button', { name: 'Restore this version', exact: true }).click();
+  await page.getByRole('button', { name: 'Check saved version', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.restoreAcknowledgmentDropped), true);
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), appliedProse);
+  await page.getByRole('button', { name: 'Check saved version', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), originalProse);
+  assert(await page.evaluate(() => document.querySelector('.tiptap').editor === window.beforeDurableRestore));
+  await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Manuscript', exact: true }).focus();
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(text => document.querySelector('.tiptap').editor.getText() === text, appliedProse);
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  await page.keyboard.press('Control+Shift+z');
+  await page.waitForFunction(text => document.querySelector('.tiptap').editor.getText() === text, originalProse);
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.reload();
+  await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
+  await page.getByRole('heading', { name: 'The promise on the pier', exact: true }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), originalProse);
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.waitForFunction(() => [...document.querySelector('#saved-version')?.options ?? []].some(option => option.text.endsWith('Version 4')));
+  const restoredLabels = await page.getByRole('combobox', { name: 'Saved version', exact: true }).locator('option').allTextContents();
+  await page.getByRole('combobox', { name: 'Saved version', exact: true }).selectOption({ label: restoredLabels.find(label => label.endsWith('Version 4')) });
+  await page.locator('.history-preview .saved-prose').filter({ hasText: appliedProse }).waitFor();
+  await page.screenshot({ path: resolve(output, 'history-after-restore.png') });
+  await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
+  checks.push('Native saved-version comparison is read-only; explicit restore recovers a lost commit acknowledgment through the same mounted editor, is one undo event, and retains both versions after reload');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: 'Archive Harbour C', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor({ state: 'detached' });

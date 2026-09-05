@@ -1,6 +1,6 @@
 # V3 documentation index
 
-Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The default Tauri application has a persistent Library/Workspace, manual writing, mock discussions, scoped guidance, and an inspectable context packet. This W5 checkpoint adds proposal cards and single-author Apply/Reject with integrated qualification still pending. Reviewed-story authority, richer memory, live providers, and release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
+Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The default Tauri application has a persistent Library/Workspace, manual writing, mock discussions, scoped guidance, and an inspectable context packet. This W5 checkpoint adds proposal cards and single-author Apply/Reject; its development contracts are covered by [CI run 33981203728](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33981203728), while broader installed-release/native qualification remains pending. The current W6 development slice adds saved-version comparison and explicit document restore; final W6 qualification remains pending. Reviewed-story authority, richer memory, live providers, and release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
 
 | Read | Document | Responsibility |
 | --- | --- | --- |
@@ -14,8 +14,10 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6b | [Author guidance ADR](ADR_0002_AUTHOR_GUIDANCE.md) | Guidance records, scopes, receipts, packet binding, and policy boundary |
 | 6c | [Recent discussion ADR](ADR_0003_DISCUSSION_CONTEXT.md) | Complete-turn selection, exact frozen messages, budget priority, omissions, and policy boundary |
 | 6d | [Proposal and Apply ADR](ADR_0004_PROPOSAL_APPLY.md) | Explicit feedback intent, restricted proposal context, immutable review records, and atomic author Apply/Reject |
+| 6e | [Document history ADR](ADR_0005_DOCUMENT_HISTORY.md) | Saved-version comparison and explicit restore development contract |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
+| Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and one synthetic request; production provider support remains unqualified |
 | Reference | [W0 qualification](W0_QUALIFICATION.md) | Historical W0 execution record; current status is in the implementation status document |
 | Reference | [V2 migration evidence](V2_MIGRATION_EVIDENCE.md) | V2 source inventory and unqualified import boundary |
 | Reference | [Original Pro response](references/pro/README.md) | Historical supplied documents and fingerprints |

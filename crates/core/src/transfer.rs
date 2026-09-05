@@ -489,6 +489,12 @@ fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<
             format!("The suggestion history is invalid: {error}"),
         )
     })?;
+    crate::projects::history::validate_history_storage(&connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The document history is invalid: {error}"),
+        )
+    })?;
     let mut documents = Vec::new();
     let mut statement = connection.prepare(
         "SELECT id,working_version,body_hash,last_checkpoint_id,body_json,schema_version \

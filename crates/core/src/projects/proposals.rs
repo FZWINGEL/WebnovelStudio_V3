@@ -301,6 +301,7 @@ impl OwnedProject {
                     before_revision_id: before_revision.id,
                     after_revision_id: after_revision.id,
                 }),
+                restored: None,
             };
             insert_receipt(
                 &tx,

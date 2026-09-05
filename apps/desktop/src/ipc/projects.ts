@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { WnsDocument } from '../editor/document';
 import { validateSnapshot } from './native';
 import { applyProposal, type AppliedDecision, type ApplyAck, type ApplyProposal } from './proposals';
+import { restoreRevision, type RestoredDecision, type RestoreAck, type RestoreRevision } from './history';
 
 export interface ProjectAccess { projectId: string; session: string; writerLease: string; operationNamespace: string }
 export interface Head { documentId: string; version: string; bodyHash: string }
@@ -27,7 +28,7 @@ export interface SaveAck {
 }
 export interface OperationReceipt {
   operationId: string; operationKind: string; payloadHash: string;
-  result: { head: Head; savedGeneration: string; applied?: AppliedDecision };
+  result: { head: Head; savedGeneration: string; applied?: AppliedDecision; restored?: RestoredDecision };
 }
 export interface ReconcileRequest {
   projectId: string; operationNamespace: string; session: string; documentId: string; pendingOperationIds: string[];
@@ -43,6 +44,7 @@ export interface ProjectTransport {
   reconcile(request: ReconcileRequest): Promise<ReconciledDocument>;
   checkpoint(request: CheckpointRequest): Promise<Revision>;
   apply?(request: ApplyProposal): Promise<ApplyAck>;
+  restore?(request: RestoreRevision): Promise<RestoreAck>;
 }
 export const projectTransport: ProjectTransport = {
   validate: async body => { await validateSnapshot(body); },
@@ -50,6 +52,7 @@ export const projectTransport: ProjectTransport = {
   reconcile: request => invoke('reconcile_document', { request }),
   checkpoint: request => invoke('checkpoint_document', { request }),
   apply: applyProposal,
+  restore: restoreRevision,
 };
 export const createProject = (path: string, title: string, session: string): Promise<OpenedProject> => invoke('create_project', { path, title, session });
 export const openProject = (path: string, session: string): Promise<OpenedProject> => invoke('open_project', { path, session });

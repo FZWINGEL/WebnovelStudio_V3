@@ -19,3 +19,9 @@ The product targets English novel authoring, UI, and export. This W0 surface exe
 The SVG icon is authored in `apps/desktop/src-tauri/icons/icon.svg`; the Windows ICO is generated from that source by the Tauri tooling. No external raster asset or unproven brand source is used.
 
 An independent finish review accepted the desktop, selection-preview, and focused-editor captures after the manuscript focus indicator was added. The bundled reviewer role was unavailable, so a separate review agent followed the same scoped checklist. This verdict covers the W0 surface only. The English native author trial, minimum-size/DPI behavior, external Word paste, native installer presentation, and screen-reader usability remain qualification work.
+
+## Saved versions in the persistent workspace
+
+The W6 history surface extends the existing writing desk using the same white/slate palette, muted blue actions, Segoe UI controls, and Georgia prose. **History** beside the document title opens a dated version selector and an inert comparison panel. The current manuscript stays visible and mounted. **Restore this version** sits below the preview with an explicit statement that the current writing remains in history. Loading, failed reads, identical versions, and pending restore have distinct states. See the [surface brief](docs/HISTORY_SURFACE_BRIEF.md) and [restore contract](docs/ADR_0005_DOCUMENT_HISTORY.md).
+
+An independent finish review accepted the native comparison and post-restore captures after ownership guards and pending-action controls were fixed. The additional 800×600 CSS viewport check kept text and actions reachable without horizontal overflow, though the three-column layout is cramped. That check used viewport emulation inside WebView2; native window resizing, DPI behavior, keyboard navigation, and screen-reader qualification remain open. No raster assets were introduced.

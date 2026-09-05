@@ -1,6 +1,7 @@
 import { bodyHash, canonicalJson, type WnsDocument } from './document';
-import type { CheckpointRequest, DocumentRecord, Head, ProjectAccess, ProjectTransport, ReconciledDocument, SaveAck, SaveSnapshot } from '../ipc/projects';
-import type { ApplyAck, ApplyProposal, PreparedProposal, Proposal } from '../ipc/proposals';
+import type { CheckpointRequest, DocumentRecord, Head, OperationReceipt, ProjectAccess, ProjectTransport, ReconciledDocument, Revision, SaveAck, SaveSnapshot } from '../ipc/projects';
+import type { ApplyProposal, PreparedProposal, Proposal } from '../ipc/proposals';
+import type { RestoreRevision } from '../ipc/history';
 
 export type SessionPhase = 'editing' | 'flushing' | 'applying' | 'saveFailed' | 'reconciling' | 'conflict' | 'disposed';
 export interface SessionState {
@@ -13,7 +14,8 @@ export class SessionError extends Error {
 type Capture = { request: SaveSnapshot; json: string; hash: string; payloadHash: string };
 /** Preflight is pure; commit dispatches the same prepared editor transaction. */
 export interface PreparedEditorChange { body: WnsDocument; commit(): WnsDocument; read?(): WnsDocument }
-type ApplyCapture = { request: ApplyProposal; body: WnsDocument; json: string; payloadHash: string; change: PreparedEditorChange };
+type AuthorCapture = { body: WnsDocument; json: string; payloadHash: string; change: PreparedEditorChange } &
+  ({ kind: 'apply'; request: ApplyProposal } | { kind: 'restore'; request: RestoreRevision });
 type Listener = () => void;
 function clone<T>(value: T): T { return structuredClone(value); }
 function freeze<T>(value: T): T {
@@ -53,7 +55,7 @@ export class DocumentSession {
   private owner: Promise<unknown> | null = null;
   private flight: Promise<void> | null = null;
   private pending: Capture | null = null;
-  private pendingApply: ApplyCapture | null = null;
+  private pendingChange: AuthorCapture | null = null;
   private nextCause: SaveSnapshot['cause'] = 'typing';
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dirtySince: number | null = null;
@@ -231,20 +233,43 @@ export class DocumentSession {
       const request: ApplyProposal = freeze({ access: clone(this.access), operationId: this.options.newId?.() ?? crypto.randomUUID(),
         proposalId: proposal.id, preparedId: prepared.id, expected: clone(this.head), resultHash: prepared.bodyHash, localGeneration: (this.generation + 1n).toString() });
       const { session: _session, writerLease: _lease, ...access } = request.access;
-      const capture: ApplyCapture = { request, body, json, change, payloadHash: await bodyHash(canonicalJson({ ...request, access })) };
-      await this.sendApply(capture);
+      const capture: AuthorCapture = { kind: 'apply', request, body, json, change, payloadHash: await bodyHash(canonicalJson({ ...request, access })) };
+      await this.sendChange(capture);
     });
   }
-  private validateApplyResult(result: ApplyAck['result'], capture: ApplyCapture): void {
-    const request = capture.request; const applied = result.applied;
-    if (!applied || applied.proposalId !== request.proposalId || applied.preparedId !== request.preparedId
-      || !applied.decisionId || !applied.beforeRevisionId || !applied.afterRevisionId || applied.beforeRevisionId === applied.afterRevisionId
-      || result.head.documentId !== request.expected.documentId || result.head.bodyHash !== request.resultHash
+  async restoreRevision(revision: Revision, preflight: () => PreparedEditorChange): Promise<void> {
+    await this.withLifecycleGuard(async () => {
+      if (!this.transport.restore) throw new SessionError('RestoreUnavailable', 'Restoring a saved version is unavailable in this session.');
+      await this.flush();
+      if (revision.head.documentId !== this.head.documentId || await bodyHash(canonicalJson(revision.body)) !== revision.head.bodyHash) {
+        throw new SessionError('InvalidRevision', 'The saved version does not match this document.');
+      }
+      if (revision.head.bodyHash === this.head.bodyHash) throw new SessionError('NoChanges', 'Your writing already matches this saved version.');
+      this.phase = 'applying'; this.emit();
+      const change = preflight(); const body = freeze(clone(change.body)); const json = canonicalJson(body);
+      await this.transport.validate(body);
+      if (json !== canonicalJson(revision.body)) throw new SessionError('InvalidRevision', 'The editor preview does not match this saved version.');
+      const request: RestoreRevision = freeze({ access: clone(this.access), operationId: this.options.newId?.() ?? crypto.randomUUID(),
+        expected: clone(this.head), revisionId: revision.id, revisionHash: revision.head.bodyHash, localGeneration: (this.generation + 1n).toString() });
+      const { session: _session, writerLease: _lease, ...access } = request.access;
+      await this.sendChange({ kind: 'restore', request, body, json, change, payloadHash: await bodyHash(canonicalJson({ ...request, access })) });
+    });
+  }
+  private validateChangeResult(result: OperationReceipt['result'], capture: AuthorCapture): void {
+    const request = capture.request;
+    const decision = capture.kind === 'apply' ? result.applied : result.restored;
+    const bound = capture.kind === 'apply'
+      ? !result.restored && typeof result.applied?.decisionId === 'string' && !!result.applied.decisionId && result.applied.proposalId === capture.request.proposalId && result.applied.preparedId === capture.request.preparedId
+      : !result.applied && result.restored?.revisionId === capture.request.revisionId;
+    const hash = capture.kind === 'apply' ? capture.request.resultHash : capture.request.revisionHash;
+    if (!decision || !bound || [decision.beforeRevisionId, decision.afterRevisionId].some(id => typeof id !== 'string' || !id)
+      || decision.beforeRevisionId === decision.afterRevisionId
+      || result.head.documentId !== request.expected.documentId || result.head.bodyHash !== hash
       || version(result.head.version) !== version(request.expected.version) + 1n || result.savedGeneration !== request.localGeneration) {
       throw new SessionError('ProtocolError', 'The saved author decision does not match this prepared edit.');
     }
   }
-  private commitApply(capture: ApplyCapture, head: Head): void {
+  private commitChange(capture: AuthorCapture, head: Head): void {
     // Input remains gated. The live editor may already contain this exact
     // transaction after an exceptional post-dispatch callback failure.
     let displayed: WnsDocument;
@@ -261,37 +286,37 @@ export class DocumentSession {
     }
     this.current = capture.body; this.currentJson = capture.json; this.head = clone(head);
     this.generation = version(capture.request.localGeneration); this.savedGeneration = this.generation;
-    this.pendingApply = null; this.error = null; this.dirtySince = null; this.nextCause = 'typing';
+    this.pendingChange = null; this.error = null; this.dirtySince = null; this.nextCause = 'typing';
     this.phase = 'flushing'; this.emit();
   }
   private retainDisplayed(displayed: WnsDocument): void {
     const json = canonicalJson(displayed);
     if (json !== this.currentJson) { this.current = freeze(clone(displayed)); this.currentJson = json; this.generation += 1n; }
   }
-  private async sendApply(capture: ApplyCapture): Promise<void> {
-    this.pendingApply = capture;
+  private async sendChange(capture: AuthorCapture): Promise<void> {
+    this.pendingChange = capture;
     let receivedAck = false;
     try {
-      const ack = await this.transport.apply!(capture.request);
+      const ack = capture.kind === 'apply' ? await this.transport.apply!(capture.request) : await this.transport.restore!(capture.request);
       receivedAck = true;
       if (ack.operationId !== capture.request.operationId || canonicalJson(ack.access) !== canonicalJson(this.access)) {
-        throw new SessionError('ProtocolError', 'The Apply acknowledgment belongs to another editing session.');
+        throw new SessionError('ProtocolError', 'The saved change belongs to another editing session.');
       }
-      this.validateApplyResult(ack.result, capture);
+      this.validateChangeResult(ack.result, capture);
       await this.transport.validate(ack.document.body);
       if (!sameHead(ack.document.head, ack.result.head) || canonicalJson(ack.document.body) !== capture.json) {
-        throw new SessionError('ProtocolError', 'The saved manuscript advanced beyond this Apply result. Reconnect to compare the current version.');
+        throw new SessionError('ProtocolError', 'The saved manuscript advanced beyond this change. Reconnect to compare the current version.');
       }
-      this.commitApply(capture, ack.document.head);
+      this.commitChange(capture, ack.document.head);
     } catch (reason) {
       const error = errorOf(reason);
-      if (!receivedAck && ['SuggestionStale', 'SuggestionAlreadyDecided', 'PreparedVersionConflict', 'ProposalNotPrepared', 'ScopeViolation', 'InvalidProposal', 'InvalidRequest', 'InvalidDocument', 'PersistenceUnavailable', 'ContextProjectMismatch', 'OperationIdReusedWithDifferentPayload'].includes(error.code)) {
-        this.pendingApply = null; this.phase = 'flushing'; this.error = null; throw error;
+      if (!receivedAck && ['SuggestionStale', 'SuggestionAlreadyDecided', 'PreparedVersionConflict', 'ProposalNotPrepared', 'ScopeViolation', 'InvalidProposal', 'InvalidRequest', 'InvalidDocument', 'InvalidRevision', 'RevisionNotFound', 'RevisionHashMismatch', 'RevisionDocumentMismatch', 'RevisionMismatch', 'NoChanges', 'PersistenceUnavailable', 'ContextProjectMismatch', 'OperationIdReusedWithDifferentPayload'].includes(error.code)) {
+        this.pendingChange = null; this.phase = 'flushing'; this.error = null; throw error;
       }
       this.phase = 'reconciling'; this.error = error.message; this.clearTimer(); this.emit(); throw error;
     }
   }
-  private async reconcileApply(capture: ApplyCapture): Promise<void> {
+  private async reconcileChange(capture: AuthorCapture): Promise<void> {
     this.phase = 'reconciling'; this.clearTimer(); this.emit();
     try {
       const restored = await this.transport.reconcile({ projectId: this.access.projectId, operationNamespace: this.access.operationNamespace, session: this.access.session,
@@ -300,27 +325,30 @@ export class DocumentSession {
       if (restored.access.projectId !== this.access.projectId || restored.access.operationNamespace !== this.access.operationNamespace
         || restored.access.session !== this.access.session || !restored.access.writerLease || restored.access.writerLease === this.access.writerLease
         || restored.document.head.documentId !== this.head.documentId || await bodyHash(canonicalJson(restored.document.body)) !== restored.document.head.bodyHash) {
-        throw new SessionError('ProtocolError', 'The recovered Apply result does not belong to this session.');
+        throw new SessionError('ProtocolError', 'The recovered change does not belong to this session.');
       }
       version(restored.document.head.version); this.access = clone(restored.access);
       const receipts = restored.receipts.filter(item => item.operationId === capture.request.operationId);
-      if (receipts.length > 1) throw new SessionError('ProtocolError', 'The Apply operation has duplicate receipts.');
+      if (receipts.length > 1) throw new SessionError('ProtocolError', 'The pending change has duplicate receipts.');
       const receipt = receipts[0];
       if (receipt) {
-        if (receipt.operationKind !== 'apply' || receipt.payloadHash !== capture.payloadHash || !receipt.result.applied) throw new SessionError('ProtocolError', 'The recovered receipt does not match the pending Apply.');
-        this.validateApplyResult({ ...receipt.result, applied: receipt.result.applied }, capture);
+        if (receipt.operationKind !== capture.kind || receipt.payloadHash !== capture.payloadHash) throw new SessionError('ProtocolError', 'The recovered receipt does not match the pending change.');
+        this.validateChangeResult(receipt.result, capture);
         if (!sameHead(restored.document.head, receipt.result.head) || canonicalJson(restored.document.body) !== capture.json) { this.setConflict(restored); return; }
-        this.commitApply(capture, restored.document.head);
+        this.commitChange(capture, restored.document.head);
       } else if (sameHead(restored.document.head, capture.request.expected) && canonicalJson(restored.document.body) === this.currentJson) {
         // Only the fenced query establishes absence. Reuse the exact logical
         // operation under its new lease, never invent another Apply identity.
-        await this.sendApply({ ...capture, request: freeze({ ...clone(capture.request), access: clone(this.access) }) });
+        const next = capture.kind === 'apply'
+          ? { ...capture, request: freeze({ ...clone(capture.request), access: clone(this.access) }) }
+          : { ...capture, request: freeze({ ...clone(capture.request), access: clone(this.access) }) };
+        await this.sendChange(next);
       } else { this.setConflict(restored); }
     } catch (reason) { const error = errorOf(reason); this.phase = 'reconciling'; this.error = error.message; this.emit(); throw error; }
   }
   async reconcile(): Promise<void> {
     await this.withLifecycleGuard(async () => {
-      if (this.pendingApply) { await this.reconcileApply(this.pendingApply); return; }
+      if (this.pendingChange) { await this.reconcileChange(this.pendingChange); return; }
       if (this.flight) { try { await this.flight; } catch { /* Its immutable pending capture is retained. */ } }
       this.phase = 'reconciling'; this.clearTimer(); this.emit();
       const capture = this.pending;
@@ -369,7 +397,7 @@ export class DocumentSession {
       const saved = this.conflict.document;
       // Preserve the other side before an explicitly chosen overwrite.
       await this.writeCheckpoint(saved.head, 'manual');
-      this.head = clone(saved.head); this.pending = null; this.pendingApply = null; this.conflict = null; this.error = null;
+      this.head = clone(saved.head); this.pending = null; this.pendingChange = null; this.conflict = null; this.error = null;
       this.phase = 'flushing';
       if (choice === 'useSaved') {
         this.current = freeze(clone(saved.body)); this.currentJson = canonicalJson(this.current);
