@@ -7,6 +7,7 @@
 
 mod contracts;
 mod eligibility;
+pub mod packet;
 
 pub use contracts::{
     Audience, BasisKind, BudgetError, BudgetErrorCode, CharacterGrant, ContextPurpose,

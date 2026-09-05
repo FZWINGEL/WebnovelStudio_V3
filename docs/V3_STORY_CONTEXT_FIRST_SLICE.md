@@ -3,7 +3,7 @@
 **Implementation plan · 5 September 2026**
 **Contract:** `V3_STORY_CONTEXT_SYSTEM.md`.
 **Base:** `V3_ARCHITECTURE_REFINED.md` and `V3_FIRST_SLICE_PLAN.md`.
-**Status:** C0 pure contracts and 16 adversarial tests are implemented. C1's working-basis snapshot/retrieval slice is implemented and tested; C2's pure packet compiler is in progress without durable or AI integration. C3–C6 remain planned, and the work-package acceptance gates are not complete.
+**Status:** C0 pure contracts and 16 adversarial tests are implemented. C1's working-basis snapshot/retrieval slice is implemented and tested. C2's Rust pure deterministic compiler, durable exact packet receipts, and native IPC path are implemented locally; the updated native smoke check remains open. C3–C6 remain planned, and the work-package acceptance gates are not complete.
 
 The supplied research and proposal are rationale for this adopted design, not newly verified validation or completed implementation evidence.
 
@@ -46,6 +46,8 @@ Dirty/unindexed current text must remain discoverable through a slower exact-sou
 **Completion:** a changed earlier chapter is found at its new version despite an old index. A frozen request can still read its original version; a disclosure-policy change stops further access. New evidence in a previously unretrieved document invalidates the old proposal through the source epoch. Project switching cannot redirect lookups. Repeated quotes return distinct anchors. Index deletion/rebuild loses no manuscript or accepted memory. Cold snapshot cost is measured on a large synthetic project.
 
 ### C2 — Compile full-text and multi-resolution packets with receipts
+
+The local implementation is a Rust pure compiler plus a Rust-owned durable preparation path exposed through native IPC. It validates every supplied source body, descriptor, projection, eligibility result, and optional edit scope against the frozen manifest and target. The exact target, author instruction, protected scope, and mandatory pins are preserved. When the complete eligible set fits the authorized allowance, it is included in full; otherwise the compiler keeps the target and mandatory sources whole, then extends a stable source/block-order prefix of complete blocks and records explicit omissions. Mandatory overflow returns `MandatoryContextTooLarge` without shortening the target. Preparation persists the exact messages, options, input hash, packet hash, and source receipt before any future provider submission; it performs no model call and does not mutate manuscript bodies. Repeating an operation is idempotent, while a changed story blocks new preparation. Existing packets remain inspectable with `current=false`, and policy revocation blocks old reads. The `mock-story-context` counter is a UTF-8-byte accounting contract for the deterministic mock only; it is not live-provider tokenization qualification. Ten compiler tests, seven durable-receipt tests, and six context migration tests cover this local boundary.
 
 Implement task recipes, mandatory pins, exact target preservation, provider-aware budgeting, and explicit gaps. Include the full eligible text when it fits the authorized allowance. When it does not, pack valid existing summaries and targeted original passages; no generated summaries are required yet.
 

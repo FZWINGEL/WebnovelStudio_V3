@@ -1,0 +1,500 @@
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use webnovel_core::context::packet::{
+    CompiledPacket, MockContextBudget, PacketError, PacketMessage, PacketOptions, PacketRequest,
+    compile_packet, packet_input_hash, serialized_input,
+};
+use webnovel_core::context::{
+    Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
+    SourceDescriptor, SourceKind, SourceRef, StorySnapshot,
+};
+use webnovel_core::documents::{ScopeGrant, ScopeKind, capture_scope};
+use webnovel_core::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
+use webnovel_core::validate_snapshot_json;
+
+const PROJECT: &str = "packet-project";
+
+fn body(blocks: &[(&str, &str)]) -> Value {
+    json!({
+        "schemaVersion": 1,
+        "body": {
+            "type": "doc",
+            "content": blocks.iter().map(|(id, text)| json!({
+                "type": "paragraph",
+                "attrs": {"id": id},
+                "content": [{"type": "text", "text": text}]
+            })).collect::<Vec<_>>()
+        }
+    })
+}
+
+fn source(handle: &str, document_id: &str, body: &Value) -> SourceDescriptor {
+    let hash = validate_snapshot_json(&serde_json::to_string(body).unwrap())
+        .unwrap()
+        .hash;
+    SourceDescriptor {
+        handle: handle.into(),
+        source: SourceRef {
+            project_id: PROJECT.into(),
+            document_id: document_id.into(),
+            revision_id: format!("revision-{document_id}"),
+            body_hash: hash,
+        },
+        display_name: format!("Private title {handle}"),
+        kind: SourceKind::CurrentDraft,
+        current: true,
+        coverage: CoverageLabel::Verbatim,
+        disclosure: Disclosure {
+            reader_position: Some("1".into()),
+            visible_to_characters: Vec::new(),
+            author_only: false,
+            future_private: false,
+        },
+        story_time: None,
+        dependencies: Vec::new(),
+    }
+}
+
+fn read(descriptor: &SourceDescriptor, body: &Value) -> SourceRead {
+    let canonical = validate_snapshot_json(&serde_json::to_string(body).unwrap())
+        .unwrap()
+        .snapshot;
+    let passages = canonical["body"]["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(order, block)| SourcePassage {
+            handle: descriptor.handle.clone(),
+            source: descriptor.source.clone(),
+            block_id: block["attrs"]["id"].as_str().unwrap().into(),
+            block_order: order as u32,
+            text: block["content"][0]["text"].as_str().unwrap().into(),
+        })
+        .collect();
+    SourceRead {
+        descriptor: descriptor.clone(),
+        passages,
+        body: canonical,
+        used_validated_projection: true,
+    }
+}
+
+fn frozen(
+    descriptors: Vec<SourceDescriptor>,
+    purpose: ContextPurpose,
+    audience: Audience,
+) -> FrozenContext {
+    let target = descriptors[0].source.clone();
+    StorySnapshot {
+        snapshot_id: "snapshot-packet".into(),
+        project_id: PROJECT.into(),
+        basis: BasisKind::Working,
+        target,
+        context_source_epoch: "1".into(),
+        ordering_epoch: "1".into(),
+        disclosure_policy_version: "1".into(),
+        sources: descriptors,
+    }
+    .pipe(|snapshot| FrozenContext {
+        snapshot,
+        policy: InformationPolicy {
+            version: "1".into(),
+            audience,
+            reader_frontier: (audience == Audience::RestrictedWriting).then(|| "1".into()),
+            character_id: None,
+            character_grants: Vec::new(),
+            allow_alternatives: false,
+            allow_historical: false,
+        },
+        purpose,
+        aliases: BTreeMap::new(),
+        excluded_source_count: 0,
+    })
+}
+
+trait Pipe: Sized {
+    fn pipe<T>(self, function: impl FnOnce(Self) -> T) -> T {
+        function(self)
+    }
+}
+impl<T> Pipe for T {}
+
+fn request(frozen: FrozenContext, reads: Vec<SourceRead>) -> PacketRequest {
+    PacketRequest {
+        packet_id: "packet-1".into(),
+        session_id: "session-1".into(),
+        invocation_ordinal: "1".into(),
+        frozen,
+        instruction: "Keep the ending exactly as written.".into(),
+        sources: reads,
+        mandatory_handles: Vec::new(),
+        scope: None,
+        budget: MockContextBudget::new("100000", "100", "100"),
+    }
+}
+
+fn compile(request: PacketRequest) -> CompiledPacket {
+    compile_packet(&request).unwrap_or_else(|error| panic!("packet should compile: {error}"))
+}
+
+#[test]
+fn full_text_packet_preserves_instruction_target_and_receipt_hash() {
+    let target_body = body(&[("target-1", "The jade pendant glinted.")]);
+    let extra_body = body(&[("extra-1", "A storm gathered beyond the gate.")]);
+    let target = source("target", "target-doc", &target_body);
+    let extra = source("extra", "extra-doc", &extra_body);
+    let frozen = frozen(
+        vec![target.clone(), extra.clone()],
+        ContextPurpose::StoryQuestion,
+        Audience::AuthorRoom,
+    );
+    let packet = compile(request(
+        frozen,
+        vec![read(&target, &target_body), read(&extra, &extra_body)],
+    ));
+    assert_eq!(
+        packet.messages[2].content,
+        "Keep the ending exactly as written."
+    );
+    assert!(
+        packet.messages[1]
+            .content
+            .contains("The jade pendant glinted.")
+    );
+    assert!(
+        packet.messages[1]
+            .content
+            .contains("A storm gathered beyond the gate.")
+    );
+    assert_eq!(packet.receipt.source_handles, vec!["target", "extra"]);
+    assert!(packet.receipt.omissions.is_empty());
+    assert!(
+        packet
+            .receipt
+            .coverage
+            .iter()
+            .all(|entry| entry.label == "fullText")
+    );
+    assert_eq!(
+        packet.receipt.input_hash,
+        packet_input_hash(&packet.messages, &packet.options).unwrap()
+    );
+    assert_eq!(
+        packet.receipt.input_tokens,
+        serialized_input(&packet.messages, &packet.options)
+            .unwrap()
+            .len()
+            .to_string()
+    );
+}
+
+#[test]
+fn mandatory_target_and_pin_reject_tiny_budget_without_truncation() {
+    let target_body = body(&[("target-1", "A target that must remain whole.")]);
+    let pin_body = body(&[("pin-1", "A pinned rule that must remain whole.")]);
+    let target = source("target", "target-doc", &target_body);
+    let pin = source("pin", "pin-doc", &pin_body);
+    let frozen = frozen(
+        vec![target.clone(), pin.clone()],
+        ContextPurpose::StoryQuestion,
+        Audience::AuthorRoom,
+    );
+    let mut request = request(
+        frozen,
+        vec![read(&target, &target_body), read(&pin, &pin_body)],
+    );
+    request.mandatory_handles = vec!["pin".into()];
+    request.budget = MockContextBudget::new("1", "0", "0");
+    let error = compile_packet(&request).expect_err("mandatory context must fail closed");
+    match error {
+        PacketError::Budget(error) => {
+            assert_eq!(
+                error.code,
+                webnovel_core::context::BudgetErrorCode::MandatoryContextTooLarge
+            );
+            assert_eq!(error.mandatory_handles, vec!["target", "pin"]);
+            assert!(error.required_input_tokens.parse::<usize>().unwrap() > 1);
+        }
+        other => panic!("expected structured budget error, got {other:?}"),
+    }
+}
+
+#[test]
+fn prose_requests_require_an_explicit_scope() {
+    let target_body = body(&[("target-1", "The selected passage.")]);
+    let target = source("target", "target-doc", &target_body);
+    for purpose in [ContextPurpose::Revise, ContextPurpose::Continue] {
+        let request = request(
+            frozen(vec![target.clone()], purpose, Audience::RestrictedWriting),
+            vec![read(&target, &target_body)],
+        );
+        assert!(matches!(
+            compile_packet(&request),
+            Err(PacketError::ScopeValidation { .. })
+        ));
+    }
+}
+
+#[test]
+fn a_mandatory_pin_retains_its_complete_evidence_dependencies() {
+    let target_body = body(&[("target-1", "The confrontation begins.")]);
+    let pin_body = body(&[("pin-1", "An overview of the promise.")]);
+    let evidence_body = body(&[("evidence-1", &"The original promise. ".repeat(1000))]);
+    let target = source("target", "target-doc", &target_body);
+    let evidence = source("evidence", "evidence-doc", &evidence_body);
+    let mut pin = source("pin", "pin-doc", &pin_body);
+    pin.kind = SourceKind::GeneratedDigest;
+    pin.coverage = CoverageLabel::Digest;
+    pin.dependencies = vec![evidence.source.clone()];
+    let mut frozen = frozen(
+        vec![target.clone(), pin.clone(), evidence.clone()],
+        ContextPurpose::StoryQuestion,
+        Audience::AuthorRoom,
+    );
+    frozen.excluded_source_count = 3;
+    let mut request = request(
+        frozen,
+        vec![
+            read(&target, &target_body),
+            read(&pin, &pin_body),
+            read(&evidence, &evidence_body),
+        ],
+    );
+    request.mandatory_handles = vec!["pin".into()];
+    request.budget = MockContextBudget::new("6000", "100", "100");
+    match compile_packet(&request).unwrap_err() {
+        PacketError::Budget(error) => assert!(error.mandatory_handles.contains(&"evidence".into())),
+        other => panic!("expected dependency budget refusal, got {other}"),
+    }
+    request.budget = MockContextBudget::new("100000", "100", "100");
+    let packet = compile(request);
+    assert_eq!(packet.receipt.source_handles.len(), 3);
+    assert!(packet.receipt.omissions.is_empty());
+    let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
+    assert_eq!(envelope["policyExcludedSourceCount"], 3);
+    assert!(
+        envelope["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|source| source["mandatory"] == true)
+    );
+}
+
+#[test]
+fn a_small_budget_does_not_materialize_one_full_chapter_per_optional_block() {
+    let target_body = body(&[("target-1", "A short current scene.")]);
+    let blocks: Vec<_> = (0..10_000)
+        .map(|i| {
+            (
+                format!("block-{i}"),
+                "An older detail preserved in its original paragraph.".to_owned(),
+            )
+        })
+        .collect();
+    let refs: Vec<_> = blocks
+        .iter()
+        .map(|(id, text)| (id.as_str(), text.as_str()))
+        .collect();
+    let large_body = body(&refs);
+    let target = source("target", "target-doc", &target_body);
+    let earlier = source("earlier", "earlier-doc", &large_body);
+    let mut request = request(
+        frozen(
+            vec![target.clone(), earlier.clone()],
+            ContextPurpose::Discuss,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &target_body), read(&earlier, &large_body)],
+    );
+    request.budget = MockContextBudget::new("6000", "100", "100");
+    let packet = compile(request);
+    assert!(packet.receipt.input_tokens.parse::<usize>().unwrap() <= 5800);
+    assert!(
+        packet
+            .receipt
+            .omissions
+            .iter()
+            .any(|text| text.contains("earlier"))
+    );
+    assert_eq!(
+        packet
+            .receipt
+            .source_handles
+            .iter()
+            .filter(|handle| *handle == "target")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn scope_is_revalidated_against_the_same_target_source() {
+    let target_body = body(&[("target-1", "The selected passage.")]);
+    let target = source("target", "target-doc", &target_body);
+    let frozen = frozen(
+        vec![target.clone()],
+        ContextPurpose::Revise,
+        Audience::RestrictedWriting,
+    );
+    let grant = capture_scope(
+        &target_body,
+        ScopeGrant {
+            kind: ScopeKind::WholeDocument,
+            start: None,
+            end: None,
+            source_hash: String::new(),
+            quote: String::new(),
+            quote_hash: String::new(),
+            prefix: None,
+            suffix: None,
+        },
+    )
+    .unwrap();
+    let mut request = request(frozen, vec![read(&target, &target_body)]);
+    request.scope = Some(grant.clone());
+    let packet = compile(request);
+    assert!(packet.messages[1].content.contains(&grant.source_hash));
+    assert!(packet.messages[1].content.contains("The selected passage."));
+}
+
+#[test]
+fn alias_or_unknown_source_read_is_rejected_before_eligibility() {
+    let target_body = body(&[("target-1", "Target text.")]);
+    let target = source("target", "target-doc", &target_body);
+    let mut alias = read(&target, &target_body);
+    alias.descriptor.handle = "alias-name".into();
+    let frozen = frozen(
+        vec![target],
+        ContextPurpose::StoryQuestion,
+        Audience::AuthorRoom,
+    );
+    let error = compile_packet(&request(frozen, vec![alias])).err().unwrap();
+    assert!(
+        matches!(error, PacketError::SourceBinding { code, .. } if code == "SourceOutsideFrozenManifest")
+    );
+}
+
+#[test]
+fn duplicate_source_reads_are_rejected() {
+    let target_body = body(&[("target-1", "Target text.")]);
+    let target = source("target", "target-doc", &target_body);
+    let frozen = frozen(
+        vec![target.clone()],
+        ContextPurpose::StoryQuestion,
+        Audience::AuthorRoom,
+    );
+    let error = compile_packet(&request(
+        frozen,
+        vec![read(&target, &target_body), read(&target, &target_body)],
+    ))
+    .expect_err("duplicate source records must not be merged");
+    assert!(
+        matches!(error, PacketError::SourceBinding { code, .. } if code == "DuplicateSourceRead")
+    );
+}
+
+#[test]
+fn subset_of_frozen_manifest_is_rejected_instead_of_claiming_full_context() {
+    let target_body = body(&[("target-1", "Target text.")]);
+    let extra_body = body(&[("extra-1", "Extra text.")]);
+    let target = source("target", "target-doc", &target_body);
+    let extra = source("extra", "extra-doc", &extra_body);
+    let frozen = frozen(
+        vec![target.clone(), extra],
+        ContextPurpose::StoryQuestion,
+        Audience::AuthorRoom,
+    );
+    let error = compile_packet(&request(frozen, vec![read(&target, &target_body)]))
+        .expect_err("every frozen source read is required");
+    assert!(
+        matches!(error, PacketError::SourceBinding { code, handle: Some(handle), .. } if code == "FrozenManifestReadMissing" && handle == "extra")
+    );
+}
+
+#[test]
+fn extreme_decimal_reservations_return_invalid_budget_without_underflow() {
+    let target_body = body(&[("target-1", "Target text.")]);
+    let target = source("target", "target-doc", &target_body);
+    let frozen = frozen(
+        vec![target.clone()],
+        ContextPurpose::StoryQuestion,
+        Audience::AuthorRoom,
+    );
+    let mut request = request(frozen, vec![read(&target, &target_body)]);
+    request.budget = MockContextBudget::new(
+        u128::MAX.to_string(),
+        u128::MAX.to_string(),
+        u128::MAX.to_string(),
+    );
+    let error = compile_packet(&request).expect_err("overflowing reservations must fail closed");
+    assert!(
+        matches!(error, PacketError::Budget(error) if error.code == webnovel_core::context::BudgetErrorCode::InvalidBudget)
+    );
+}
+
+#[test]
+fn useful_block_coverage_is_monotonic_as_budget_grows() {
+    let target_body = body(&[("target-1", "Target.")]);
+    let extra_body = body(&[
+        ("extra-1", "First useful detail."),
+        ("extra-2", "Second useful detail."),
+        ("extra-3", "Third useful detail."),
+    ]);
+    let target = source("target", "target-doc", &target_body);
+    let extra = source("extra", "extra-doc", &extra_body);
+    let frozen = frozen(
+        vec![target.clone(), extra.clone()],
+        ContextPurpose::StoryQuestion,
+        Audience::AuthorRoom,
+    );
+    let reads = vec![read(&target, &target_body), read(&extra, &extra_body)];
+    let mut low = request(frozen.clone(), reads.clone());
+    low.budget = MockContextBudget::new("2000", "0", "0");
+    let mut high = request(frozen, reads);
+    high.budget = MockContextBudget::new("4000", "0", "0");
+    let low = compile(low);
+    let high = compile(high);
+    let low_extra_blocks = low.messages[1].content.matches("useful detail").count();
+    let high_extra_blocks = high.messages[1].content.matches("useful detail").count();
+    assert!(high_extra_blocks >= low_extra_blocks);
+    assert!(high.receipt.source_handles.len() >= low.receipt.source_handles.len());
+}
+
+#[test]
+fn invalid_decimal_budget_is_structured_and_author_room_revise_is_forbidden() {
+    let target_body = body(&[("target-1", "Target text.")]);
+    let target = source("target", "target-doc", &target_body);
+    let frozen = frozen(
+        vec![target.clone()],
+        ContextPurpose::Revise,
+        Audience::AuthorRoom,
+    );
+    let mut request = request(frozen, vec![read(&target, &target_body)]);
+    request.budget.context_window_tokens = "100000".into();
+    let error = compile_packet(&request).expect_err("author-room revise must be rejected");
+    assert!(
+        matches!(error, PacketError::Eligibility(error) if error.code == webnovel_core::context::EligibilityErrorCode::InvalidPolicy)
+    );
+}
+
+#[test]
+fn packet_message_and_options_serialization_is_stable() {
+    let messages = vec![PacketMessage {
+        role: "system".into(),
+        content: "x".into(),
+    }];
+    let options = PacketOptions {
+        model_id: "mock-story-context".into(),
+        max_output_tokens: "10".into(),
+        token_accounting_method: "utf8-byte-count/mock-story-context-v1".into(),
+    };
+    let first = serialized_input(&messages, &options).unwrap();
+    let second = serialized_input(&messages, &options).unwrap();
+    assert_eq!(first, second);
+    assert_eq!(
+        packet_input_hash(&messages, &options).unwrap(),
+        packet_input_hash(&messages, &options).unwrap()
+    );
+}

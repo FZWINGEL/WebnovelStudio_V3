@@ -639,7 +639,11 @@ fn eligibility(
     evaluate_sources(snapshot, policy, purpose, handles)
 }
 
-fn load_snapshot(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<FrozenContext> {
+pub(super) fn load_snapshot(
+    db: &Connection,
+    access: &ProjectAccess,
+    id: &str,
+) -> CoreResult<FrozenContext> {
     check_id(id)?;
     let row: Option<(String,String,String,String,i64,i64)> = db.query_row("SELECT project_id,operation_namespace,manifest_json,manifest_hash,context_source_epoch,disclosure_policy_epoch FROM story_snapshots WHERE id=?", [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).optional()?;
     let (project, namespace, json, hash, source_epoch, policy_epoch) = row.ok_or_else(|| {
@@ -743,7 +747,11 @@ fn validate_pins(db: &Connection, frozen: &FrozenContext) -> CoreResult<()> {
     Ok(())
 }
 
-fn read_source(db: &Connection, frozen: &FrozenContext, handle: &str) -> CoreResult<SourceRead> {
+pub(super) fn read_source(
+    db: &Connection,
+    frozen: &FrozenContext,
+    handle: &str,
+) -> CoreResult<SourceRead> {
     let descriptor = frozen
         .snapshot
         .sources

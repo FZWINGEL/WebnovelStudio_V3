@@ -1,0 +1,414 @@
+use rusqlite::Connection;
+use serde_json::{Value, json};
+use std::fs;
+use std::path::{Path, PathBuf};
+use uuid::Uuid;
+use webnovel_core::context::packet::MockContextBudget;
+use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
+use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
+use webnovel_core::projects::story_context::FreezeStory;
+use webnovel_core::projects::{
+    CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
+};
+use webnovel_core::transfer::{create_backup, recover_backup};
+
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new(label: &str) -> Self {
+        let path =
+            std::env::temp_dir().join(format!("wns-context-packets-{label}-{}", Uuid::new_v4()));
+        fs::create_dir(&path).expect("create temporary test directory");
+        Self(path)
+    }
+
+    fn child(&self, name: &str) -> PathBuf {
+        self.0.join(name)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn body(text: &str) -> Value {
+    json!({
+        "schemaVersion": 1,
+        "body": {
+            "type": "doc",
+            "content": [{
+                "type": "paragraph",
+                "attrs": {"id": "p1"},
+                "content": [{"type": "text", "text": text}]
+            }]
+        }
+    })
+}
+
+fn setup_project(
+    root: &Path,
+) -> (
+    ProjectSession,
+    ProjectAccess,
+    webnovel_core::projects::DocumentRecord,
+) {
+    let project = ProjectSession::create(root, "Packet test").expect("create project");
+    let access = project
+        .attach("packet-session".into())
+        .expect("attach project");
+    let document = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "create-document".into(),
+            document_id: "chapter-one".into(),
+            title: "Chapter one".into(),
+            kind: "chapter".into(),
+            body: body("The packet target is stable."),
+        })
+        .expect("create document");
+    (project, access, document)
+}
+
+fn policy(project: &ProjectSession, access: &ProjectAccess) -> InformationPolicy {
+    InformationPolicy {
+        version: project
+            .context_epochs(access.clone())
+            .expect("read context policy")
+            .policy,
+        audience: Audience::AuthorRoom,
+        reader_frontier: None,
+        character_id: None,
+        character_grants: Vec::new(),
+        allow_alternatives: false,
+        allow_historical: false,
+    }
+}
+
+fn freeze(
+    project: &ProjectSession,
+    access: &ProjectAccess,
+    document: &webnovel_core::projects::DocumentRecord,
+) -> webnovel_core::projects::story_context::FrozenContext {
+    project
+        .freeze_story(FreezeStory {
+            access: access.clone(),
+            operation_id: format!("freeze-{}", Uuid::new_v4()),
+            expected: document.head.clone(),
+            basis: BasisKind::Working,
+            purpose: ContextPurpose::StoryQuestion,
+            policy: policy(project, access),
+        })
+        .expect("freeze story snapshot")
+}
+
+fn prepare_request(
+    access: &ProjectAccess,
+    snapshot_id: &str,
+    operation_id: &str,
+    budget: MockContextBudget,
+) -> PrepareContext {
+    PrepareContext {
+        access: access.clone(),
+        operation_id: operation_id.into(),
+        snapshot_id: snapshot_id.into(),
+        instruction: "Keep the selected target grounded in the supplied evidence.".into(),
+        mandatory_handles: Vec::new(),
+        scope: None,
+        budget,
+    }
+}
+
+fn budget() -> MockContextBudget {
+    MockContextBudget::new("100000", "100", "100")
+}
+
+fn prepared(result: PreparationResult) -> webnovel_core::context::packet::CompiledPacket {
+    prepared_with_current(result).0
+}
+
+fn prepared_with_current(
+    result: PreparationResult,
+) -> (webnovel_core::context::packet::CompiledPacket, bool) {
+    match result {
+        PreparationResult::Prepared { packet, current } => (*packet, current),
+        PreparationResult::BudgetRejected { error } => {
+            panic!("packet unexpectedly rejected by budget: {error:?}")
+        }
+    }
+}
+
+fn packet_count(project: &ProjectSession) -> i64 {
+    Connection::open(project.path.join("project.sqlite3"))
+        .expect("open packet database")
+        .query_row("SELECT COUNT(*) FROM context_packets", [], |row| row.get(0))
+        .expect("count packet rows")
+}
+
+#[test]
+fn preparation_is_idempotent_and_operation_payload_is_bound() {
+    let temp = TempDir::new("idempotent");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let snapshot = freeze(&project, &access, &document);
+    let request = prepare_request(
+        &access,
+        &snapshot.snapshot.snapshot_id,
+        "prepare-once",
+        budget(),
+    );
+    let (first, first_current) = prepared_with_current(
+        project
+            .prepare_context(request.clone())
+            .expect("prepare context"),
+    );
+    assert!(first_current);
+    let retry = prepared(
+        project
+            .prepare_context(request.clone())
+            .expect("retry same preparation"),
+    );
+    assert_eq!(retry, first);
+    assert_eq!(packet_count(&project), 1);
+
+    let mut changed = request;
+    changed.instruction = "A different instruction must not reuse the operation.".into();
+    let error = project
+        .prepare_context(changed)
+        .expect_err("changed payload must be rejected");
+    assert_eq!(error.code, "OperationIdReusedWithDifferentPayload");
+    assert_eq!(packet_count(&project), 1);
+}
+
+#[test]
+fn prepared_packet_round_trips_exactly_after_project_restart() {
+    let temp = TempDir::new("restart");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let snapshot = freeze(&project, &access, &document);
+    let expected = prepared(
+        project
+            .prepare_context(prepare_request(
+                &access,
+                &snapshot.snapshot.snapshot_id,
+                "restart-preparation",
+                budget(),
+            ))
+            .expect("prepare packet"),
+    );
+    drop(project);
+
+    let reopened = ProjectSession::open(&path).expect("reopen project");
+    let reopened_access = reopened
+        .attach("packet-session-after-restart".into())
+        .expect("attach after restart");
+    let restored = reopened
+        .prepared_context(reopened_access, expected.receipt.packet_id.clone())
+        .expect("read exact prepared packet");
+    assert_eq!(restored.messages, expected.messages);
+    assert_eq!(restored.options, expected.options);
+    assert_eq!(restored.receipt, expected.receipt);
+}
+
+#[test]
+fn stale_story_blocks_new_preparation_but_old_packet_remains_inspectable() {
+    let temp = TempDir::new("stale");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let snapshot = freeze(&project, &access, &document);
+    let request = prepare_request(
+        &access,
+        &snapshot.snapshot.snapshot_id,
+        "old-preparation",
+        budget(),
+    );
+    let old = prepared(
+        project
+            .prepare_context(request.clone())
+            .expect("prepare old packet"),
+    );
+    let current = project
+        .document(access.clone(), document.head.document_id.clone())
+        .expect("read current document");
+    project
+        .save(SaveSnapshot {
+            access: access.clone(),
+            operation_id: "change-after-packet".into(),
+            expected: current.head,
+            local_generation: "1".into(),
+            body: body("The story changed after preparation."),
+            cause: SaveCause::Typing,
+        })
+        .expect("save changed story");
+
+    assert!(
+        !project
+            .prepared_context_is_current(access.clone(), old.receipt.packet_id.clone())
+            .expect("check packet freshness")
+    );
+    let old_read = project
+        .prepared_context(access.clone(), old.receipt.packet_id.clone())
+        .expect("old packet remains inspectable");
+    assert_eq!(old_read.receipt.input_hash, old.receipt.input_hash);
+    let retry = project
+        .prepare_context(request)
+        .expect("same operation remains an inspectable stale receipt");
+    match retry {
+        PreparationResult::Prepared { packet, current } => {
+            assert!(!current);
+            assert_eq!(*packet, old);
+        }
+        PreparationResult::BudgetRejected { .. } => {
+            panic!("an idempotent stale retry must return its prepared packet")
+        }
+    }
+    let error = project
+        .prepare_context(prepare_request(
+            &access,
+            &snapshot.snapshot.snapshot_id,
+            "new-after-story-change",
+            budget(),
+        ))
+        .expect_err("new packet from stale snapshot must fail");
+    assert_eq!(error.code, "ContextChanged");
+    assert_eq!(packet_count(&project), 1);
+}
+
+#[test]
+fn revoked_policy_blocks_reading_an_old_prepared_packet() {
+    let temp = TempDir::new("revoked");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let snapshot = freeze(&project, &access, &document);
+    let packet = prepared(
+        project
+            .prepare_context(prepare_request(
+                &access,
+                &snapshot.snapshot.snapshot_id,
+                "revoked-preparation",
+                budget(),
+            ))
+            .expect("prepare packet"),
+    );
+    project
+        .revoke_story_context(access.clone(), "0".into())
+        .expect("revoke old policy");
+    let error = project
+        .prepared_context(access, packet.receipt.packet_id)
+        .expect_err("revoked policy must block packet read");
+    assert_eq!(error.code, "ContextPolicyChanged");
+}
+
+#[test]
+fn recovered_copy_rejects_original_packet_identity_and_accepts_new_snapshot_packet() {
+    let temp = TempDir::new("recovery");
+    let source_path = temp.child("source");
+    let (source, source_access, source_document) = setup_project(&source_path);
+    let source_snapshot = freeze(&source, &source_access, &source_document);
+    let original = prepared(
+        source
+            .prepare_context(prepare_request(
+                &source_access,
+                &source_snapshot.snapshot.snapshot_id,
+                "original-preparation",
+                budget(),
+            ))
+            .expect("prepare source packet"),
+    );
+    let archive = temp.child("source.wnsbackup");
+    create_backup(&source, &archive).expect("backup source packet");
+    drop(source);
+
+    let target = temp.child("recovered");
+    let recovered = recover_backup(&archive, &target, "Recovered packet project")
+        .expect("recover copied project");
+    let recovered_access = recovered
+        .attach("recovered-packet-session".into())
+        .expect("attach recovered project");
+    let error = recovered
+        .prepared_context(recovered_access.clone(), original.receipt.packet_id.clone())
+        .expect_err("original packet identity must not cross project recovery");
+    assert_eq!(error.code, "ContextProjectMismatch");
+
+    let recovered_document = recovered
+        .document(recovered_access.clone(), "chapter-one".into())
+        .expect("read recovered target");
+    let recovered_snapshot = freeze(&recovered, &recovered_access, &recovered_document);
+    let new_packet = prepared(
+        recovered
+            .prepare_context(prepare_request(
+                &recovered_access,
+                &recovered_snapshot.snapshot.snapshot_id,
+                "recovered-preparation",
+                budget(),
+            ))
+            .expect("prepare new packet in recovered project"),
+    );
+    assert_ne!(new_packet.receipt.packet_id, original.receipt.packet_id);
+    assert_eq!(packet_count(&recovered), 2);
+}
+
+#[test]
+fn budget_rejection_creates_no_packet_and_does_not_mutate_body() {
+    let temp = TempDir::new("budget");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let snapshot = freeze(&project, &access, &document);
+    let before = project
+        .document(access.clone(), "chapter-one".into())
+        .expect("read body before budget rejection");
+    let result = project
+        .prepare_context(prepare_request(
+            &access,
+            &snapshot.snapshot.snapshot_id,
+            "budget-rejection",
+            MockContextBudget::new("1", "0", "0"),
+        ))
+        .expect("budget rejection is a structured result");
+    match result {
+        PreparationResult::BudgetRejected { error } => {
+            assert_eq!(
+                error.code,
+                webnovel_core::context::BudgetErrorCode::MandatoryContextTooLarge
+            );
+            assert!(!error.mandatory_handles.is_empty());
+        }
+        PreparationResult::Prepared { .. } => panic!("tiny budget must not prepare a packet"),
+    }
+    assert_eq!(packet_count(&project), 0);
+    let after = project
+        .document(access, "chapter-one".into())
+        .expect("read body after budget rejection");
+    assert_eq!(after.body, before.body);
+    assert_eq!(after.head, before.head);
+}
+
+#[test]
+fn packet_insert_failure_rolls_back_without_a_durable_packet_row() {
+    let temp = TempDir::new("transaction-failure");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let snapshot = freeze(&project, &access, &document);
+    let connection = Connection::open(project.path.join("project.sqlite3"))
+        .expect("open packet database for fault injection");
+    connection
+        .execute_batch(
+            "CREATE TRIGGER fail_context_packet BEFORE INSERT ON context_packets
+             WHEN NEW.operation_id='packet-trigger-failure'
+             BEGIN SELECT RAISE(ABORT,'injected packet failure'); END;",
+        )
+        .expect("install packet insertion fault");
+    drop(connection);
+
+    let error = project
+        .prepare_context(prepare_request(
+            &access,
+            &snapshot.snapshot.snapshot_id,
+            "packet-trigger-failure",
+            budget(),
+        ))
+        .expect_err("packet insertion fault must fail");
+    assert_eq!(error.code, "PersistenceUnavailable");
+    assert_eq!(packet_count(&project), 0);
+    let connection =
+        Connection::open(project.path.join("project.sqlite3")).expect("reopen packet database");
+    connection
+        .execute_batch("DROP TRIGGER fail_context_packet;")
+        .expect("remove packet insertion fault");
+}

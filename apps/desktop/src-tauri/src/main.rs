@@ -5,6 +5,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use tauri::Manager;
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
+mod context_commands;
 mod library_commands;
 mod project_commands;
 
@@ -83,6 +84,17 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            context_commands::context_epochs,
+            context_commands::freeze_story_context,
+            context_commands::story_context_snapshot,
+            context_commands::read_story_context_source,
+            context_commands::search_story_context,
+            context_commands::prepare_story_context,
+            context_commands::prepared_story_context,
+            context_commands::prepared_story_context_is_current,
+            context_commands::revoke_story_context,
+            context_commands::rebuild_story_index,
+            context_commands::capture_story_scope,
             validate_snapshot,
             runtime_info,
             project_commands::create_project,

@@ -146,14 +146,15 @@ fn setup_project(
     (project, access, document, saved)
 }
 
-/// Convert a schema3 database into the previous schema2 shape. This is a
+/// Convert a schema4 database into the previous schema2 shape. This is a
 /// synthetic legacy database used only to exercise the upgrade boundary.
 fn downgrade_to_schema2(path: &Path) {
     let database = path.join("project.sqlite3");
     let connection = Connection::open(&database).expect("open current database");
     connection
         .execute_batch(
-            "DROP TABLE snapshot_sources;
+            "DROP TABLE context_packets;
+             DROP TABLE snapshot_sources;
              DROP TABLE story_snapshots;
              DROP TABLE passage_projections;
              DROP TABLE document_aliases;
@@ -161,6 +162,21 @@ fn downgrade_to_schema2(path: &Path) {
              PRAGMA user_version=2;",
         )
         .expect("downgrade synthetic database to schema2");
+    drop(connection);
+}
+
+/// Convert a schema4 database into the previous schema3 shape while keeping
+/// all frozen story snapshots. This is a synthetic legacy database used only
+/// to exercise the context-packet migration boundary.
+fn downgrade_to_schema3(path: &Path) {
+    let database = path.join("project.sqlite3");
+    let connection = Connection::open(&database).expect("open current database");
+    connection
+        .execute_batch(
+            "DROP TABLE context_packets;
+             PRAGMA user_version=3;",
+        )
+        .expect("downgrade synthetic database to schema3");
     drop(connection);
 }
 
@@ -220,7 +236,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 4);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -269,6 +285,60 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
         )
         .expect("read backed view state");
     assert_eq!(backed_view, ("chapter-one".into(), 1, 5));
+}
+
+#[test]
+fn schema3_upgrade_to_schema4_preserves_frozen_snapshot_and_useful_backup() {
+    let temp = TempDir::new("schema3-upgrade");
+    let path = temp.child("legacy");
+    let (project, access, _document, _saved) = setup_project(&path);
+    let target = project
+        .document(access.clone(), "chapter-one".into())
+        .expect("read current target");
+    let snapshot_id = freeze_one_snapshot(&project, &access, &target);
+    drop(project);
+    downgrade_to_schema3(&path);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
+
+    let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 4);
+    let attached = upgraded
+        .attach_snapshot("schema3-upgrade-reader".into())
+        .expect("attach upgraded project");
+    let restored = upgraded
+        .story_snapshot(attached.access.clone(), snapshot_id.clone())
+        .expect("read preserved frozen snapshot");
+    assert_eq!(restored.snapshot.snapshot_id, snapshot_id);
+    assert_eq!(restored.snapshot.sources.len(), 1);
+    assert_eq!(
+        restored.snapshot.sources[0].source.document_id,
+        "chapter-one"
+    );
+    assert!(!restored.snapshot.sources[0].source.revision_id.is_empty());
+    drop(upgraded);
+
+    let backups = fs::read_dir(path.join("migrations"))
+        .expect("read schema3 pre-upgrade backups")
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>();
+    assert_eq!(backups.len(), 1);
+    let backup = Connection::open(backups[0].path()).expect("open schema3 backup");
+    let backup_schema: i64 = backup
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("read schema3 backup version");
+    assert_eq!(backup_schema, 3);
+    let backup_snapshot: (i64, String) = backup
+        .query_row("SELECT COUNT(*),MIN(id) FROM story_snapshots", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("read backed frozen snapshot");
+    assert_eq!(backup_snapshot, (1, snapshot_id));
+    let backup_pins: i64 = backup
+        .query_row("SELECT COUNT(*) FROM snapshot_sources", [], |row| {
+            row.get(0)
+        })
+        .expect("read backed snapshot pins");
+    assert_eq!(backup_pins, 1);
 }
 
 #[test]
@@ -341,7 +411,7 @@ fn schema2_upgrade_failure_rolls_back_and_retains_durable_backup() {
 }
 
 #[test]
-fn schema2_backup_recovers_forward_to_schema3_with_document_view_and_epoch() {
+fn schema2_backup_recovers_forward_to_schema4_with_document_view_and_epoch() {
     let temp = TempDir::new("schema2-recovery");
     let source_path = temp.child("source");
     let (project, access, _document, saved) = setup_project(&source_path);
@@ -365,7 +435,7 @@ fn schema2_backup_recovers_forward_to_schema3_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 3);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 4);
     assert_eq!(
         recovered
             .context_source_epoch()

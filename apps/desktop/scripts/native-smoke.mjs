@@ -207,6 +207,41 @@ try {
   assert.equal(persisted.reopened.documents[0].body.body.content[0].content[0].text, 'Saved in Rust. Mei waited beneath the lantern. 👩‍🚀');
   assert.equal(persisted.reopened.documents[0].lastCheckpointId, persisted.revision.id);
   checks.push('Real project IPC creates file-backed prose, saves once, checkpoints, fences stale writers and reopens the latest head');
+  const contextProof = await page.evaluate(async opened => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    const access = opened.access;
+    const head = opened.documents[0].head;
+    const epochs = await invoke('context_epochs', { access });
+    const frozen = await invoke('freeze_story_context', { request: {
+      access, operationId: 'native-context-freeze', expected: head, basis: 'working', purpose: 'storyQuestion',
+      policy: { version: epochs.policy, audience: 'authorRoom', readerFrontier: null, characterId: null, characterGrants: [], allowAlternatives: false, allowHistorical: false },
+    } });
+    const prepared = await invoke('prepare_story_context', { request: {
+      access, operationId: 'native-context-prepare', snapshotId: frozen.snapshot.snapshotId,
+      instruction: 'Who waited beneath the lantern?', mandatoryHandles: [], scope: null,
+      budget: { modelId: 'mock-story-context', contextWindowTokens: '20000', reservedOutputTokens: '1000', reservedProtocolTokens: '1000' },
+    } });
+    if (prepared.status !== 'prepared') throw new Error(JSON.stringify(prepared));
+    const packet = await invoke('prepared_story_context', { access, packetId: prepared.packet.receipt.packetId });
+    await invoke('save_snapshot', { request: {
+      access, operationId: 'native-context-change', expected: head, localGeneration: '2', cause: 'typing',
+      body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'p1' }, content: [{ type: 'text', text: 'Lian now waits beside the river.' }] }] } },
+    } });
+    const current = await invoke('prepared_story_context_is_current', { access, packetId: packet.receipt.packetId });
+    const oldEvidence = await invoke('search_story_context', { request: { access, snapshotId: frozen.snapshot.snapshotId, query: 'Mei', mode: 'literal', limit: 10 } });
+    await invoke('revoke_story_context', { access, expectedPolicy: epochs.policy });
+    let revoked;
+    try { await invoke('prepared_story_context', { access, packetId: packet.receipt.packetId }); } catch (error) { revoked = error; }
+    return { prepared, packet, current, oldEvidence, revoked };
+  }, persisted.reopened);
+  assert.equal(contextProof.prepared.current, true);
+  assert.deepEqual(contextProof.packet, contextProof.prepared.packet);
+  assert.equal(contextProof.packet.messages.at(-1).content, 'Who waited beneath the lantern?');
+  assert.equal(contextProof.packet.options.modelId, 'mock-story-context');
+  assert.equal(contextProof.current, false);
+  assert.equal(contextProof.oldEvidence.hits.length, 1);
+  assert.equal(contextProof.revoked.code, 'ContextPolicyChanged');
+  checks.push('Native context IPC freezes exact sources, persists a mock-only packet receipt, marks it stale after editing and revokes further reads on policy change');
   await page.getByRole('button', { name: 'Back to library', exact: true }).click();
   async function fillManuscript(text) {
     await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill(text);
