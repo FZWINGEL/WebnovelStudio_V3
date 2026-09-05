@@ -13,6 +13,7 @@ use std::thread::JoinHandle;
 use uuid::Uuid;
 
 pub mod context_packets;
+mod conversation_context;
 pub mod discussions;
 pub mod guidance;
 pub mod story_context;

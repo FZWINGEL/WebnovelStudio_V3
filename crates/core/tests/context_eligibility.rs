@@ -699,6 +699,8 @@ fn packet_and_budget_contracts_keep_cross_boundary_counters_as_strings() {
         invocation_ordinal: "9007199254740993".into(),
         source_handles: vec!["target".into()],
         guidance_handles: Vec::new(),
+        conversation_message_ids: Vec::new(),
+        omitted_discussion_turns: 0,
         coverage: Vec::new(),
         omissions: Vec::new(),
         input_hash: "b".repeat(64),

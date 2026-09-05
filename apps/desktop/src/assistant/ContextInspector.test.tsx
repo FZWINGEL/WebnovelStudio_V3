@@ -29,6 +29,18 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('historical context inspection', () => {
+  it('shows exact prior exchanges separately from guidance and reports history omissions', async () => {
+    const conversation: context.FrozenConversation = { projectId: access.projectId, operationNamespace: access.operationNamespace, documentId: first.source.documentId, threadId: 'thread', omittedTurns: 2, turns: [{ runId: 'run', packetId: 'prior-packet', sourceSnapshotId: 'prior-snapshot', policyVersion: '0', user: { id: 'user-message', content: 'Keep the question open for now.', scope: null }, assistant: { id: 'assistant-message', content: 'An unadopted possibility.\nThe pendant could be a clue.', scope: null } }] };
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, conversationMessageIds: ['user-message', 'assistant-message'], omittedDiscussionTurns: 2 } });
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, conversation });
+    await render();
+    expect(host.textContent).toContain('Used · 1 source · 1 earlier exchange');
+    expect(host.querySelector('.context-turn')?.textContent).toContain('Keep the question open for now.');
+    expect(host.querySelector('.context-turn')?.textContent).toContain('An unadopted possibility.\nThe pendant could be a clue.');
+    expect(host.textContent).toContain('2 earlier complete exchanges were not included');
+    expect(host.textContent).toContain('not saved guidance or established story facts');
+    expect(context.readStoryContextSource).not.toHaveBeenCalled();
+  });
   it('keeps the exact adopted instruction visible when its packet becomes historical', async () => {
     const record = { handle: 'guidance-v1', projectId: access.projectId, version: { guidanceId: 'guidance', versionId: 'v1', version: '1', scope: 'document' as const, documentId: first.source.documentId, text: 'Keep the ending.\nHer sister survives.', textHash: 'hash', active: true, originMessageId: null, createdAt: 'then' } };
     vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, guidanceHandles: [record.handle] } });

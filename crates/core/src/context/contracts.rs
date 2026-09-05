@@ -181,6 +181,10 @@ pub struct PacketReceipt {
     pub source_handles: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub guidance_handles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conversation_message_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "zero_discussion_turns")]
+    pub omitted_discussion_turns: u32,
     pub coverage: Vec<CoverageEntry>,
     pub omissions: Vec<String>,
     pub input_hash: String,
@@ -206,4 +210,8 @@ pub struct BudgetError {
     pub required_input_tokens: String,
     pub available_input_tokens: String,
     pub mandatory_handles: Vec<String>,
+}
+
+fn zero_discussion_turns(value: &u32) -> bool {
+    *value == 0
 }

@@ -1,6 +1,7 @@
 //! Frozen, project-owned evidence. Revisions remain the only text authority;
 //! passage projections can be deleted without losing story material.
 use super::*;
+use crate::context::conversation::{FrozenConversation, validate_conversation};
 use crate::context::guidance::{FrozenGuidance, validate_frozen_guidance};
 use crate::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
@@ -37,6 +38,8 @@ pub struct FrozenContext {
     pub excluded_source_count: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub guidance: Vec<FrozenGuidance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<FrozenConversation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -660,6 +663,19 @@ fn freeze_story_impl(
         } else {
             Vec::new()
         },
+        conversation: if include_request_guidance
+            && request.policy.audience == Audience::AuthorRoom
+            && request.purpose == ContextPurpose::Discuss
+        {
+            conversation_context::select_conversation_at(
+                tx,
+                &request.access,
+                &request.expected.document_id,
+                &request.policy.version,
+            )?
+        } else {
+            None
+        },
     };
     let json = serde_json::to_string(&frozen)?;
     tx.execute(
@@ -765,7 +781,7 @@ pub(super) fn validated_snapshot_record(
     Ok((frozen, namespace))
 }
 
-fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
+pub(super) fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
     if sha256_hex(json.as_bytes()) != hash {
         return Err(CoreError::new(
             "InvalidContext",
@@ -774,6 +790,15 @@ fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
     }
     let frozen: FrozenContext =
         serde_json::from_str(json).map_err(|e| CoreError::new("InvalidContext", &e.to_string()))?;
+    validate_conversation(
+        frozen.conversation.as_ref(),
+        &frozen.snapshot.project_id,
+        &frozen.snapshot.target.document_id,
+        &frozen.policy.version,
+        frozen.policy.audience,
+        frozen.purpose,
+    )
+    .map_err(|message| CoreError::new("InvalidConversationContext", &message))?;
     if frozen.snapshot.ordering_epoch != frozen.snapshot.context_source_epoch
         || frozen.snapshot.disclosure_policy_version != frozen.policy.version
     {
@@ -817,6 +842,7 @@ fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
 }
 
 fn validate_pins(db: &Connection, frozen: &FrozenContext) -> CoreResult<()> {
+    conversation_context::validate_conversation_at(db, frozen)?;
     let has_guidance: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='snapshot_guidance')", [], |row| row.get(0))?;
     if has_guidance {
         guidance::validate_guidance_at(

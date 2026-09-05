@@ -37,7 +37,11 @@ export interface FrozenContext {
   snapshot: StorySnapshot; policy: InformationPolicy; purpose: ContextPurpose;
   aliases: Record<string, string[]>; excludedSourceCount: number;
   guidance?: FrozenGuidance[];
+  conversation?: FrozenConversation;
 }
+export interface ConversationMessage { id: string; content: string; scope: ScopeGrant | null }
+export interface ConversationTurn { runId: string; packetId: string; sourceSnapshotId: string; policyVersion: string; user: ConversationMessage; assistant: ConversationMessage }
+export interface FrozenConversation { projectId: string; operationNamespace: string; documentId: string; threadId: string; turns: ConversationTurn[]; omittedTurns: number }
 export interface SourcePassage { handle: string; source: SourceRef; blockId: string; blockOrder: number; text: string }
 export interface SourceRead { descriptor: SourceDescriptor; passages: SourcePassage[]; body: WnsDocument; usedValidatedProjection: boolean }
 export interface ScopeGrant {
@@ -53,6 +57,8 @@ export interface PacketReceipt {
   packetId: string; sessionId: string; snapshotId: string; invocationOrdinal: string;
   sourceHandles: string[]; coverage: Array<{ handle: string; label: string; detail: CoverageDetail }>;
   guidanceHandles?: string[];
+  conversationMessageIds?: string[];
+  omittedDiscussionTurns?: number;
   omissions: string[]; inputHash: string; inputTokens: string; tokenAccountingMethod: string;
 }
 export interface CompiledPacket {

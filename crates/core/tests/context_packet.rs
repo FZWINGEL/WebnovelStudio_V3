@@ -111,6 +111,7 @@ fn frozen(
         aliases: BTreeMap::new(),
         excluded_source_count: 0,
         guidance: Vec::new(),
+        conversation: None,
     })
 }
 
@@ -160,6 +161,162 @@ fn guidance(text: &str) -> webnovel_core::context::guidance::FrozenGuidance {
             origin_message_id: None,
             created_at: "2026-09-05T00:00:00Z".into(),
         },
+    }
+}
+
+fn conversation_request() -> PacketRequest {
+    use webnovel_core::context::conversation::{
+        ConversationMessage, ConversationTurn, FrozenConversation,
+    };
+    let prose = body(&[("target-1", "Keep this exact ending.")]);
+    let target = source("target", "target-doc", &prose);
+    let optional_body = body(&[("old-1", &"An older promise. ".repeat(180))]);
+    let optional = source("earlier", "old-doc", &optional_body);
+    let mut frozen = frozen(
+        vec![target.clone(), optional.clone()],
+        ContextPurpose::Discuss,
+        Audience::AuthorRoom,
+    );
+    frozen
+        .guidance
+        .push(guidance("The ending must remain intact."));
+    frozen.conversation = Some(FrozenConversation {
+        project_id: PROJECT.into(),
+        operation_namespace: "operations".into(),
+        document_id: "target-doc".into(),
+        thread_id: "discussion".into(),
+        omitted_turns: 3,
+        turns: (0..2)
+            .map(|index| ConversationTurn {
+                run_id: format!("run-{index}"),
+                packet_id: format!("old-packet-{index}"),
+                source_snapshot_id: format!("old-source-{index}"),
+                policy_version: "1".into(),
+                user: ConversationMessage {
+                    id: format!("user-{index}"),
+                    content: format!("Question {index}: {}", "A prior question. ".repeat(20)),
+                    scope: None,
+                },
+                assistant: ConversationMessage {
+                    id: format!("assistant-{index}"),
+                    content: format!(
+                        "Unadopted reply {index}: {}",
+                        "A possible idea. ".repeat(35)
+                    ),
+                    scope: None,
+                },
+            })
+            .collect(),
+    });
+    request(
+        frozen,
+        vec![read(&target, &prose), read(&optional, &optional_body)],
+    )
+}
+
+#[test]
+fn discussion_packet_delivers_exact_whole_turns_in_chronological_order() {
+    let request = conversation_request();
+    let packet = compile(request.clone());
+    let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
+    assert_eq!(
+        envelope["recentDiscussion"],
+        serde_json::to_value(
+            request
+                .frozen
+                .conversation
+                .unwrap()
+                .turns
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        packet.receipt.conversation_message_ids,
+        ["user-1", "assistant-1", "user-0", "assistant-0"]
+    );
+    assert_eq!(packet.receipt.omitted_discussion_turns, 3);
+    assert!(
+        packet.messages[0]
+            .content
+            .contains("does not adopt earlier suggestions")
+    );
+    assert_eq!(packet.messages[2].content, request.instruction);
+}
+
+#[test]
+fn discussion_budget_extends_a_stable_prefix_without_clipping_turns_or_guidance() {
+    let mut request = conversation_request();
+    let mut prior_messages = std::collections::HashSet::new();
+    let mut prior_sources = std::collections::HashSet::new();
+    let mut saw_omitted = false;
+    let mut saw_full = false;
+    for window in (2000..16000).step_by(250) {
+        request.budget.context_window_tokens = window.to_string();
+        let Ok(packet) = compile_packet(&request) else {
+            continue;
+        };
+        let messages: std::collections::HashSet<_> = packet
+            .receipt
+            .conversation_message_ids
+            .iter()
+            .cloned()
+            .collect();
+        let sources: std::collections::HashSet<_> =
+            packet.receipt.source_handles.iter().cloned().collect();
+        assert!(prior_messages.is_subset(&messages));
+        assert!(prior_sources.is_subset(&sources));
+        assert_eq!(messages.len() % 2, 0);
+        assert_eq!(packet.messages[2].content, request.instruction);
+        assert_eq!(packet.receipt.guidance_handles.len(), 1);
+        let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
+        assert_eq!(
+            envelope["authorGuidance"],
+            serde_json::to_value(&request.frozen.guidance).unwrap()
+        );
+        if let Some(turns) = envelope["recentDiscussion"].as_array() {
+            for turn in turns {
+                assert!(
+                    request
+                        .frozen
+                        .conversation
+                        .as_ref()
+                        .unwrap()
+                        .turns
+                        .iter()
+                        .any(|original| serde_json::to_value(original).unwrap() == *turn)
+                );
+            }
+        }
+        saw_omitted |= messages.len() < 4;
+        saw_full |= messages.len() == 4 && sources.len() == 2;
+        prior_messages = messages;
+        prior_sources = sources;
+    }
+    assert!(saw_omitted && saw_full);
+}
+
+#[test]
+fn conversation_context_rejects_foreign_private_incomplete_and_oversized_turns() {
+    let valid = conversation_request();
+    for change in 0..7 {
+        let mut request = valid.clone();
+        let conversation = request.frozen.conversation.as_mut().unwrap();
+        match change {
+            0 => conversation.project_id = "other-project".into(),
+            1 => conversation.document_id = "other-document".into(),
+            2 => conversation.turns[0].policy_version = "0".into(),
+            3 => conversation.turns[0].assistant.content.clear(),
+            4 => conversation.turns[0].assistant.id = conversation.turns[0].user.id.clone(),
+            5 => conversation.turns[0].assistant.content = "x".repeat(17000),
+            _ => request.frozen.policy.audience = Audience::RestrictedWriting,
+        }
+        assert!(
+            matches!(compile_packet(&request), Err(PacketError::SourceBinding { code, .. }) if code == "InvalidConversationContext"),
+            "case {change}"
+        );
     }
 }
 
@@ -287,15 +444,28 @@ fn old_snapshot_and_receipt_json_keep_their_shape_when_guidance_is_absent() {
     );
     let frozen_json = serde_json::to_value(&frozen).unwrap();
     assert!(frozen_json.get("guidance").is_none());
+    assert!(frozen_json.get("conversation").is_none());
     let reloaded: FrozenContext = serde_json::from_value(frozen_json.clone()).unwrap();
     assert_eq!(serde_json::to_value(&reloaded).unwrap(), frozen_json);
     let packet = compile(request(reloaded, vec![read(&target, &prose)]));
     let packet_json = serde_json::to_value(&packet).unwrap();
     assert!(packet_json["receipt"].get("guidanceHandles").is_none());
+    assert!(
+        packet_json["receipt"]
+            .get("conversationMessageIds")
+            .is_none()
+    );
+    assert!(
+        packet_json["receipt"]
+            .get("omittedDiscussionTurns")
+            .is_none()
+    );
     let reloaded: CompiledPacket = serde_json::from_value(packet_json.clone()).unwrap();
     assert_eq!(serde_json::to_value(&reloaded).unwrap(), packet_json);
     let envelope: Value = serde_json::from_str(&reloaded.messages[1].content).unwrap();
     assert!(envelope.get("authorGuidance").is_none());
+    assert!(envelope.get("recentDiscussion").is_none());
+    assert!(envelope.get("omittedDiscussionTurns").is_none());
 }
 
 #[test]

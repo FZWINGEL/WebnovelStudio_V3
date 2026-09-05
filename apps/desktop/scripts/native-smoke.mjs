@@ -380,6 +380,14 @@ try {
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
   await page.locator('.context-inspector details[open] .context-guidance').scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(output, 'guidance-receipt.png') });
+  const earlierExchange = page.locator('.context-inspector > details[open] .context-turn').first();
+  await earlierExchange.locator('summary').click();
+  await earlierExchange.getByText('Keep this image, but make its meaning less obvious.', { exact: true }).waitFor();
+  await earlierExchange.getByText('This test confirms discussion and context handling', { exact: false }).waitFor();
+  await earlierExchange.scrollIntoViewIfNeeded();
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
+  await page.screenshot({ path: resolve(output, 'discussion-context.png') });
+  checks.push('Native follow-up discussion receives and displays the exact earlier complete exchange separately from saved guidance without changing the manuscript');
   await page.reload();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
   await page.locator('.guidance-item p').filter({ hasText: /^Preserve the final lantern image and keep the ending intact\.$/ }).waitFor({ state: 'attached' });

@@ -1,7 +1,7 @@
 # WebnovelStudio V3 — Story Context Engine
 
 **Design extension · 5 September 2026**
-**Status:** adopted design; C0–C2 are implemented and pushed. C3 author guidance persistence, frozen packet binding, and inspector display are implemented locally through W4 persistent discussions; the local C3 native checkpoint passed 17/17 checks. Relevant permitted conversation-history compilation, linked retry guidance reuse, persistent chapter/project source pins, safe briefs, durable Apply, C4–C6, provider integration, and benchmark execution remain open. See [implementation status](IMPLEMENTATION_STATUS.md).
+**Status:** adopted design; C0–C2 are implemented and pushed. C3 author guidance persistence, frozen packet binding, and inspector display are implemented and pushed. Bounded recent discussion context is implemented locally through W4; its native checkpoint passed 18/18 checks. Linked retry guidance reuse, persistent chapter/project source pins, safe briefs, durable Apply, C4–C6, provider integration, and benchmark execution remain open. See [implementation status](IMPLEMENTATION_STATUS.md).
 **Extends:** `V3_ARCHITECTURE_REFINED.md`, especially §§9–11. Replaces the minimal context compiler in §10 with the design below.
 **Companion:** `V3_STORY_CONTEXT_FIRST_SLICE.md`.
 
@@ -433,11 +433,11 @@ This is information-flow risk reduction, not semantic proof. Incomplete author a
 
 ### 11.1 Preserve decisions, not an endlessly growing transcript
 
-A persistent conversation retains all messages locally. The design calls for each new request to compile relevant permitted recent turns plus explicitly adopted creative decisions and source-bound references; relevant permitted history compilation is not implemented in the current C3 slice. It does not blindly replay every old response.
+A persistent conversation retains all messages locally. The current C3 slice compiles a bounded selection of recent complete exchanges plus separately adopted guidance. It considers up to four completed and delivered turns within 16 KiB of exact serialized records, from the same document thread, operation namespace, and current policy. It freezes original text, selected scopes, and message/source IDs, and reports omissions. The first selector uses recency; richer relevance selection remains later work. See [ADR 0003](ADR_0003_DISCUSSION_CONTEXT.md).
 
 A message such as “Keep the ending, remove the sarcastic tone, and don't kill the sister” matters. The current discussion UI offers **Keep as guidance**, opens an editable form, and requires the author to save the exact text with a scope of Next request, This document, or This project. Direct entry, edit, and retire use the same immutable versioned record and Rust-owned operation receipt. A frozen guidance record is separately typed, included exactly as mandatory AuthorRoom packet input, and shown by the inspector; restricted writing excludes all current guidance. Request guidance is consumed atomically only with a successfully persisted discussion start, and failed starts retain it. A linked retry is a new logical request and does not yet reuse consumed request guidance. The confirmed instruction is an author decision, not merely a sentence inside a lossy chat summary, and it is not automatically a world fact.
 
-Conversation digests are a future generated navigation aid with message-range provenance. If a digest says the author selected option B, the original decision/message must support it. Unaccepted assistant inventions do not become story knowledge through chat compaction. Superseded preferences remain historical; their current scope/version decides whether they are included. Persistent chapter/project source pins, safe-brief transfer, and permitted history packing remain future C3 work.
+Conversation digests are a future generated navigation aid with message-range provenance. If a digest says the author selected option B, the original decision/message must support it. Unaccepted assistant inventions do not become story knowledge through chat compaction. Superseded preferences remain historical; their current scope/version decides whether they are included. Persistent chapter/project source pins, safe-brief transfer, linked retry guidance reuse, and richer conversation selection remain future C3 work.
 
 ### 11.2 Rebuild between tasks; do not depend on provider memory
 

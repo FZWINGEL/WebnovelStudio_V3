@@ -51,7 +51,7 @@ Safe-brief creation remains later work. That brief will be a separate, explicit 
 
 The confirmation explains the resulting scope and whether the instruction is author-room-only. Guidance controls must not imply that the assistant authored or reviewed the instruction.
 
-Recent conversation compilation is a separate C3 task and remains unimplemented. Raw chat remains locally retained, but only relevant permitted history may enter a later packet when that work lands. Chat is not canon, does not become guidance automatically, and does not cause a source-epoch change merely because it is retained or summarized.
+Bounded recent conversation compilation is implemented separately in [ADR 0003](ADR_0003_DISCUSSION_CONTEXT.md). Raw chat remains locally retained; only selected complete exchanges from the current document thread and policy enter later AuthorRoom packets. Chat is not canon, does not become guidance automatically, and does not cause a source-epoch change merely because it is retained.
 
 ## Persistence, recovery, and compatibility
 
@@ -67,4 +67,4 @@ This design gives the author a durable place for decisions such as “keep the e
 
 The implementation remains deliberately small: relational records, exact text and hashes, existing snapshot/packet receipts, and the current context epoch. It does not add hidden notes, a second canon database, an independently editable memory graph, provider-side memory, or a new orchestration framework.
 
-The local implementation and tests cover request consumption after successful binding, edit/retire epoch invalidation, mandatory-budget refusal, restricted-writing exclusion, recovery identity fencing, exact packet receipts, and stable empty-field serialization. The native guidance flow also passes. Remaining C3 history, persistent pins, safe briefs, and release qualification are separate work; this ADR does not claim a shipped release.
+The local implementation and tests cover request consumption after successful binding, edit/retire epoch invalidation, mandatory-budget refusal, restricted-writing exclusion, recovery identity fencing, exact packet receipts, and stable empty-field serialization. The native guidance flow also passes. Richer conversation selection, linked retry guidance reuse, persistent pins, safe briefs, and release qualification are separate work; this ADR does not claim a shipped release.

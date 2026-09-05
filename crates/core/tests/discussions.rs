@@ -170,6 +170,251 @@ fn discussion(
         .expect("read discussion")
 }
 
+fn completed_turn(
+    project: &ProjectSession,
+    access: &ProjectAccess,
+    document: &webnovel_core::projects::DocumentRecord,
+    id: &str,
+    text: &str,
+) -> webnovel_core::projects::discussions::DiscussionStart {
+    let result = start(project, access, document, id);
+    begin(project, &result.run.owner);
+    project
+        .mark_discussion_delivered(result.run.owner.clone())
+        .unwrap();
+    append(
+        project,
+        &result.run.owner,
+        "0",
+        &format!("{id}-chunk"),
+        text,
+    );
+    finish(
+        project,
+        &result.run.owner,
+        "1",
+        &format!("{id}-finish"),
+        text,
+    );
+    result
+}
+
+#[test]
+fn recent_complete_turns_are_exact_capped_and_frozen_across_retry_and_restart() {
+    let temp = TempDir::new("recent-conversation");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    for index in 0..6 {
+        completed_turn(
+            &project,
+            &access,
+            &document,
+            &format!("turn-{index}"),
+            &format!("Reply {index}: an unadopted idea."),
+        );
+    }
+    let partial = start(&project, &access, &document, "partial");
+    begin(&project, &partial.run.owner);
+    append(
+        &project,
+        &partial.run.owner,
+        "0",
+        "partial-chunk",
+        "Incomplete reply.",
+    );
+    project
+        .stop_discussion(access.clone(), partial.run.id)
+        .unwrap();
+    let source_epoch = project.context_source_epoch().unwrap();
+    let result = completed_turn(
+        &project,
+        &access,
+        &document,
+        "follow-up",
+        "A later completed reply.",
+    );
+    let frozen = project
+        .story_snapshot(access.clone(), result.packet.receipt.snapshot_id.clone())
+        .unwrap();
+    let conversation = frozen.conversation.unwrap();
+    assert_eq!(conversation.turns.len(), 4);
+    assert_eq!(conversation.omitted_turns, 2);
+    assert_eq!(
+        conversation.turns[0].assistant.content,
+        "Reply 5: an unadopted idea."
+    );
+    assert_eq!(
+        conversation.turns[3].assistant.content,
+        "Reply 2: an unadopted idea."
+    );
+    let envelope: Value = serde_json::from_str(&result.packet.messages[1].content).unwrap();
+    assert_eq!(
+        envelope["recentDiscussion"][0]["assistant"]["content"],
+        "Reply 2: an unadopted idea."
+    );
+    assert_eq!(result.packet.receipt.conversation_message_ids.len(), 8);
+    assert_eq!(result.packet.receipt.omitted_discussion_turns, 2);
+    assert_eq!(
+        start(&project, &access, &document, "follow-up").packet,
+        result.packet
+    );
+    assert_eq!(project.context_source_epoch().unwrap(), source_epoch);
+    assert_eq!(
+        project
+            .document(access, document.head.document_id.clone())
+            .unwrap()
+            .body,
+        document.body
+    );
+    drop(project);
+    let reopened = ProjectSession::open(path).unwrap();
+    let access = reopened.attach("reopened-discussion".into()).unwrap();
+    assert_eq!(
+        reopened
+            .prepared_context(access, result.packet.receipt.packet_id.clone())
+            .unwrap(),
+        result.packet
+    );
+}
+
+#[test]
+fn conversation_is_excluded_across_documents_policy_and_recovery() {
+    let temp = TempDir::new("conversation-boundaries");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    completed_turn(
+        &project,
+        &access,
+        &document,
+        "source",
+        "A private earlier discussion.",
+    );
+    let second = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "other-doc".into(),
+            document_id: "other-doc".into(),
+            title: "Other".into(),
+            kind: "chapter".into(),
+            body: body("Other chapter."),
+        })
+        .unwrap();
+    assert!(
+        start(&project, &access, &second, "other-discussion")
+            .packet
+            .receipt
+            .conversation_message_ids
+            .is_empty()
+    );
+    let old = start(&project, &access, &document, "uses-history");
+    assert_eq!(old.packet.receipt.conversation_message_ids.len(), 2);
+    project
+        .revoke_story_context(access.clone(), "0".into())
+        .unwrap();
+    let current = start(&project, &access, &document, "after-revocation");
+    assert!(current.packet.receipt.conversation_message_ids.is_empty());
+    assert_eq!(
+        project
+            .prepared_context(access, old.packet.receipt.packet_id)
+            .unwrap_err()
+            .code,
+        "ContextPolicyChanged"
+    );
+    let archive = temp.child("history.wnsbackup");
+    create_backup(&project, &archive).unwrap();
+    let copy = recover_backup(&archive, &temp.child("copy"), "Recovered history").unwrap();
+    let access = copy.attach("copy-session".into()).unwrap();
+    let doc = copy
+        .document(access.clone(), document.head.document_id)
+        .unwrap();
+    assert!(
+        start(&copy, &access, &doc, "copy-request")
+            .packet
+            .receipt
+            .conversation_message_ids
+            .is_empty()
+    );
+    assert!(
+        discussion(&copy, &access)
+            .messages
+            .iter()
+            .any(|m| m.content == "A private earlier discussion.")
+    );
+}
+
+#[test]
+fn oversized_recent_reply_is_retained_but_omitted_as_a_whole_turn() {
+    let temp = TempDir::new("conversation-limit");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    completed_turn(&project, &access, &document, "small", "Small older reply.");
+    let large = "A long unadopted alternative. ".repeat(800);
+    completed_turn(&project, &access, &document, "large", &large);
+    let current = start(&project, &access, &document, "after-large");
+    assert!(current.packet.receipt.conversation_message_ids.is_empty());
+    assert_eq!(current.packet.receipt.omitted_discussion_turns, 2);
+    assert!(
+        discussion(&project, &access)
+            .messages
+            .iter()
+            .any(|m| m.content == large)
+    );
+    let envelope: Value = serde_json::from_str(&current.packet.messages[1].content).unwrap();
+    assert!(envelope.get("recentDiscussion").is_none());
+    assert_eq!(envelope["omittedDiscussionTurns"], 2);
+}
+
+#[test]
+fn frozen_conversation_rejects_changed_retained_message_text() {
+    let temp = TempDir::new("conversation-integrity");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    completed_turn(
+        &project,
+        &access,
+        &document,
+        "source-turn",
+        "The exact original reply.",
+    );
+    let result = start(&project, &access, &document, "frozen-turn");
+    let source_id = result.packet.receipt.conversation_message_ids[1].clone();
+    let db = Connection::open(project.path.join("project.sqlite3")).unwrap();
+    db.execute_batch("DROP TRIGGER discussion_messages_no_update;")
+        .unwrap();
+    db.execute(
+        "UPDATE discussion_messages SET content='Changed reply' WHERE id=?",
+        [source_id],
+    )
+    .unwrap();
+    assert_eq!(
+        project
+            .prepared_context(access, result.packet.receipt.packet_id)
+            .unwrap_err()
+            .code,
+        "InvalidConversationContext"
+    );
+    assert_eq!(
+        create_backup(&project, &temp.child("invalid.wnsbackup"))
+            .unwrap_err()
+            .code,
+        "InvalidBackup"
+    );
+}
+
+#[test]
+fn an_empty_completed_answer_does_not_block_later_discussion() {
+    let temp = TempDir::new("conversation-empty-answer");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    completed_turn(
+        &project,
+        &access,
+        &document,
+        "useful",
+        "A useful older reply.",
+    );
+    completed_turn(&project, &access, &document, "blank", " \n\t");
+    let current = start(&project, &access, &document, "after-blank");
+    assert_eq!(current.packet.receipt.conversation_message_ids.len(), 2);
+    assert_eq!(current.packet.receipt.omitted_discussion_turns, 1);
+}
+
 fn save_draft(
     project: &ProjectSession,
     access: &ProjectAccess,

@@ -11,10 +11,11 @@ A native desktop writing application for English webnovels, built with Rust, Tau
 - Rich-text editing, local SQLite autosave, retained document positions, and flush-before-switch behavior.
 - Manual backup, independent recovered projects, and explicit draft-TXT export.
 - Persistent document discussion, selected-passage feedback, unsent drafts, Stop, and retry using the local test model.
+- Exact recent completed exchanges in follow-up discussion, with visible omissions when context is limited.
 - **Keep as guidance** from a chat message, or directly add a direction. Edit, save, and remove instructions for the next request, this document, or this project.
 - **Story context** inspection that distinguishes saved sources available to a request from the exact material supplied for its response.
 
-Guidance is an explicit author choice and never changes manuscript text or establishes canon. Requests retain the exact instruction versions they used. Restricted writing excludes private author-room guidance. Conversation-history compilation, persistent chapter/project source pins, generated memory digests, and bounded live-provider lookups remain planned parts of the [Story Context Engine](docs/V3_STORY_CONTEXT_SYSTEM.md).
+Guidance is an explicit author choice and never changes manuscript text or establishes canon. Requests retain the exact instruction versions and prior exchanges they used. Restricted writing excludes private author-room guidance and conversation. Persistent chapter/project source pins, generated memory digests, and bounded live-provider lookups remain planned parts of the [Story Context Engine](docs/V3_STORY_CONTEXT_SYSTEM.md).
 
 The separately opened **sample editor trial** demonstrates session-only replacement preview, local Apply, and undo. Its sample prose disappears on close. The default Library/Workspace uses persistent projects; it does not yet have durable suggestion Apply.
 

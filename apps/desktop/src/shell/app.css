@@ -213,6 +213,9 @@ input::placeholder { color: #637083; }
 .guidance-error { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 10px; color: #9b2932; font-size: 11px; line-height: 1.5; }
 .guidance-status { margin: 9px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .context-inspector .context-guidance p { white-space: pre-wrap; }
+.context-inspector .context-turn { display: block; }
+.context-turn p, .context-turn blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.context-turn strong { display: block; margin-top: 12px; }
 @media (max-width: 900px) {
   .document-sidebar { width: 205px; }.persistent-workspace .app-header { padding-inline: 16px; }
   .persistent-workspace .document-heading { padding: 18px 24px; }.library-heading { align-items: flex-start; }
