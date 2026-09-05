@@ -198,6 +198,29 @@ pub fn capture_scope(source_snapshot: &Value, mut scope: ScopeGrant) -> Result<S
 
 /// Validate a prepared result against its canonical source and explicit grant.
 pub fn validate_scope(request: &ScopeValidationRequest) -> Result<ScopeReceipt, String> {
+    validate_scope_impl(request, None)
+}
+
+/// Validate the first prepared-proposal fragment grammar: an exact single-line
+/// text replacement. Uniform selected marks are inherited; mixed marks become
+/// plain text. This checks the proposed text as well as the protected gaps.
+pub fn validate_text_replacement(
+    request: &ScopeValidationRequest,
+    text: &str,
+) -> Result<ScopeReceipt, String> {
+    if request.scope.kind != ScopeKind::Passage {
+        return Err("text replacement requires an explicit passage scope".into());
+    }
+    if text.contains(['\r', '\n']) || text.encode_utf16().count() > 100_000 {
+        return Err("replacement must be one line and at most 100,000 UTF-16 units".into());
+    }
+    validate_scope_impl(request, Some(text))
+}
+
+fn validate_scope_impl(
+    request: &ScopeValidationRequest,
+    replacement_text: Option<&str>,
+) -> Result<ScopeReceipt, String> {
     let source = canonical_snapshot(&request.source_snapshot)
         .map_err(|error| format!("source snapshot is invalid: {error}"))?;
     let result = canonical_snapshot(&request.result_snapshot)
@@ -269,6 +292,10 @@ pub fn validate_scope(request: &ScopeValidationRequest) -> Result<ScopeReceipt, 
         request.scope.kind,
     )?;
 
+    if let Some(text) = replacement_text {
+        validate_text_fragment(&source_doc, &range, replacement, text)?;
+    }
+
     Ok(ScopeReceipt {
         accepted: true,
         scope: request.scope.kind,
@@ -293,6 +320,48 @@ pub fn validate_scope(request: &ScopeValidationRequest) -> Result<ScopeReceipt, 
             .try_into()
             .map_err(|_| "replacement token count exceeds u32".to_owned())?,
     })
+}
+
+fn validate_text_fragment(
+    source: &TokenDocument,
+    range: &TokenRange,
+    replacement: &[StructuralToken],
+    text: &str,
+) -> Result<(), String> {
+    let style = source.blocks[range.first_block]
+        .style
+        .as_ref()
+        .ok_or("text replacement cannot include a scene break")?;
+    if source.blocks[range.first_block..=range.last_block]
+        .iter()
+        .any(|block| block.style.as_ref() != Some(style))
+    {
+        return Err("text replacement requires matching paragraph or heading styles".into());
+    }
+    let selected = &source.tokens[range.start..range.end];
+    let mut mark_sets = selected.iter().filter_map(|token| match token {
+        StructuralToken::Scalar { marks, .. } => Some(marks.as_slice()),
+        StructuralToken::HardBreak { .. } => Some(&[][..]),
+        _ => None,
+    });
+    let first = mark_sets.next().unwrap_or(&[]);
+    let inherited = if mark_sets.all(|marks| marks == first) {
+        first
+    } else {
+        &[]
+    };
+    let expected = text.chars().map(|scalar| StructuralToken::Scalar {
+        scalar: scalar.to_string(),
+        marks: inherited.to_vec(),
+        style: style.clone(),
+    });
+    if !expected.eq(replacement.iter().cloned()) {
+        return Err(
+            "prepared result does not match the exact replacement text and inherited formatting"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 /// Produce the canonical structural token stream for a validated snapshot.

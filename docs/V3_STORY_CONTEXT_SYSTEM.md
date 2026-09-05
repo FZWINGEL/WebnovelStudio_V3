@@ -1,7 +1,7 @@
 # WebnovelStudio V3 — Story Context Engine
 
 **Design extension · 5 September 2026**
-**Status:** adopted design; C0–C2 are implemented and pushed. C3 author guidance persistence, frozen packet binding, and inspector display are implemented and pushed. Bounded recent discussion context is implemented and pushed. Linked retry guidance and saved retry mode are implemented locally through W4; the native checkpoint passed 19/19 checks. Persistent chapter/project source pins, safe briefs, durable Apply, C4–C6, provider integration, and benchmark execution remain open. See [implementation status](IMPLEMENTATION_STATUS.md).
+**Status:** adopted design; C0–C2 are implemented and pushed. C3 author guidance persistence, frozen packet binding, and inspector display are implemented and pushed. Bounded recent discussion context is implemented and pushed. Linked retry guidance and saved retry mode are implemented and pushed through W4; the native checkpoint passed 19/19 checks. Persistent chapter/project source pins, safe briefs, durable Apply, C4–C6, provider integration, and benchmark execution remain open. See [implementation status](IMPLEMENTATION_STATUS.md).
 **Extends:** `V3_ARCHITECTURE_REFINED.md`, especially §§9–11. Replaces the minimal context compiler in §10 with the design below.
 **Companion:** `V3_STORY_CONTEXT_FIRST_SLICE.md`.
 

@@ -131,6 +131,9 @@ try {
   await page.waitForFunction(() => document.activeElement.classList.contains('tiptap'));
   await page.keyboard.press('Control+Shift+f');
   await page.getByRole('textbox', { name: 'Your feedback on this passage' }).waitFor();
+  // The label can already exist from an earlier selection. Wait for the
+  // requestAnimationFrame focus handoff itself, not just that existing label.
+  await page.waitForFunction(() => document.activeElement?.id === 'feedback-input');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'feedback-input');
   checks.push('Ctrl+Shift+F captures selection and transfers focus');
 

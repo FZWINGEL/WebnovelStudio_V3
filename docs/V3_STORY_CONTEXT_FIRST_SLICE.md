@@ -3,7 +3,7 @@
 **Implementation plan · 5 September 2026**
 **Contract:** `V3_STORY_CONTEXT_SYSTEM.md`.
 **Base:** `V3_ARCHITECTURE_REFINED.md` and `V3_FIRST_SLICE_PLAN.md`.
-**Status:** C0 pure contracts and 16 adversarial tests are implemented. C1's working-basis snapshot/retrieval slice is implemented and tested. C2's Rust pure deterministic compiler, durable exact packet receipts, and native IPC path are implemented and pushed. C3 guidance persistence, frozen packet binding, and inspector display are implemented and pushed. Bounded recent discussion context is implemented and pushed. Linked retry guidance and durable composer mode are implemented locally; the current native checkpoint covers 19/19 checks. Persistent chapter/project pins, safe briefs, durable Apply, C4–C6, and final qualification remain open.
+**Status:** C0 pure contracts and 16 adversarial tests are implemented. C1's working-basis snapshot/retrieval slice is implemented and tested. C2's Rust pure deterministic compiler, durable exact packet receipts, and native IPC path are implemented and pushed. C3 guidance persistence, frozen packet binding, and inspector display are implemented and pushed. Bounded recent discussion context is implemented and pushed. Linked retry guidance and durable composer mode are implemented and pushed; the current native checkpoint covers 19/19 checks. Persistent chapter/project pins, safe briefs, durable Apply, C4–C6, and final qualification remain open.
 
 The supplied research and proposal are rationale for this adopted design, not newly verified validation or completed implementation evidence.
 
