@@ -87,6 +87,7 @@ fn main() {
             runtime_info,
             project_commands::create_project,
             project_commands::open_project,
+            project_commands::reconcile_project,
             project_commands::create_document,
             project_commands::list_documents,
             project_commands::read_document,

@@ -10,6 +10,12 @@ export interface ViewState { documentId: string; head: Head; anchor: Endpoint; f
 export interface ProjectMetadata { project: ProjectInfo; metadataVersion: string; libraryWarning?: string | null }
 export interface DocumentRecord { head: Head; title: string; kind: string; metadataVersion: string; body: WnsDocument; lastCheckpointId: string | null }
 export interface OpenedProject { project: ProjectInfo; access: ProjectAccess; documents: DocumentRecord[]; metadataVersion: string; viewState: ViewState | null; libraryWarning: string | null }
+/**
+ * The immutable identity and payload of one document creation intent.
+ * Keeping these values outside the IPC wrapper makes a retry idempotent even
+ * when the first renderer invocation lost its acknowledgment.
+ */
+export interface CreateDocumentIntent { operationId: string; documentId: string; title: string; kind: string; body: WnsDocument }
 export interface SaveSnapshot {
   access: ProjectAccess; operationId: string; expected: Head; localGeneration: string;
   body: WnsDocument; cause: 'typing' | 'undo' | 'redo';
@@ -44,9 +50,11 @@ export const projectTransport: ProjectTransport = {
 };
 export const createProject = (path: string, title: string, session: string): Promise<OpenedProject> => invoke('create_project', { path, title, session });
 export const openProject = (path: string, session: string): Promise<OpenedProject> => invoke('open_project', { path, session });
-export const createDocument = (access: ProjectAccess, title: string, kind: string, body: WnsDocument): Promise<DocumentRecord> => invoke('create_document', {
-  request: { access, title, kind, body, documentId: crypto.randomUUID(), operationId: crypto.randomUUID() },
+export const createDocument = (access: ProjectAccess, intent: CreateDocumentIntent): Promise<DocumentRecord> => invoke('create_document', {
+  request: { access, ...intent },
 });
+/** Reopen the project actor and attach a fresh writer lease before retrying an uncertain create. */
+export const reconcileProject = (projectId: string, session: string): Promise<OpenedProject> => invoke('reconcile_project', { projectId, session });
 export const readDocument = (access: ProjectAccess, documentId: string): Promise<DocumentRecord> => invoke('read_document', { access, documentId });
 export const documentHistory = (access: ProjectAccess, documentId: string): Promise<Revision[]> => invoke('document_history', { access, documentId });
 export const projectMetadata = (projectId: string): Promise<ProjectMetadata> => invoke('project_metadata', { projectId });

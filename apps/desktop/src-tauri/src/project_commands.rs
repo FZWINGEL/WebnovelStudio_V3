@@ -172,6 +172,30 @@ pub async fn open_project(
     let registry = state.inner().clone();
     execute(move || registry.open(PathBuf::from(path), None, session)).await
 }
+/// Recover a project actor after an uncertain renderer command and return one
+/// complete snapshot. The core attaches a fresh lease only after it has
+/// reopened and validated the connection, which also works for empty projects.
+#[tauri::command]
+pub async fn reconcile_project(
+    project_id: String,
+    session: String,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<OpenedProject> {
+    let project = state.project(&project_id)?;
+    execute(move || {
+        let attached = project.attach_snapshot(session)?;
+        let metadata = attached.metadata;
+        Ok(OpenedProject {
+            project: metadata.project,
+            metadata_version: metadata.metadata_version,
+            view_state: attached.view_state,
+            documents: attached.documents,
+            access: attached.access,
+            library_warning: None,
+        })
+    })
+    .await
+}
 #[tauri::command]
 pub async fn create_document(
     request: CreateDocument,

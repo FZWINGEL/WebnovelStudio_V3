@@ -208,6 +208,13 @@ try {
   assert.equal(persisted.reopened.documents[0].lastCheckpointId, persisted.revision.id);
   checks.push('Real project IPC creates file-backed prose, saves once, checkpoints, fences stale writers and reopens the latest head');
   await page.getByRole('button', { name: 'Back to library', exact: true }).click();
+  async function fillManuscript(text) {
+    await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill(text);
+    // Playwright's contenteditable fill may finish before ProseMirror's DOM
+    // observer has applied the transaction. Exercise pending autosave only
+    // after the actual editor model (not just its DOM) contains the new text.
+    await page.waitForFunction(expected => document.querySelector('.tiptap')?.editor?.getText() === expected, text);
+  }
   async function createWritingProject(title, kind, documentTitle, text) {
     await page.getByRole('button', { name: 'New project', exact: true }).click();
     await page.getByRole('textbox', { name: 'Project title', exact: true }).fill(title);
@@ -216,7 +223,8 @@ try {
     await page.getByLabel('Start with', { exact: true }).selectOption(kind);
     await page.getByRole('textbox', { name: 'Title', exact: true }).fill(documentTitle);
     await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill(text);
+    await page.getByRole('heading', { name: documentTitle, exact: true }).waitFor();
+    await fillManuscript(text);
     await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
   }
   await createWritingProject('Harbour A', 'character', 'Mei', 'Mei keeps the brass key. Her voice is quiet.');
@@ -225,7 +233,7 @@ try {
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour A Last opened/ }).click();
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei keeps the brass key. Her voice is quiet.');
-  await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill('Mei keeps the brass key. She has made her choice.');
+  await fillManuscript('Mei keeps the brass key. She has made her choice.');
   // Navigate while debounce is pending: the lifecycle guard must drain it.
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour B Last opened/ }).click();
@@ -239,7 +247,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.trial-label')?.textContent.includes('Harbour A copy') || !!document.querySelector('[role="alert"]'));
   assert.equal(await page.getByRole('alert').count(), 0, await page.getByRole('alert').allTextContents().then(text => text.join('\n')));
   await page.locator('.trial-label').filter({ hasText: 'Harbour A copy' }).waitFor();
-  await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill('Only the independent copy changes.');
+  await fillManuscript('Only the independent copy changes.');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   const libraryBeforeRestart = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
   assert.equal(libraryBeforeRestart.entries.length, 3);
@@ -286,7 +294,7 @@ try {
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Ending to protect');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('heading', { name: 'Ending to protect', exact: true }).waitFor();
-  await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill('Keep the final lantern burning.');
+  await fillManuscript('Keep the final lantern burning.');
   await page.evaluate(() => document.querySelector('.tiptap').editor.commands.setTextSelection(7));
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();

@@ -605,7 +605,10 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let connection = Connection::open(&database_path).expect("open source database");
     connection
         .execute_batch(
-            "DROP TABLE view_state; ALTER TABLE project DROP COLUMN context_source_epoch;",
+            "DROP TABLE snapshot_sources; DROP TABLE story_snapshots;
+             DROP TABLE passage_projections; DROP TABLE document_aliases;
+             ALTER TABLE project DROP COLUMN disclosure_policy_epoch;
+             DROP TABLE view_state; ALTER TABLE project DROP COLUMN context_source_epoch;",
         )
         .expect("downgrade synthetic schema");
     connection
@@ -652,5 +655,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
 }

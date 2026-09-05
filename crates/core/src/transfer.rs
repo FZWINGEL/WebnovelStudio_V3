@@ -24,7 +24,7 @@ use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 const BACKUP_FORMAT_VERSION: u32 = 1;
-const DATABASE_SCHEMA_VERSION: u32 = 2;
+const DATABASE_SCHEMA_VERSION: u32 = crate::storage::LATEST_SCHEMA_VERSION as u32;
 const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_DATABASE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
@@ -465,6 +465,12 @@ fn validate_database(path: &Path, expected: Option<&ProjectInfo>) -> CoreResult<
             format!("The saved view state is invalid: {error}"),
         )
     })?;
+    crate::projects::story_context::validate_context_storage(&connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The story context is invalid: {error}"),
+        )
+    })?;
     let mut documents = Vec::new();
     let mut statement = connection.prepare(
         "SELECT id,working_version,body_hash,last_checkpoint_id,body_json,schema_version \
@@ -595,10 +601,7 @@ fn manifest_for(database: &DatabaseHeads, hash: String) -> BackupManifest {
 
 fn validate_manifest(manifest: &BackupManifest) -> CoreResult<()> {
     if manifest.format_version != BACKUP_FORMAT_VERSION
-        || !matches!(
-            manifest.database_schema_version,
-            1 | DATABASE_SCHEMA_VERSION
-        )
+        || !(1..=DATABASE_SCHEMA_VERSION).contains(&manifest.database_schema_version)
     {
         return Err(transfer_error(
             "UnsupportedSchema",

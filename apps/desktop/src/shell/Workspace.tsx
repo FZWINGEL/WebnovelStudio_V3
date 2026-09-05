@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { DocumentSession } from '../editor/session';
-import { createDocument, readDocument, projectTransport, projectMetadata, renameProject, renameDocument, type DocumentRecord, type OpenedProject, type ViewState } from '../ipc/projects';
+import { createDocument, reconcileProject, readDocument, projectTransport, projectMetadata, renameProject, renameDocument, type CreateDocumentIntent, type DocumentRecord, type OpenedProject, type ProjectAccess, type ViewState } from '../ipc/projects';
+import { CreateIntentRecoveryError, CreateIntentUnresolvedError, runCreateIntent } from '../ipc/createIntent';
 import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, projectBackup, projectExportDraft, type LibrarySnapshot } from '../ipc/library';
 import { App as EditorTrial } from './App';
 import { Writer } from './Writer';
@@ -38,6 +39,7 @@ export function Workspace() {
   const [error, setError] = useState('');
   const renderer = useRef(crypto.randomUUID());
   const creation = useRef({ id: crypto.randomUUID(), title: '' });
+  const documentIntent = useRef<CreateDocumentIntent | null>(null);
   const recovery = useRef(crypto.randomUUID());
   const duplication = useRef({ id: crypto.randomUUID(), source: '' });
   const [loading, setLoading] = useState(true);
@@ -68,7 +70,58 @@ export function Workspace() {
     setSearch(''); setNewProject(false); setNewDocument(false); setRenaming(false); setRenamingDocument(false);
     if (opened.libraryWarning) setNotice(`Project opened. Library update needs attention: ${opened.libraryWarning}`);
   }
+
+  /** Keep a reconciled lease attached to the mounted editor before using its snapshot. */
+  async function adoptCreateSnapshot(snapshot: OpenedProject): Promise<ProjectAccess> {
+    const current = activeRef.current;
+    if (!current) {
+      setProject(snapshot);
+      return snapshot.access;
+    }
+    await current.session.reconcile();
+    const access = current.session.projectAccess;
+    const currentRecord = snapshot.documents.find(document => document.head.documentId === current.record.head.documentId) ?? current.record;
+    setActive({ ...current, record: currentRecord, viewState: snapshot.viewState });
+    setProject({ ...snapshot, access });
+    return access;
+  }
+
+  /**
+   * Resolve the pending logical create before navigation or another create.
+   * The intent stays in the ref until this returns, so a lost renderer ACK
+   * cannot turn a retry into a second document.
+   */
+  async function settlePendingDocumentIntent(): Promise<{ record: DocumentRecord; access: ProjectAccess; opened: OpenedProject } | null> {
+    const intent = documentIntent.current;
+    const currentProject = project;
+    if (!intent || !currentProject) return null;
+    const current = activeRef.current;
+    if (current && current.session.state.phase === 'reconciling') await current.session.reconcile();
+    if (current && ['editing', 'saveFailed'].includes(current.session.state.phase)) await current.session.flush();
+    let result;
+    try {
+      result = await runCreateIntent({
+        projectId: currentProject.project.projectId,
+        session: renderer.current,
+        access: current?.session.projectAccess ?? currentProject.access,
+        intent,
+        transport: { createDocument, reconcileProject },
+        onReconciled: adoptCreateSnapshot,
+      });
+    } catch (reason) {
+      if (!(reason instanceof CreateIntentRecoveryError) && !(reason instanceof CreateIntentUnresolvedError)) documentIntent.current = null;
+      throw reason;
+    }
+    documentIntent.current = null;
+    const base = result.snapshot ?? currentProject;
+    const opened = { ...base, access: result.access, documents: base.documents.some(document => document.head.documentId === result.record.head.documentId)
+      ? base.documents.map(document => document.head.documentId === result.record.head.documentId ? result.record : document)
+      : [...base.documents, result.record] };
+    setProject(opened);
+    return { record: result.record, access: result.access, opened };
+  }
   async function navigate<T>(prepare: () => Promise<T>): Promise<T> {
+    await settlePendingDocumentIntent();
     return activeRef.current ? activeRef.current.session.detachAfter(prepare) : prepare();
   }
   function open(path: string | null) {
@@ -120,14 +173,16 @@ export function Workspace() {
   function rename(event: React.FormEvent) {
     event.preventDefault(); if (!project) return;
     void perform(async () => {
-      const write = () => renameProject(activeRef.current?.session.projectAccess ?? project.access, project.metadataVersion, renamedTitle.trim());
+      const settled = await settlePendingDocumentIntent();
+      const projectBase = settled?.opened ?? project;
+      const write = () => renameProject(activeRef.current?.session.projectAccess ?? settled?.access ?? projectBase.access, projectBase.metadataVersion, renamedTitle.trim());
       try {
         const metadata = activeRef.current ? await activeRef.current.session.projectWrite(write) : await write();
-        setProject({ ...project, project: metadata.project, metadataVersion: metadata.metadataVersion }); setRenaming(false);
+        setProject({ ...projectBase, project: metadata.project, metadataVersion: metadata.metadataVersion }); setRenaming(false);
         if (metadata.libraryWarning) setNotice(`Title saved. ${metadata.libraryWarning}`);
       } catch (error) {
         const metadata = await projectMetadata(project.project.projectId);
-        setProject({ ...project, project: metadata.project, metadataVersion: metadata.metadataVersion });
+        setProject({ ...projectBase, project: metadata.project, metadataVersion: metadata.metadataVersion });
         if (!activeRef.current) {
           const refreshed = await libraryOpen(library.entries.find(entry => entry.projectId === project.project.projectId)?.path ?? null, renderer.current);
           if (refreshed) setProject(refreshed);
@@ -147,9 +202,11 @@ export function Workspace() {
   function renameCurrentDocument(event: React.FormEvent) {
     event.preventDefault(); const current = activeRef.current; if (!project || !current) return;
     void perform(async () => {
+      const settled = await settlePendingDocumentIntent();
+      const projectBase = settled?.opened ?? project;
       const updateMetadata = (record: DocumentRecord) => {
         setActive({ ...current, record });
-        setProject({ ...project, documents: project.documents.map(item => item.head.documentId === record.head.documentId ? record : item) });
+        setProject({ ...projectBase, documents: projectBase.documents.map(item => item.head.documentId === record.head.documentId ? record : item) });
       };
       try {
         const record = await current.session.projectWrite(() => renameDocument(current.session.projectAccess, current.record.head.documentId, current.record.metadataVersion, renamedDocumentTitle.trim()));
@@ -166,22 +223,64 @@ export function Workspace() {
   function addDocument(event: React.FormEvent) {
     event.preventDefault(); if (!project) return;
     void perform(async () => {
-      const access = activeRef.current?.session.projectAccess ?? project.access;
-      const record = await navigate(() => createDocument(access, documentTitle.trim() || `Untitled ${kind}`, kind,
-        { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: crypto.randomUUID() } }] } }));
-      activate({ ...project, access, documents: [...project.documents, record] }, record); setDocumentTitle('');
+      const name = documentTitle.trim() || `Untitled ${kind}`;
+      const pending = documentIntent.current;
+      let settledAccess: ProjectAccess | null = null;
+      let projectBase = project;
+      if (pending && (pending.title !== name || pending.kind !== kind)) {
+        // A changed form is a new logical intent only after the previous
+        // uncertain operation has been reconciled and settled.
+        const settled = await settlePendingDocumentIntent();
+        settledAccess = settled?.access ?? null;
+        projectBase = settled?.opened ?? projectBase;
+      }
+      const intent = documentIntent.current ?? {
+        operationId: crypto.randomUUID(),
+        documentId: crypto.randomUUID(),
+        title: name,
+        kind,
+        body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: crypto.randomUUID() } }] } },
+      } satisfies CreateDocumentIntent;
+      documentIntent.current = intent;
+      const current = activeRef.current;
+      if (current && current.session.state.phase === 'reconciling') await current.session.reconcile();
+      if (current && ['editing', 'saveFailed'].includes(current.session.state.phase)) await current.session.flush();
+      let result;
+      try {
+        result = await runCreateIntent({
+          projectId: project.project.projectId,
+          session: renderer.current,
+          access: current?.session.projectAccess ?? settledAccess ?? project.access,
+          intent,
+          transport: { createDocument, reconcileProject },
+          onReconciled: adoptCreateSnapshot,
+        });
+      } catch (reason) {
+        if (!(reason instanceof CreateIntentRecoveryError) && !(reason instanceof CreateIntentUnresolvedError)) documentIntent.current = null;
+        throw reason;
+      }
+      documentIntent.current = null;
+      const base = result.snapshot ?? projectBase;
+      const opened: OpenedProject = { ...base, access: result.access, documents: base.documents.some(document => document.head.documentId === result.record.head.documentId)
+        ? base.documents.map(document => document.head.documentId === result.record.head.documentId ? result.record : document)
+        : [...base.documents, result.record] };
+      setDocumentTitle('');
+      await navigate(() => Promise.resolve());
+      activate(opened, result.record);
     });
   }
   async function backup() {
     if (!project) return;
+    const settled = await settlePendingDocumentIntent();
     const work = async () => {
       await activeRef.current?.session.flush();
-      const result = await projectBackup(activeRef.current?.session.projectAccess ?? project.access);
+      const result = await projectBackup(activeRef.current?.session.projectAccess ?? settled?.access ?? project.access);
       if (result) setNotice(`Backup saved: ${result}`);
     };
     if (activeRef.current) await activeRef.current.session.withLifecycleGuard(work); else await work();
   }
   async function exportDraft() {
+    const settled = await settlePendingDocumentIntent();
     const current = activeRef.current; if (!current) return;
     await current.session.projectWrite(async () => {
       const result = await projectExportDraft(current.session.projectAccess, current.session.state.head);

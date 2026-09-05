@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-const LATEST_SCHEMA_VERSION: i64 = 2;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 3;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -32,29 +32,36 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
             "This project needs a newer version of WebnovelStudio.",
         ));
     }
-    if version == 0 {
+    if version < LATEST_SCHEMA_VERSION {
+        if version > 0 {
+            backup_before_upgrade(root, version)?;
+        }
         let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        tx.execute_batch(include_str!("001_projects.sql"))?;
-        tx.execute_batch(include_str!("002_view_state.sql"))?;
-        tx.pragma_update(None, "user_version", LATEST_SCHEMA_VERSION)?;
-        tx.commit().map_err(CoreError::uncertain)?;
-    } else if version == 1 {
-        backup_before_schema2(root)?;
-        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        tx.execute_batch(include_str!("002_view_state.sql"))?;
+        if version < 1 {
+            tx.execute_batch(include_str!("001_projects.sql"))?;
+        }
+        if version < 2 {
+            tx.execute_batch(include_str!("002_view_state.sql"))?;
+        }
+        if version < 3 {
+            tx.execute_batch(include_str!("003_story_context.sql"))?;
+        }
         tx.pragma_update(None, "user_version", LATEST_SCHEMA_VERSION)?;
         tx.commit().map_err(CoreError::uncertain)?;
     }
     Ok(())
 }
 
-/// Take a durable, consistent pre-upgrade snapshot before changing a v1 DB.
+/// Take a durable, consistent pre-upgrade snapshot before changing an existing DB.
 /// The backup remains beside the project so a failed migration can be
 /// diagnosed or recovered without relying on the altered database.
-fn backup_before_schema2(root: &Path) -> CoreResult<()> {
+fn backup_before_upgrade(root: &Path, version: i64) -> CoreResult<()> {
     let migrations = root.join("migrations");
     fs::create_dir_all(&migrations)?;
-    let path = migrations.join(format!("schema1-before-schema2-{}.sqlite3", Uuid::new_v4()));
+    let path = migrations.join(format!(
+        "schema{version}-before-schema{LATEST_SCHEMA_VERSION}-{}.sqlite3",
+        Uuid::new_v4()
+    ));
     let db_path = root.join("project.sqlite3");
     let source = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     source.busy_timeout(Duration::from_secs(5))?;

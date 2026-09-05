@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use uuid::Uuid;
 
+pub mod story_context;
+
 pub type CoreResult<T> = Result<T, CoreError>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -259,6 +261,7 @@ pub struct StorageInfo {
 
 type Reply<T> = mpsc::SyncSender<CoreResult<T>>;
 enum Command {
+    Context(Box<story_context::ContextCommand>),
     Attach(String, Reply<ProjectAccess>),
     AttachSnapshot(String, Reply<AttachedProject>),
     Create(CreateDocument, Reply<DocumentRecord>),
@@ -394,6 +397,7 @@ impl ProjectSession {
                     }
                     while let Ok(command) = receiver.recv() {
                         match command {
+                            Command::Context(command) => project.handle_context(*command),
                             Command::Attach(session, reply) => {
                                 let _ = reply.send(project.attach(session));
                             }
@@ -741,7 +745,7 @@ impl OwnedProject {
             };
         let mut connection = Connection::open_with_flags(path.join("project.sqlite3"), flags)?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 2 || (title.is_none() && version == 0) {
+        if version > storage::LATEST_SCHEMA_VERSION || (title.is_none() && version == 0) {
             return Err(CoreError::new(
                 "UnsupportedSchema",
                 "This project format is not supported.",

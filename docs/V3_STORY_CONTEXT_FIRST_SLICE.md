@@ -3,7 +3,7 @@
 **Implementation plan · 5 September 2026**
 **Contract:** `V3_STORY_CONTEXT_SYSTEM.md`.
 **Base:** `V3_ARCHITECTURE_REFINED.md` and `V3_FIRST_SLICE_PLAN.md`.
-**Status:** adopted design pending implementation; work packages and acceptance tests are not completed implementation.
+**Status:** C0 pure contracts and 16 adversarial tests are implemented. C1's working-basis snapshot/retrieval slice is implemented and tested; C2's pure packet compiler is in progress without durable or AI integration. C3–C6 remain planned, and the work-package acceptance gates are not complete.
 
 The supplied research and proposal are rationale for this adopted design, not newly verified validation or completed implementation evidence.
 

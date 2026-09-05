@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use url::Url;
 
+pub mod context;
 pub mod documents;
 pub mod library;
 pub mod projects;
