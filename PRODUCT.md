@@ -28,7 +28,7 @@ The V2 Codex adapter/model-picker remains an authorized reference for integratio
 
 ## Explicit W0 trial
 
-The trial action and its validation IPC are available only in development builds. Installed release builds open the persistent Library without a session-only trial entry point.
+The trial action is available only in development builds. The shared snapshot-validation IPC remains available in release because normal saves depend on it. Installed release builds open the persistent Library without a session-only trial entry point.
 
 The implemented W0 surface is a native Tauri/WebView2 editor trial. It opens a built-in sample chapter, supports paragraph and heading styles, bold and italic marks, links, scene breaks, clipboard text/formatting notice, undo/redo, whole-chapter or selected-passage feedback notes, replacement preview/reject, a local replacement transaction, and Rust snapshot validation over IPC. The editor stays mounted while feedback state changes, and stale captured selections are refused after intervening edits.
 

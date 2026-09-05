@@ -6,7 +6,6 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 #[cfg(debug_assertions)]
 use std::path::PathBuf;
 use tauri::Manager;
-#[cfg(debug_assertions)]
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
 mod context_commands;
 mod discussion_commands;
@@ -16,7 +15,6 @@ mod library_commands;
 mod project_commands;
 mod source_pin_commands;
 
-#[cfg(debug_assertions)]
 #[tauri::command]
 fn validate_snapshot(snapshot_json: String) -> Result<SnapshotReceipt, String> {
     validate_snapshot_json(&snapshot_json)
@@ -128,7 +126,6 @@ fn main() {
             context_commands::capture_story_scope,
             source_pin_commands::read_source_pins,
             source_pin_commands::save_source_pins,
-            #[cfg(debug_assertions)]
             validate_snapshot,
             runtime_info,
             project_commands::create_project,
