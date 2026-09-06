@@ -79,6 +79,15 @@ The tracked `windows-package-smoke.yml` workflow and `scripts/windows-package-qu
 
 The installed release hides the session-only editor trial. The shared `validate_snapshot` IPC command is present in release builds because production save validation depends on it; only the trial UI/runtime, synthetic data/WebView, and CDP overrides remain debug-only. The package smoke checks the release Library for absence of the trial action. The narrow installed-release pass above does not close the broader package gates below.
 
+The frontend now applies the editor-trial boundary at build time: the normal
+production Vite build excludes the trial module and entry action, while the
+Tauri hook's `TAURI_ENV_DEBUG=true` production-mode build retains the lazy
+debug trial used by `test:native`. The final Tauri debug build and focused native
+run open that lazy trial, display the sample, and return to the Library.
+Evidence and executable identity are in [implementation status](IMPLEMENTATION_STATUS.md).
+The separate release asset build excludes the trial/sample markers; a fresh
+installed release remains a separate qualification gate.
+
 Record the exact source commit, Cargo/npm locks, installer SHA-256, bundled WebView2 installer identity, OS/WebView versions, and installation target. Verify the installer and its included runtime separately from the debug CDP harness.
 
 The remaining package trial must exercise:

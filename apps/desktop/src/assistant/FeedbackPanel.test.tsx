@@ -30,7 +30,7 @@ vi.mock('../ipc/proposals', () => ({
   applyProposal: vi.fn(),
   rejectProposal: vi.fn(),
 }));
-vi.mock('./ContextInspector', () => ({ ContextInspector: (props: { packetId: string; delivered: boolean }) => <div data-testid="context-inspector" data-packet-id={props.packetId} data-delivered={String(props.delivered)} /> }));
+vi.mock('./ContextInspector', () => ({ ContextInspector: (props: { packetId: string; delivered: boolean; onPin?: unknown }) => <div data-testid="context-inspector" data-packet-id={props.packetId} data-delivered={String(props.delivered)} data-can-pin={String(!!props.onPin)} /> }));
 vi.mock('./GuidancePanel', () => ({ GuidancePanel: () => <div data-testid="guidance-panel" /> }));
 vi.mock('./SourcePinsPanel', () => ({ SourcePinsPanel: () => <div data-testid="source-pins-panel" /> }));
 
@@ -603,6 +603,69 @@ describe('persistent FeedbackPanel safeguards', () => {
     await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
     expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement).disabled).toBe(true);
     expect(host.textContent).toContain('Choose Whole document to request a reviewable development draft.');
+  });
+
+  it('clears transient Discuss pins when switching a chapter into restricted editing', async () => {
+    const session = await makeSession();
+    const hash = await bodyHash(canonicalJson(emptyBody));
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), draft: {
+      documentId: 'document', version: '1', text: 'Keep the promise in view.', intent: 'discuss',
+      scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 16 }, quote: 'A quiet chapter.', sourceBodyHash: hash },
+      pinnedDocumentIds: ['worldbuilding-1'], previousRunId: null, updatedAt: 'now',
+    } });
+    await renderPanel(session);
+    await waitFor(() => expect(host.textContent).toContain('Selected passage'));
+    await click('Suggest edits');
+    await waitFor(() => expect(discussions.saveDiscussionDraft).toHaveBeenCalled());
+
+    expect(vi.mocked(discussions.saveDiscussionDraft).mock.calls.at(-1)![0]).toEqual(expect.objectContaining({ intent: 'proposeEdits', pinnedDocumentIds: [] }));
+    expect(host.textContent).toContain('Removed discussion-only source from this writing request.');
+    expect(host.textContent).toContain('approved writing brief');
+  });
+
+  it('keeps transient pins when developing a non-chapter AuthorRoom document', async () => {
+    const session = await makeSession('document-b');
+    const hash = await bodyHash(canonicalJson(emptyBody));
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document-b'), draft: {
+      documentId: 'document-b', version: '1', text: 'Keep this world detail.', intent: 'discuss',
+      scope: { kind: 'wholeDocument', start: null, end: null, quote: 'A quiet chapter.', sourceBodyHash: hash },
+      pinnedDocumentIds: ['chapter-promise'], previousRunId: null, updatedAt: 'now',
+    } });
+    await act(async () => root.render(<FeedbackPanel session={session} state={session.state} title="World" documentKind="world" selection={null} visible onClose={() => {}} registerSaver={() => {}} />));
+    await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
+    await click('Suggest edits');
+    await waitFor(() => expect(discussions.saveDiscussionDraft).toHaveBeenCalled());
+
+    expect(vi.mocked(discussions.saveDiscussionDraft).mock.calls.at(-1)![0]).toEqual(expect.objectContaining({ intent: 'proposeEdits', pinnedDocumentIds: ['chapter-promise'] }));
+    expect(host.textContent).not.toContain('Removed discussion-only source');
+  });
+
+  it('hides Include next time after a chapter leaves Discuss', async () => {
+    const session = await makeSession();
+    const started = startResult(session, 'completed-discussion');
+    started.run.status = 'completed';
+    started.run.dispatchState = 'delivered';
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, messages: [started.userMessage], runs: [started.run] });
+    await renderPanel(session);
+    await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-can-pin')).toBe('true'));
+    await click('Suggest edits');
+    await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-can-pin')).toBe('false'));
+  });
+
+  it('flags restored chapter pins and blocks sending until they are removed or Discuss is selected', async () => {
+    const session = await makeSession();
+    const hash = await bodyHash(canonicalJson(emptyBody));
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), draft: {
+      documentId: 'document', version: '1', text: 'Continue from this point.', intent: 'proposeEdits',
+      scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 16 }, quote: 'A quiet chapter.', sourceBodyHash: hash },
+      pinnedDocumentIds: ['old-discussion-source'], previousRunId: null, updatedAt: 'now',
+    } });
+    await renderPanel(session);
+
+    await waitFor(() => expect(host.textContent).toContain('Remove them below before sending, or switch to Discuss.'));
+    expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement).disabled).toBe(true);
+    expect(host.textContent).toContain('Unavailable source · remove');
+    expect(discussions.saveDiscussionDraft).not.toHaveBeenCalled();
   });
 
   it('activates an explicit assistant action without submitting or replacing the composer text', async () => {

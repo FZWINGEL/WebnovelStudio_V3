@@ -220,6 +220,8 @@ input::placeholder { color: #637083; }
 .save-status { color: var(--muted); font-size: 12px; }
 .save-error { padding: 14px 28px; background: #fff4dc; max-height: 45vh; overflow: auto; }
 .save-error p { line-height: 1.6; }
+.recovery-copy { margin-top: 12px; }
+.recovery-copy p { margin: 6px 0 0; font-size: 12px; overflow-wrap: anywhere; }
 .saved-version-preview { background: #fff; padding: 16px; font-family: Georgia, serif; line-height: 1.8; white-space: pre-wrap; }
 .workspace-notice { padding: 9px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--line); background: #edf1f6; font-size: 12px; }
 .workspace-notice span { overflow-wrap: anywhere; }

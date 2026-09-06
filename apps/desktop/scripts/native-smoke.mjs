@@ -35,11 +35,13 @@ function launch() {
   return process;
 }
 let app = launch();
-async function operateSaveDialog(action, destination = '', reviewed = false, expectNoFile = false) {
+async function operateSaveDialog(action, destination = '', reviewed = false, expectNoFile = false, recovery = false) {
   const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', resolve(root, 'apps/desktop/scripts/native-save-dialog.ps1'),
     '-OwnerPid', String(app.pid), '-Action', action, '-TestRoot', data];
   if (destination) args.push('-Destination', destination);
-  if (reviewed) args.push('-DialogTitle', 'Save author-reviewed snapshot as a new file');
+  if (reviewed && recovery) throw new Error('Native Save dialog call cannot request both reviewed and recovery titles.');
+  if (recovery) args.push('-DialogTitle', 'Save recovery copy as a new file');
+  else if (reviewed) args.push('-DialogTitle', 'Save author-reviewed snapshot as a new file');
   if (expectNoFile) args.push('-ExpectNoFile');
   return new Promise((accept, reject) => {
     const helper = spawn('powershell.exe', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -1092,6 +1094,8 @@ try {
   await runPromiseHistoryFlow({ page, data, output, createWritingProject, checks });
   const { qualifyContextLookup } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-context-lookup.mjs')).href);
   await qualifyContextLookup({ page, output, testRoot: data, createWritingProject, checks });
+  const { qualifyRecoveryCopy } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-recovery-copy.mjs')).href);
+  await qualifyRecoveryCopy({ page, data, output, operateSaveDialog, createWritingProject, checks, errors });
   await createWritingProject('Review story', 'chapter', 'The gate', 'Mei left the key beside the gate.');
   await page.getByRole('button', { name: 'Story review', exact: true }).click();
   await page.getByRole('button', { name: 'Review saved chapter', exact: true }).click();

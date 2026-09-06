@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { DocumentSession } from '../editor/session';
@@ -7,7 +7,6 @@ import { createDocument, reconcileProject, readDocument, projectTransport, proje
 import { CreateIntentRecoveryError, CreateIntentUnresolvedError, runCreateIntent } from '../ipc/createIntent';
 import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, libraryResumeImport, projectBackup, type LibrarySnapshot } from '../ipc/library';
 import { prepareDraftExport, prepareReviewedDraftExport, exportPreparedDraft, type DraftExportPreview, type DraftFormat } from '../ipc/exports';
-import { App as EditorTrial } from './App';
 import { Writer } from './Writer';
 import { ExportDialog, type ExportBasis } from './ExportDialog';
 import { V2ImportDialog } from './V2ImportDialog';
@@ -15,6 +14,10 @@ import { runtimeInfo } from '../ipc/native';
 import { ModelSelector } from '../providers/ModelSelector';
 import { ModelSettings } from '../providers/ModelSettings';
 import { PROJECT_TABS, documentsForTab, tabForKind, readProjectTabs, writeProjectTabs, type ProjectTabId } from './projectTabs';
+
+const EditorTrial = typeof __WNS_EDITOR_TRIAL__ !== 'undefined' && __WNS_EDITOR_TRIAL__
+  ? lazy(() => import('./App').then(module => ({ default: module.App })))
+  : null;
 
 type ActiveDocument = { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null };
 const emptyLibrary: LibrarySnapshot = { entries: [], pending: [] };
@@ -371,7 +374,7 @@ export function Workspace() {
     } finally { running.current = false; setBusy(false); }
   }
 
-  if (trial && trialAvailable) return <><button className="trial-return" onClick={() => setTrial(false)}>Back to library</button><EditorTrial /></>;
+  if (trial && trialAvailable && EditorTrial) return <><button className="trial-return" onClick={() => setTrial(false)}>Back to library</button><Suspense fallback={<p role="status">Opening editor trial…</p>}><EditorTrial /></Suspense></>;
   const entries = library.entries.filter(entry => entry.archived === archived && entry.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const currentTab = PROJECT_TABS.find(tab => tab.id === projectTab)!;
   const tabDocuments = documentsForTab(project?.documents ?? [], projectTab);
@@ -398,7 +401,7 @@ export function Workspace() {
       {loading ? <p role="status">Opening your library…</p> : entries.length ? <ul className="project-list">{entries.map(entry => <li key={entry.projectId}><button className="project-open" disabled={busy || entry.missing} onClick={() => open(entry.path)}><strong>{entry.title}</strong><span>{entry.missing ? 'Folder moved or unavailable' : `Last opened ${new Date(entry.lastOpened).toLocaleDateString()}`}</span></button>{entry.missing && <button disabled={busy} onClick={() => open(null)}>Locate</button>}<button disabled={busy} aria-label={`${entry.archived ? 'Unarchive' : 'Archive'} ${entry.title}`} onClick={() => void perform(async () => { await libraryArchive(entry.projectId, !entry.archived); await refreshLibrary(); })}>{entry.archived ? 'Unarchive' : 'Archive'}</button></li>)}</ul>
         : <div className="library-empty"><h2>{search ? 'No matching projects' : archived ? 'No archived projects' : 'A place for your next story'}</h2><p>{search ? 'Try a different title.' : archived ? 'Archived projects stay on your computer.' : 'Create a project, then add a character, a world, a chapter, or a simple note. There is no required order.'}</p></div>}
       {!!library.pending.length && <section className="pending-projects" aria-label="Unfinished project operations"><h2>Unfinished setup</h2>{library.pending.map(pending => <div key={pending.origin.operationId}><span>{pending.title}</span>{pending.kind === 'create' && <button disabled={busy} onClick={() => create(pending.title, pending.origin.operationId)}>Resume creation</button>}{pending.kind === 'duplicate' && <button disabled={busy} onClick={() => resumeDuplicate(pending.origin.operationId, pending.title)}>Resume copy</button>}{pending.kind === 'recover' && <button disabled={busy} onClick={() => recover(pending.origin.operationId, pending.title)}>Resume recovery</button>}{pending.kind === 'import' && <button disabled={busy} onClick={() => resumeImport(pending.origin.operationId)}>Check import</button>}</div>)}</section>}
-      <footer className="library-footer"><span>Projects are saved on this computer.</span><div className="header-actions"><button disabled={busy} onClick={() => recover()}>Recover backup</button>{trialAvailable && <button disabled={busy} onClick={() => setTrial(true)}>Open editor trial</button>}</div></footer>
+      <footer className="library-footer"><span>Projects are saved on this computer.</span><div className="header-actions"><button disabled={busy} onClick={() => recover()}>Recover backup</button>{EditorTrial && trialAvailable && <button disabled={busy} onClick={() => setTrial(true)}>Open editor trial</button>}</div></footer>
     </main> : <div className="workspace" id="project-workspace-panel" role="tabpanel" aria-labelledby={`project-tab-${projectTab}`}>
       <aside className="document-sidebar" aria-label="Project documents"><div className="sidebar-heading"><h2>{currentTab.label}</h2><button className="primary-button" disabled={busy} onClick={() => beginDocument()}>Add</button></div><input aria-label="Find a document" type="search" placeholder={`Find ${currentTab.label.toLocaleLowerCase()}`} value={search} onChange={event => setSearch(event.target.value)} />
         {newDocument && <form className="inline-form document-form" onSubmit={addDocument}><label htmlFor="document-kind">Start with</label><select id="document-kind" value={kind} onChange={event => setKind(event.target.value)}>{kinds.map(kind => <option key={kind} value={kind}>{kind.charAt(0).toUpperCase() + kind.slice(1)}</option>)}</select><label htmlFor="document-title">Title</label><input id="document-title" autoFocus value={documentTitle} onChange={event => setDocumentTitle(event.target.value)} maxLength={160} /><div><button type="button" onClick={() => setNewDocument(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy}>Create</button></div></form>}

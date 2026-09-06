@@ -2,6 +2,14 @@
 
 These checks drive the built Windows Tauri application through its development-only WebView2 remote debugging endpoint. They do not launch a standalone Chromium browser. The smoke flow is implemented by `apps/desktop/scripts/native-smoke.mjs` and writes ignored output under `.local/native-results/`. The separate local diagnostic subset intentionally omits the currently blocked OS clipboard step and labels that omission; it cannot establish a strict pass.
 
+The current harness includes **48 checks**. Its new recovery-copy group injects
+a SQLite save failure in an owned temporary project, uses the actual Markdown
+Save/Cancel dialogs, verifies unchanged durable text and retained unsaved editor
+content, then removes the fault and retries. The focused native run passes;
+the full current suite's status is recorded in
+[implementation status](../../docs/IMPLEMENTATION_STATUS.md). Historical counts
+below describe their named checkpoints.
+
 From the repository root, use the wrapper:
 
 ```powershell

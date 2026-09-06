@@ -29,6 +29,7 @@ mod memory_recovery;
 mod project_commands;
 mod provider_commands;
 mod provider_runtime;
+mod recovery_commands;
 mod review_commands;
 mod source_pin_commands;
 mod v2_import_commands;
@@ -146,6 +147,7 @@ fn main() {
             export_commands::prepare_draft_export,
             export_commands::prepare_reviewed_draft_export,
             export_commands::export_prepared_draft,
+            recovery_commands::save_recovery_copy,
             guidance_commands::read_guidance,
             guidance_commands::save_guidance,
             discussion_commands::read_discussion,

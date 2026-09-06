@@ -414,6 +414,10 @@ fn install_file_no_replace(staged: &Path, target: &Path) -> CoreResult<()> {
 
 pub(crate) fn install_export_file(root: &Path, target: &Path, bytes: &[u8]) -> CoreResult<()> {
     let target = output_outside(root, target)?;
+    install_new_text_file(&target, bytes)
+}
+
+fn install_new_text_file(target: &Path, bytes: &[u8]) -> CoreResult<()> {
     let parent = target.parent().ok_or_else(|| {
         transfer_error(
             "InvalidRequest",
@@ -429,7 +433,41 @@ pub(crate) fn install_export_file(root: &Path, target: &Path, bytes: &[u8]) -> C
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
-    install_file_no_replace(&staged_file, &target)
+    install_file_no_replace(&staged_file, target)
+}
+
+/// A separate Markdown copy of an in-memory document, not a project save or
+/// backup. No project actor, database, writer lease, or current head is read:
+/// this must remain available when project storage itself has failed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecoveryCopyReceipt {
+    pub snapshot_hash: String,
+    pub sha256: String,
+    pub utf8_bytes: u64,
+}
+
+pub fn save_recovery_copy(body: &Value, target: &Path) -> CoreResult<RecoveryCopyReceipt> {
+    let validated = validate_snapshot_json(&serde_json::to_string(body)?)
+        .map_err(|error| transfer_error("InvalidDocument", error))?;
+    let projected = project_draft(&validated.snapshot, DraftFormat::Markdown)?;
+    let target = output_new(target)?;
+    let basename = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            transfer_error(
+                "InvalidRequest",
+                "The recovery copy must have a UTF-8 filename.",
+            )
+        })?;
+    crate::projects::exports::validate_basename(basename)?;
+    install_new_text_file(&target, projected.text.as_bytes())?;
+    Ok(RecoveryCopyReceipt {
+        snapshot_hash: validated.hash,
+        sha256: projected.sha256,
+        utf8_bytes: projected.utf8_bytes,
+    })
 }
 
 fn online_backup(project: &ProjectSession, staged_db: &Path) -> CoreResult<()> {

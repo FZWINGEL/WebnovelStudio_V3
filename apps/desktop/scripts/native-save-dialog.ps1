@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)][ValidateSet('Save', 'Cancel', 'Wait')][string]$Action,
     [Parameter(Mandatory)][string]$TestRoot,
     [string]$Destination = '',
-    [ValidateSet('Save draft as a new file', 'Save author-reviewed snapshot as a new file')]
+    [ValidateSet('Save draft as a new file', 'Save author-reviewed snapshot as a new file', 'Save recovery copy as a new file')]
     [string]$DialogTitle = 'Save draft as a new file',
     [switch]$ExpectNoFile
 )

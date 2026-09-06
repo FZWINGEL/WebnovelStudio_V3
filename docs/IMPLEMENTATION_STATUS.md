@@ -5,7 +5,64 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
+### Recovery-copy and context handoff checkpoint — 6 September
+
+Save failures now offer **Save recovery copy** from the live editor. The copy
+captures the current document before the destination dialog, writes a new
+Markdown file independently of project storage, and leaves the saved-generation
+watermark unchanged. Cancellation, failed destinations, and uncertain replies
+retain the buffer and never trigger an automatic retry. Existing files are
+never replaced. See [ADR 0028](ADR_0028_RECOVERY_COPY.md).
+
+Chapter writing no longer carries discussion-only source pins across a mode
+change. Private worldbuilding and character material remain available in the
+author's discussion; the existing explicitly approved writing brief is the
+current path for carrying selected directions into chapter prose. Automatic
+world/character projections with reviewed disclosure grants remain unbuilt.
+
+The editor trial and its sample text are compiled out of release frontend
+assets. The actual Tauri debug build keeps the lazy trial chunk through
+`TAURI_ENV_DEBUG`; this does not qualify a new installed package.
+
+The full local wrapper passes formatting, strict workspace Clippy, **653 active
+Rust tests** (598 core, 55 desktop; one existing ignored fixture), TypeScript,
+production frontend build, and **383 frontend tests in 30 files**. This includes
+five new core recovery-copy tests and five frontend recovery-copy checks.
+The final source-pin follow-up passes the complete **385-test frontend suite**
+and TypeScript check. A final error-message correction passes all five affected
+recovery UI tests; the final native debug build also succeeds. No new live model
+dispatch has been made (cumulative live CLI count remains 21).
+Ignored wrapper/build logs are `.local/recovery-workspace-check.log` and
+`.local/recovery-native-final-build.log`.
+
+The focused native WebView2 152.0.4191.66 run passes **two grouped checks**:
+opening the lazy editor trial and the recovery-copy journey. A real SQLite
+trigger aborts saves in a temporary project. Native Save writes the exact rich
+buffer as Markdown; Save and Cancel keep the durable body/hash/version
+unchanged and the editor marked unsaved. Navigation stays on the faulted
+document. Removing the fault and choosing Retry persists the exact buffer.
+No provider/discussion records or page errors are produced. The first diagnostic
+used a key-order-sensitive JSON comparison; the corrected harness compares
+the document structure and passes. The owned test process was terminated after
+the checks; this is not normal-close qualification.
+
+Report: `.local/recovery-copy-qualification/report.json`, completed
+`2026-09-06T17:32:22.419Z`. Native executable SHA-256:
+`99cca724776f7d2662fe5d22397400c889ccb63ab5b1aff1feaf4aa75c678f66`.
+The tracked native suite now includes this recovery group (**48 checks**).
+The full updated native suite awaits its own CI result; the 47-check hosted
+pass below qualifies the preceding workspace commit. Full W6, actual disk-full
+and ACL qualification, author-trial, and release gates remain open.
+
 ### AI writing workspace checkpoint — 6 September, 17:00 UTC
+
+Committed source `75c4e4716cbfdc5377bd2b2b4283b2ac18e33061` passes
+[CI 34047441683](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34047441683):
+both Windows/Ubuntu contract jobs and the Windows native job completed
+successfully, including all **47 native checks**, six HTTP/Claude fixture
+checks, and zero page errors or live calls. Downloaded hosted evidence is
+`.local/ci-34047441683/` (WebView2 151.0.4129.101). This qualifies the AI workspace checkpoint below; the newer
+recovery-copy follow-up has its own evidence above.
 
 The author's revised direction is implemented as a development slice:
 
@@ -789,6 +846,7 @@ See [ADR 0005](ADR_0005_DOCUMENT_HISTORY.md). Restore preserves the current writ
 - [ ] Cover forced renderer loss, process interruption, restore A while B runs, and old-or-new transaction outcomes.
 - [ ] Include context snapshots, source epoch, policy, delivered packet, and receipt in restart/fence/Stop coverage; no late context operation may trigger an implicit paid retry.
 - [ ] Retain the live buffer on disk-full and permission errors; never hide external retries or paid restarts.
+- [x] Offer an explicit live-buffer Markdown recovery copy independent of project storage; native synthetic SQLite failure, Save/Cancel, retained unsaved state, blocked navigation, and Retry pass. Actual disk-full and ACL failures remain separate.
 - [ ] Run the E4 stale-proposal friction check and keep conservative staleness unless measured evidence supports a bounded alternative.
 - [ ] Run the B feedback trial only after the durable Apply and lifecycle evidence is complete.
 
