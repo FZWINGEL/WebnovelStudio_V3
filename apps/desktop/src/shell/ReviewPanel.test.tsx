@@ -28,6 +28,7 @@ async function waitFor(check: () => void) { for (let i = 0; i < 40; i++) { try {
 function deferred<T>() { let resolve!: (value: T) => void; return { promise: new Promise<T>(accept => { resolve = accept; }), resolve: (value: T) => resolve(value) }; }
 
 beforeEach(async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.clearAllMocks();
   const prose = body('Mei left the key beside the gate.');
   record = { head: { documentId: 'chapter', version: '1', bodyHash: await bodyHash(canonicalJson(prose)) }, body: prose,
@@ -251,7 +252,9 @@ describe('reviewed promises', () => {
   it('resumes a saved promise and blocks review while its form is unfinished', async () => {
     staged.promises = [promiseDetail()];
     vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'noReview', activeBundleId: null, pendingStageId: 'stage', reason: null, canStage: true });
-    await render(); await click('Resume saved review'); await click('Promises (1)'); await click('Edit promise');
+    await render(); await click('Resume saved review');
+    await waitFor(() => expect(button('Mark this version reviewed')?.disabled).toBe(false));
+    await click('Promises (1)'); await click('Edit promise');
     expect(button('Mark this version reviewed').disabled).toBe(true); expect(button('Possessions (0)').disabled).toBe(true);
     await click('Cancel'); expect(button('Mark this version reviewed').disabled).toBe(false); expect(ipc.stageAuthorReview).not.toHaveBeenCalled();
   });

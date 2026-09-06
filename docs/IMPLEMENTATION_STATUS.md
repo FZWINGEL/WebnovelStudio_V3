@@ -135,12 +135,23 @@ Rust schema-21 persistence, canonical hashing, exact UTF-16 anchor validation, r
 
 ### Next implementation focus
 
-The next context step is C6's bounded read-only lookup protocol, beginning with
-an experiment that qualifies the selected provider's typed lookup responses,
-frozen evidence reads, and shared invocation/usage allowance. Unsupported
-providers retain the deterministic packet route. It must not introduce paid
-autosave analysis, unlimited research, silent source widening, or manuscript
-writes. Knowledge and belief views still need a separate disclosure contract.
+The next context step is a narrow C6 Author Room discussion slice: explicit
+opt-in, the initial invocation plus at most two further invocations, and Rust's
+existing frozen `search`/`read` operations. A shared usage allowance and exact
+child-packet/read receipts must be committed before submission. Every read and
+invocation rechecks ownership, policy, Stop, and stale-basis rules; crashes and
+lost acknowledgments must never automatically replay a model call.
+
+The current Codex profile disables tools and exposes assistant text only.
+A strict application-controlled lookup-response format therefore needs separate
+mock and live qualification before the UI advertises lookup support. This is
+not provider function calling. Existing one-invocation requests and historical
+provider results must remain unchanged; restricted writing and state/knowledge
+tools follow only after their disclosure-projected results are qualified.
+Reuse discussion and packet ownership where possible, adding only the missing
+read and invocation receipts. No paid autosave analysis, unlimited research,
+silent source widening, or manuscript writes belong in this step. The design
+is preparation for the next slice, not implemented C6 behavior.
 
 Broader work remains: C5 relationship, knowledge/belief, rule, and multi-resolution
 digest views; C6 bounded model lookups; arbitrary partial multi-block editing,
