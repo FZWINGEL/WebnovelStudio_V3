@@ -5,6 +5,58 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
+### Normal-close checkpoint — 6 September
+
+Normal close now saves through the existing document lifecycle guard and checks
+AI work across every open project. The author can stop active replies and
+story-memory refreshes or stay open. Native generation admission prevents new
+requests from starting while closing. Stop persists exact job intents and
+cancels captured external workers even when a Stop write fails. Completed
+results retained for a local save retry block exit. Failed saves, failed window
+destruction, and cancelled or late acknowledgments keep the editor attached.
+See [ADR 0029](ADR_0029_NORMAL_CLOSE.md).
+
+The full local wrapper passes formatting, strict workspace Clippy, **668 active
+Rust tests** (603 core and 65 desktop; one existing ignored fixture), TypeScript,
+production frontend build, and **395 frontend tests in 31 files**. New coverage
+includes five core background-work checks, six native coordinator tests, four
+runtime admission/cancellation tests, and the close UI regressions. The final
+native debug build succeeds. Logs are
+`.local/normal-close-workspace-check.log` and
+`.local/normal-close-native-build.log`.
+
+Focused native WebView2 152.0.4191.66 qualification passes two grouped checks.
+A PID-verified WM_CLOSE flushes a confirmed dirty editor and its exact text
+survives a fresh process. A second fixture holds one discussion and one
+Luna story-memory HTTP stream open in different projects: Stay open preserves
+the editor, and Stop and close stores stopped outcomes for both requests.
+Exactly two synthetic POSTs reach the anonymous loopback server, with zero
+page errors or live model calls. Native pending-result fault blocking remains
+separate; the core and frontend regression tests cover that boundary here.
+The final hardened run completed at `2026-09-06T18:16:02Z`; its report is
+`.local/native-results/app-close/qualification.json`. It explicitly checks that
+Stay open leaves both SSE responses connected and that each final durable
+outcome is `stopped`. The captured close dialog was visually inspected.
+Native executable SHA-256:
+`9f8cd3e40ea56ef2e6b2c21835ac9ba75f21630b8596d36afa26afd39f6bd3a4`.
+
+The current broader native diagnostic passes **47 of 48 checks**, with zero
+page errors, at `2026-09-06T18:12:24.963Z`. It includes the repaired recovery
+journey and all following fixtures. Only the previously documented local OS
+clipboard case is omitted; hosted CI retains that strict check. The report is
+`.local/normal-close-native-regression/report.json`. This diagnostic does not
+establish a strict 48-check pass or an installed-release qualification.
+
+The preceding recovery checkpoint's
+[CI 34049077380](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34049077380)
+passes both contract jobs, but its native harness failed after the successful
+recovery journey because it tried to create the next project while still in
+the editor. The helper now returns to Library before continuing. The local
+regression above passes this correction; fresh CI remains separate. This
+correction does not turn that earlier failed run into a pass. No new live model
+dispatch was made; the cumulative live CLI count remains 21. Full V3, author
+acceptance, forced OS shutdown, and current installed-release gates remain open.
+
 ### Recovery-copy and context handoff checkpoint — 6 September
 
 Save failures now offer **Save recovery copy** from the live editor. The copy
@@ -50,8 +102,9 @@ Report: `.local/recovery-copy-qualification/report.json`, completed
 `2026-09-06T17:32:22.419Z`. Native executable SHA-256:
 `99cca724776f7d2662fe5d22397400c889ccb63ab5b1aff1feaf4aa75c678f66`.
 The tracked native suite now includes this recovery group (**48 checks**).
-The full updated native suite awaits its own CI result; the 47-check hosted
-pass below qualifies the preceding workspace commit. Full W6, actual disk-full
+The full updated native suite's CI attempt failed in harness sequencing after
+this journey; the repair and current evidence are recorded above. The 47-check
+hosted pass below qualifies the preceding workspace commit. Full W6, actual disk-full
 and ACL qualification, author-trial, and release gates remain open.
 
 ### AI writing workspace checkpoint — 6 September, 17:00 UTC
@@ -841,7 +894,8 @@ The checked items describe the selected-passage slice. Evidence includes `crates
 See [ADR 0005](ADR_0005_DOCUMENT_HISTORY.md). Restore preserves the current writing in a checkpoint and advances the story source epoch. The operation receipt is its immutable author decision; schema 8 needs no new decision table.
 
 - [x] Reconcile pending operation IDs and latest heads after lost acknowledgment.
-- [ ] Share one lifecycle guard across Apply, reconciliation, editor disposal, switching, close, and application-controlled reload.
+- [ ] Finish application-controlled reload qualification of the shared lifecycle guard; Apply, reconciliation, editor disposal, switching, and normal close use the guard.
+- [x] Coordinate normal close across open-project AI work: admission fence, exact Stop, worker cleanup, retained-result blocking, same-editor Stay open, and final readiness before destruction. Core/frontend tests and two native close groups pass; forced OS shutdown and installed-release qualification remain separate.
 - [x] Add in-session history boundaries, significant undo/redo checkpoints, restart comparison, and explicit restore.
 - [ ] Cover forced renderer loss, process interruption, restore A while B runs, and old-or-new transaction outcomes.
 - [ ] Include context snapshots, source epoch, policy, delivered packet, and receipt in restart/fence/Stop coverage; no late context operation may trigger an implicit paid retry.

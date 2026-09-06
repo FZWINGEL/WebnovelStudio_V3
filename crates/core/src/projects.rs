@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use uuid::Uuid;
 
+pub mod background_work;
 pub mod context_packets;
 mod conversation_context;
 pub mod discussion_lookup;
@@ -290,6 +291,15 @@ enum Command {
     EvidenceQuery(Box<evidence_queries::EvidenceQueryCommand>),
     Export(Box<exports::ExportCommand>),
     SourcePins(Box<source_pins::SourcePinCommand>),
+    BackgroundWork(Reply<background_work::BackgroundWork>),
+    StopBackgroundWork(
+        background_work::BackgroundWork,
+        Reply<background_work::BackgroundWork>,
+    ),
+    InterruptBackgroundWork(
+        background_work::BackgroundWork,
+        Reply<background_work::BackgroundWork>,
+    ),
     Attach(String, Reply<ProjectAccess>),
     AttachSnapshot(String, Reply<AttachedProject>),
     Create(CreateDocument, Reply<DocumentRecord>),
@@ -438,6 +448,17 @@ impl ProjectSession {
                             }
                             Command::Export(command) => project.handle_export(*command),
                             Command::SourcePins(command) => project.handle_source_pins(*command),
+                            Command::BackgroundWork(reply) => {
+                                let _ = reply.send(project.background_work());
+                            }
+                            Command::StopBackgroundWork(expected, reply) => {
+                                let result = project.stop_background_work(expected);
+                                let _ = reply.send(result);
+                            }
+                            Command::InterruptBackgroundWork(expected, reply) => {
+                                let result = project.interrupt_background_work(expected);
+                                let _ = reply.send(result);
+                            }
                             Command::Attach(session, reply) => {
                                 let _ = reply.send(project.attach(session));
                             }
@@ -610,6 +631,32 @@ impl ProjectSession {
     }
     pub fn storage_info(&self) -> CoreResult<StorageInfo> {
         self.request(Command::StorageInfo)
+    }
+    /// Inspect active discussion and memory work owned by this project's
+    /// current operation namespace. The actor's current renderer access is
+    /// used internally; callers cannot supply or rotate a lease for this
+    /// inspection.
+    pub fn background_work(&self) -> CoreResult<background_work::BackgroundWork> {
+        self.request(Command::BackgroundWork)
+    }
+    /// Persist stop intent for the exact active-work census supplied by the
+    /// caller. Queued jobs become terminal stopped; running jobs become
+    /// stopping until their local workers settle. A later request is never
+    /// swept into this stop operation.
+    pub fn stop_background_work(
+        &self,
+        expected: background_work::BackgroundWork,
+    ) -> CoreResult<background_work::BackgroundWork> {
+        self.request(|reply| Command::StopBackgroundWork(expected, reply))
+    }
+    /// Settle orphaned durable jobs from the exact captured census after the
+    /// native supervisor has proved that its workers and pending results are
+    /// gone. Newer jobs are never swept into this settlement.
+    pub fn interrupt_background_work(
+        &self,
+        expected: background_work::BackgroundWork,
+    ) -> CoreResult<background_work::BackgroundWork> {
+        self.request(|reply| Command::InterruptBackgroundWork(expected, reply))
     }
 }
 

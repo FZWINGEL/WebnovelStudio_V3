@@ -10,6 +10,16 @@ the full current suite's status is recorded in
 [implementation status](../../docs/IMPLEMENTATION_STATUS.md). Historical counts
 below describe their named checkpoints.
 
+The separate `apps/desktop/scripts/native-app-close.mjs` qualification drives
+real PID-verified WM_CLOSE requests. Its two groups check a verified dirty
+buffer followed by a fresh reopen, and held anonymous loopback HTTP discussion
+and story-memory requests in two projects. Stay open preserves the editor;
+Stop and close retains terminal outcomes without replay. It writes
+`.local/native-results/app-close/qualification.json` and uses no live models.
+Run `npm run test:native-close` from `apps/desktop` after the native build, or
+set `WNS_V3_NATIVE_EXE` to an owned development executable. CI runs this
+separately from the 48-check main flow and existing HTTP fixture.
+
 From the repository root, use the wrapper:
 
 ```powershell

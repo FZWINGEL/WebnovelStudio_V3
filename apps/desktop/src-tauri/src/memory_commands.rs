@@ -162,11 +162,9 @@ pub async fn start_memory(
         )
         .await;
     }
-    #[cfg(windows)]
     let runtime = runtime.inner().clone();
-    #[cfg(not(windows))]
-    let _runtime = runtime;
     execute(move || {
+        let _admission = runtime.admit_request()?;
         let selected = request.model_selection.clone();
         let mut provider_binding = if is_supported_choice(&selected) {
             Some(ProviderBinding::codex_luna())
@@ -310,6 +308,7 @@ pub async fn start_memory(
             }
         }
 
+        let worker_registration = runtime.track_local_worker()?;
         let dispatch = recovery.claim(&project, &started)?;
         if !dispatch.newly_dispatched {
             return Ok(dispatch.job);
@@ -320,7 +319,10 @@ pub async fn start_memory(
         let worker_recovery = recovery.clone();
         if std::thread::Builder::new()
             .name("webnovel-local-memory".into())
-            .spawn(move || run_mock(failure_project, worker_recovery, dispatch))
+            .spawn(move || {
+                let _worker_registration = worker_registration;
+                run_mock(failure_project, worker_recovery, dispatch);
+            })
             .is_err()
         {
             record_worker_failure(

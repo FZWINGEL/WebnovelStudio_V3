@@ -57,6 +57,7 @@ pub async fn start(
     runtime: DesktopProviders,
 ) -> CoreResult<DiscussionStart> {
     execute(move || {
+        let _admission = runtime.admit_request()?;
         let existing = crate::discussion_commands::saved_request(&project, &request)?;
         let (started, adapter) = {
             // Keep the saved choice, endpoint configuration and acceptance in

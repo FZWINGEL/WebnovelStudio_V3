@@ -2193,6 +2193,53 @@ impl OwnedProject {
             .map_err(|_| CoreError::new("InvalidProject", "Too many discussion jobs."))
     }
 
+    /// Interrupt one exact active run after its local worker has already
+    /// been fenced. This is intentionally owner/ID based rather than a
+    /// rediscovery sweep, so a later run cannot be settled by an earlier
+    /// close census. `seal_run` retains output text, output events, and any
+    /// provider receipt already committed for the run.
+    pub(super) fn interrupt_discussion(
+        &mut self,
+        access: ProjectAccess,
+        run_id: String,
+    ) -> CoreResult<DiscussionRun> {
+        self.check_access(&access)?;
+        check_id(&run_id)?;
+        let tx = self
+            .db_mut()?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = read_run(&tx, &run_id)?;
+        if current.owner.project_id != access.project_id
+            || current.owner.operation_namespace != access.operation_namespace
+        {
+            return Err(CoreError::new(
+                "DiscussionProjectMismatch",
+                "This run belongs to another project session.",
+            ));
+        }
+        let run = match current.status {
+            DiscussionRunStatus::Queued
+            | DiscussionRunStatus::Running
+            | DiscussionRunStatus::Stopping => {
+                discussion_lookup::mark_chain_stopped(&tx, &current.id)?;
+                seal_run(
+                    &tx,
+                    &current,
+                    DiscussionRunStatus::Interrupted,
+                    "project_close_cleanup",
+                    &format!("system-interrupted-{}", current.id),
+                    STOP_UNRESOLVED_MESSAGE,
+                )?
+            }
+            DiscussionRunStatus::Completed
+            | DiscussionRunStatus::Stopped
+            | DiscussionRunStatus::Failed
+            | DiscussionRunStatus::Interrupted => current,
+        };
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(run)
+    }
+
     pub(super) fn read_discussion(
         &self,
         access: ProjectAccess,

@@ -138,6 +138,8 @@ export async function qualifyRecoveryCopy({ page, data, output, operateSaveDialo
     assert.equal(count(db, 'provider_results'), baselineProviderResults, 'Recovery qualification must make no provider calls');
     assert.equal(count(db, 'discussion_runs'), baselineDiscussionRuns, 'Recovery qualification must make no discussion runs');
     assert.deepEqual(errors, [], 'Recovery qualification must produce no page errors');
+    await page.getByRole('button', { name: 'All projects', exact: true }).click();
+    await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
     checks.push('Native recovery copy captures rich click-time editor JSON after a synthetic save failure, writes exact Markdown through the owned Save dialog, supports Save/Cancel, leaves head/body/counts and Saved watermark unchanged until Retry, keeps navigation on the faulted document, then retries successfully with zero provider calls and zero page errors');
   } finally {
     if (triggerInstalled) db.exec(`DROP TRIGGER ${RECOVERY_TRIGGER}`);

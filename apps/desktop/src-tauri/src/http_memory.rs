@@ -139,6 +139,7 @@ pub async fn start(
     runtime: DesktopProviders,
 ) -> CoreResult<MemoryJob> {
     execute(move || {
+        let _admission = runtime.admit_request()?;
         let (started, adapter) = accept(request, &project, &library, &WindowsCredentialStore)?;
         dispatch_accepted(started, adapter, project, recovery, runtime)
     })

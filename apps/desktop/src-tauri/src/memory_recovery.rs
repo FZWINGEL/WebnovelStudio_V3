@@ -40,6 +40,9 @@ fn key(owner: &MemoryOwner) -> MemoryKey {
 }
 
 impl MemoryRecovery {
+    pub fn pending_count(&self) -> usize {
+        self.lock().len()
+    }
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<MemoryKey, PendingMemorySave>> {
         self.0
             .lock()

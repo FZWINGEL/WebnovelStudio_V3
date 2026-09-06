@@ -7,6 +7,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use tauri::Manager;
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
+mod app_close_commands;
 #[cfg(windows)]
 mod claude_live_discussion;
 mod context_commands;
@@ -102,7 +103,14 @@ fn main() {
             );
             let window =
                 tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
-                    .data_directory(data_directory);
+                    .data_directory(data_directory)
+                    .on_page_load(|window, payload| {
+                        if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                            window
+                                .state::<provider_runtime::DesktopProviders>()
+                                .renderer_started();
+                        }
+                    });
             #[cfg(debug_assertions)]
             let window = window.title("WebnovelStudio V3 — Development");
             // Hosted Windows runners may be elevated. WebView2 ignores its own
@@ -123,6 +131,11 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            app_close_commands::begin_app_close,
+            app_close_commands::app_close_status,
+            app_close_commands::stop_app_jobs,
+            app_close_commands::finish_app_close,
+            app_close_commands::cancel_app_close,
             review_commands::chapter_review_status,
             review_commands::read_reviewed_record_set,
             review_commands::reviewed_entity_catalog,

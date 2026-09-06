@@ -148,6 +148,9 @@ impl PendingSave {
 }
 
 impl DiscussionRecovery {
+    pub fn pending_count(&self) -> usize {
+        self.pending().len()
+    }
     // Poison recovery is safe: entries are complete owned values and map writes
     // do not execute author code. Losing the map would hide unfinished saves.
     fn pending(&self) -> std::sync::MutexGuard<'_, HashMap<OwnerKey, PendingSave>> {

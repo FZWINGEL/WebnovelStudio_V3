@@ -63,6 +63,20 @@ pub struct ProjectMetadataResult {
     library_warning: Option<String>,
 }
 impl DesktopProjects {
+    pub(super) fn all_open(&self) -> CoreResult<Vec<ProjectSession>> {
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| {
+                CoreError::new(
+                    "PersistenceUnavailable",
+                    "The project registry is unavailable.",
+                )
+            })?
+            .values()
+            .cloned()
+            .collect())
+    }
     pub(super) fn project(&self, id: &str) -> CoreResult<ProjectSession> {
         self.0
             .lock()

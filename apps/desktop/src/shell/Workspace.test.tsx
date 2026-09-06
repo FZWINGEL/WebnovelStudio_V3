@@ -17,6 +17,16 @@ const mocks = vi.hoisted(() => {
   const createDocument = vi.fn();
   const reconcileProject = vi.fn();
   const projectTransport = { validate: vi.fn(), save: vi.fn(), checkpoint: vi.fn(), reconcile: vi.fn() };
+  const tauri = { active: false };
+  const close = {
+    closeHandler: null as ((event: { preventDefault(): void }) => void) | null,
+    begin: vi.fn(), status: vi.fn(), stop: vi.fn(), finish: vi.fn(), cancel: vi.fn(),
+    currentWindow: null as any,
+  };
+  close.currentWindow = {
+    onCloseRequested: vi.fn((handler: (event: { preventDefault(): void }) => void) => { close.closeHandler = handler; return Promise.resolve(() => {}); }),
+    destroy: vi.fn(),
+  };
   function mockDocumentSession(access: ProjectAccess, record: DocumentRecord) {
     const session: any = {
       projectAccess: access,
@@ -39,7 +49,7 @@ const mocks = vi.hoisted(() => {
     return session;
   }
   const DocumentSession = vi.fn(mockDocumentSession);
-  return { events, sessions, librarySnapshot, libraryOpen, readDocument, runCreateIntent, runtimeInfo, createDocument, reconcileProject, projectTransport, DocumentSession };
+  return { events, sessions, librarySnapshot, libraryOpen, readDocument, runCreateIntent, runtimeInfo, createDocument, reconcileProject, projectTransport, DocumentSession, tauri, close };
 });
 
 vi.mock('../editor/session', () => ({ DocumentSession: mocks.DocumentSession }));
@@ -69,11 +79,13 @@ vi.mock('../ipc/createIntent', () => ({
 }));
 vi.mock('../ipc/exports', () => ({ prepareDraftExport: vi.fn(), prepareReviewedDraftExport: vi.fn(), exportPreparedDraft: vi.fn() }));
 vi.mock('../ipc/native', () => ({ runtimeInfo: mocks.runtimeInfo }));
-vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => false }));
-vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
+vi.mock('../ipc/appClose', () => ({ beginAppClose: mocks.close.begin, appCloseStatus: mocks.close.status, stopAppJobs: mocks.close.stop, finishAppClose: mocks.close.finish, cancelAppClose: mocks.close.cancel }));
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => mocks.tauri.active }));
+vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => mocks.close.currentWindow }));
 vi.mock('./App', () => ({ App: () => null }));
 vi.mock('./ExportDialog', () => ({ ExportDialog: () => null }));
 vi.mock('./V2ImportDialog', () => ({ V2ImportDialog: () => null }));
+vi.mock('./AppCloseDialog', () => ({ AppCloseDialog: ({ phase, message, onStop, onStayOpen }: any) => <div data-testid="app-close-dialog"><p>{message}</p>{phase === 'waiting' && <button onClick={onStop}>Stop replies and close</button>}<button onClick={onStayOpen}>Stay open</button></div> }));
 vi.mock('../providers/ModelSelector', () => ({ ModelSelector: () => null }));
 vi.mock('../providers/ModelSettings', () => ({ ModelSettings: () => null }));
 vi.mock('./Writer', () => ({
@@ -133,6 +145,15 @@ beforeEach(() => {
   localStorage.clear();
   mocks.events.length = 0;
   mocks.sessions.length = 0;
+  mocks.tauri.active = false;
+  mocks.close.closeHandler = null;
+  mocks.close.currentWindow.onCloseRequested.mockClear();
+  mocks.close.currentWindow.destroy.mockReset();
+  mocks.close.begin.mockReset().mockResolvedValue(undefined);
+  mocks.close.status.mockReset().mockResolvedValue({ startingRequests: 0, activeJobs: 0, activeWorkers: 0, pendingResults: 0, ready: true });
+  mocks.close.stop.mockReset().mockResolvedValue({ startingRequests: 0, activeJobs: 0, activeWorkers: 0, pendingResults: 0, ready: true });
+  mocks.close.finish.mockReset().mockResolvedValue(undefined);
+  mocks.close.cancel.mockReset().mockResolvedValue(undefined);
   vi.clearAllMocks();
   mocks.librarySnapshot.mockResolvedValue({ entries: [{ projectId: 'project', title: 'project', path: 'project', archived: false, lastOpened: '2026-09-06T00:00:00Z', missing: false }], pending: [] });
   mocks.libraryOpen.mockImplementation(async () => currentProject);
@@ -234,5 +255,140 @@ describe('Workspace project tabs', () => {
     await act(async () => button('Next chapter').click());
     await waitFor(() => expect(host.textContent).toContain('Second'));
     expect(mocks.readDocument).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'project' }), 'chapter-2');
+  });
+});
+
+describe('Workspace normal close coordination', () => {
+  async function renderTauriWorkspace(project: OpenedProject): Promise<void> {
+    currentProject = project;
+    mocks.tauri.active = true;
+    await renderWorkspace();
+    await waitFor(() => expect(mocks.close.closeHandler).not.toBeNull());
+    await openCurrentProject();
+    await act(async () => new Promise(resolve => setTimeout(resolve, 0)));
+  }
+
+  async function requestClose(): Promise<void> {
+    const event = { preventDefault: vi.fn() };
+    await act(async () => { mocks.close.closeHandler?.(event); });
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+  }
+
+  it('flushes and saves before finishing the native gate and destroying the window', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    await renderTauriWorkspace(opened('project', [chapter]));
+    mocks.close.status.mockImplementation(async () => { mocks.events.push('status'); return { startingRequests: 0, activeJobs: 0, activeWorkers: 0, pendingResults: 0, ready: true }; });
+    mocks.close.finish.mockImplementation(async () => { mocks.events.push('finish'); });
+    mocks.close.currentWindow.destroy.mockImplementation(async () => { mocks.events.push('destroy'); });
+    await requestClose();
+    await waitFor(() => expect(mocks.close.currentWindow.destroy).toHaveBeenCalledOnce());
+    expect(mocks.events).toEqual(['detach:start:chapter-1', 'flush:chapter-1', 'status', 'status', 'finish', 'destroy', 'detach:end:chapter-1']);
+  });
+
+  it('keeps the editor attached when the author stays open', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    await renderTauriWorkspace(opened('project', [chapter]));
+    mocks.close.status.mockResolvedValue({ startingRequests: 0, activeJobs: 1, activeWorkers: 1, pendingResults: 0, ready: false });
+    await requestClose();
+    await waitFor(() => expect(host.querySelector('[data-testid="app-close-dialog"]')).not.toBeNull());
+    await act(async () => button('Stay open').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="app-close-dialog"]')).toBeNull());
+    expect(mocks.close.cancel).toHaveBeenCalledWith(expect.any(String));
+    expect(mocks.close.currentWindow.destroy).not.toHaveBeenCalled();
+    expect(mocks.sessions[0].state.phase).not.toBe('disposed');
+  });
+
+  it('stops active work, rechecks readiness, then closes', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    await renderTauriWorkspace(opened('project', [chapter]));
+    const busy = { startingRequests: 0, activeJobs: 1, activeWorkers: 1, pendingResults: 0, ready: false };
+    const ready = { startingRequests: 0, activeJobs: 0, activeWorkers: 0, pendingResults: 0, ready: true };
+    mocks.close.status.mockResolvedValueOnce(busy).mockResolvedValueOnce(ready).mockResolvedValueOnce(ready);
+    mocks.close.stop.mockImplementation(async () => { mocks.events.push('stop'); return ready; });
+    mocks.close.finish.mockImplementation(async () => { mocks.events.push('finish'); });
+    mocks.close.currentWindow.destroy.mockImplementation(async () => { mocks.events.push('destroy'); });
+    await requestClose();
+    await waitFor(() => expect(host.querySelector('[data-testid="app-close-dialog"]')).not.toBeNull());
+    await act(async () => button('Stop replies and close').click());
+    await waitFor(() => expect(mocks.close.currentWindow.destroy).toHaveBeenCalledOnce());
+    expect(mocks.close.stop).toHaveBeenCalledOnce();
+    expect(mocks.events).toContain('stop');
+    expect(mocks.events).toContain('finish');
+  });
+
+  it('does not destroy when Stay open races a late finish acknowledgment', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    await renderTauriWorkspace(opened('project', [chapter]));
+    const busy = { startingRequests: 0, activeJobs: 1, activeWorkers: 1, pendingResults: 0, ready: false };
+    const ready = { startingRequests: 0, activeJobs: 0, activeWorkers: 0, pendingResults: 0, ready: true };
+    let resolveFinish!: () => void;
+    mocks.close.status.mockResolvedValueOnce(busy).mockResolvedValueOnce(ready).mockResolvedValueOnce(ready).mockResolvedValueOnce(ready);
+    mocks.close.stop.mockResolvedValue(ready);
+    mocks.close.finish.mockImplementation(() => new Promise<void>(resolve => { resolveFinish = resolve; }));
+    await requestClose();
+    await waitFor(() => expect(host.querySelector('[data-testid="app-close-dialog"]')).not.toBeNull());
+    await act(async () => button('Stop replies and close').click());
+    await waitFor(() => expect(mocks.close.finish).toHaveBeenCalledOnce());
+    await act(async () => button('Stay open').click());
+    await waitFor(() => expect(mocks.close.cancel).toHaveBeenCalledOnce());
+    resolveFinish();
+    await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
+    expect(mocks.close.currentWindow.destroy).not.toHaveBeenCalled();
+    expect(mocks.sessions[0].state.phase).not.toBe('disposed');
+  });
+
+  it('blocks close when a pending reply still needs saving', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    await renderTauriWorkspace(opened('project', [chapter]));
+    const pending = { startingRequests: 0, activeJobs: 0, activeWorkers: 0, pendingResults: 1, ready: false };
+    mocks.close.status.mockResolvedValue(pending);
+    await requestClose();
+    await waitFor(() => expect(host.textContent).toContain('Some replies or story memory still need saving. Stay open and retry saving them.'));
+    expect([...host.querySelectorAll('button')].some(item => item.textContent === 'Stop replies and close')).toBe(false);
+    await act(async () => button('Stay open').click());
+    expect(mocks.close.currentWindow.destroy).not.toHaveBeenCalled();
+    expect(mocks.sessions[0].state.phase).not.toBe('disposed');
+    expect(mocks.close.cancel).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a late status response after Stay open cancels the close', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    await renderTauriWorkspace(opened('project', [chapter]));
+    let resolveStatus!: (value: any) => void;
+    mocks.close.status.mockResolvedValueOnce({ startingRequests: 0, activeJobs: 1, activeWorkers: 1, pendingResults: 0, ready: false })
+      .mockImplementationOnce(() => new Promise(resolve => { resolveStatus = resolve; }));
+    await requestClose();
+    await waitFor(() => expect(host.querySelector('[data-testid="app-close-dialog"]')).not.toBeNull());
+    await act(async () => button('Stop replies and close').click());
+    await waitFor(() => expect(mocks.close.status).toHaveBeenCalledTimes(2));
+    await act(async () => button('Stay open').click());
+    resolveStatus({ startingRequests: 0, activeJobs: 0, activeWorkers: 0, pendingResults: 0, ready: true });
+    await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
+    expect(mocks.close.currentWindow.destroy).not.toHaveBeenCalled();
+    expect(mocks.sessions[0].state.phase).not.toBe('disposed');
+  });
+
+  it('leaves the editor usable when window destruction fails', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    await renderTauriWorkspace(opened('project', [chapter]));
+    mocks.close.currentWindow.destroy.mockRejectedValue(new Error('Window close failed.'));
+    await requestClose();
+    await waitFor(() => expect(host.textContent).toContain('Window close failed.'));
+    expect(mocks.sessions[0].state.phase).not.toBe('disposed');
+    expect(mocks.close.finish).toHaveBeenCalledOnce();
+    expect(mocks.close.cancel).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a repeated close request while the first close is waiting', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    await renderTauriWorkspace(opened('project', [chapter]));
+    let resolveStatus!: (value: any) => void;
+    mocks.close.status.mockImplementationOnce(() => new Promise(resolve => { resolveStatus = resolve; }));
+    await requestClose();
+    await requestClose();
+    expect(mocks.close.begin).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain('Finish the current operation before closing.');
+    resolveStatus({ startingRequests: 0, activeJobs: 0, activeWorkers: 0, pendingResults: 0, ready: true });
+    await waitFor(() => expect(mocks.close.currentWindow.destroy).toHaveBeenCalledOnce());
   });
 });

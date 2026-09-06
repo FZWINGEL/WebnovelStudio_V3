@@ -23,6 +23,11 @@ use webnovel_core::providers::{cli::windows_process::StopSignal, codex_runtime::
 pub struct DesktopProviders(Arc<Mutex<RuntimeState>>);
 #[derive(Default)]
 struct RuntimeState {
+    close_request: Option<String>,
+    close_stopping: bool,
+    cancelled_close_requests: std::collections::HashSet<String>,
+    starting_requests: u32,
+    local_workers: u32,
     checking: bool,
     checked: bool,
     #[cfg(windows)]
@@ -42,6 +47,58 @@ struct RuntimeState {
         (String, String, String),
         webnovel_core::providers::adapter::CancellationToken,
     >,
+}
+
+/// Held inside the actual acceptance closure, including when its IPC waiter
+/// disappears. Closing cannot observe a gap before worker registration.
+pub struct RequestAdmission(DesktopProviders);
+impl Drop for RequestAdmission {
+    fn drop(&mut self) {
+        let mut state = self
+            .0
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.starting_requests -= 1;
+    }
+}
+
+pub struct LocalWorkerRegistration(DesktopProviders);
+impl Drop for LocalWorkerRegistration {
+    fn drop(&mut self) {
+        let mut state = self
+            .0
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.local_workers -= 1;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CloseActivity {
+    pub starting_requests: u32,
+    pub active_workers: usize,
+    pub stopping: bool,
+}
+
+/// Cloned cancellation handles belong to the workers captured at confirmation.
+/// A later Stay open/new request cannot redirect these handles to new work.
+pub struct CloseCancellations {
+    http: Vec<webnovel_core::providers::adapter::CancellationToken>,
+    #[cfg(windows)]
+    cli: Vec<StopSignal>,
+}
+impl CloseCancellations {
+    pub fn cancel(self) {
+        for stop in self.http {
+            stop.cancel();
+        }
+        #[cfg(windows)]
+        for stop in self.cli {
+            stop.request_stop();
+        }
+    }
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -241,6 +298,158 @@ fn unavailable() -> CoreError {
 }
 
 impl DesktopProviders {
+    pub fn admit_request(&self) -> CoreResult<RequestAdmission> {
+        let mut state = self.lock()?;
+        if state.close_request.is_some() {
+            return Err(CoreError::new(
+                "AppClosing",
+                "The app is preparing to close. Stay open before starting another request.",
+            ));
+        }
+        state.starting_requests = state
+            .starting_requests
+            .checked_add(1)
+            .ok_or_else(|| CoreError::new("TooManyRequests", "Too many requests are starting."))?;
+        Ok(RequestAdmission(self.clone()))
+    }
+
+    pub fn track_local_worker(&self) -> CoreResult<LocalWorkerRegistration> {
+        let mut state = self.lock()?;
+        state.local_workers = state
+            .local_workers
+            .checked_add(1)
+            .ok_or_else(|| CoreError::new("TooManyRequests", "Too many local jobs are running."))?;
+        Ok(LocalWorkerRegistration(self.clone()))
+    }
+
+    pub fn begin_close(&self, close_id: &str) -> CoreResult<()> {
+        if close_id.is_empty() || close_id.len() > 128 {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "The close request is invalid.",
+            ));
+        }
+        let mut state = self.lock()?;
+        if state.cancelled_close_requests.contains(close_id) {
+            return Err(CoreError::new(
+                "CloseRequestChanged",
+                "This close request was cancelled.",
+            ));
+        }
+        if state
+            .close_request
+            .as_deref()
+            .is_some_and(|current| current != close_id)
+        {
+            return Err(CoreError::new(
+                "CloseRequestChanged",
+                "Another close request is already active.",
+            ));
+        }
+        if state.close_request.is_none() {
+            state.close_stopping = false;
+        }
+        state.close_request = Some(close_id.to_owned());
+        Ok(())
+    }
+
+    pub fn cancel_close(&self, close_id: &str) -> CoreResult<()> {
+        if close_id.is_empty() || close_id.len() > 128 {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "The close request is invalid.",
+            ));
+        }
+        let mut state = self.lock()?;
+        if state
+            .close_request
+            .as_deref()
+            .is_some_and(|current| current != close_id)
+        {
+            return Err(CoreError::new(
+                "CloseRequestChanged",
+                "This close request is no longer current.",
+            ));
+        }
+        state.close_request = None;
+        state.close_stopping = false;
+        state.cancelled_close_requests.insert(close_id.to_owned());
+        Ok(())
+    }
+
+    /// A replacement renderer must not inherit an abandoned modal close gate.
+    /// Workers keep their exact owners; only the obsolete close request retires.
+    pub fn renderer_started(&self) {
+        let mut state = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(close_id) = state.close_request.take() {
+            state.cancelled_close_requests.insert(close_id);
+        }
+        state.close_stopping = false;
+    }
+
+    pub fn confirm_close_stop(&self, close_id: &str) -> CoreResult<()> {
+        let mut state = self.lock()?;
+        if state.close_request.as_deref() != Some(close_id) {
+            return Err(CoreError::new(
+                "CloseRequestChanged",
+                "This close request is no longer current.",
+            ));
+        }
+        if state.starting_requests != 0 {
+            return Err(CoreError::new(
+                "CloseNotReady",
+                "Wait for requests that are still starting.",
+            ));
+        }
+        state.close_stopping = true;
+        Ok(())
+    }
+
+    pub fn close_activity(&self, close_id: &str) -> CoreResult<CloseActivity> {
+        let state = self.lock()?;
+        if state.close_request.as_deref() != Some(close_id) {
+            return Err(CoreError::new(
+                "CloseRequestChanged",
+                "This close request is no longer current.",
+            ));
+        }
+        let active_workers =
+            state.local_workers as usize + state.http_stops.len() + state.http_memory_stops.len();
+        #[cfg(windows)]
+        let active_workers = active_workers + state.stops.len();
+        Ok(CloseActivity {
+            starting_requests: state.starting_requests,
+            active_workers,
+            stopping: state.close_stopping,
+        })
+    }
+
+    /// Author-confirmed app close targets only workers owned by this runtime.
+    /// Call even when persisting Stop failed; storage failure cannot require
+    /// continued external work. The close gate stays active until cleanup.
+    pub fn capture_close_cancellations(&self, close_id: &str) -> CoreResult<CloseCancellations> {
+        let state = self.lock()?;
+        if state.close_request.as_deref() != Some(close_id) || state.starting_requests != 0 {
+            return Err(CoreError::new(
+                "CloseNotReady",
+                "Wait for requests that are still starting.",
+            ));
+        }
+        Ok(CloseCancellations {
+            http: state
+                .http_stops
+                .values()
+                .chain(state.http_memory_stops.values())
+                .cloned()
+                .collect(),
+            #[cfg(windows)]
+            cli: state.stops.values().cloned().collect(),
+        })
+    }
+
     pub fn register_http_memory(
         &self,
         owner: &MemoryOwner,
@@ -778,6 +987,100 @@ impl DesktopProviders {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn close_gate_drains_accepted_starts_and_tracks_local_worker_until_completion() {
+        let runtime = DesktopProviders::default();
+        let admission = runtime.admit_request().unwrap();
+        runtime.begin_close("close-one").unwrap();
+        assert_eq!(runtime.admit_request().err().unwrap().code, "AppClosing");
+        assert_eq!(
+            runtime
+                .close_activity("close-one")
+                .unwrap()
+                .starting_requests,
+            1
+        );
+        assert_eq!(
+            runtime
+                .capture_close_cancellations("close-one")
+                .err()
+                .unwrap()
+                .code,
+            "CloseNotReady"
+        );
+        // Already-admitted starts may register after the close gate is set.
+        let worker = runtime.track_local_worker().unwrap();
+        drop(admission);
+        assert_eq!(
+            runtime.close_activity("close-one").unwrap(),
+            CloseActivity {
+                starting_requests: 0,
+                active_workers: 1,
+                stopping: false
+            }
+        );
+        drop(worker);
+        assert_eq!(
+            runtime.close_activity("close-one").unwrap().active_workers,
+            0
+        );
+        runtime.cancel_close("close-one").unwrap();
+        assert!(runtime.admit_request().is_ok());
+    }
+
+    #[test]
+    fn an_old_close_response_cannot_cancel_or_authorize_a_new_close() {
+        let runtime = DesktopProviders::default();
+        runtime.begin_close("old").unwrap();
+        runtime.cancel_close("old").unwrap();
+        runtime.begin_close("new").unwrap();
+        assert_eq!(
+            runtime.cancel_close("old").unwrap_err().code,
+            "CloseRequestChanged"
+        );
+        assert_eq!(
+            runtime.close_activity("old").unwrap_err().code,
+            "CloseRequestChanged"
+        );
+        assert_eq!(runtime.admit_request().err().unwrap().code, "AppClosing");
+        runtime.cancel_close("new").unwrap();
+        assert!(runtime.admit_request().is_ok());
+    }
+
+    #[test]
+    fn cancelling_before_a_delayed_begin_keeps_request_admission_open() {
+        let runtime = DesktopProviders::default();
+        runtime.cancel_close("lost-begin").unwrap();
+        assert_eq!(
+            runtime.begin_close("lost-begin").unwrap_err().code,
+            "CloseRequestChanged"
+        );
+        assert!(runtime.admit_request().is_ok());
+    }
+
+    #[test]
+    fn close_cancellation_cannot_stop_new_work_started_after_staying_open() {
+        use webnovel_core::projects::discussions::RunOwner;
+        let runtime = DesktopProviders::default();
+        let old = RunOwner {
+            project_id: "project".into(),
+            operation_namespace: "namespace".into(),
+            run_id: "old".into(),
+        };
+        let new = RunOwner {
+            run_id: "new".into(),
+            ..old.clone()
+        };
+        let old_signal = runtime.register_http(&old).unwrap();
+        runtime.begin_close("close").unwrap();
+        let captured = runtime.capture_close_cancellations("close").unwrap();
+        runtime.cancel_close("close").unwrap();
+        let new_signal = runtime.register_http(&new).unwrap();
+        captured.cancel();
+        assert!(old_signal.is_cancelled());
+        assert!(!new_signal.is_cancelled());
+    }
 
     #[test]
     fn unchecked_claude_reference_catalog_cannot_enable_dispatch_or_change_memory() {

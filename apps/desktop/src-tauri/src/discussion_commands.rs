@@ -172,6 +172,7 @@ pub async fn start_discussion(
         .await;
     }
     execute(move || {
+        let _admission = runtime.admit_request()?;
         let selected = model_selection
             .clone()
             .unwrap_or_else(ModelSelection::local_mock);
@@ -329,6 +330,7 @@ pub async fn start_discussion(
             return Ok(started);
         }
         if started.run.status == DiscussionRunStatus::Queued {
+            let worker_registration = runtime.track_local_worker()?;
             // A duplicate lost-ack retry can reach here. Only one worker can
             // claim the durable queued run. Claim before spawning, so failure
             // to spawn a duplicate cannot seal another worker's running job.
@@ -338,7 +340,10 @@ pub async fn start_discussion(
                 let worker_recovery = recovery.clone();
                 if std::thread::Builder::new()
                     .name("webnovel-test-response".into())
-                    .spawn(move || run_mock(project, worker_recovery, dispatch))
+                    .spawn(move || {
+                        let _worker_registration = worker_registration;
+                        run_mock(project, worker_recovery, dispatch);
+                    })
                     .is_err()
                 {
                     record_worker_failure(
