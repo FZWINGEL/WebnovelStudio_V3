@@ -43,13 +43,15 @@ decision, and provider result; its evidence is
 `.local/live-structured-qualification/qualification.json` and
 `.local/structured-live.log`. It used the same requested Luna/Max/priority
 profile, with effective provider identity unreported, and brought the total
-live generations to eleven. Hosted CI for this current slice remains pending.
+live generations to eleven. [CI 34017484597](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34017484597) passes Windows and Ubuntu contract jobs and all 43 strict native checks, including clipboard, with zero errors. Source is `c92df7708a4a48b83c11f25866c1f0a39d4a94b7`; the downloaded report is `.local/ci-34017484597/report.json`, dated `2026-09-06T07:01:18.297Z` on WebView2 `151.0.4129.101`. The two new hosted screenshots were visually inspected.
 
 Two native failures found during qualification are retained in
 `.local/structured-native-first-failure.json` and
 `.local/structured-native-second-failure.json`. The fixes canonicalize scope
 acknowledgments before comparison and read the local mock format from the
 exact envelope scope. They do not relax structural or source validation.
+
+The same clean source `c92df7708a4a48b83c11f25866c1f0a39d4a94b7` also passed [package run 34017567399](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34017567399) on Windows Server 2025 `10.0.26100` with WebView2 `151.0.4129.101`. It installed, opened the release Library without the debug trial, created and saved synthetic English prose, reopened it, closed normally, uninstalled in place, and reinstalled the same version with project/document/text retention. The result has no errors and no forced process stop. Completion was `2026-09-06T07:01:49.6493638Z`; installer SHA-256 is `5fa3af0e572c40c9321b9da15ec766d4d823fd46d770316bd285a3d4718f6947`. Downloaded evidence is `.local/ci-34017567399/build-metadata.json` and `.local/ci-34017567399/run-20260906-070045-364/result.json`; the retained reinstall screenshot was visually inspected. This is narrow installed-lifecycle evidence, not offline/no-runtime installation, an upgrade, installed live generation/structured editing, or full release acceptance.
 
 ### Prior C5-A evidence history slice
 
@@ -69,13 +71,21 @@ Rust schema-21 persistence, canonical hashing, exact UTF-16 anchor validation, r
 
 ### Next implementation focus
 
-The next gate is hosted CI for the current suggestion slice, followed by
-release/package qualification. Broader work remains: C5 relationship,
-knowledge/belief, unresolved-thread, rules, and
-multi-resolution digest views; richer arbitrary partial multi-block editing,
-batch Apply, and manual rebinding; broader provider coverage; and author-facing
-narrative-quality trials. Generated chapter memory remains an unreviewed
-navigation aid, and the full V3 goal remains open.
+The current source checkpoint passes hosted contract/native CI and the narrow
+installed-package lifecycle. The next C5 slice is passage-backed promise
+history in author-room discussions: reuse an opaque promise identity across
+chapters and retrieve its recorded setup, payoff, cancellation, or uncertainty
+with exact source references. It will extend immutable review records and
+frozen evidence, preserving historical order and explicit incomplete-coverage
+labels. No missing payoff may be treated as proof that one never occurred.
+Restricted knowledge/belief delivery requires its own later disclosure contract.
+This slice is planned, not implemented.
+
+Broader work remains: C5 relationship, knowledge/belief, rule, and multi-resolution
+digest views; C6 bounded model lookups; arbitrary partial multi-block editing,
+batch Apply, and manual rebinding; broader providers; native author trials; and
+narrative-quality and release qualification. Generated chapter memory remains
+an unreviewed navigation aid, and the full V3 goal remains open.
 
 The exact bundle/revision cache follow-up is measured in
 `.local/reviewed-evidence-freeze-benchmark/review-validation-cache-result.json`.

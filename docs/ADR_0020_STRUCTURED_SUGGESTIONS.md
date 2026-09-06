@@ -1,8 +1,6 @@
 # ADR 0020: Explicitly scoped structured suggestions
 
-Status: implemented local development slice; local native qualification is
-42/43 checks with the known OS clipboard case omitted. Hosted CI, broader
-live-provider, and release qualification remain pending. This extends the
+Status: implemented development slice; [CI 34017484597](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34017484597) passes both contract jobs and all 43 strict native checks. The local native diagnostic passes 42/43 with the known OS clipboard case omitted. Broader live-provider and release qualification remain pending. This extends the
 single-line passage contract in [ADR 0004](ADR_0004_PROPOSAL_APPLY.md) and the
 append-only continuation contract in [ADR 0016](ADR_0016_STORY_CONTINUATION.md).
 It defines the structured suggestion slice for complete block and whole-chapter
@@ -110,7 +108,7 @@ not activate facts, summaries, guidance, evidence, or publication state.
   editing, and manual rebinding are not part of this slice.
 - Applying a suggestion does not infer or persist new narrative truth.
 
-## Qualification plan
+## Qualification evidence
 
 The deterministic fixture and local wrapper checks pass. The wrapper recorded
 467 active Rust tests (442 core and 25 desktop, one existing ignored fixture),
@@ -127,9 +125,9 @@ JavaScript / 37.16 KB CSS with the existing Vite chunk warning.
 One bounded live structured request also passed with a retained proposal,
 prepared version, decision, and provider result; evidence is
 `.local/live-structured-qualification/qualification.json` and
-`.local/structured-live.log`. Hosted CI and installed-release qualification are
-still pending. Before calling the broader package complete, the implementation
-must demonstrate, with deterministic fixtures and the native author journey:
+`.local/structured-live.log`. [CI 34017484597](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34017484597) passes Windows and Ubuntu contracts and all 43 strict native checks, including clipboard, with zero errors. The downloaded report is `.local/ci-34017484597/report.json`, dated `2026-09-06T07:01:18.297Z` on WebView2 `151.0.4129.101`, for source `c92df7708a4a48b83c11f25866c1f0a39d4a94b7`. The same source also passes the narrow installed writing/reopen/uninstall/reinstall lifecycle in [package run 34017567399](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34017567399); that separate test does not exercise installed structured editing or qualify a complete release.
+
+The deterministic fixtures and native development journeys cover:
 
 1. legacy passage and continuation payloads remain byte-compatible;
 2. malformed typed blocks, invalid heading levels, line breaks in text,
@@ -143,5 +141,4 @@ must demonstrate, with deterministic fixtures and the native author journey:
 5. the UI requires an explicit paragraph or whole-chapter scope and presents a
    readable editable rich-prose preview.
 
-This ADR records the implemented contract and its local evidence. It does not
-claim hosted CI, broader live-provider, or installed-release qualification.
+This ADR records the implemented contract and its local and hosted development evidence. The bounded live result does not establish broader provider or narrative-quality acceptance, and full installed-release qualification remains open.
