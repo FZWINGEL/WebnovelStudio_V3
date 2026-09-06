@@ -3,7 +3,7 @@ import type { WnsDocument } from '../editor/document';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { FrozenGuidance } from './guidance';
 import type { DigestCandidate } from './memory';
-import type { KnowledgeRecord, PossessionRecord, PromiseRecord, SummaryRevision } from './reviews';
+import type { KnowledgeRecord, PossessionRecord, PromiseRecord, StoryEntityRef, SummaryRevision } from './reviews';
 
 export interface EvidenceHistoryObservation extends Pick<PossessionRecord, 'object' | 'holder' | 'timing' | 'audience' | 'evidence'> {
   recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
@@ -129,12 +129,58 @@ export interface LookupAllowance {
   totalOutputBytes: string;
 }
 export type LookupSearchMode = 'literal' | 'lexical' | 'exactAlias';
+export type LookupMemoryEntityKind = 'character' | 'topic' | 'object' | 'promise';
+export interface LookupMemoryEntityEntry {
+  entity: StoryEntityRef;
+  labelVariants: string[];
+  sourceHandle: string;
+  source: SourceRef;
+}
+export interface LookupMemoryEntitiesResult {
+  kind: 'findEntities';
+  entityKind: LookupMemoryEntityKind;
+  query: string;
+  entries: LookupMemoryEntityEntry[];
+  offset: number;
+  totalMatches: number;
+  nextOffset: number | null;
+  incomplete: boolean;
+}
+export interface LookupMemoryKnowledgeHistoryResult {
+  kind: 'knowledgeHistory';
+  history: KnowledgeHistory;
+  offset: number;
+  totalObservations: number;
+  nextOffset: number | null;
+}
+export interface LookupMemoryPromiseHistoryResult {
+  kind: 'promiseHistory';
+  history: PromiseHistory;
+  offset: number;
+  totalObservations: number;
+  nextOffset: number | null;
+}
+export interface LookupMemoryPossessionHistoryResult {
+  kind: 'possessionHistory';
+  history: EvidenceHistory;
+  offset: number;
+  totalObservations: number;
+  nextOffset: number | null;
+}
+export type LookupMemoryResult = LookupMemoryEntitiesResult | LookupMemoryKnowledgeHistoryResult | LookupMemoryPromiseHistoryResult | LookupMemoryPossessionHistoryResult;
+export type LookupMemoryRequest =
+  | { kind: 'findEntities'; id: string; entityKind: LookupMemoryEntityKind; query: string; offset?: number; limit: number }
+  | { kind: 'knowledgeHistory'; id: string; characterId: string; topicId?: string; offset?: number; limit: number }
+  | { kind: 'promiseHistory'; id: string; promiseId: string; offset?: number; limit: number }
+  | { kind: 'possessionHistory'; id: string; objectId: string; offset?: number; limit: number };
 export type LookupRequest =
   | { kind: 'search'; id: string; query: string; mode: LookupSearchMode; limit: number }
-  | { kind: 'read'; id: string; handle: string; blockIds?: string[] };
+  | { kind: 'read'; id: string; handle: string; blockIds?: string[] }
+  | LookupMemoryRequest;
 export type LookupResult =
   | { kind: 'search'; result: StorySearchResult }
   | { kind: 'read'; handle: string; source: SourceRef; passages: SourcePassage[]; complete: boolean }
+  | LookupMemoryResult
   | { kind: 'unavailable'; code: string; detail: string };
 export interface LookupExchange { request: LookupRequest; result: LookupResult }
 export interface LookupSourceProjection {
@@ -145,6 +191,7 @@ export interface LookupPacketInput {
   allowance: LookupAllowance;
   completedInvocations: number;
   exchanges: LookupExchange[];
+  reviewedMemory?: 'reviewed-memory.v1';
   sourceProjection?: LookupSourceProjection;
 }
 export interface ScopeGrant {

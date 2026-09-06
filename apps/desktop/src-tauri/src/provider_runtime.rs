@@ -139,6 +139,7 @@ pub fn memory_selection(provider_id: &str) -> ModelSelection {
 struct ConnectionView {
     ready: bool,
     checked: bool,
+    checking: bool,
     memory_ready: bool,
     detail: String,
 }
@@ -752,51 +753,96 @@ impl DesktopProviders {
             codex_connection: ConnectionView {
                 ready,
                 checked: runtime.checked,
+                checking: runtime.checking,
                 memory_ready,
                 detail,
             },
         })
     }
 
-    pub fn check_connection(&self) -> CoreResult<()> {
-        // No process operation holds the Stop registry lock.
+    fn begin_codex_check(&self) -> CoreResult<()> {
+        let mut state = self.lock()?;
+        if state.checking {
+            return Err(CoreError::new(
+                "ConnectionCheckRunning",
+                "A Codex connection check is already running.",
+            ));
+        }
+        state.checking = true;
+        state.checked = true;
+        #[cfg(windows)]
         {
-            let mut state = self.lock()?;
-            if state.checking {
-                return Err(CoreError::new(
-                    "ConnectionCheckRunning",
-                    "A Codex connection check is already running.",
-                ));
+            state.connection = None;
+        }
+        Ok(())
+    }
+
+    /// Finish a check only after its durable publication callback succeeds.
+    /// The callback runs without the runtime mutex held, so readers can observe
+    /// the checking fence but never a ready connection backed by an unsaved
+    /// catalog.
+    #[cfg(windows)]
+    fn finish_codex_check<T>(
+        &self,
+        checked: CoreResult<T>,
+        persist: impl FnOnce(&T) -> CoreResult<()>,
+        publish: impl FnOnce(T, &mut RuntimeState),
+    ) -> CoreResult<()> {
+        let checked = match checked {
+            Ok(value) => value,
+            Err(error) => {
+                let mut state = self.lock()?;
+                state.checking = false;
+                #[cfg(windows)]
+                {
+                    state.connection = None;
+                }
+                state.detail = Some(error.detail.clone());
+                return Err(error);
             }
-            state.checking = true;
-            state.checked = true;
+        };
+        if let Err(error) = persist(&checked) {
+            let mut state = self.lock()?;
+            state.checking = false;
             #[cfg(windows)]
             {
                 state.connection = None;
             }
+            state.detail = Some(
+                "The discovered Codex models could not be saved. Check the connection again."
+                    .into(),
+            );
+            return Err(error);
         }
-        #[cfg(windows)]
-        {
-            let checked = CodexConnection::check_installed();
-            let mut state = self.lock()?;
-            state.checking = false;
-            match checked {
-                Ok(connection) => {
-                    state.connection = Some(connection);
-                    state.detail = Some("Signed in through Codex. Available models and traits were read from this installation.".into());
-                }
-                Err(error) => {
-                    state.detail = Some(error.detail);
-                }
-            }
-        }
-        #[cfg(not(windows))]
-        {
-            let mut state = self.lock()?;
-            state.checking = false;
-            state.detail =
-                Some("This Codex connection is currently available on Windows only.".into());
-        }
+        let mut state = self.lock()?;
+        state.checking = false;
+        publish(checked, &mut state);
+        state.detail = Some(
+            "Signed in through Codex. Available models and traits were read from this installation."
+                .into(),
+        );
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn check_connection(
+        &self,
+        persist: impl FnOnce(&CodexConnection) -> CoreResult<()>,
+    ) -> CoreResult<()> {
+        self.begin_codex_check()?;
+        self.finish_codex_check(
+            CodexConnection::check_installed(),
+            persist,
+            |connection, state| state.connection = Some(connection),
+        )
+    }
+
+    #[cfg(not(windows))]
+    pub fn check_connection(&self) -> CoreResult<()> {
+        self.begin_codex_check()?;
+        let mut state = self.lock()?;
+        state.checking = false;
+        state.detail = Some("This Codex connection is currently available on Windows only.".into());
         Ok(())
     }
 
@@ -854,33 +900,6 @@ impl DesktopProviders {
     #[cfg(windows)]
     pub fn connection(&self) -> CoreResult<CodexConnection> {
         self.lock()?.connection.clone().ok_or_else(unavailable)
-    }
-    pub fn checked_catalog(
-        &self,
-    ) -> CoreResult<Option<webnovel_core::providers::codex_catalog::CodexCatalog>> {
-        #[cfg(windows)]
-        {
-            Ok(self
-                .lock()?
-                .connection
-                .as_ref()
-                .map(|connection| connection.catalog().clone()))
-        }
-        #[cfg(not(windows))]
-        {
-            Ok(None)
-        }
-    }
-    pub fn invalidate_connection(&self) -> CoreResult<()> {
-        let mut state = self.lock()?;
-        #[cfg(windows)]
-        {
-            state.connection = None;
-        }
-        state.detail = Some(
-            "The discovered Codex models could not be saved. Check the connection again.".into(),
-        );
-        Ok(())
     }
     #[cfg(windows)]
     fn register_key(
@@ -1258,6 +1277,74 @@ mod tests {
             state.state.dispatch,
             DispatchResolution::Blocked { .. }
         ));
+    }
+
+    #[cfg(windows)]
+    fn synthetic_codex_state() -> ProviderState {
+        ProviderState {
+            settings: webnovel_core::providers::preferences::ModelSettings {
+                revision: "0".into(),
+                active: ModelSelection {
+                    provider_id: "codex".into(),
+                    model_id: "gpt-5.6-luna".into(),
+                    reasoning: Some("xhigh".into()),
+                    service_tier: Some("priority".into()),
+                },
+                favorites: vec![],
+            },
+            catalog: webnovel_core::providers::catalog::built_in_catalog(),
+            dispatch: DispatchResolution::Blocked {
+                detail: "Unavailable".into(),
+            },
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn codex_publication_stays_fenced_until_persistence_callback_finishes() {
+        let runtime = DesktopProviders::default();
+        runtime.begin_codex_check().unwrap();
+        runtime
+            .finish_codex_check(
+                Ok(7_u8),
+                |value| {
+                    assert_eq!(*value, 7);
+                    let during_persistence = runtime.view(synthetic_codex_state()).unwrap();
+                    assert!(during_persistence.codex_connection.checking);
+                    assert!(!during_persistence.codex_connection.ready);
+                    Ok(())
+                },
+                |value, state| {
+                    assert_eq!(value, 7);
+                    assert!(!state.checking);
+                },
+            )
+            .unwrap();
+        let after = runtime.view(synthetic_codex_state()).unwrap();
+        assert!(!after.codex_connection.checking);
+        assert!(!after.codex_connection.ready);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_codex_publication_clears_the_checking_fence_and_connection() {
+        let runtime = DesktopProviders::default();
+        runtime.begin_codex_check().unwrap();
+        let error = runtime.finish_codex_check(
+            Ok(7_u8),
+            |_| {
+                Err(CoreError::new(
+                    "PersistenceUnavailable",
+                    "synthetic failure",
+                ))
+            },
+            |_, _| panic!("a failed publication must not publish a connection"),
+        );
+        assert_eq!(error.unwrap_err().code, "PersistenceUnavailable");
+        let after = runtime.view(synthetic_codex_state()).unwrap();
+        assert!(!after.codex_connection.checking);
+        assert!(!after.codex_connection.ready);
+        assert!(after.codex_connection.detail.contains("could not be saved"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Codex qualification evidence
 
-This document records historical versioned discovery and twenty bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, one native chapter-memory request, one native story-continuation request, one native structured-suggestion request, two native promise-context discussions, three invocations in one native story lookup, two current dynamic-author sends, one isolated diagnostic Mini invocation, and one explicit Mini follow-up. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
+This document records historical discovery and **24 bounded live CLI dispatches**: the first twenty provider and editor qualifications below, one native AI chapter draft, and three reviewed-memory lookup invocations on 6 September 2026. Zero-dispatch preflight failures are recorded separately. This evidence does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
 
 ## Current provider policy
 
@@ -53,7 +53,7 @@ into an in-flight request, so a refreshed descriptor cannot replay an old
 binding, and saved results remain inspectable. A renderer request
 acknowledgment does not trigger automatic generation replay.
 
-Project schema 28 is the current reader floor; the schema-27 author-binding
+Project schema 34 is the current reader floor; the schema-27 author-binding
 boundary remains part of the compatibility contract and changes no project
 tables. Legacy `codex-stdin.v1` bindings, including historical 0.153.3 packet
 bytes and hashes, remain readable. Maintenance keeps
@@ -398,3 +398,44 @@ Evidence: ignored `.local/ai-workspace-live-qualification/report.json`,
 `receipt.json`, and `live-chapter.png`. No author manuscript or credential
 contents were inspected. This single draft does not close the wider W8,
 long-novel, or narrative-quality gates.
+
+## Native reviewed-memory lookup qualification — 6 September 2026, 21:46 UTC
+
+Cumulative live CLI dispatches **22–24** used the installed Codex adapter with
+GPT-5.6 Luna, xhigh reasoning, and priority/Fast. The native model picker visibly
+retained these choices. The explicit `--live` mode of
+`apps/desktop/scripts/native-memory-lookup-smoke.mjs` created a synthetic
+two-chapter project with reviewed character knowledge, a possession observation,
+and a promise setup. One authorized discussion made three bounded invocations:
+identity discovery, exact-ID history retrieval, then a final English answer.
+
+All four added operations (`findEntities`, `knowledgeHistory`,
+`possessionHistory`, and `promiseHistory`) retained `reviewed-memory.v1` on each
+frozen packet. The final answer quoted the three source passages, named their
+chapter, distinguished Mei's belief from world truth, and explicitly avoided
+inferring current possession or fulfillment from incomplete recorded history.
+The context inspector opened the exact source. Prose stayed unchanged, no
+proposal was created, and the saved answer reopened without another invocation.
+All three local cleanup receipts were settled; the native page reported no
+errors. This qualifies the requested protocol on one synthetic example, not
+spontaneous retrieval, long-story understanding, or narrative quality.
+
+Reported totals were 14,080 input tokens and 2,090 output tokens, including
+1,713 reasoning output tokens. Confirmed stdin sizes were 11,500, 14,101, and
+17,881 bytes. These receipts do not independently verify billing or effective
+model traits. The default offline version of the same fixture also passed,
+with zero live calls, and is the only version run in CI.
+
+Native executable SHA-256:
+`ccec4c7b0e630a9abf17786d872d70decd08074990a66e70bc38b39e6a1a3167`.
+Evidence: ignored `.local/native-results/memory-lookup-live/qualification.json`,
+`knowledge-history.png`, and `memory-lookups.png`, completed at
+`2026-09-06T21:46:51.593Z`; the offline report is beside it under
+`memory-lookup-mock`.
+
+An earlier attempt stopped before dispatch after exposing a renderer-reload
+race with an in-progress native Codex check. It made **zero** model calls and
+is preserved under `.local/memory-lookup-live-preflight-race/`. The repaired
+frontend joins the existing native check through bounded read-only status
+polling instead of starting a duplicate probe, and preserves explicit saved
+model choices. The successful trial above used that repair.

@@ -5,7 +5,63 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-### Character knowledge checkpoint — 6 September
+### Current reviewed-memory lookup checkpoint — 6 September
+
+Schema 34 raises the project reader floor for the optional reviewed-memory
+capability. Fresh Working/AuthorRoom/Discuss lookup packets carry
+`reviewed-memory.v1`; child packets retain the exact root capability, while
+legacy packets with the field absent preserve their original instruction and
+packet bytes through reconstruction, backup and recovery. The implementation
+reuses the immutable lookup records and adds no tables or provider framework.
+
+All four typed operations are implemented: `findEntities`,
+`knowledgeHistory`, `promiseHistory`, and `possessionHistory`. Rust resolves
+them from the authenticated frozen reviewed sets, validates complete typed
+results before persistence, and refuses memory reads without the capability.
+The focused storage suite covers fresh execution, child retention, legacy
+search/read replay through backup/recovery, durable memory refusal, and
+rehashed receipt rejection.
+
+The synthetic native mock route exercised all four operations across three
+invocations and reopened without hidden lookup work. The explicit bounded live
+qualification also passed its three synthetic groups with three live calls,
+exact-source inspection, unchanged prose, settled cleanup and no page errors,
+using the Luna/xhigh/priority route. Evidence is retained in
+`.local/native-results/memory-lookup-mock/qualification.json` and
+`.local/native-results/memory-lookup-live/qualification.json`; the live slice
+brings the cumulative confirmed live-call count to 24. The native build
+used for this slice has SHA-256
+`ccec4c7b0e630a9abf17786d872d70decd08074990a66e70bc38b39e6a1a3167`. This
+remains bounded development evidence. The pre-review full check passed 718
+Rust tests and 434 frontend tests in 35 files, and the native regression passed
+51/52 checks with zero page errors, omitting only the local OS clipboard case.
+Logs are `.local/memory-lookup-final-check.log` and
+`.local/memory-lookup-native-regression/report.json`.
+
+Two subsequent connection-recovery fixes preserve loaded settings after a
+bounded join timeout and publish Codex readiness only after the discovered
+catalog is durably saved. The rebuilt native app passed the three-group offline
+memory lookup trial with zero live calls and page errors; its real read-only
+Codex check reported ready, checked and no longer checking. All 434 frontend
+tests passed again after the timeout repair. Evidence is in
+`.local/memory-lookup-delivery-native.log`,
+`.local/memory-lookup-delivery-frontend.log` and the current offline native report.
+The final 71-test desktop suite, including both new publication regressions,
+passes alongside the unchanged 649-test core baseline: 720 active Rust tests
+in total, with one existing ignored fixture. Formatting, strict Clippy and
+the native build also pass. The desktop log is
+`.local/memory-lookup-delivery-desktop-tests.log`.
+The delivered 44,623,360-byte executable was built at
+`2026-09-06T21:56:34Z`, SHA-256
+`a4ee6c4822e32a47dbb38b9def02595c3cb215272939d7631140db0ed11b5b57`:
+`.local/builds/2026-09-06-reviewed-memory-lookups/webnovel-desktop.exe`.
+The live three-call evidence above used the earlier stated hash; no additional
+paid call was needed for this connection-recovery retest.
+
+Hosted, author-trial and release qualification remain open, and
+this slice does not establish narrative understanding or exhaustive continuity.
+
+### Historical character knowledge checkpoint — 6 September
 
 Schema 33 adds optional passage-backed character knowledge to chapter review.
 The author records a character, topic, attitude, statement, timing and exact
@@ -62,10 +118,13 @@ before interruption qualification because a Windows short temp-path alias
 differed from Rust's canonical path. The fixture now resolves both paths
 before its existing containment assertion. This does not relax containment.
 
-No new live model request was made; cumulative live CLI dispatches remain 21.
+At this earlier character-knowledge checkpoint, no new live model request was
+made; its cumulative live CLI dispatch count was 21.
 F2/C5 remain partial: relationship/rule views, generated knowledge extraction,
-dedicated model lookups, richer transitions, narrative evaluation and broader
-native/provider/release and author-trial gates remain open.
+richer knowledge transitions, narrative evaluation and broader
+native/provider/release and author-trial gates remain open. This checkpoint is
+historical; the current reviewed-memory slice is recorded at the top of this
+document.
 
 ### W6 refresh protection and interruption checkpoint — 6 September
 
@@ -341,9 +400,9 @@ used `83c785a…`; the final binary additionally fixes picker focus return and i
 the one used for the full local native regression and live draft.
 See [ADR 0027](ADR_0027_AI_WRITING_WORKSPACE.md).
 
-The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Current author projects use schema 32; app-local model preferences and endpoint profiles use library schema 4.
+The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Schema 32 adds accepted narrative summaries, schema 33 adds passage-backed character knowledge, and schema 34 adds the optional reviewed-memory lookup capability over the existing bounded read loop. Current author projects use schema 34; app-local model preferences and endpoint profiles use library schema 4.
 
-C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation now includes frozen source-title projection, with focused protocol, packet, boundary, core, frontend, and local native review evidence. The schema-27 author-binding boundary is preserved; schema 28 adds the frozen source-title reader boundary, schema 29 adds memory HTTP delivery receipts, schema 30 adds Claude reported-model receipts, and library schema 4 is unchanged. The previous provider wrapper checkpoint passes 589 active Rust tests (548 core and 41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files, with formatting, strict Clippy, TypeScript, and the production build; it is dated evidence. C6 checkpoint CI [34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes Windows and Ubuntu contracts, all 47 strict native checks, and the native HTTP fixture with zero live calls. Its wrapper counts are dated at 593 active Rust tests (552 core and 41 desktop), one existing ignored fixture, and 353 frontend tests in 27 files. The prior Claude checkpoint combined checks passed 644 active Rust tests (589 core and 55 desktop), one existing ignored fixture, and 357 frontend tests in 27 files, with formatting, strict workspace Clippy, TypeScript, and the production build. The initial wrapper frontend run found one stale copy assertion; the corrected complete frontend run passes. Review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, truthful delivery status, and frozen title/source identity across renames. The independent Story Memory provider preference and configured HTTP route are implemented development surfaces. C6 remains a development slice: broader live lookup, provider, native, and release qualification remain open. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 strict native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
+C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation now includes frozen source-title projection and all four opt-in reviewed-memory operations, with schema-34 reader validation and focused protocol, packet, boundary, core, frontend, and synthetic native mock evidence. The schema-27 author-binding boundary is preserved; schema 28 adds the frozen source-title reader boundary, schema 29 adds memory HTTP delivery receipts, schema 30 adds Claude reported-model receipts, schema 32 adds accepted narrative summaries, schema 33 adds passage-backed character knowledge, and schema 34 adds the reviewed-memory lookup reader boundary. The wrapper counts and CI checkpoint below are historical evidence from the earlier source-title slice; they do not qualify the later schema-34 native or live-provider path. C6 remains a development slice: broader live lookup, provider, native, author-trial, and release qualification remain open. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 strict native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
 
 Settings now compatibility-checks the installed Codex CLI without a fixed
 version or executable hash and records the observed identity with each request.
@@ -754,11 +813,14 @@ Rust schema-21 persistence, canonical hashing, exact UTF-16 anchor validation, r
 ### Current C6 bounded story lookup slice
 
 The lookup records retain their schema-24 meaning. The current project reader
-floor is schema 30: schema 28 added the frozen source-title projection that must
-be validated by the reader, schema 29 adds optional memory HTTP delivery
-receipts, and schema 30 adds the optional Claude reported model. Schema-25 runtime identity and schema-26 provider HTTP delivery
-receipts remain compatibility boundaries. Library schema 4 is unchanged, and
-legacy 0.153.3 Max packets remain byte/hash compatible.
+floor is schema 34: schema 28 added the frozen source-title projection that
+must be validated by the reader, schema 29 adds optional memory HTTP delivery
+receipts, schema 30 adds the optional Claude reported model, schema 32 adds
+accepted narrative summaries, schema 33 adds passage-backed character
+knowledge, and schema 34 adds the reviewed-memory lookup reader boundary.
+Schema-25 runtime identity and schema-26 provider HTTP delivery receipts
+remain compatibility boundaries. Library schema 4 is unchanged, and legacy
+0.153.3 Max packets remain byte/hash compatible.
 
 The implementation is a narrow opt-in route for Working, AuthorRoom, and
 Discuss conversations. It uses the strict application response envelope
@@ -772,19 +834,36 @@ edits or Continue, and is inspectable per packet. Intermediate protocol JSON
 remains evidence, not chat text.
 
 The route is application-controlled and does not claim provider-native function
-calling. It does not expose restricted-writing, state/knowledge, or thread
-tools, filesystem/session access, automatic canon, or manuscript edits. Child
-lookup packets may include the app-owned `story-lookup-source.v1` projection:
-exact frozen handles, `SourceRef` values, and display names for only returned
-search/read sources, deterministically de-duplicated. The compiler validates
-the complete frozen set and AuthorRoom eligibility; projection metadata counts
-inside the exact UTF-8 input budget and is never silently dropped. Initial or
-historical absent source sets remain absent, and old packet bytes/hashes remain
-unchanged. Byte allowances are application limits, separate from model token
-limits and billing. The ordinary one-packet discussion route remains available
-with lookup disabled.
+calling. It does not expose restricted-writing, filesystem/session access,
+automatic canon, or manuscript edits. In addition to search/read, the opt-in
+reviewed-memory capability exposes only `findEntities`, `knowledgeHistory`,
+`promiseHistory`, and `possessionHistory` over the authenticated frozen
+reviewed sets. State/thread tools remain unavailable. Child lookup packets may
+include the app-owned `story-lookup-source.v1` projection: exact frozen
+handles, `SourceRef` values, and display names for only returned search/read
+sources, deterministically de-duplicated. The compiler validates the complete
+frozen set and AuthorRoom eligibility; projection metadata counts inside the
+exact UTF-8 input budget and is never silently dropped. Initial or historical
+absent capability and source sets remain absent, and old packet bytes/hashes
+remain unchanged. Byte allowances are application limits, separate from model
+token limits and billing. The ordinary one-packet discussion route remains
+available with lookup disabled.
 
-Focused protocol, packet, boundary, core, frontend, and source-title projection
+The current focused core evidence covers the four reviewed-memory operations,
+capability refusal, child retention, legacy byte preservation through backup
+and recovery, durable failed-result retention, and rehashed receipt rejection.
+The synthetic native mock route exercised all four operations across three
+invocations and reopened without hidden lookup work. The explicit bounded live
+route passed the same three groups with three live calls, exact-source
+inspection, unchanged prose, settled cleanup and no page errors; evidence is
+under `.local/native-results/memory-lookup-{mock,live}/qualification.json`.
+These remain development checks; hosted, author-trial and release
+qualification are open.
+
+#### Historical schema-30 source-title checkpoint
+
+The following source-title projection and native counts are retained as
+historical evidence from before schema 34. Focused protocol, packet, boundary, core, frontend, and source-title projection
 checks pass in the current development tree; this source-title change made no
 new LLM calls. The strict native set is now 47 checks after adding
 frozen-rename/reopen coverage. The current local diagnostic passes 46/47 checks
@@ -806,7 +885,8 @@ profile still required `0.153.3`, so compatibility preflight stopped before
 dispatch. The preserved record is
 `.local/live-lookup-preflight-01533/qualification.json`. This is a historical
 provider compatibility finding, not a failed generation; the current cumulative
-native dispatch total remains twenty. The provider policy is now to discover
+native dispatch total at that preflight remained twenty; the later bounded
+reviewed-memory qualification brings the confirmed total to 24. The provider policy is now to discover
 and compatibility-check the installed CLI without pinning a version or
 executable hash, then record the observed identity per request.
 Existing one-invocation requests and historical provider-result bytes remain
@@ -814,12 +894,12 @@ separate from the new invocation/read records. Crashes and lost
 acknowledgments must remain explicit unknown or retained outcomes and must not
 automatically replay a model call.
 
-Broader work remains: C5 relationship, knowledge/belief, rule, and
-multi-resolution digest views; restricted-writing lookup and state/thread tools;
-arbitrary partial multi-block editing, batch Apply, and manual rebinding;
-broader providers; native author trials; and narrative-quality and release
-qualification. Generated chapter memory remains an unreviewed navigation aid,
-and the full V3 goal remains open.
+Broader work remains: C5 relationship/rule views, richer knowledge transitions,
+generated extraction, and multi-resolution digest views; restricted-writing
+lookup and state/thread tools; arbitrary partial multi-block editing, batch
+Apply, and manual rebinding; broader providers; native author trials; and
+narrative-quality and release qualification. Generated chapter memory remains
+an unreviewed navigation aid, and the full V3 goal remains open.
 
 The exact bundle/revision cache follow-up is measured in
 `.local/reviewed-evidence-freeze-benchmark/review-validation-cache-result.json`.
@@ -890,7 +970,7 @@ The full `scripts/desktop.ps1` check passed and is recorded in `.local/continuat
 | W6 saved versions and restore | Implemented development slice | Bounded metadata paging, exact inert comparison, atomic whole-document restore, shared Apply/restore reconciliation, before/after retention, process-interruption and rollback evidence | Remaining lifecycle/renderer-loss combinations and B trial |
 | W7 exports/package | Development slice and narrow installed lifecycle passed | Working and author-reviewed Markdown/TXT preview, exact native Save, immutable export records, reviewed freshness/record-failure native checks, stable release data, installed lifecycle CI33994616334 | Offline/no-runtime installation, true upgrade, physical/assistive native trials, full N gates |
 | W8 bounded Codex | Integrated development path; dynamic Codex discovery, HTTP/profile, picker rails, and independent Story Memory provider choice implemented as development surfaces | Compatibility-check the installed Codex CLI at connection time, record observed version/hash per request, run bounded interactive app-server discovery, persist a sanitized display-only catalog, bind exact author model/traits with `codex-stdin.author.v1` and `runtime.catalogSha256`, preserve immutable packet/model state, Job-owned streaming, bounded output, durable provider results, Stop and explicit local save retry; Settings endpoint profiles, native credential readiness, native HTTP transport, V2-style provider search/favorites/keyboard/traits, native Codex Luna/xhigh/priority maintenance routing, and configured HTTP Story Memory Luna/xhigh/no-tier maintenance routing are implemented. Story Memory supports fixed Codex, explicit mock, or a configured HTTP endpoint with private credential capture, schema-29 delivery receipts, and no POST replay during local recovery | Complete current native/live qualification, refusal/truncation/auth/cleanup and isolation gates, model-specific token limits, V2 CLI adapter parity, hosted/live HTTP qualification, and W8/E3; HTTP context lookup remains unsupported |
-| C6 bounded story lookup | In-progress implementation slice | Opt-in `story-lookup.v1` search/read route for Working, AuthorRoom, and Discuss; schema-24 invocation/read persistence, fresh-call allowance, exact child packets, focused protocol/packet/boundary/core/frontend checks, accepted local native and wrapper evidence, CI checkpoint 34038325733, and review fixes | Broader live lookup/crash/Stop/lost-ack qualification, model-specific token accounting, and broader state/thread/restricted-writing support |
+| C6 bounded story lookup | Implemented development slice; broader qualification open | Opt-in `story-lookup.v1` route for Working, AuthorRoom, and Discuss; schema-24 invocation/read persistence; schema-34 reviewed-memory capability with `findEntities`, `knowledgeHistory`, `promiseHistory`, and `possessionHistory`; exact child packets; legacy byte-preserving reconstruction/backup/recovery; focused protocol/packet/boundary/core/frontend checks; synthetic native mock coverage with reopen/no-hidden-work evidence; bounded three-call live qualification | Final delivery-label qualification; hosted/live-provider qualification beyond the bounded slice; model-specific token accounting; broader crash/Stop/lost-ack, state/thread, restricted-writing, author-trial, and release support |
 | F1 V2 import | Implemented schema-8 development slice | Explicit working-body choices, independent staged installation, inert history, Library Check import, source-free receipt recovery, full pre-move validation, and seven-check synthetic native import journey | Broader pending-import native recovery and representative author-approved acceptance |
 | F2 author review | Prose review, reviewed-context core, continuation, and schema-21 possession evidence CI-qualified as a development slice | Exact stages/revisions/earlier prefix, explicit selected bundles, immutable reader-position pins, current validity, saved-stage resumption, independent recovered history, core/IPC freeze of reviewed prefix plus current target, schema-19 Working/Reviewed append preview with atomic Apply/Reject, and the first typed passage-backed record set with audience-filtered delivery | Broader records/exceptions, provider qualification, and full F2 qualification |
 | C4-A chapter memory | Implemented development slice; CI-covered | Explicit Refresh for one full current chapter; schema 16 job/result/view records; strict evidence validation; recovery/cleanup regressions; native CI and one historical bounded Codex memory request; independent Story Memory provider choice and configured HTTP development route with schema-29 delivery receipts | Keep background summary/memory jobs on GPT-5.6-Luna/xhigh; complete current native/provider and hosted/live HTTP qualification, and narrative quality remain open |
@@ -1161,7 +1241,7 @@ The first part stages an exact saved chapter and its complete earlier selected r
 
 ## Story Context extension completion ledger
 
-The maintained [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-slice plan](V3_STORY_CONTEXT_FIRST_SLICE.md) are an adopted design extension. Their C0–C6 packages are part of the full V3 goal and preserve the base save, Apply, lifecycle, and reviewed-authority ownership. C0 is implemented with pure contracts and 16 adversarial tests; C1 is implemented as a working-basis snapshot/retrieval slice; C2 is implemented and pushed as a Rust pure deterministic compiler with durable exact packet receipts and native IPC, and is covered by the current native development flow and earlier hosted checkpoints; C3 guidance persistence and packet binding are pushed, as are bounded recent discussion context and inspector display. Linked retry guidance and saved composer mode are implemented and pushed. Persistent discussion sources and optional approved writing briefs are implemented; richer relevance selection remains open. C6 implementation is in progress with focused lookup protocol, packet, boundary, core, frontend, accepted local native, accepted wrapper, CI checkpoint 34038325733, and review-fix evidence; broader live-provider qualification remains open. No full C0–C6 completion is claimed.
+The maintained [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-slice plan](V3_STORY_CONTEXT_FIRST_SLICE.md) are an adopted design extension. Their C0–C6 packages are part of the full V3 goal and preserve the base save, Apply, lifecycle, and reviewed-authority ownership. C0 is implemented with pure contracts and 16 adversarial tests; C1 is implemented as a working-basis snapshot/retrieval slice; C2 is implemented and pushed as a Rust pure deterministic compiler with durable exact packet receipts and native IPC, and is covered by the current native development flow and earlier hosted checkpoints; C3 guidance persistence and packet binding are pushed, as are bounded recent discussion context and inspector display. Linked retry guidance and saved composer mode are implemented and pushed. Persistent discussion sources and optional approved writing briefs are implemented; richer relevance selection remains open. C6 is implemented as the schema-34 reviewed-memory development slice with focused lookup protocol, packet, boundary, core, frontend, native mock, and bounded live evidence; broader provider, author-trial, and release qualification remains open. No full C0–C6 completion is claimed.
 
 | Package | Planned owner and scope | Status | Required evidence before completion |
 | --- | --- | --- | --- |
@@ -1171,8 +1251,8 @@ The maintained [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-sli
 | C3 | Before/alongside W4; scoped author guidance and the context inspector | Partial: guidance persistence, bounded recent exchanges, inspector, transient pins, persistent discussion sources, and approved writing briefs integrated | Chat or direct entry can be saved, edited, and retired as immutable exact versions at Next request, This document, or This project scope. CAS/idempotent guidance receipts, source-epoch invalidation, recovery retention/fencing, exact mandatory AuthorRoom packet binding, one-use consumption after successful persisted start, separate guidance handles in the inspector, and GuidancePanel lost-ack/late-response coverage are covered locally. Recent complete exchanges are frozen and packed with exact message receipts and explicit omissions; stopped/partial, other-document, revoked-policy, and copied historical turns are excluded. Unchanged unsuccessful retries preserve original one-use instructions without consuming newly waiting guidance; request identity, current policy, active versions, restart, and recovered-copy boundaries are tested. Optional approved briefs preserve exact restricted request text without transferring private origin material. Richer conversation selection and broader Apply integration remain open |
 | C4-A | F3; source-bound single-chapter navigation digest without automatic canon | Implemented development slice; local/native/live evidence recorded | Exact full-chapter revision, strict `navigation-digest.v1` UTF-16/evidence checks, separate job/result/view records, stale/revocation/recovery boundaries, native/provider evidence, and no paid autosave/open calls |
 | C4 | F3; derived-view packet integration and richer quality without automatic canon | Partial: C4-B frozen chapter-view reuse and C4-C chapter-only freshness implemented and CI-qualified; higher-level views and quality evaluation open | Broader contextual/arc digests and measured interpretation quality; chapter-only views retain their exact source, evidence, and disclosure limits |
-| C5 | F3 after F2; thin temporal, relationship, knowledge, and thread views | Partial: entity reuse, batched current-evidence freeze, authenticated object history, schema-23 promise history and schema-33 passage-backed character knowledge/history implemented; current qualification recorded above | Build relationship/rule views and richer knowledge transitions with source-bound retrieval, disclosure, uncertainty, and historical dependencies; add generated knowledge extraction, model lookup and quality evidence for supported English tasks |
-| C6 | W8 additional qualification; bounded provider-side read loop | In progress: opt-in `story-lookup.v1` search/read implementation for Working, AuthorRoom, and Discuss; schema-24 durable invocation/read records; focused protocol, packet, boundary, core, frontend, local native, and wrapper evidence | Final delivery-label qualification; hosted/live-provider qualification; Stop/budget/duplicate-event/crash boundaries; visible unknown outcomes; fresh invocation labeling; restricted-writing/state/thread extensions |
+| C5 | F3 after F2; thin temporal, relationship, knowledge, and thread views | Partial: entity reuse, batched current-evidence freeze, authenticated object history, schema-23 promise history, schema-33 passage-backed character knowledge/history, and the schema-34 reviewed-memory lookup slice implemented; current qualification recorded above | Build relationship/rule views and richer knowledge transitions with source-bound retrieval, disclosure, uncertainty, and historical dependencies; add generated knowledge extraction, broader provider/native qualification, and quality evidence for supported English tasks |
+| C6 | W8 additional qualification; bounded provider-side read loop | Implemented schema-34 development slice: opt-in `story-lookup.v1` route for Working, AuthorRoom, and Discuss; durable invocation/read records; typed reviewed-memory operations; focused protocol, packet, boundary, core, frontend, native mock and bounded live evidence | Final delivery-label qualification; hosted/live-provider qualification beyond the bounded slice; model-specific accounting; broader Stop/budget/duplicate-event/crash boundaries; visible unknown outcomes; fresh invocation labeling; restricted-writing/state/thread extensions |
 
 The public promise is layered: stored evidence, permitted available sources, the packet actually delivered, and what a model understood are separate states; the last requires evaluation. C1 retains original source and does not make copied historical snapshots authoritative for a new project. Context work does not authorize automatic canon or replacement of source text with a large rolling summary.
 

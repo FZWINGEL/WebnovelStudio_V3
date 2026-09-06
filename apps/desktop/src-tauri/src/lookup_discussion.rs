@@ -177,6 +177,16 @@ fn mock_envelope(packet: &CompiledPacket) -> String {
     let Some(lookup) = &packet.receipt.lookup else {
         return String::new();
     };
+    if webnovel_core::context::lookup::reviewed_memory_enabled(Some(lookup))
+        && packet.messages.last().is_some_and(|message| {
+            message
+                .content
+                .to_lowercase()
+                .contains("look up reviewed memory")
+        })
+    {
+        return mock_memory_envelope(packet, lookup);
+    }
     let schema_version = LOOKUP_SCHEMA_VERSION.into();
     let response = if lookup.completed_invocations == 0
         && lookup.allowance.max_additional_invocations > 0
@@ -242,6 +252,145 @@ fn mock_envelope(packet: &CompiledPacket) -> String {
         }
     };
     serde_json::to_string(&response).expect("fixed local lookup envelope")
+}
+
+/// Deterministic offline exercise of the same read boundary as the live
+/// adapter. Exact entity identities come from returned catalog entries.
+fn mock_memory_envelope(
+    packet: &CompiledPacket,
+    lookup: &webnovel_core::context::lookup::LookupPacketInput,
+) -> String {
+    use webnovel_core::context::lookup::MemoryEntityKind;
+    let mut reads = Vec::new();
+    if lookup.completed_invocations < lookup.allowance.max_additional_invocations {
+        if lookup.completed_invocations == 0 {
+            let instruction = packet
+                .messages
+                .last()
+                .map(|item| item.content.as_str())
+                .unwrap_or("");
+            let queries: Vec<_> = instruction
+                .split('"')
+                .skip(1)
+                .step_by(2)
+                .filter(|query| !query.trim().is_empty() && query.len() <= 512)
+                .collect();
+            for (index, (entity_kind, fallback)) in [
+                (MemoryEntityKind::Character, "Mei"),
+                (MemoryEntityKind::Object, "key"),
+                (MemoryEntityKind::Promise, "return"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                reads.push(LookupRead::FindEntities {
+                    id: format!("local-entity-{index}"),
+                    entity_kind,
+                    query: queries.get(index).copied().unwrap_or(fallback).to_owned(),
+                    offset: 0,
+                    limit: 3,
+                });
+            }
+        } else {
+            for (index, exchange) in lookup.exchanges.iter().enumerate() {
+                let LookupReadResult::FindEntities {
+                    entity_kind,
+                    entries,
+                    ..
+                } = &exchange.result
+                else {
+                    continue;
+                };
+                let Some(entry) = entries.first() else {
+                    continue;
+                };
+                let id = format!("local-history-{index}");
+                reads.push(match entity_kind {
+                    MemoryEntityKind::Character => LookupRead::KnowledgeHistory {
+                        id,
+                        character_id: entry.entity.id.clone(),
+                        topic_id: None,
+                        offset: 0,
+                        limit: 3,
+                    },
+                    MemoryEntityKind::Object => LookupRead::PossessionHistory {
+                        id,
+                        object_id: entry.entity.id.clone(),
+                        offset: 0,
+                        limit: 3,
+                    },
+                    MemoryEntityKind::Promise => LookupRead::PromiseHistory {
+                        id,
+                        promise_id: entry.entity.id.clone(),
+                        offset: 0,
+                        limit: 3,
+                    },
+                    MemoryEntityKind::Topic => continue,
+                });
+            }
+        }
+    }
+    let response = if reads.is_empty() {
+        let mut evidence = Vec::new();
+        for exchange in &lookup.exchanges {
+            match &exchange.result {
+                LookupReadResult::KnowledgeHistory { history, .. } => {
+                    if let Some(item) = history.observations.first() {
+                        evidence.push(format!(
+                            "{}: {} Recorded attitude: {:?}. Evidence: “{}”",
+                            item.source_display_name,
+                            item.statement,
+                            item.attitude,
+                            item.evidence.quote
+                        ));
+                    }
+                }
+                LookupReadResult::PossessionHistory { history, .. } => {
+                    if let Some(item) = history.observations.first() {
+                        evidence.push(format!(
+                            "{}: {} is recorded with {}. Evidence: “{}”",
+                            item.source_display_name,
+                            item.object.label,
+                            item.holder
+                                .as_ref()
+                                .map(|holder| holder.label.as_str())
+                                .unwrap_or("no named holder"),
+                            item.evidence.quote
+                        ));
+                    }
+                }
+                LookupReadResult::PromiseHistory { history, .. } => {
+                    if let Some(item) = history.observations.first() {
+                        evidence.push(format!(
+                            "{}: {} ({:?}). Evidence: “{}”",
+                            item.source_display_name,
+                            item.promise.label,
+                            item.phase,
+                            item.evidence.quote
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+        LookupEnvelope::Discussion {
+            schema_version: LOOKUP_SCHEMA_VERSION.into(),
+            text: format!(
+                "Local test assistant: reviewed story lookup.\n\n{}\n\nRecorded history is incomplete. Beliefs are not world facts, and missing transfers or payoffs do not establish absence. No live AI model was called.",
+                if evidence.is_empty() {
+                    "No history observations were delivered.".into()
+                } else {
+                    evidence.join("\n\n")
+                }
+            ),
+        }
+    } else {
+        LookupEnvelope::NeedsContext {
+            schema_version: LOOKUP_SCHEMA_VERSION.into(),
+            reads,
+        }
+    };
+    serde_json::to_string(&response).expect("fixed local memory lookup envelope")
 }
 
 #[cfg(windows)]

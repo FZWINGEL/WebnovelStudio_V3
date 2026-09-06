@@ -7,6 +7,7 @@ import { DEFAULT_LOOKUP_ALLOWANCE, discussionRetry, readDiscussion, retryDiscuss
 import { readProposals, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { ComposerSession, composerIntent, emptyComposer } from './composer';
 import { ContextInspector } from './ContextInspector';
+import type { LookupDeliveryState } from './LookupContextView';
 import { GuidancePanel } from './GuidancePanel';
 import { ProposalPanel } from './ProposalPanel';
 import { SourcePinsPanel } from './SourcePinsPanel';
@@ -44,6 +45,10 @@ function lookupStateLabel(state: NonNullable<DiscussionRun['lookup']>['invocatio
 }
 function lookupPacketDelivered(inputDelivered: boolean): boolean {
   return inputDelivered;
+}
+function lookupDeliveryState(invocation: NonNullable<DiscussionRun['lookup']>['invocations'][number]): LookupDeliveryState {
+  if (invocation.state === 'prepared') return 'prepared';
+  return invocation.inputDelivered ? 'delivered' : 'unconfirmed';
 }
 
 /** A shell action selects a writing mode; it never submits a provider request by itself. */
@@ -387,6 +392,8 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   }, [latest?.id, session.projectAccess.projectId, session.projectAccess.operationNamespace]);
   const selectedLookup = selectedLookupPacketId ? lookupInvocations.find(item => item.packetId === selectedLookupPacketId) : undefined;
   const contextPacketId = selectedLookup?.packetId ?? latestPacketId;
+  const contextLookupInvocation = selectedLookup ?? lookupInvocations.find(item => item.packetId === latestPacketId);
+  const contextLookupDelivery = contextLookupInvocation ? lookupDeliveryState(contextLookupInvocation) : undefined;
   const contextDelivered = selectedLookup ? lookupPacketDelivered(selectedLookup.inputDelivered) : latest?.lookup && lookupInvocations.length > 0
     ? lookupPacketDelivered(lookupInvocations.find(item => item.packetId === latestPacketId)?.inputDelivered ?? false)
     : latest?.dispatchState === 'delivered';
@@ -431,7 +438,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
       {proposals.length > 0 && <ProposalPanel key={`${session.projectAccess.projectId}/${session.projectAccess.operationNamespace}/${documentId}`} access={session.projectAccess} proposals={proposals} disabled={!session.state.editable} onPrepareProposal={onPrepareProposal} onApplyProposal={onApplyProposal} onRefresh={refresh} />}
       {latest && !activeRun(latest) && latest.status !== 'completed' && <p className="discussion-state">This response is {latest.status}. {latest.stopReason === 'context_stale' ? 'The story changed before it could start.' : ''}<button disabled={locked || !latestIsCurrentProject} onClick={() => void prepareRetry(latest)}>Prepare another attempt</button></p>}
       {latest && lookupInvocations.length > 1 && <label className="context-call-selector" htmlFor="discussion-context-call"><span id="discussion-context-call-label">Context for model call</span><select aria-labelledby="discussion-context-call-label" id="discussion-context-call" value={selectedLookupPacketId ?? contextPacketId ?? latest.packetId} disabled={locked} onChange={event => setSelectedLookupPacketId(event.target.value)}>{lookupInvocations.map((invocation, index) => <option key={invocation.packetId} value={invocation.packetId}>Call {index + 1} · {lookupStateLabel(invocation.state)}</option>)}</select></label>}
-      {latest && contextPacketId && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={contextPacketId} delivered={contextDelivered} refreshKey={`${state.head.version}/${guidanceEpoch}`} {...(canIncludeTransientSource ? { onPin: pin } : {})} pinDisabled={locked || sourcesPending} onKeepSource={id => { if (!locked && !sourcesPending) setSourceAdoption(previous => ({ documentId: id, nonce: (previous?.nonce ?? 0) + 1 })); }} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
+      {latest && contextPacketId && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={contextPacketId} delivered={contextDelivered} lookupDelivery={contextLookupDelivery} refreshKey={`${state.head.version}/${guidanceEpoch}`} {...(canIncludeTransientSource ? { onPin: pin } : {})} pinDisabled={locked || sourcesPending} onKeepSource={id => { if (!locked && !sourcesPending) setSourceAdoption(previous => ({ documentId: id, nonce: (previous?.nonce ?? 0) + 1 })); }} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
     </div>
     <form className="feedback-form" onSubmit={event => { event.preventDefault(); void send(); }}>
       {body.previousRunId && <div className="retry-notice"><p>Another attempt at the same feedback. Uses current story sources and retains the original one-use guidance if it is still active. Editing the feedback, selection, or included sources starts a new request.</p><button type="button" className="text-button" disabled={locked} onClick={() => update({ ...body, previousRunId: null })}>Use as a new request</button></div>}

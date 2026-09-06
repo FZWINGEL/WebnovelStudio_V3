@@ -9,7 +9,7 @@ import { PromiseHistoryView } from './PromiseHistoryView';
 import { KnowledgeHistoryView } from './KnowledgeHistoryView';
 import { permittedPromiseRows, PromiseContextRows } from './PromiseContextRows';
 import { permittedKnowledgeRows, KnowledgeContextRows } from './KnowledgeContextRows';
-import { LookupContextView } from './LookupContextView';
+import { LookupContextView, type LookupDeliveryState } from './LookupContextView';
 
 function message(reason: unknown): string {
   if (reason && typeof reason === 'object' && 'detail' in reason) return String(reason.detail);
@@ -21,8 +21,9 @@ function sameSource(left: SourceRef, right: SourceRef): boolean {
 }
 
 /** Reads the immutable receipt; never reconstructs a past request from current prose. */
-export function ContextInspector({ access, packetId, delivered, refreshKey, onPin, onKeepSource, pinDisabled = false }: {
+export function ContextInspector({ access, packetId, delivered, lookupDelivery, refreshKey, onPin, onKeepSource, pinDisabled = false }: {
   access: ProjectAccess; packetId: string; delivered: boolean; refreshKey: string;
+  lookupDelivery?: LookupDeliveryState;
   onPin?: (documentId: string, title: string) => void;
   onKeepSource?: (documentId: string) => void;
   pinDisabled?: boolean;
@@ -150,7 +151,10 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   const knowledgeOmissions = state?.packet.receipt.reviewedKnowledgeOmissions ?? [];
   const suppliedKnowledge = permittedKnowledgeRows(reviewedKnowledge, knowledgeCoverage, restrictedAudience, true);
   const availableKnowledge = permittedKnowledgeRows(reviewedKnowledge, knowledgeCoverage, restrictedAudience, false);
-  const readHandle = (handle: string) => { const item = items.find(source => source.handle === handle); if (item) void read(item); };
+  const readHandle = (handle: string, expectedSource?: SourceRef) => {
+    const item = items.find(source => source.handle === handle && (!expectedSource || sameSource(source.source, expectedSource)));
+    if (item) void read(item);
+  };
   function promiseRows(used: boolean) {
     return <PromiseContextRows key={`${identity}/${used}`} rows={used ? suppliedPromises : availablePromises} sources={items} used={used} busy={busy} onRead={readHandle} onHistory={id => void findPromiseHistory(id)} />;
   }
@@ -294,7 +298,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
       {state.packet.options.providerBinding && <p className="small-copy">This packet uses {Number(state.packet.receipt.inputTokens).toLocaleString()} bytes of the app’s {Number(state.packet.options.providerBinding.inputLimitBytes).toLocaleString()}-byte input allowance. This is not a model token count or context-window limit. The full prepared input is preserved; mandatory text is never shortened to fit.</p>}
       {state.packet.options.providerBinding?.runtime && <p className="small-copy">Prepared for Codex CLI {state.packet.options.providerBinding.runtime.cliVersion}. The saved request retains the checked executable identity.</p>}
       {state.packet.receipt.safeBrief && <section className="context-safe-brief" aria-label="Approved writing brief"><strong>Author-approved writing brief</strong><p>{state.packet.receipt.safeBrief.text}</p><p className="small-copy">Exact directions shared for this edit request. The originating discussion was not added as context.</p></section>}
-      {state.packet.receipt.lookup && <LookupContextView lookup={state.packet.receipt.lookup} sources={items} busy={busy} onRead={readHandle} />}
+      {state.packet.receipt.lookup && <LookupContextView lookup={state.packet.receipt.lookup} sources={items} busy={busy} delivery={lookupDelivery ?? (delivered ? 'delivered' : 'prepared')} onRead={readHandle} />}
       <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} {supplied.size === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${suppliedNavigation.length} generated ${suppliedNavigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedRecords(true).length ? ` · ${reviewedRecords(true).length} reviewed ${reviewedRecords(true).length === 1 ? 'detail' : 'details'}` : ''}{suppliedPromises.length ? ` · ${suppliedPromises.length} promise ${suppliedPromises.length === 1 ? 'detail' : 'details'}` : ''}{suppliedKnowledge.length ? ` · ${suppliedKnowledge.length} knowledge ${suppliedKnowledge.length === 1 ? 'observation' : 'observations'}` : ''}{suppliedSummaries.length ? ` · ${suppliedSummaries.length} accepted ${suppliedSummaries.length === 1 ? 'summary' : 'summaries'}` : ''}{guidance.length > 0 ? ` · ${suppliedGuidance.size} ${suppliedGuidance.size === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${suppliedTurns.length} earlier ${suppliedTurns.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}{reviewedProvenanceRows(true)}{reviewedRows(true)}{promiseRows(true)}{knowledgeRows(true)}{summaryRows(true)}{navigationRows(true)}{guidanceRows(true)}{conversationRows(true)}</ul></details>
       <details><summary>Available · {items.length} {items.length === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${navigation.length} generated ${navigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedEvidence.length ? ` · ${reviewedRecords(false).length} reviewed ${reviewedRecords(false).length === 1 ? 'detail' : 'details'}` : ''}{availablePromises.length ? ` · ${availablePromises.length} promise ${availablePromises.length === 1 ? 'detail' : 'details'}` : ''}{availableKnowledge.length ? ` · ${availableKnowledge.length} knowledge ${availableKnowledge.length === 1 ? 'observation' : 'observations'}` : ''}{acceptedSummaries.length ? ` · ${acceptedSummaries.length} accepted ${acceptedSummaries.length === 1 ? 'summary' : 'summaries'}` : ''}{guidance.length > 0 ? ` · ${guidance.length} ${guidance.length === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${conversation.length} earlier ${conversation.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><p className="small-copy">Permitted for this request. Availability does not mean the model read every source.</p><ul>{items.map(row)}{reviewedProvenanceRows(false)}{reviewedRows(false)}{promiseRows(false)}{knowledgeRows(false)}{summaryRows(false)}{navigationRows(false)}{guidanceRows(false)}{conversationRows(false)}</ul></details>
       <details><summary>Not included</summary>

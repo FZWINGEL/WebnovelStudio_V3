@@ -17,6 +17,7 @@
     "test:native-interruption": "node scripts/native-interruption.mjs",
     "test:native-menus": "node scripts/native-interruption.mjs --context-menu-only",
     "test:native-recovery": "node scripts/native-project-recovery.mjs",
+    "test:native-memory-lookup": "node scripts/native-memory-lookup-smoke.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build --no-bundle",
     "desktop:package": "node ../../scripts/run-desktop.mjs package",

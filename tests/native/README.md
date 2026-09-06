@@ -37,6 +37,19 @@ assertion. This command is not part of CI until that native inspection route is
 qualified; source/unit coverage does not establish native popup behavior.
 It writes `.local/native-results/context-menu/qualification.json`.
 
+`npm run test:native-memory-lookup` exercises the bounded reviewed-memory
+discussion using only the offline test model. It creates synthetic character
+knowledge, promise and possession evidence, then checks all four memory lookup
+operations across three invocations, exact-source inspection, unchanged prose,
+and reopening without another invocation. The report is
+`.local/native-results/memory-lookup-mock/qualification.json`. CI runs this
+separately from the main native flow. The explicit command
+`npm run test:native-memory-lookup -- --live` instead sends at most three
+authorized Codex requests with Luna/xhigh/Fast and writes a separate
+`memory-lookup-live` report. Live qualification is never part of CI or the
+default command; it demonstrates the protocol on a synthetic fixture, not
+long-story retrieval accuracy or narrative quality.
+
 `npm run test:native-recovery` backs up synthetic project A and recovers it
 through the actual PID-owned native dialogs while B has an active loopback
 reply. It checks independent recovered identity, exact prose/history, B's

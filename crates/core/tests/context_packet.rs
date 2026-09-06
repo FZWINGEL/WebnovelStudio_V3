@@ -19,6 +19,9 @@ use webnovel_core::validate_snapshot_json;
 
 const PROJECT: &str = "packet-project";
 
+#[path = "context_packet/memory_lookups.rs"]
+mod memory_lookups;
+
 fn body(blocks: &[(&str, &str)]) -> Value {
     json!({
         "schemaVersion": 1,
@@ -874,6 +877,7 @@ fn claude_binding_is_author_only_and_cannot_enter_memory_or_lookup_packets() {
         completed_invocations: 0,
         exchanges: Vec::new(),
         source_projection: None,
+        reviewed_memory: None,
     });
     assert!(matches!(
         compile_packet(&lookup),
@@ -1387,6 +1391,7 @@ mod lookup_packets {
             completed_invocations: 0,
             exchanges: vec![],
             source_projection: None,
+            reviewed_memory: None,
         });
         req
     }

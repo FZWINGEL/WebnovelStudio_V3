@@ -905,7 +905,9 @@ impl OwnedProject {
         Ok(project)
     }
 
-    /// Schema 33 adds reviewed character-knowledge columns.  A database can
+    /// Schema 33 adds reviewed character-knowledge columns. Schema 34 raises
+    /// the reader floor for reviewed-memory lookup packets without changing
+    /// their table shape. A database can
     /// be manually copied or have its user_version altered without running
     /// the migration, so opening it must verify the physical floor before
     /// any review rows are read.
@@ -930,6 +932,30 @@ impl OwnedProject {
                     "UnsupportedSchema",
                     "This project claims schema 33 but is missing reviewed knowledge columns.",
                 ));
+            }
+        }
+        if version >= 34 {
+            // The memory lookup capability is retained in existing immutable
+            // JSON rows. Reaching this floor is itself the physical check:
+            // these rows and their legacy nullable fields must still exist.
+            for table in [
+                "discussion_lookup_invocations",
+                "discussion_lookup_results",
+                "discussion_lookup_reads",
+            ] {
+                let present: bool = connection.query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{table}')"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )?;
+                if !present {
+                    return Err(CoreError::new(
+                        "UnsupportedSchema",
+                        "This project claims schema 34 but is missing durable lookup tables.",
+                    ));
+                }
             }
         }
         Ok(())

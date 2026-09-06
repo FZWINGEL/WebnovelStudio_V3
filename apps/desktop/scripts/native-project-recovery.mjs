@@ -278,7 +278,10 @@ async function main() {
     const entryA = libraryBefore.entries.find(item => item.projectId === projectA.project.projectId);
     const entryB = libraryBefore.entries.find(item => item.projectId === projectB.project.projectId);
     assert(entryA && entryB, 'Both source projects must be indexed in the owned library.');
-    assert(inside(resolve(data, 'library'), await realpath(entryA.path)) && inside(resolve(data, 'library'), await realpath(entryB.path)), 'Source projects must stay inside the synthetic library.');
+    // Node's temporary root may use a Windows short-path alias while Rust
+    // returns a canonical long path. Compare both resolved directory identities.
+    const ownedLibrary = await realpath(resolve(data, 'library'));
+    assert(inside(ownedLibrary, await realpath(entryA.path)) && inside(ownedLibrary, await realpath(entryB.path)), 'Source projects must stay inside the synthetic library.');
     await invoke(page, 'checkpoint_document', { request: { access: projectA.access, expected: projectA.documents[0].head, reason: 'manual' } });
     const beforeA = snapshotProject(entryA.path, 'recovery-a-chapter');
     assert(beforeA.revisions.length >= 1, 'Project A must have an immutable checkpoint before backup.');
@@ -344,7 +347,7 @@ async function main() {
     assert.equal(libraryAfter.entries.length, 3, 'Recovery must retain A and B and add one independent entry.');
     const entryRecovered = libraryAfter.entries.find(item => item.projectId === recovered.project.projectId);
     assert(entryRecovered, 'Recovered project must be registered in the native library.');
-    assert(inside(resolve(data, 'library'), await realpath(entryRecovered.path)), 'Recovered project must stay inside the synthetic library.');
+    assert(inside(ownedLibrary, await realpath(entryRecovered.path)), 'Recovered project must stay inside the synthetic library.');
     const afterA = snapshotProject(entryA.path, 'recovery-a-chapter');
     const recoveredSnapshot = snapshotProject(entryRecovered.path, 'recovery-a-chapter');
     const afterB = snapshotProject(entryB.path, 'recovery-b-chapter');

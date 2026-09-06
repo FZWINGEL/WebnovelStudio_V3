@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 33;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 34;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -177,6 +177,14 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
                     tx.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT"), [])?;
                 }
             }
+        }
+        // Schema 34 changes no tables. It raises the reader floor for the
+        // reviewed-memory lookup capability retained in immutable lookup
+        // packet and read rows. Older readers cannot validate those operation
+        // shapes; legacy packets without the optional capability remain
+        // byte-compatible and are not rewritten by this step.
+        if version < 34 {
+            tx.execute_batch(include_str!("034_story_memory_lookups.sql"))?;
         }
         // Schema 30 adds the nullable Claude terminal model claim. NULL keeps
         // historical Codex and HTTP receipts byte-compatible while the reader

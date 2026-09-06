@@ -12,6 +12,7 @@ pub mod evidence_history;
 pub mod knowledge_history;
 pub mod lookup;
 pub mod memory;
+pub mod memory_lookup;
 pub mod navigation;
 pub mod packet;
 pub mod promise_history;

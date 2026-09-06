@@ -9,6 +9,8 @@ const isolatedMock: ProviderState = {
   codexConnection: { ready: false, detail: 'Check Settings to connect Codex.' },
   storyMemory: { revision: '0', providerId: 'mock', providerLabel: 'WebnovelStudio', modelId: 'local-editorial-v1', reasoning: null, serviceTier: null, ready: true, detail: 'Explicit local test provider. No live AI connected.' },
 };
+const CODEX_CHECK_POLL_MS = 500;
+const CODEX_CHECK_JOIN_TIMEOUT_MS = 90_000;
 interface ProviderContextValue {
   state: ProviderState | null; busy: boolean; error: string;
   refresh(): Promise<void>;
@@ -23,6 +25,9 @@ const Providers = createContext<ProviderContextValue>({ state: isolatedMock, bus
 export const useProviders = () => useContext(Providers);
 function describe(error: unknown): string {
   return error && typeof error === 'object' && 'detail' in error ? String(error.detail) : 'Could not confirm the saved model choice. Check Settings before sending another request.';
+}
+function errorCode(error: unknown): string | null {
+  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : null;
 }
 
 /**
@@ -45,6 +50,31 @@ export function ProviderSettingsProvider({ children }: { children: ReactNode }) 
   const current = useRef(state); current.current = state;
   const flight = useRef(false); const mounted = useRef(true);
   const startupProbeAttempted = useRef(false);
+  async function joinExistingCodexCheck(initial: ProviderState | null, readImmediately: boolean): Promise<ProviderState | null> {
+    const deadline = Date.now() + CODEX_CHECK_JOIN_TIMEOUT_MS;
+    let latest = initial;
+    while (mounted.current) {
+      if (readImmediately || !latest) {
+        try { latest = await readProviderState(); }
+        catch { latest = null; }
+        readImmediately = false;
+        if (!mounted.current) return null;
+        if (latest && latest.codexConnection?.checking !== true) return latest;
+      } else if (latest.codexConnection?.checking !== true) {
+        return latest;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise(resolve => setTimeout(resolve, Math.min(CODEX_CHECK_POLL_MS, remaining)));
+      if (!mounted.current) return null;
+      try { latest = await readProviderState(); }
+      catch { latest = null; }
+      if (!mounted.current) return null;
+      if (latest && latest.codexConnection?.checking !== true) return latest;
+    }
+    if (!mounted.current) return null;
+    throw { code: 'ConnectionCheckJoinTimeout', detail: 'The existing Codex connection check did not finish within 90 seconds. Open Settings and try again.' };
+  }
   async function adoptInitialCodexChoice(value: ProviderState): Promise<ProviderState> {
     const choice = initialCodexChoice(value);
     if (!choice) return value;
@@ -60,13 +90,41 @@ export function ProviderSettingsProvider({ children }: { children: ReactNode }) 
       // does not create a generation request or send manuscript content.
       const shouldProbeStartup = startup && isTauri() && !value.codexConnection?.ready
         && (value.settings.active.providerId === 'codex' || value.settings.revision === '0');
-      if (shouldProbeStartup) {
+      const joinedExistingCheck = value.codexConnection?.checking === true;
+      if (joinedExistingCheck) {
+        try {
+          value = await joinExistingCodexCheck(value, false) ?? value;
+        } catch (reason) {
+          // The initial provider read was valid. Keep its saved model/catalog
+          // visible while reporting that the native check did not reconcile.
+          if (mounted.current) { setState(value); setError(describe(reason)); }
+          return;
+        }
+        if (!mounted.current) return;
+        try { value = await adoptInitialCodexChoice(value); }
+        catch (reason) { if (mounted.current) setError(describe(reason)); }
+        if (mounted.current) setState(value);
+      }
+      if (shouldProbeStartup && !joinedExistingCheck) {
         try {
           value = await checkCodexConnection();
           try { value = await adoptInitialCodexChoice(value); }
           catch (reason) { if (mounted.current) setError(describe(reason)); }
           if (mounted.current) setState(value);
         } catch (reason) {
+          if (errorCode(reason) === 'ConnectionCheckRunning') {
+            try {
+              value = await joinExistingCodexCheck(value, true) ?? value;
+              if (!mounted.current) return;
+              setState(value);
+              value = await adoptInitialCodexChoice(value);
+              if (mounted.current) { setState(value); setError(''); }
+              return;
+            } catch (joinReason) {
+              if (mounted.current) setError(describe(joinReason));
+              return;
+            }
+          }
           // Keep the saved state visible when the read-only startup probe is
           // unavailable. Settings can retry it without changing preferences.
           if (mounted.current) setError(describe(reason));
@@ -86,6 +144,19 @@ export function ProviderSettingsProvider({ children }: { children: ReactNode }) 
       if (!mounted.current) return false;
       setState(value); return true;
     } catch (reason) {
+      if (errorCode(reason) === 'ConnectionCheckRunning') {
+        try {
+          const joined = await joinExistingCodexCheck(null, true);
+          if (!joined || !mounted.current) return false;
+          setState(joined);
+          const reconciled = await adoptInitialCodexChoice(joined);
+          if (!mounted.current) return false;
+          setState(reconciled); setError(''); return true;
+        } catch (joinReason) {
+          if (mounted.current) setError(describe(joinReason));
+          return false;
+        }
+      }
       // A failed probe must not replace the saved choice. Re-read the current
       // state once so a completed native check can still reconcile its status.
       let recovered = current.current;

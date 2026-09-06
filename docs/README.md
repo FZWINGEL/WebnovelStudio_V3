@@ -41,6 +41,7 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6ad | [Normal close ADR](ADR_0029_NORMAL_CLOSE.md) | Shared editor flush, native generation admission, all-project Stop and cleanup, retained-result blocking, exact orphan interruption, and Stay open; current executed qualification is recorded in implementation status |
 | 6ae | [Accepted summaries ADR](ADR_0030_ACCEPTED_SUMMARIES.md) | Optional immutable chapter summaries in author review, explicit generated-memory starting points, source/basis fences, audience filtering, and distinct context delivery receipts |
 | 6af | [Character knowledge ADR](ADR_0031_CHARACTER_KNOWLEDGE.md) | Passage-backed character attitudes, stable character/topic identities, immutable review sets, reader-filtered context and incomplete knowledge history; qualification is recorded in implementation status |
+| 6ag | [Reviewed-memory lookup ADR](ADR_0032_STORY_MEMORY_LOOKUPS.md) | Frozen identity catalogs and paged knowledge, promise and possession history in the existing bounded read loop; schema-34 reader boundary, legacy capability preservation and per-invocation inspection |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |

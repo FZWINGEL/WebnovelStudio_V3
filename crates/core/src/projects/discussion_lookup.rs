@@ -215,6 +215,21 @@ pub(super) fn insert_initial(
     allowance: &LookupAllowance,
 ) -> CoreResult<()> {
     validate_allowance(allowance)?;
+    let lookup = packet.receipt.lookup.as_ref().ok_or_else(|| {
+        CoreError::new(
+            "InvalidLookupCapability",
+            "The initial lookup packet is missing its lookup receipt.",
+        )
+    })?;
+    lookup
+        .validate_capability()
+        .map_err(|error| CoreError::new("InvalidLookupCapability", &error.to_string()))?;
+    if lookup.allowance != *allowance || lookup.completed_invocations != 0 {
+        return Err(CoreError::new(
+            "InvalidLookupCapability",
+            "The initial lookup packet does not match its durable lookup allowance.",
+        ));
+    }
     let allowance_json = serde_json::to_string(allowance)?;
     tx.execute(
         "INSERT INTO discussion_lookup_invocations(run_id,ordinal,packet_id,snapshot_id,project_id,operation_namespace,source_epoch,policy_epoch,allowance_json,state,expected_sequence) VALUES(?,?,?,?,?,?,?,?,?,'prepared',0)",
@@ -496,6 +511,21 @@ pub(super) fn insert_child(
         ));
     }
     validate_allowance(allowance)?;
+    let lookup = packet.receipt.lookup.as_ref().ok_or_else(|| {
+        CoreError::new(
+            "InvalidLookupCapability",
+            "The child lookup packet is missing its lookup receipt.",
+        )
+    })?;
+    lookup
+        .validate_capability()
+        .map_err(|error| CoreError::new("InvalidLookupCapability", &error.to_string()))?;
+    if lookup.allowance != *allowance || lookup.completed_invocations != ordinal {
+        return Err(CoreError::new(
+            "InvalidLookupCapability",
+            "The child lookup packet does not retain the root lookup capability exactly.",
+        ));
+    }
     let allowance_json = serde_json::to_string(allowance)?;
     tx.execute(
         "INSERT INTO discussion_lookup_invocations(run_id,ordinal,packet_id,snapshot_id,project_id,operation_namespace,source_epoch,policy_epoch,allowance_json,state,expected_sequence) VALUES(?,?,?,?,?,?,?,?,?,'prepared',0)",
@@ -584,7 +614,60 @@ pub(super) fn execute_read(
                 false,
             ),
         },
+        _ if request.is_memory() => {
+            match crate::context::memory_lookup::execute_memory_lookup(frozen, request) {
+                Ok(Some(result)) => (result, false),
+                Ok(None) => (
+                    LookupReadResult::Unavailable {
+                        code: "invalidRead".into(),
+                        detail: "The reviewed-memory read is not recognized.".into(),
+                    },
+                    false,
+                ),
+                Err(error) => (
+                    LookupReadResult::Unavailable {
+                        code: "memoryUnavailable".into(),
+                        detail: error.detail,
+                    },
+                    false,
+                ),
+            }
+        }
+        _ => (
+            LookupReadResult::Unavailable {
+                code: "invalidRead".into(),
+                detail: "The lookup read is not recognized.".into(),
+            },
+            false,
+        ),
     }
+}
+
+/// Check the Rust-owned capability before a provider response can create a
+/// durable read receipt. The provider envelope remains the existing
+/// story-lookup.v1 shape; this fence is deliberately packet-owned.
+pub(super) fn authorize_envelope(
+    packet: &CompiledPacket,
+    envelope: &LookupEnvelope,
+) -> CoreResult<()> {
+    let LookupEnvelope::NeedsContext { reads, .. } = envelope else {
+        return Ok(());
+    };
+    let lookup = packet.receipt.lookup.as_ref().ok_or_else(|| {
+        CoreError::new(
+            "InvalidLookupCapability",
+            "A lookup response has no authorized lookup packet.",
+        )
+    })?;
+    lookup
+        .validate_capability()
+        .map_err(|error| CoreError::new("InvalidLookupCapability", &error.to_string()))?;
+    for read in reads {
+        lookup
+            .authorize_read(read)
+            .map_err(|error| CoreError::new("InvalidLookupCapability", &error.to_string()))?;
+    }
+    Ok(())
 }
 
 fn execute_search(
@@ -854,9 +937,22 @@ pub(crate) fn validate_storage(db: &Connection) -> CoreResult<()> {
                 "A lookup invocation is missing its authorized allowance.",
             )
         })?;
+        lookup
+            .validate_capability()
+            .map_err(|error| CoreError::new("InvalidProject", &error.to_string()))?;
+        let root_lookup = root_packet.receipt.lookup.as_ref().ok_or_else(|| {
+            CoreError::new(
+                "InvalidProject",
+                "The lookup root packet is missing its authorized capability.",
+            )
+        })?;
+        root_lookup
+            .validate_capability()
+            .map_err(|error| CoreError::new("InvalidProject", &error.to_string()))?;
         if packet.receipt.invocation_ordinal != ordinal.to_string()
             || lookup.completed_invocations != ordinal as u8
             || lookup.allowance != allowance
+            || lookup.reviewed_memory != root_lookup.reviewed_memory
             || root.0 != project_id
             || root.1 != namespace
             || frozen_namespace != namespace
@@ -1284,6 +1380,9 @@ fn validate_results(db: &Connection) -> CoreResult<()> {
             .map(serde_json::from_str::<ProviderBinding>)
             .transpose()?;
         let packet = crate::projects::context_packets::validated_packet_record(db, &packet_id)?;
+        if let Some(parsed) = &parsed {
+            authorize_envelope(&packet, parsed)?;
+        }
         if packet.options.provider_binding != binding {
             return Err(CoreError::new(
                 "InvalidProject",
@@ -1396,6 +1495,25 @@ fn validate_reads(db: &Connection) -> CoreResult<()> {
         let request: LookupRead = serde_json::from_str(&request_json)?;
         validate_lookup_read(&request)
             .map_err(|error| CoreError::new("InvalidProject", &error.to_string()))?;
+        let invocation_packet_id: String = db.query_row(
+            "SELECT packet_id FROM discussion_lookup_invocations WHERE run_id=? AND ordinal=?",
+            params![run_id, ordinal],
+            |row| row.get(0),
+        )?;
+        let invocation_packet =
+            crate::projects::context_packets::validated_packet_record(db, &invocation_packet_id)?;
+        let invocation_lookup = invocation_packet.receipt.lookup.as_ref().ok_or_else(|| {
+            CoreError::new(
+                "InvalidProject",
+                "A lookup read has no authorized packet capability.",
+            )
+        })?;
+        invocation_lookup
+            .validate_capability()
+            .map_err(|error| CoreError::new("InvalidProject", &error.to_string()))?;
+        invocation_lookup
+            .authorize_read(&request)
+            .map_err(|error| CoreError::new("InvalidProject", &error.to_string()))?;
         let result: LookupReadResult = serde_json::from_str(&result_json)?;
         if request.id() != read_id {
             return Err(CoreError::new(
@@ -1421,7 +1539,9 @@ fn validate_reads(db: &Connection) -> CoreResult<()> {
                 "The provider did not request this saved lookup read.",
             ));
         }
-        if let LookupReadResult::Unavailable { code, detail } = &result {
+        if let LookupReadResult::Unavailable { code, detail } = &result
+            && !request.is_memory()
+        {
             validate_unavailable_lookup_result(code, detail, truncated)?;
         } else {
             let (expected, expected_truncated) = execute_read(db, &frozen, &request);

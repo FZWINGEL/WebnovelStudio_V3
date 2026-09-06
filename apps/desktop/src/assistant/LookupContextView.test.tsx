@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LookupPacketInput, SourceDescriptor, SourceRef } from '../ipc/context';
+import type { KnowledgeHistory, LookupPacketInput, PromiseHistory, SourceDescriptor, SourceRef } from '../ipc/context';
 import { LookupContextView } from './LookupContextView';
 
 const source: SourceRef = { projectId: 'project', documentId: 'chapter-1', revisionId: 'revision-1', bodyHash: 'hash-1' };
@@ -37,7 +37,7 @@ describe('LookupContextView', () => {
     expect(host.textContent).toContain('literal search');
     const button = [...host.querySelectorAll('button')].find(item => item.textContent === 'Open exact source') as HTMLButtonElement;
     await act(async () => button.click());
-    expect(onRead).toHaveBeenCalledWith('chapter-1');
+    expect(onRead).toHaveBeenCalledWith('chapter-1', source);
     expect(host.textContent).not.toContain('"kind":"search"');
   });
 
@@ -87,7 +87,75 @@ describe('LookupContextView', () => {
     ] });
     await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} onRead={() => {}} />));
     expect(host.textContent).toContain('This does not establish that the event never happened.');
-    expect(host.textContent).toContain('Partial read supplied');
+    expect(host.textContent).toContain('Partial read prepared');
     expect(host.textContent).toContain('Lookup gap · SourceUnavailable');
+  });
+
+  it('renders reviewed memory identities and paged history with exact source links', async () => {
+    const onRead = vi.fn();
+    const history: KnowledgeHistory = {
+      characterId: 'character-private-id', topicId: 'topic-private-id', labelVariants: ['Mei', 'The Jade Disciple'], incomplete: true,
+      uncertainty: ['multipleRecordedAttitudes'], observations: [{
+        recordId: 'observation-private-id', sourceHandle: 'chapter-1', source, sourceDisplayName: descriptor.displayName, sourceOrder: 0,
+        character: { id: 'character-private-id', label: 'Mei' }, topic: { id: 'topic-private-id', label: 'the pendant' }, attitude: 'believes',
+        statement: 'Mei believes the pendant is a warning.', timing: 'atPassage', audience: 'reader',
+        evidence: { blockId: 'block-1', fromUtf16: 0, toUtf16: 20, quote: 'The pendant felt like a warning.', quoteHash: 'q'.repeat(64) },
+      }],
+    };
+    const lookup = packet({ reviewedMemory: 'reviewed-memory.v1', exchanges: [
+      { request: { kind: 'findEntities', id: 'find-1', entityKind: 'character', query: 'Mei', offset: 0, limit: 1 }, result: { kind: 'findEntities', entityKind: 'character', query: 'Mei', entries: [{ entity: { id: 'character-private-id', label: 'Mei' }, labelVariants: ['Mei'], sourceHandle: 'chapter-1', source }], offset: 0, totalMatches: 2, nextOffset: 1, incomplete: true } },
+      { request: { kind: 'knowledgeHistory', id: 'history-1', characterId: 'character-private-id', topicId: 'topic-private-id', offset: 0, limit: 1 }, result: { kind: 'knowledgeHistory', history, offset: 0, totalObservations: 2, nextOffset: 1 } },
+    ] });
+    await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} onRead={onRead} />));
+    expect(host.textContent).toContain('Reviewed character identity');
+    expect(host.textContent).toContain('Mei believes the pendant is a warning.');
+    expect(host.textContent).toContain('More matching identities are available from offset 1');
+    expect(host.textContent).toContain('More evidence is available from offset 1');
+    expect(host.textContent).toContain('Different attitudes are recorded');
+    expect(host.textContent).not.toContain('character-private-id');
+    expect(host.textContent).not.toContain('observation-private-id');
+    const button = [...host.querySelectorAll('button')].find(item => item.textContent === 'Open exact source') as HTMLButtonElement;
+    await act(async () => button.click());
+    expect(onRead).toHaveBeenCalledWith('chapter-1', source);
+  });
+
+  it('distinguishes prepared and unconfirmed lookup evidence from delivered evidence', async () => {
+    const lookup = packet({ exchanges: [{
+      request: { kind: 'findEntities', id: 'find-1', entityKind: 'object', query: 'pendant', limit: 1 },
+      result: { kind: 'findEntities', entityKind: 'object', query: 'pendant', entries: [], offset: 0, totalMatches: 0, nextOffset: null, incomplete: true },
+    }] });
+    await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} delivery="unconfirmed" onRead={() => {}} />));
+    expect(host.textContent).toContain('Delivery not confirmed');
+    expect(host.textContent).toContain('prepared, but delivery is not confirmed');
+    await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} delivery="prepared" onRead={() => {}} />));
+    expect(host.textContent).toContain('Prepared for model');
+    expect(host.textContent).toContain('No reviewed objects matched this query');
+    const unavailable = packet({ reviewedMemory: 'reviewed-memory.v1', exchanges: [{
+      request: { kind: 'knowledgeHistory', id: 'history-private', characterId: 'private-character-id', limit: 1 },
+      result: { kind: 'unavailable', code: 'MemoryUnavailable', detail: 'private-character-id is outside the permitted snapshot' },
+    }] });
+    await act(async () => root.render(<LookupContextView lookup={unavailable} sources={[descriptor]} onRead={() => {}} />));
+    expect(host.textContent).toContain('Lookup gap · MemoryUnavailable');
+    expect(host.textContent).not.toContain('private-character-id');
+  });
+
+  it('keeps promise payoff metadata separate from page observations and resolution claims', async () => {
+    const history: PromiseHistory = {
+      promiseId: 'promise-id', labelVariants: ['Return the key'], incomplete: true, hasRecordedPayoff: true,
+      uncertainty: [], observations: [{
+        recordId: 'setup-id', sourceHandle: 'chapter-1', source, sourceDisplayName: descriptor.displayName, sourceOrder: 0,
+        promise: { id: 'promise-id', label: 'Return the key' }, phase: 'setup', timing: 'atPassage', note: 'The promise is made.', audience: 'reader',
+        evidence: { blockId: 'block-1', fromUtf16: 0, toUtf16: 8, quote: 'She promised.', quoteHash: 'q'.repeat(64) },
+      }],
+    };
+    const lookup = packet({ exchanges: [{
+      request: { kind: 'promiseHistory', id: 'promise-1', promiseId: 'promise-id', offset: 20, limit: 1 },
+      result: { kind: 'promiseHistory', history, offset: 20, totalObservations: 21, nextOffset: null },
+    }] });
+    await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} onRead={() => {}} />));
+    expect(host.textContent).toContain('Prepared for model');
+    expect(host.textContent).toContain('At least one eligible observation records a payoff');
+    expect(host.textContent).toContain('This page may omit that payoff');
+    expect(host.textContent).toContain('does not prove that the promise is resolved');
   });
 });

@@ -6,7 +6,7 @@
 
 Add an explicit **Look up story details when needed** choice to Working, AuthorRoom, and Discuss conversations. It authorizes an initial model invocation and at most two further invocations. Each receives a newly compiled, durably saved packet from the same frozen story snapshot. The ordinary one-packet discussion path remains available with lookup disabled by default.
 
-This first C6 cut supports local search and exact source reads. It does not enable restricted writing, continuation, state queries, provider filesystem tools, autonomous canon changes, or manuscript edits. A broader lookup-enabled writing route must separately prove its disclosure and edit-scope contract. The application is for English novels; romanized names and Unicode text remain supported source content.
+This original C6 cut supports local search and exact source reads. [ADR 0032](ADR_0032_STORY_MEMORY_LOOKUPS.md) extends fresh capability-bearing packets with reviewed identity and history queries. Neither route enables restricted writing, continuation, provider filesystem tools, autonomous canon changes, or manuscript edits. A broader lookup-enabled writing route must separately prove its disclosure and edit-scope contract. The application is for English novels; romanized names and Unicode text remain supported source content.
 
 The UI explains the possible three model calls before sending. Lookup authorization is part of the persisted composer and exact request identity, including uncertain acknowledgments and linked retries. Changing the composer to Suggest edits or Continue clears it. Restoring an old chat does not silently authorize new calls.
 
@@ -75,7 +75,7 @@ are qualified.
 
 ## Authority and durable records
 
-Schema 24 introduces separate lookup invocation, result, and read records plus the optional saved composer allowance. Schema 25's observed-provider-runtime receipt remains a historical compatibility boundary. The current project reader floor is schema 28 because source-title projection must be validated as part of the authorizing reader contract; this prevents older readers from misvalidating the new projection and raises no SQL table or migration requirement. Library schema 4 is unchanged. Existing discussion packets, legacy provider-result bytes, and historical 0.153.3 Max packets remain valid and preserve their serialized bytes/hashes.
+Schema 24 introduces separate lookup invocation, result, and read records plus the optional saved composer allowance. Schema 25's observed-provider-runtime receipt remains a historical compatibility boundary. Schema 28 introduced the source-title reader boundary. The current reader floor is schema 34, including the later reviewed-memory operation types in ADR 0032; both boundaries prevent older readers from misvalidating newer authorization contracts without adding another lookup table. Library schema 4 is unchanged. Existing discussion packets, legacy provider-result bytes, and historical 0.153.3 Max packets remain valid and preserve their serialized bytes/hashes.
 
 The existing discussion run owns the operation, project, namespace, target and initial packet. Every lookup invocation records its ordinal, exact packet and snapshot, source/policy epochs, allowance, and dispatch state. A committed claim can authorize one external start. Reading or reconciling an already claimed invocation cannot authorize a duplicate start.
 

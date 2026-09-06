@@ -30,7 +30,7 @@ vi.mock('../ipc/proposals', () => ({
   applyProposal: vi.fn(),
   rejectProposal: vi.fn(),
 }));
-vi.mock('./ContextInspector', () => ({ ContextInspector: (props: { packetId: string; delivered: boolean; onPin?: unknown }) => <div data-testid="context-inspector" data-packet-id={props.packetId} data-delivered={String(props.delivered)} data-can-pin={String(!!props.onPin)} /> }));
+vi.mock('./ContextInspector', () => ({ ContextInspector: (props: { packetId: string; delivered: boolean; lookupDelivery?: string; onPin?: unknown }) => <div data-testid="context-inspector" data-packet-id={props.packetId} data-delivered={String(props.delivered)} data-lookup-delivery={props.lookupDelivery ?? ''} data-can-pin={String(!!props.onPin)} /> }));
 vi.mock('./GuidancePanel', () => ({ GuidancePanel: () => <div data-testid="guidance-panel" /> }));
 vi.mock('./SourcePinsPanel', () => ({ SourcePinsPanel: () => <div data-testid="source-pins-panel" /> }));
 
@@ -158,20 +158,25 @@ describe('persistent FeedbackPanel safeguards', () => {
     expect(selector.value).toBe('final-packet');
     expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('final-packet');
     expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('true');
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-lookup-delivery')).toBe('delivered');
     await act(async () => { selector.value = 'prepared-packet'; selector.dispatchEvent(new Event('change', { bubbles: true })); });
     await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('prepared-packet'));
     expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('false');
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-lookup-delivery')).toBe('prepared');
     expect(host.textContent).toContain('Call 2 · prepared · not sent');
     await act(async () => { selector.value = 'failed-packet'; selector.dispatchEvent(new Event('change', { bubbles: true })); });
     await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('failed-packet'));
     expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('true');
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-lookup-delivery')).toBe('delivered');
     await act(async () => { selector.value = 'stopped-packet'; selector.dispatchEvent(new Event('change', { bubbles: true })); });
     await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('stopped-packet'));
     expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('true');
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-lookup-delivery')).toBe('delivered');
     await act(async () => { selector.value = 'initial-packet'; selector.dispatchEvent(new Event('change', { bubbles: true })); });
     await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('initial-packet'));
     expect(selector.value).toBe('initial-packet');
     expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('false');
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-lookup-delivery')).toBe('unconfirmed');
   });
 
   it('sends continuation with its explicit basis and no passage scope, preserving a refused reviewed request', async () => {

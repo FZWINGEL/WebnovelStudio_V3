@@ -980,6 +980,9 @@ impl OwnedProject {
                     completed_invocations: 0,
                     exchanges: Vec::new(),
                     source_projection: None,
+                    reviewed_memory: Some(
+                        crate::context::lookup::REVIEWED_MEMORY_CAPABILITY.to_owned(),
+                    ),
                 }
             }),
             response_contract: response_contract.clone(),
@@ -1308,7 +1311,15 @@ impl OwnedProject {
         let mut response_error = None;
         let parsed = if request.status == ProviderOutcomeStatus::Completed {
             match discussion_lookup::parse_response(&request.assistant_text) {
-                Ok(parsed) => Some(parsed),
+                Ok(parsed) => {
+                    match discussion_lookup::authorize_envelope(&packet, &parsed.envelope) {
+                        Ok(()) => Some(parsed),
+                        Err(error) => {
+                            response_error = Some(error.detail);
+                            None
+                        }
+                    }
+                }
                 Err(error) => {
                     response_error = Some(error.detail);
                     None
@@ -1483,8 +1494,20 @@ impl OwnedProject {
         let mut prepare: PrepareContext = serde_json::from_str(&prepare_json)?;
         let frozen = story_context::load_snapshot(&tx, &prepare.access, &identity.snapshot_id)?;
         let reads = discussion_lookup::pending_reads(&tx, &current.id, completed)?;
+        let lookup_packet = packet.receipt.lookup.as_ref().ok_or_else(|| {
+            CoreError::new(
+                "InvalidLookupCapability",
+                "The lookup packet is missing its authorized lookup receipt.",
+            )
+        })?;
+        lookup_packet
+            .validate_capability()
+            .map_err(|error| CoreError::new("InvalidLookupCapability", &error.to_string()))?;
         let mut round_exchanges = Vec::with_capacity(reads.len());
         for read in &reads {
+            lookup_packet
+                .authorize_read(read)
+                .map_err(|error| CoreError::new("InvalidLookupCapability", &error.to_string()))?;
             let (result, truncated) = discussion_lookup::execute_read(&tx, &frozen, read);
             let value = serde_json::to_value(&result)?;
             discussion_lookup::store_read(
@@ -1520,6 +1543,7 @@ impl OwnedProject {
             completed_invocations: next,
             exchanges,
             source_projection,
+            reviewed_memory: lookup_packet.reviewed_memory.clone(),
         });
         let sources = frozen
             .snapshot
@@ -2824,6 +2848,9 @@ fn insert_packet(
                 completed_invocations: 0,
                 exchanges: Vec::new(),
                 source_projection: None,
+                reviewed_memory: Some(
+                    crate::context::lookup::REVIEWED_MEMORY_CAPABILITY.to_owned(),
+                ),
             }),
         response_contract: match request.intent {
             FeedbackIntent::Discuss if request.lookup.is_some() => {

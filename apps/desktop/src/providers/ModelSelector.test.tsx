@@ -208,6 +208,74 @@ describe('persistent model selection', () => {
     expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('0', luna, []);
     expect(host.querySelector('output')!.textContent).toBe('gpt-5.6-luna:codexCli:false');
   });
+  it('reattaches to an in-progress native Codex check without starting a duplicate probe', async () => {
+    Object.assign(globalThis, { isTauri: true });
+    vi.useFakeTimers();
+    try {
+      const checking = structuredClone(state);
+      checking.codexConnection = { ...checking.codexConnection!, checked: true, checking: true };
+      const ready = structuredClone(checking);
+      ready.codexConnection = { ready: true, checked: true, checking: false, detail: 'Signed in through Codex.' };
+      ready.catalog.models.find(model => model.key.providerId === 'codex' && model.key.modelId === 'gpt-5.6-luna')!.ready = true;
+      state = structuredClone(ready);
+      vi.mocked(ipc.saveModelSettings).mockImplementationOnce(async (_revision, active, favorites) => {
+        state = { ...state, settings: { revision: '1', active, favorites }, dispatch: { kind: 'codexCli', detail: 'Uses your Codex sign-in.' } };
+        return structuredClone(state);
+      });
+      const reads = [checking, ready];
+      vi.mocked(ipc.readProviderState).mockImplementation(async () => structuredClone(reads.shift() ?? ready));
+      await render();
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      expect(ipc.checkCodexConnection).not.toHaveBeenCalled();
+      expect(ipc.readProviderState).toHaveBeenCalledTimes(2);
+      expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('0', luna, []);
+      expect(host.querySelector('output')!.textContent).toBe('gpt-5.6-luna:codexCli:false');
+    } finally { vi.useRealTimers(); }
+  });
+  it('joins an existing check when the startup probe races a renderer reattach', async () => {
+    Object.assign(globalThis, { isTauri: true });
+    vi.useFakeTimers();
+    try {
+      const initialState = structuredClone(state);
+      initialState.codexConnection = { ...initialState.codexConnection!, checked: true, checking: false };
+      const checking = structuredClone(initialState);
+      checking.codexConnection = { ...checking.codexConnection!, checking: true };
+      const ready = structuredClone(checking);
+      ready.codexConnection = { ready: true, checked: true, checking: false, detail: 'Signed in through Codex.' };
+      ready.catalog.models.find(model => model.key.providerId === 'codex' && model.key.modelId === 'gpt-5.6-luna')!.ready = true;
+      state = structuredClone(ready);
+      vi.mocked(ipc.saveModelSettings).mockImplementationOnce(async (_revision, active, favorites) => {
+        state = { ...state, settings: { revision: '1', active, favorites }, dispatch: { kind: 'codexCli', detail: 'Uses your Codex sign-in.' } };
+        return structuredClone(state);
+      });
+      const reads = [initialState, checking, ready];
+      vi.mocked(ipc.readProviderState).mockImplementation(async () => structuredClone(reads.shift() ?? ready));
+      vi.mocked(ipc.checkCodexConnection).mockRejectedValueOnce({ code: 'ConnectionCheckRunning', detail: 'A Codex connection check is already running.' });
+      await render();
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      expect(ipc.checkCodexConnection).toHaveBeenCalledExactlyOnceWith();
+      expect(ipc.readProviderState).toHaveBeenCalledTimes(3);
+      expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('0', luna, []);
+      expect(host.querySelector('output')!.textContent).toBe('gpt-5.6-luna:codexCli:false');
+    } finally { vi.useRealTimers(); }
+  });
+  it('keeps a concrete timeout when an existing Codex check never settles', async () => {
+    Object.assign(globalThis, { isTauri: true });
+    vi.useFakeTimers();
+    try {
+      const checking = structuredClone(state);
+      checking.codexConnection = { ...checking.codexConnection!, checked: true, checking: true };
+      vi.mocked(ipc.readProviderState).mockResolvedValue(checking);
+      await render();
+      await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+      expect(ipc.checkCodexConnection).not.toHaveBeenCalled();
+      expect(vi.mocked(ipc.readProviderState).mock.calls.length).toBeGreaterThan(100);
+      await click('Settings');
+      expect(host.querySelector('[role=alert]')?.textContent).toContain('did not finish within 90 seconds');
+      expect(host.textContent).toContain('Local test model');
+      expect(button('Check Codex connection')).toBeTruthy();
+    } finally { vi.useRealTimers(); }
+  });
   it('keeps an explicit saved model when native startup finds Codex', async () => {
     Object.assign(globalThis, { isTauri: true });
     const explicit: ipc.ModelSelection = { providerId: 'openai-compatible:11111111-1111-1111-1111-111111111111', modelId: 'nova', reasoning: 'low', serviceTier: 'standard' };
@@ -253,6 +321,23 @@ describe('persistent model selection', () => {
     await render(); await click('Settings'); await click('Check Codex connection');
     expect(ipc.checkCodexConnection).toHaveBeenCalledExactlyOnceWith(); expect(ipc.readProviderState).toHaveBeenCalledTimes(2);
     expect(state.settings).toEqual(before); expect(host.querySelector('[role=alert]')!.textContent).toContain('connection check could not finish');
+  });
+  it('preserves an explicit saved choice when an explicit check joins another renderer', async () => {
+    const explicit: ipc.ModelSelection = { providerId: 'openai-compatible:11111111-1111-1111-1111-111111111111', modelId: 'nova', reasoning: 'low', serviceTier: 'standard' };
+    state.settings = { revision: '4', active: explicit, favorites: [] };
+    state.dispatch = { kind: 'blocked', detail: 'Saved endpoint choice.' };
+    const initialState = structuredClone(state);
+    initialState.codexConnection = { ...initialState.codexConnection!, checked: true, checking: false };
+    const ready = structuredClone(initialState);
+    ready.codexConnection = { ready: true, checked: true, checking: false, detail: 'Signed in through Codex.' };
+    vi.mocked(ipc.readProviderState).mockImplementationOnce(async () => initialState).mockImplementationOnce(async () => ready);
+    vi.mocked(ipc.checkCodexConnection).mockRejectedValueOnce({ code: 'ConnectionCheckRunning', detail: 'A Codex connection check is already running.' });
+    await render(); await click('Settings'); await click('Check Codex connection');
+    expect(ipc.checkCodexConnection).toHaveBeenCalledExactlyOnceWith();
+    expect(ipc.readProviderState).toHaveBeenCalledTimes(2);
+    expect(ipc.saveModelSettings).not.toHaveBeenCalled();
+    expect(state.settings.active).toEqual(explicit);
+    expect(host.querySelector('output')!.textContent).toBe('nova:blocked:false');
   });
   it('offers the exact Codex traits when a connection is ready', async () => {
     state.settings = { revision: '8', active: { ...luna, reasoning: 'high', serviceTier: null }, favorites: [luna] };

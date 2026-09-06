@@ -7,6 +7,9 @@
 //! and execution of each requested read.
 
 use crate::context::SourceRef;
+use crate::context::evidence_history::EvidenceHistory;
+use crate::context::knowledge_history::KnowledgeHistory;
+use crate::context::promise_history::PromiseHistory;
 use crate::projects::story_context::{FrozenContext, SearchMode, SearchResult, SourcePassage};
 use crate::projects::{CoreError, CoreResult};
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
@@ -27,6 +30,9 @@ pub const MAX_LOOKUP_READ_LIMIT: u32 = 20;
 pub const MAX_LOOKUP_TOTAL_INPUT_BYTES: u128 = 3 * 24_576;
 pub const MAX_LOOKUP_TOTAL_OUTPUT_BYTES: u128 = 3 * 65_536;
 pub const LOOKUP_SOURCE_PROJECTION_SCHEMA: &str = "story-lookup-source.v1";
+pub const REVIEWED_MEMORY_CAPABILITY: &str = "reviewed-memory.v1";
+pub const MAX_MEMORY_OFFSET: u32 = 100_000;
+pub const MAX_MEMORY_LIMIT: u32 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +42,7 @@ pub enum LookupErrorCode {
     InvalidEnvelope,
     InvalidField,
     InvalidAllowance,
+    InvalidCapability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -70,6 +77,7 @@ impl fmt::Display for LookupErrorCode {
             Self::InvalidEnvelope => "invalidEnvelope",
             Self::InvalidField => "invalidField",
             Self::InvalidAllowance => "invalidAllowance",
+            Self::InvalidCapability => "invalidCapability",
         })
     }
 }
@@ -83,6 +91,24 @@ pub struct LookupAllowance {
     pub max_additional_invocations: u8,
     pub total_input_bytes: String,
     pub total_output_bytes: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MemoryEntityKind {
+    Character,
+    Topic,
+    Object,
+    Promise,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MemoryEntityEntry {
+    pub entity: crate::projects::story_records::StoryEntityRef,
+    pub label_variants: Vec<String>,
+    pub source_handle: String,
+    pub source: SourceRef,
 }
 
 impl Default for LookupAllowance {
@@ -134,7 +160,12 @@ impl LookupAllowance {
 /// One application-executed lookup request. The provider cannot supply a
 /// path, command, source body, or arbitrary tool arguments.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum LookupRead {
     Search {
         id: String,
@@ -153,6 +184,41 @@ pub enum LookupRead {
         )]
         block_ids: Option<Vec<String>>,
     },
+    FindEntities {
+        id: String,
+        entity_kind: MemoryEntityKind,
+        query: String,
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        offset: u32,
+        limit: u32,
+    },
+    KnowledgeHistory {
+        id: String,
+        character_id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_optional_non_null_string"
+        )]
+        topic_id: Option<String>,
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        offset: u32,
+        limit: u32,
+    },
+    PromiseHistory {
+        id: String,
+        promise_id: String,
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        offset: u32,
+        limit: u32,
+    },
+    PossessionHistory {
+        id: String,
+        object_id: String,
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        offset: u32,
+        limit: u32,
+    },
 }
 
 /// The request half of one application-executed exchange. This alias keeps
@@ -164,7 +230,12 @@ pub type LookupReadRequest = LookupRead;
 /// Search results and passages retain their Rust-owned source identities; a
 /// provider cannot manufacture an arbitrary path, title, or source body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum LookupReadResult {
     Search {
         result: SearchResult,
@@ -174,6 +245,33 @@ pub enum LookupReadResult {
         source: SourceRef,
         passages: Vec<SourcePassage>,
         complete: bool,
+    },
+    FindEntities {
+        entity_kind: MemoryEntityKind,
+        query: String,
+        entries: Vec<MemoryEntityEntry>,
+        offset: u32,
+        total_matches: u32,
+        next_offset: Option<u32>,
+        incomplete: bool,
+    },
+    KnowledgeHistory {
+        history: KnowledgeHistory,
+        offset: u32,
+        total_observations: u32,
+        next_offset: Option<u32>,
+    },
+    PromiseHistory {
+        history: PromiseHistory,
+        offset: u32,
+        total_observations: u32,
+        next_offset: Option<u32>,
+    },
+    PossessionHistory {
+        history: EvidenceHistory,
+        offset: u32,
+        total_observations: u32,
+        next_offset: Option<u32>,
     },
     Unavailable {
         code: String,
@@ -197,6 +295,49 @@ pub struct LookupPacketInput {
     /// packets populate it from the frozen Rust-owned descriptors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_projection: Option<LookupSourceProjection>,
+    /// Rust-owned capability for typed reads over reviewed story memory.
+    /// Historical packets omit this field; fresh lookup packets include the
+    /// exact capability string when the author enabled reviewed-memory reads.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_non_null_string"
+    )]
+    pub reviewed_memory: Option<String>,
+}
+
+impl LookupPacketInput {
+    pub fn validate_capability(&self) -> Result<(), LookupError> {
+        validate_reviewed_memory_capability(self.reviewed_memory.as_deref())
+    }
+
+    pub fn authorize_read(&self, read: &LookupRead) -> Result<(), LookupError> {
+        validate_lookup_read(read)?;
+        if read.is_memory() && self.reviewed_memory.as_deref() != Some(REVIEWED_MEMORY_CAPABILITY) {
+            return Err(LookupError::new(
+                LookupErrorCode::InvalidCapability,
+                "Reviewed-memory reads require the reviewed-memory.v1 capability.",
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub fn validate_reviewed_memory_capability(capability: Option<&str>) -> Result<(), LookupError> {
+    if let Some(capability) = capability
+        && capability != REVIEWED_MEMORY_CAPABILITY
+    {
+        return Err(LookupError::new(
+            LookupErrorCode::InvalidCapability,
+            "reviewedMemory must be reviewed-memory.v1 when present.",
+        ));
+    }
+    Ok(())
+}
+
+pub fn reviewed_memory_enabled(lookup: Option<&LookupPacketInput>) -> bool {
+    lookup
+        .is_some_and(|lookup| lookup.reviewed_memory.as_deref() == Some(REVIEWED_MEMORY_CAPABILITY))
 }
 
 /// Exact, author-room-only labels for sources that actually appear in lookup
@@ -237,6 +378,35 @@ impl LookupSourceProjection {
                     }
                     for hit in &result.hits {
                         returned.insert((hit.passage.handle.clone(), hit.passage.source.clone()));
+                    }
+                }
+                LookupReadResult::FindEntities { entries, .. } => {
+                    for entry in entries {
+                        returned.insert((entry.source_handle.clone(), entry.source.clone()));
+                    }
+                }
+                LookupReadResult::KnowledgeHistory { history, .. } => {
+                    for observation in &history.observations {
+                        returned.insert((
+                            observation.source_handle.clone(),
+                            observation.source.clone(),
+                        ));
+                    }
+                }
+                LookupReadResult::PromiseHistory { history, .. } => {
+                    for observation in &history.observations {
+                        returned.insert((
+                            observation.source_handle.clone(),
+                            observation.source.clone(),
+                        ));
+                    }
+                }
+                LookupReadResult::PossessionHistory { history, .. } => {
+                    for observation in &history.observations {
+                        returned.insert((
+                            observation.source_handle.clone(),
+                            observation.source.clone(),
+                        ));
                     }
                 }
                 LookupReadResult::Unavailable { .. } => {}
@@ -306,8 +476,23 @@ impl LookupRead {
     /// the exact read the provider requested.
     pub fn id(&self) -> &str {
         match self {
-            Self::Search { id, .. } | Self::Read { id, .. } => id,
+            Self::Search { id, .. }
+            | Self::Read { id, .. }
+            | Self::FindEntities { id, .. }
+            | Self::KnowledgeHistory { id, .. }
+            | Self::PromiseHistory { id, .. }
+            | Self::PossessionHistory { id, .. } => id,
         }
+    }
+
+    pub fn is_memory(&self) -> bool {
+        matches!(
+            self,
+            Self::FindEntities { .. }
+                | Self::KnowledgeHistory { .. }
+                | Self::PromiseHistory { .. }
+                | Self::PossessionHistory { .. }
+        )
     }
 }
 
@@ -400,6 +585,62 @@ pub fn validate_lookup_read(read: &LookupRead) -> Result<(), LookupError> {
                 validate_block_ids(block_ids)?;
             }
         }
+        LookupRead::FindEntities {
+            query,
+            offset,
+            limit,
+            ..
+        } => {
+            validate_text(query, "query", MAX_LOOKUP_QUERY_BYTES)?;
+            validate_memory_page(*offset, *limit)?;
+        }
+        LookupRead::KnowledgeHistory {
+            character_id,
+            topic_id,
+            offset,
+            limit,
+            ..
+        } => {
+            validate_identifier(character_id, "characterId", MAX_LOOKUP_ID_BYTES)?;
+            if let Some(topic_id) = topic_id {
+                validate_identifier(topic_id, "topicId", MAX_LOOKUP_ID_BYTES)?;
+            }
+            validate_memory_page(*offset, *limit)?;
+        }
+        LookupRead::PromiseHistory {
+            promise_id,
+            offset,
+            limit,
+            ..
+        } => {
+            validate_identifier(promise_id, "promiseId", MAX_LOOKUP_ID_BYTES)?;
+            validate_memory_page(*offset, *limit)?;
+        }
+        LookupRead::PossessionHistory {
+            object_id,
+            offset,
+            limit,
+            ..
+        } => {
+            validate_identifier(object_id, "objectId", MAX_LOOKUP_ID_BYTES)?;
+            validate_memory_page(*offset, *limit)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_memory_page(offset: u32, limit: u32) -> Result<(), LookupError> {
+    if offset > MAX_MEMORY_OFFSET {
+        return Err(LookupError::new(
+            LookupErrorCode::InvalidField,
+            format!("offset must be at most {MAX_MEMORY_OFFSET}."),
+        ));
+    }
+    if !(1..=MAX_MEMORY_LIMIT).contains(&limit) {
+        return Err(LookupError::new(
+            LookupErrorCode::InvalidField,
+            format!("limit must be between 1 and {MAX_MEMORY_LIMIT}."),
+        ));
     }
     Ok(())
 }
@@ -446,6 +687,22 @@ where
         Value::Null => Err(de::Error::custom("blockIds must be an array when supplied")),
         _ => Err(de::Error::custom("blockIds must be an array")),
     }
+}
+
+fn deserialize_optional_non_null_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    match value {
+        Value::String(value) => Ok(Some(value)),
+        Value::Null => Err(de::Error::custom("field must be omitted, not null")),
+        _ => Err(de::Error::custom("field must be a string when supplied")),
+    }
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }
 
 fn validate_identifier(value: &str, label: &str, max_bytes: usize) -> Result<(), LookupError> {

@@ -185,6 +185,27 @@ describe('historical context inspection', () => {
     await render(); expect(host.textContent).toContain('confirms local delivery, not that the model understood every source');
     expect(host.textContent).toContain('not a model token count');
   });
+  it('labels reviewed-memory lookup delivery per selected invocation and opens its frozen source', async () => {
+    const memoryHistory: context.KnowledgeHistory = {
+      characterId: 'character-id', topicId: 'topic-id', labelVariants: ['Mei'], observations: [{
+        recordId: 'observation-id', sourceHandle: first.handle, source: first.source, sourceDisplayName: first.displayName, sourceOrder: 0,
+        character: { id: 'character-id', label: 'Mei' }, topic: { id: 'topic-id', label: 'the pendant' }, attitude: 'knows', statement: 'Mei knows the pendant is a warning.', timing: 'atPassage', audience: 'reader',
+        evidence: { blockId: 'first-block', fromUtf16: 0, toUtf16: 20, quote: 'The pendant is a warning.', quoteHash: 'q'.repeat(64) },
+      }], uncertainty: [], incomplete: true,
+    };
+    const lookup: context.LookupPacketInput = {
+      allowance: { maxAdditionalInvocations: 2, totalInputBytes: '73728', totalOutputBytes: '196608' }, completedInvocations: 1, reviewedMemory: 'reviewed-memory.v1',
+      exchanges: [{ request: { kind: 'knowledgeHistory', id: 'history-1', characterId: 'character-id', topicId: 'topic-id', limit: 1 }, result: { kind: 'knowledgeHistory', history: memoryHistory, offset: 0, totalObservations: 1, nextOffset: null } }],
+    };
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, lookup } });
+    vi.mocked(context.readStoryContextSource).mockResolvedValue({ descriptor: first, usedValidatedProjection: true, body: { schemaVersion: 1, body: { type: 'doc', content: [] } }, passages: [] });
+    await act(async () => root.render(<ContextInspector access={access} packetId="packet" delivered={false} lookupDelivery="unconfirmed" refreshKey="1" />));
+    expect(host.textContent).toContain('Delivery not confirmed');
+    expect(host.textContent).toContain('Mei knows the pendant is a warning.');
+    const button = [...host.querySelectorAll('button')].find(item => item.textContent === 'Open exact source') as HTMLButtonElement;
+    await act(async () => button.click());
+    expect(context.readStoryContextSource).toHaveBeenCalledWith(access, 'snapshot', 'first');
+  });
   it('describes an HTTP response as upstream delivery rather than Codex local delivery', async () => {
     const providerBinding: context.ProviderBinding = { providerId: 'openai-compatible:test-endpoint', modelId: 'fiction-v1', reasoning: null, serviceTier: null,
       profileVersion: 'openai-chat-completions.v1', inputLimitBytes: '24576', reservedOutputBytes: '4096', reservedProtocolBytes: '1024', outputLimitBytes: '65536',
