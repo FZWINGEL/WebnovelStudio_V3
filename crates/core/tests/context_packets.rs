@@ -347,6 +347,7 @@ fn safe_brief_receipt_tampering_is_rejected_by_read_and_backup_validation() {
             expected: document.head.clone(),
             instruction: "Revise the selected passage.".into(),
             intent: FeedbackIntent::ProposeEdits,
+            basis: None,
             scope: Some(passage_scope(&document)),
             pinned_document_ids: Vec::new(),
             safe_brief: Some(SafeBriefInput {
@@ -814,6 +815,7 @@ fn generic_preparation_rejects_consumed_discussion_request_guidance() {
         expected: document.head.clone(),
         instruction: "Discuss the selected passage.".into(),
         intent: Default::default(),
+        basis: None,
         scope: None,
         pinned_document_ids: Vec::new(),
         safe_brief: None,

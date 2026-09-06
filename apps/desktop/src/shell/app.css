@@ -262,10 +262,15 @@ input::placeholder { color: #637083; }
   .persistent-workspace .document-heading { padding: 18px 24px; }.library-heading { align-items: flex-start; }
 }
 .retry-notice { padding: 0.7rem 0.85rem; background: var(--surface-muted, #edf2f8); border-radius: 6px; color: var(--ink-muted, #52627a); font-size: 0.8rem; line-height: 1.5; } .retry-notice p { margin: 0 0 0.4rem; }
-.intent-controls { display: flex; align-items: center; gap: 5px; margin: 0 0 12px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
-.intent-label { margin-right: auto; color: var(--muted); font-size: 11px; }
+.intent-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0 0 12px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+.intent-label { flex-basis: 100%; margin-bottom: 3px; color: var(--muted); font-size: 11px; }
 .intent-button { padding: 5px 8px; border: 1px solid transparent; border-radius: 4px; color: var(--muted); font-size: 11px; }
 .intent-button.active { border-color: #aebed5; background: #e6eefc; color: #164da9; font-weight: 600; }
+.continuation-basis { margin-bottom: 12px; }
+.continuation-basis select { width: 100%; padding: 7px 9px; border: 1px solid #aebccc; border-radius: 4px; background: #fff; color: #253344; font: inherit; font-size: 12px; }
+.continuation-basis .small-copy { margin: 7px 0 0; }
+.continuation-after { max-height: 240px; overflow-y: auto; margin-top: 6px; padding: 0 10px; border-left: 2px solid #b9c6d6; font-family: Georgia, serif; font-size: 13px; line-height: 1.7; }
+.continuation-after p { margin: 0 0 12px; white-space: pre-wrap; }
 .proposal-requirement { margin: -3px 0 12px; padding: 8px 9px; background: #fff4dc; border-radius: 4px; color: #805009; font-size: 11px; }
 .proposal-empty { margin: 8px 0 18px; padding: 10px; background: #edf1f8; border-radius: 4px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .proposal-panel { margin: 20px 0 22px; padding-top: 18px; border-top: 1px solid var(--line); }

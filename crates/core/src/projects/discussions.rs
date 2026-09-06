@@ -8,6 +8,7 @@
 //! drive with deterministic or live events.
 
 use super::*;
+use crate::context::continuation::CONTINUATION_RESPONSE_CONTRACT;
 use crate::context::packet::{
     CODEX_INPUT_LIMIT_BYTES, CODEX_OUTPUT_LIMIT_BYTES, CompiledPacket, MockContextBudget,
     PROPOSAL_RESPONSE_CONTRACT, PacketError, PacketRequest, ProviderBinding, compile_packet,
@@ -17,10 +18,11 @@ use crate::context::{
     Audience, BasisKind, ContextPurpose, InformationPolicy, MAX_SAFE_BRIEF_BYTES,
 };
 use crate::documents::{
-    Endpoint, ScopeGrant, ScopeKind, ScopeValidationRequest, capture_scope, validate_scope,
+    Endpoint, ScopeGrant, ScopeKind, ScopeValidationRequest, capture_append_scope, capture_scope,
+    validate_scope,
 };
 use crate::projects::context_packets::PrepareContext;
-use crate::projects::story_context::{FreezeStory, FrozenContext};
+use crate::projects::story_context::{FreezeReviewedContinuation, FreezeStory, FrozenContext};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -49,6 +51,7 @@ pub enum FeedbackIntent {
     #[default]
     Discuss,
     ProposeEdits,
+    Continue,
 }
 
 impl FeedbackIntent {
@@ -60,6 +63,7 @@ impl FeedbackIntent {
         match self {
             Self::Discuss => ContextPurpose::Discuss,
             Self::ProposeEdits => ContextPurpose::Revise,
+            Self::Continue => ContextPurpose::Continue,
         }
     }
 
@@ -67,6 +71,7 @@ impl FeedbackIntent {
         match self {
             Self::Discuss => "discuss",
             Self::ProposeEdits => "proposeEdits",
+            Self::Continue => "continue",
         }
     }
 
@@ -74,6 +79,7 @@ impl FeedbackIntent {
         match value {
             "discuss" => Ok(Self::Discuss),
             "proposeEdits" => Ok(Self::ProposeEdits),
+            "continue" => Ok(Self::Continue),
             _ => Err(CoreError::new(
                 "InvalidProject",
                 "The saved discussion draft has an unknown intent.",
@@ -85,8 +91,8 @@ impl FeedbackIntent {
         match purpose {
             ContextPurpose::Discuss => Ok(Self::Discuss),
             ContextPurpose::Revise => Ok(Self::ProposeEdits),
-            ContextPurpose::Continue
-            | ContextPurpose::Plan
+            ContextPurpose::Continue => Ok(Self::Continue),
+            ContextPurpose::Plan
             | ContextPurpose::StoryQuestion
             | ContextPurpose::MemoryAnalysis => Err(CoreError::new(
                 "InvalidContext",
@@ -119,6 +125,8 @@ pub struct StartDiscussion {
     pub instruction: String,
     #[serde(default, skip_serializing_if = "skip_default_feedback_intent")]
     pub intent: FeedbackIntent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basis: Option<BasisKind>,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -352,6 +360,8 @@ pub struct DiscussionRun {
     pub owner: RunOwner,
     pub operation_id: String,
     pub intent: FeedbackIntent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basis: Option<BasisKind>,
     pub payload_hash: String,
     pub target: Head,
     pub packet_id: String,
@@ -402,6 +412,8 @@ pub struct DiscussionDraft {
     pub text: String,
     #[serde(default, skip_serializing_if = "skip_default_feedback_intent")]
     pub intent: FeedbackIntent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basis: Option<BasisKind>,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -416,6 +428,8 @@ pub struct DiscussionDraft {
 pub struct DiscussionRetry {
     pub text: String,
     pub intent: FeedbackIntent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basis: Option<BasisKind>,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -433,6 +447,8 @@ pub struct SaveDiscussionDraft {
     pub text: String,
     #[serde(default, skip_serializing_if = "skip_default_feedback_intent")]
     pub intent: FeedbackIntent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basis: Option<BasisKind>,
     pub scope: Option<DiscussionScopeInput>,
     pub pinned_document_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -731,12 +747,23 @@ impl OwnedProject {
             policy,
         };
         let context_payload = logical_hash(&context_request)?;
-        let frozen_context = story_context::freeze_discussion_story_at(
-            &tx,
-            &context_request,
-            &context_payload,
-            retry_guidance.as_deref(),
-        )?;
+        let frozen_context = if request.basis == Some(BasisKind::Reviewed) {
+            let reviewed = FreezeReviewedContinuation {
+                access: request.access.clone(),
+                operation_id: context_request.operation_id.clone(),
+                expected: request.expected.clone(),
+                policy: context_request.policy.clone(),
+            };
+            let payload = logical_hash(&reviewed)?;
+            story_context::freeze_reviewed_continuation_at(&tx, &reviewed, &payload)?
+        } else {
+            story_context::freeze_discussion_story_at(
+                &tx,
+                &context_request,
+                &context_payload,
+                retry_guidance.as_deref(),
+            )?
+        };
         let target = read_revision(&tx, &frozen_context.snapshot.target.revision_id)?;
         let persistent_ids = source_pins::persistent_for_discussion(
             &tx,
@@ -782,13 +809,24 @@ impl OwnedProject {
             .iter()
             .map(|source| story_context::read_source(&tx, &frozen_context, &source.handle))
             .collect::<CoreResult<Vec<_>>>()?;
-        let scope = capture_discussion_scope(request.scope.as_ref(), &target.body)?;
+        let scope = if request.intent == FeedbackIntent::Continue {
+            Some(
+                capture_append_scope(&target.body)
+                    .map_err(|message| CoreError::new("InvalidScope", &message))?,
+            )
+        } else {
+            capture_discussion_scope(request.scope.as_ref(), &target.body)?
+        };
         // The response contract is derived here from trusted intent and the
         // immutable live binding. It is never accepted from the renderer, so
         // old mock packets and old live packets remain contract-free.
-        let response_contract = (request.intent == FeedbackIntent::ProposeEdits
-            && request.provider_binding.is_some())
-        .then(|| PROPOSAL_RESPONSE_CONTRACT.to_owned());
+        let response_contract = match request.intent {
+            FeedbackIntent::Continue => Some(CONTINUATION_RESPONSE_CONTRACT.to_owned()),
+            FeedbackIntent::ProposeEdits if request.provider_binding.is_some() => {
+                Some(PROPOSAL_RESPONSE_CONTRACT.to_owned())
+            }
+            _ => None,
+        };
         let packet = compile_packet(&PacketRequest {
             packet_id: new_id(),
             session_id: new_id(),
@@ -1635,6 +1673,7 @@ impl OwnedProject {
                 "The discussion draft scope quote is too large.",
             ));
         }
+        validate_feedback_basis(request.intent, request.basis, request.scope.as_ref())?;
         validate_safe_brief_draft(request.safe_brief.as_ref())?;
         let payload_hash = logical_hash(&request)?;
         let tx = self
@@ -1679,7 +1718,7 @@ impl OwnedProject {
         let next = current
             .checked_add(1)
             .ok_or_else(|| CoreError::new("InvalidRequest", "The draft version is exhausted."))?;
-        tx.execute("INSERT INTO discussion_drafts(project_id,operation_namespace,document_id,version,text,intent,scope_json,pinned_document_ids_json,previous_run_id,safe_brief_json) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,operation_namespace,document_id) DO UPDATE SET version=excluded.version,text=excluded.text,intent=excluded.intent,scope_json=excluded.scope_json,pinned_document_ids_json=excluded.pinned_document_ids_json,previous_run_id=excluded.previous_run_id,safe_brief_json=excluded.safe_brief_json,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", params![request.access.project_id,request.access.operation_namespace,request.document_id,next,request.text,request.intent.as_str(),request.scope.as_ref().map(serde_json::to_string).transpose()?,serde_json::to_string(&request.pinned_document_ids)?,request.previous_run_id,request.safe_brief.as_ref().map(serde_json::to_string).transpose()?])?;
+        tx.execute("INSERT INTO discussion_drafts(project_id,operation_namespace,document_id,version,text,intent,scope_json,pinned_document_ids_json,previous_run_id,safe_brief_json,basis) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,operation_namespace,document_id) DO UPDATE SET version=excluded.version,text=excluded.text,intent=excluded.intent,scope_json=excluded.scope_json,pinned_document_ids_json=excluded.pinned_document_ids_json,previous_run_id=excluded.previous_run_id,safe_brief_json=excluded.safe_brief_json,basis=excluded.basis,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", params![request.access.project_id,request.access.operation_namespace,request.document_id,next,request.text,request.intent.as_str(),request.scope.as_ref().map(serde_json::to_string).transpose()?,serde_json::to_string(&request.pinned_document_ids)?,request.previous_run_id,request.safe_brief.as_ref().map(serde_json::to_string).transpose()?,request.basis.map(basis_label)])?;
         let draft = read_draft(&tx, &request.access, &request.document_id)?.ok_or_else(|| {
             CoreError::new(
                 "PersistenceUnavailable",
@@ -1692,7 +1731,36 @@ impl OwnedProject {
     }
 }
 
+fn validate_feedback_basis(
+    intent: FeedbackIntent,
+    basis: Option<BasisKind>,
+    scope: Option<&DiscussionScopeInput>,
+) -> CoreResult<()> {
+    let valid = match intent {
+        FeedbackIntent::Continue => {
+            matches!(basis, Some(BasisKind::Working | BasisKind::Reviewed)) && scope.is_none()
+        }
+        _ => basis.is_none() && scope.is_none_or(|scope| scope.kind != ScopeKind::Append),
+    };
+    if !valid {
+        return Err(CoreError::new(
+            "InvalidContinuationBasis",
+            "Continuation needs an explicit Working draft or Reviewed story basis and no passage selection.",
+        ));
+    }
+    Ok(())
+}
+
+fn basis_label(basis: BasisKind) -> &'static str {
+    match basis {
+        BasisKind::Working => "working",
+        BasisKind::Reviewed => "reviewed",
+        BasisKind::ExplicitHistory => "explicitHistory",
+    }
+}
+
 fn validate_start(request: &StartDiscussion) -> CoreResult<()> {
+    validate_feedback_basis(request.intent, request.basis, request.scope.as_ref())?;
     check_id(&request.operation_id)?;
     check_id(&request.expected.document_id)?;
     if request.instruction.trim().is_empty() || request.instruction.len() > MAX_INSTRUCTION_BYTES {
@@ -1775,15 +1843,18 @@ fn validate_safe_brief_start(request: &StartDiscussion) -> CoreResult<()> {
             "A writing brief must be nonempty and explicitly confirmed before use.",
         ));
     }
-    if request.intent != FeedbackIntent::ProposeEdits
-        || request
+    if !matches!(
+        request.intent,
+        FeedbackIntent::ProposeEdits | FeedbackIntent::Continue
+    ) || (request.intent == FeedbackIntent::ProposeEdits
+        && request
             .scope
             .as_ref()
-            .is_none_or(|scope| scope.kind != ScopeKind::Passage)
+            .is_none_or(|scope| scope.kind != ScopeKind::Passage))
     {
         return Err(CoreError::new(
             "InvalidSafeBrief",
-            "A writing brief is available only for a confirmed passage revision.",
+            "A writing brief is available only for a passage revision or chapter continuation.",
         ));
     }
     Ok(())
@@ -1887,11 +1958,12 @@ fn discussion_context_policy(
                 allow_historical: false,
             },
         )),
-        FeedbackIntent::ProposeEdits => {
-            if request
-                .scope
-                .as_ref()
-                .is_none_or(|scope| !matches!(scope.kind, ScopeKind::Passage))
+        FeedbackIntent::ProposeEdits | FeedbackIntent::Continue => {
+            if request.intent == FeedbackIntent::ProposeEdits
+                && request
+                    .scope
+                    .as_ref()
+                    .is_none_or(|scope| !matches!(scope.kind, ScopeKind::Passage))
             {
                 return Err(CoreError::new(
                     "InvalidScope",
@@ -1914,7 +1986,7 @@ fn discussion_context_policy(
             if kind != "chapter" {
                 return Err(CoreError::new(
                     "InvalidRequest",
-                    "Propose edits currently supports chapter documents only.",
+                    "Writing assistance currently supports chapter documents only.",
                 ));
             }
             if position < 0 {
@@ -2051,12 +2123,13 @@ fn insert_packet(
         scope: scope.cloned(),
         budget: request.budget.clone(),
         provider_binding: request.provider_binding.clone(),
-        response_contract: packet
-            .options
-            .provider_binding
-            .as_ref()
-            .filter(|_| request.intent == FeedbackIntent::ProposeEdits)
-            .map(|_| PROPOSAL_RESPONSE_CONTRACT.to_owned()),
+        response_contract: match request.intent {
+            FeedbackIntent::Continue => Some(CONTINUATION_RESPONSE_CONTRACT.to_owned()),
+            FeedbackIntent::ProposeEdits if packet.options.provider_binding.is_some() => {
+                Some(PROPOSAL_RESPONSE_CONTRACT.to_owned())
+            }
+            _ => None,
+        },
     };
     let payload_hash = logical_hash(&prepared)?;
     let request_json = serde_json::to_string(&prepared)?;
@@ -2156,7 +2229,7 @@ fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
         String,
     );
     let row: RunRow = db.query_row("SELECT id,thread_id,project_id,operation_namespace,operation_id,payload_hash,target_document_id,target_version,target_body_hash,packet_id,previous_run_id,status,dispatch_state,sequence,output_text,stop_reason,created_at,updated_at FROM discussion_runs WHERE id=?", [run_id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?,row.get(10)?,row.get(11)?,row.get(12)?,row.get(13)?,row.get(14)?,row.get(15)?,row.get(16)?,row.get(17)?))).optional()?.ok_or_else(|| CoreError::new("DiscussionRunNotFound", "The discussion run is not available."))?;
-    let intent = intent_for_packet(db, &row.9)?;
+    let (intent, basis) = intent_for_packet(db, &row.9)?;
     let packet = context_packets::validated_packet_record(db, &row.9)?;
     let provider_binding = packet.options.provider_binding;
     let provider_result = read_provider_result(db, &row.0, &row.9)?;
@@ -2184,6 +2257,7 @@ fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
         },
         operation_id: row.4,
         intent,
+        basis,
         payload_hash: row.5,
         target: Head {
             document_id: row.6,
@@ -2461,7 +2535,10 @@ pub(crate) fn validate_provider_results(db: &Connection) -> CoreResult<()> {
 /// Discussion intent is part of the immutable context contract. Keeping it
 /// there means a recovered database and old run rows do not need a second,
 /// mutable intent column whose value could drift from the packet.
-fn intent_for_packet(db: &Connection, packet_id: &str) -> CoreResult<FeedbackIntent> {
+fn intent_for_packet(
+    db: &Connection,
+    packet_id: &str,
+) -> CoreResult<(FeedbackIntent, Option<BasisKind>)> {
     let (snapshot_id, manifest, manifest_hash): (String, String, String) = db
         .query_row(
             "SELECT p.snapshot_id,s.manifest_json,s.manifest_hash
@@ -2484,7 +2561,11 @@ fn intent_for_packet(db: &Connection, packet_id: &str) -> CoreResult<FeedbackInt
             "The discussion packet points to a different story snapshot.",
         ));
     }
-    FeedbackIntent::from_purpose(frozen.purpose)
+    let intent = FeedbackIntent::from_purpose(frozen.purpose)?;
+    Ok((
+        intent,
+        (intent == FeedbackIntent::Continue).then_some(frozen.snapshot.basis),
+    ))
 }
 
 fn read_message(db: &Connection, message_id: &str) -> CoreResult<DiscussionMessage> {
@@ -2526,10 +2607,11 @@ fn read_draft(
         String,
         Option<String>,
         Option<String>,
+        Option<String>,
     );
     let row: Option<DraftRow> = db
         .query_row(
-            "SELECT document_id,version,text,intent,scope_json,pinned_document_ids_json,updated_at,previous_run_id,safe_brief_json FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?",
+            "SELECT document_id,version,text,intent,scope_json,pinned_document_ids_json,updated_at,previous_run_id,safe_brief_json,basis FROM discussion_drafts WHERE project_id=? AND operation_namespace=? AND document_id=?",
             params![access.project_id, access.operation_namespace, document_id],
             |row| {
                 Ok((
@@ -2542,6 +2624,7 @@ fn read_draft(
                     row.get(6)?,
                     row.get(7)?,
                     row.get(8)?,
+                    row.get(9)?,
                 ))
             },
         )
@@ -2556,18 +2639,26 @@ fn read_draft(
         updated_at,
         previous_run_id,
         safe_brief_json,
+        basis,
     )) = row
     else {
         return Ok(None);
     };
+    let intent = FeedbackIntent::parse(&intent)?;
+    let basis = basis
+        .map(|label| serde_json::from_value::<BasisKind>(Value::String(label)))
+        .transpose()?;
+    let scope: Option<DiscussionScopeInput> = scope_json
+        .map(|json| serde_json::from_str(&json))
+        .transpose()?;
+    validate_feedback_basis(intent, basis, scope.as_ref())?;
     Ok(Some(DiscussionDraft {
         document_id,
         version: parse_stored_version(version)?,
         text,
-        intent: FeedbackIntent::parse(&intent)?,
-        scope: scope_json
-            .map(|json| serde_json::from_str(&json))
-            .transpose()?,
+        intent,
+        basis,
+        scope,
         pinned_document_ids: serde_json::from_str(&pins_json)?,
         safe_brief: safe_brief_json
             .map(|json| serde_json::from_str(&json))

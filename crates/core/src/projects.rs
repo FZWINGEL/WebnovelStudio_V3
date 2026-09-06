@@ -1945,6 +1945,7 @@ mod tests {
                 expected: document.head.clone(),
                 instruction: "Revise this passage.".into(),
                 intent: FeedbackIntent::ProposeEdits,
+                basis: None,
                 scope: Some(DiscussionScopeInput {
                     kind: ScopeKind::Passage,
                     start: Some(Endpoint {

@@ -378,7 +378,7 @@ export class DocumentSession {
       this.commitChange(capture, ack.document.head);
     } catch (reason) {
       const error = errorOf(reason);
-      if (!receivedAck && ['SuggestionStale', 'SuggestionAlreadyDecided', 'PreparedVersionConflict', 'ProposalNotPrepared', 'ScopeViolation', 'InvalidProposal', 'InvalidRequest', 'InvalidDocument', 'InvalidRevision', 'RevisionNotFound', 'RevisionHashMismatch', 'RevisionDocumentMismatch', 'RevisionMismatch', 'NoChanges', 'PersistenceUnavailable', 'ContextProjectMismatch', 'OperationIdReusedWithDifferentPayload'].includes(error.code)) {
+      if (!receivedAck && ['SuggestionStale', 'SuggestionAlreadyDecided', 'PreparedVersionConflict', 'ProposalNotPrepared', 'ScopeViolation', 'InvalidProposal', 'InvalidRequest', 'InvalidDocument', 'InvalidRevision', 'RevisionNotFound', 'RevisionHashMismatch', 'RevisionDocumentMismatch', 'RevisionMismatch', 'NoChanges', 'PersistenceUnavailable', 'ContextProjectMismatch', 'ContextPolicyChanged', 'InvalidContinuationBasis', 'OperationIdReusedWithDifferentPayload'].includes(error.code)) {
         this.pendingChange = null; this.phase = 'flushing'; this.error = null; throw error;
       }
       this.phase = 'reconciling'; this.error = error.message; this.clearTimer(); this.emit(); throw error;

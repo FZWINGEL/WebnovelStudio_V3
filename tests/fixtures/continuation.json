@@ -1,0 +1,548 @@
+{
+  "version": 1,
+  "limits": {
+    "maxParagraphs": 128,
+    "maxParagraphUtf16": 8192,
+    "maxTotalUtf16": 100000
+  },
+  "cases": [
+    {
+      "name": "valid-empty-placeholder",
+      "valid": true,
+      "sourceSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "empty"
+              }
+            }
+          ]
+        }
+      },
+      "scope": {
+        "kind": "append",
+        "start": null,
+        "end": {
+          "blockId": "empty",
+          "utf16Offset": 0
+        },
+        "sourceHash": "50f0c82062ffeb7086b02629afe57d0eec53d29aa90c219ec672f5f07e2a5513",
+        "quote": "",
+        "quoteHash": "4099875fd7b6d2eaedbc0571309d14bee4e1e8e9c48e6c8a0e528e03d557240a",
+        "prefix": null,
+        "suffix": null
+      },
+      "paragraphs": [
+        "The lantern answered.",
+        "Mei stepped forward."
+      ],
+      "ids": [
+        "empty",
+        "empty-next"
+      ],
+      "resultSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "empty"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The lantern answered."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "empty-next"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Mei stepped forward."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "valid-formatting-and-scene-break",
+      "valid": true,
+      "sourceSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "heading",
+              "attrs": {
+                "id": "heading",
+                "level": 2
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Chapter Five",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "prose"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The qi settled.",
+                  "marks": [
+                    {
+                      "type": "italic"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "sceneBreak",
+              "attrs": {
+                "id": "break"
+              }
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "ending"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The last lantern moved."
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "scope": {
+        "kind": "append",
+        "start": null,
+        "end": {
+          "blockId": "ending",
+          "utf16Offset": 23
+        },
+        "sourceHash": "0d58d0a5eca1bfc88766debdbb91ab2789d169ed510b45dc5875bb019cd940e0",
+        "quote": "The last lantern moved.",
+        "quoteHash": "2fae7a83bae7c2d2d2eabaa35cee50e8feaf7815ace2000184d191a6bc5bac64",
+        "prefix": null,
+        "suffix": null
+      },
+      "paragraphs": [
+        "She waited.",
+        "Then dawn broke."
+      ],
+      "ids": [
+        "continuation-one",
+        "continuation-two"
+      ],
+      "resultSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "heading",
+              "attrs": {
+                "id": "heading",
+                "level": 2
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Chapter Five",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "prose"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The qi settled.",
+                  "marks": [
+                    {
+                      "type": "italic"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "sceneBreak",
+              "attrs": {
+                "id": "break"
+              }
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "ending"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The last lantern moved."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "continuation-one"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "She waited."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "continuation-two"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Then dawn broke."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "valid-trailing-blank-remains-content",
+      "valid": true,
+      "sourceSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "written"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Existing prose."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "blank"
+              }
+            }
+          ]
+        }
+      },
+      "scope": {
+        "kind": "append",
+        "start": null,
+        "end": {
+          "blockId": "blank",
+          "utf16Offset": 0
+        },
+        "sourceHash": "a19f6ec567c964fe439548a501dc4f217bad938606ed0015c5578797af2d35ec",
+        "quote": "",
+        "quoteHash": "66a1976f27dbe3f52f58c663d550d96e9c87ef71180d523b66e2eb6ceda8b814",
+        "prefix": null,
+        "suffix": null
+      },
+      "paragraphs": [
+        "After the blank."
+      ],
+      "ids": [
+        "after-blank"
+      ],
+      "resultSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "written"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Existing prose."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "blank"
+              }
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "after-blank"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "After the blank."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "valid-unicode",
+      "valid": true,
+      "sourceSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "unicode"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The astronaut 👩‍🚀 waited."
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "scope": {
+        "kind": "append",
+        "start": null,
+        "end": {
+          "blockId": "unicode",
+          "utf16Offset": 27
+        },
+        "sourceHash": "da1b9d28932ff1dc012968237269b14bdd73ea306bf7e3c9f0929fe6424a2bfb",
+        "quote": "The astronaut 👩‍🚀 waited.",
+        "quoteHash": "55801e946100cefdb01112bb99c76be56a9c3706c6af8197d36f05edc1174f6d",
+        "prefix": null,
+        "suffix": null
+      },
+      "paragraphs": [
+        "她回答了：你好🙂。"
+      ],
+      "ids": [
+        "unicode-next"
+      ],
+      "resultSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "unicode"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The astronaut 👩‍🚀 waited."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "unicode-next"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "她回答了：你好🙂。"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "valid-after-final-scene-break",
+      "valid": true,
+      "sourceSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "before-break"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Before the break."
+                }
+              ]
+            },
+            {
+              "type": "sceneBreak",
+              "attrs": {
+                "id": "final-break"
+              }
+            }
+          ]
+        }
+      },
+      "scope": {
+        "kind": "append",
+        "start": null,
+        "end": {
+          "blockId": "final-break",
+          "utf16Offset": 0
+        },
+        "sourceHash": "3c276d7857775c906a2f463d57a4a1d8d4ede10cd8294d503cb53729df2b7169",
+        "quote": "",
+        "quoteHash": "45572ad42f86e544b27540949a25fb9bf3d586e20331b95dfde8377792b45b2a",
+        "prefix": null,
+        "suffix": null
+      },
+      "paragraphs": [
+        "A new scene begins."
+      ],
+      "ids": [
+        "after-break"
+      ],
+      "resultSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "before-break"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Before the break."
+                }
+              ]
+            },
+            {
+              "type": "sceneBreak",
+              "attrs": {
+                "id": "final-break"
+              }
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "id": "after-break"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "A new scene begins."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "negativeMutations": [
+    {
+      "name": "reused-source-id",
+      "base": "valid-formatting-and-scene-break",
+      "ids": [
+        "ending",
+        "new-id"
+      ],
+      "errorContains": "existing block ID"
+    },
+    {
+      "name": "duplicate-generated-id",
+      "base": "valid-empty-placeholder",
+      "ids": [
+        "empty",
+        "empty"
+      ],
+      "errorContains": "reuses a generated block ID"
+    },
+    {
+      "name": "newline-paragraph",
+      "base": "valid-unicode",
+      "paragraphs": [
+        "bad\nline"
+      ],
+      "errorContains": "single-line"
+    },
+    {
+      "name": "blank-paragraph",
+      "base": "valid-unicode",
+      "paragraphs": [
+        "   "
+      ],
+      "errorContains": "nonblank"
+    },
+    {
+      "name": "invalid-scope-end",
+      "base": "valid-unicode",
+      "scope": {
+        "end": {
+          "blockId": "unicode",
+          "utf16Offset": 1
+        }
+      },
+      "errorContains": "end"
+    }
+  ]
+}

@@ -51,10 +51,11 @@ describe('durable Apply session handoff', () => {
     await expect(stale.run()).rejects.toMatchObject({ code: 'SuggestionStale' });
     expect(stale.apply).not.toHaveBeenCalled(); expect(stale.session.state.editable).toBe(true);
   });
-  it('does not display an uncommitted result when Rust refuses the prepared version', async () => {
-    const h = await setup(); h.apply.mockRejectedValue({ code: 'PreparedVersionConflict', detail: 'Suggestion wording changed.' });
-    await expect(h.run()).rejects.toMatchObject({ code: 'PreparedVersionConflict' });
+  it.each(['PreparedVersionConflict', 'ContextPolicyChanged', 'InvalidContinuationBasis'])('does not display or retry a known refused change (%s)', async code => {
+    const h = await setup(); h.apply.mockRejectedValue({ code, detail: 'The prepared change is no longer eligible.' });
+    await expect(h.run()).rejects.toMatchObject({ code });
     expect(h.commit).not.toHaveBeenCalled(); expect(h.session.body).toEqual(h.original); expect(h.session.state.editable).toBe(true);
+    expect(h.reconcile).not.toHaveBeenCalled(); expect(h.apply).toHaveBeenCalledOnce();
   });
   it('settles a lost acknowledgment using the exact receipt without repeating Apply', async () => {
     const h = await setup(); h.apply.mockRejectedValue(new Error('lost acknowledgment'));

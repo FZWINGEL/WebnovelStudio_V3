@@ -1,15 +1,17 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use webnovel_core::context::packet::{
-    CompiledPacket, MockContextBudget, PROPOSAL_RESPONSE_CONTRACT, PacketError, PacketMessage,
-    PacketOptions, PacketRequest, ProviderBinding, compile_packet, packet_input_hash,
-    serialized_input,
+    CONTINUATION_RESPONSE_CONTRACT, CompiledPacket, MockContextBudget, PROPOSAL_RESPONSE_CONTRACT,
+    PacketError, PacketMessage, PacketOptions, PacketRequest, ProviderBinding, compile_packet,
+    packet_input_hash, serialized_input,
 };
 use webnovel_core::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
     SafeBriefInput, SourceDescriptor, SourceKind, SourceRef, StorySnapshot,
 };
-use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
+use webnovel_core::documents::{
+    Endpoint, ScopeGrant, ScopeKind, capture_append_scope, capture_scope,
+};
 use webnovel_core::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
 use webnovel_core::validate_snapshot_json;
 
@@ -804,6 +806,45 @@ fn proposal_contract_rejects_mock_or_unscoped_requests() {
     request.scope = None;
     assert!(matches!(
         compile_packet(&request),
+        Err(PacketError::InvalidRequest { .. })
+    ));
+}
+
+#[test]
+fn continuation_contract_is_frozen_into_mock_packet_instruction() {
+    let target_body = body(&[("target-1", "The exact chapter ending.")]);
+    let target = source("target", "target-doc", &target_body);
+    let mut request = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Continue,
+            Audience::RestrictedWriting,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    request.scope = Some(capture_append_scope(&target_body).unwrap());
+    request.response_contract = Some(CONTINUATION_RESPONSE_CONTRACT.into());
+    request.instruction = "Continue the chapter with a quiet reveal.".into();
+
+    let packet = compile(request.clone());
+    assert!(
+        packet.messages[0]
+            .content
+            .contains(CONTINUATION_RESPONSE_CONTRACT)
+    );
+    assert!(packet.messages[0].content.contains("paragraphs"));
+    assert_eq!(packet.messages[2].content, request.instruction);
+
+    let mut wrong_scope = request.clone();
+    wrong_scope.scope = Some(passage_scope(&target_body));
+    assert!(matches!(
+        compile_packet(&wrong_scope),
+        Err(PacketError::InvalidRequest { .. })
+    ));
+    let mut wrong_purpose = request;
+    wrong_purpose.frozen.purpose = ContextPurpose::Revise;
+    assert!(matches!(
+        compile_packet(&wrong_purpose),
         Err(PacketError::InvalidRequest { .. })
     ));
 }

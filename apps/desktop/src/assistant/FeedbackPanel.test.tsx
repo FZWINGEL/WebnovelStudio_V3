@@ -105,7 +105,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(discussions.readDiscussion).mockImplementation(async (_access, documentId) => emptyView(documentId));
   vi.mocked(proposals.readProposals).mockResolvedValue([]);
-  vi.mocked(discussions.saveDiscussionDraft).mockImplementation(async request => ({ documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, updatedAt: 'now' }));
+  vi.mocked(discussions.saveDiscussionDraft).mockImplementation(async request => ({ documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, basis: request.basis, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, updatedAt: 'now' }));
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 
@@ -115,6 +115,42 @@ afterEach(async () => {
 });
 
 describe('persistent FeedbackPanel safeguards', () => {
+  it('sends continuation with its explicit basis and no passage scope, preserving a refused reviewed request', async () => {
+    const session = await makeSession();
+    vi.mocked(providerIpc.readProviderState).mockResolvedValue(providerState(false));
+    await renderWithProvider(session); await click('Continue chapter');
+    const basis = host.querySelector('#continuation-basis') as HTMLSelectElement;
+    expect(basis.value).toBe('working');
+    await act(async () => { basis.value = 'reviewed'; basis.dispatchEvent(new Event('change', { bubbles: true })); });
+    await typeInstruction('Let her ask about the letter.');
+    vi.mocked(discussions.startDiscussion).mockRejectedValueOnce({ code: 'ReviewedBasisUnavailable', detail: 'Review the earlier chapter first.' });
+    await click('Send');
+    await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledOnce());
+    const refused = vi.mocked(discussions.startDiscussion).mock.calls[0][0];
+    expect(refused).toMatchObject({ intent: 'continue', basis: 'reviewed', scope: null });
+    await waitFor(() => expect(host.textContent).toContain('Review the earlier chapter first.'));
+    expect((host.querySelector('#continuation-basis') as HTMLSelectElement).value).toBe('reviewed');
+    expect((host.querySelector('#discussion-composer') as HTMLTextAreaElement).value).toBe(refused.instruction);
+    expect(host.textContent).not.toContain('Check request');
+    await act(async () => { basis.value = 'working'; basis.dispatchEvent(new Event('change', { bubbles: true })); });
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => ({ ...startResult(session, 'continuation', request.operationId), run: { ...startResult(session, 'continuation', request.operationId).run, intent: 'continue', basis: request.basis } }));
+    await click('Send');
+    await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledTimes(2));
+    const working = vi.mocked(discussions.startDiscussion).mock.calls[1][0];
+    expect(working.basis).toBe('working'); expect(working.operationId).not.toBe(refused.operationId);
+    expect(session.body).toEqual(emptyBody); expect(proposals.applyProposal).not.toHaveBeenCalled();
+  });
+
+  it('adding an approved brief retains continuation intent and switching to Discuss clears its basis', async () => {
+    const session = await makeSession(); await renderPanel(session); await click('Continue chapter');
+    await click('Add writing brief');
+    expect((host.querySelector('#continuation-basis') as HTMLSelectElement).value).toBe('working');
+    await typeBrief('She hesitates before answering.'); await click('Approve this brief');
+    await click('Discuss'); await typeInstruction('Talk about the ending.');
+    await waitFor(() => expect(discussions.saveDiscussionDraft).toHaveBeenCalled());
+    const last = vi.mocked(discussions.saveDiscussionDraft).mock.calls.at(-1)![0];
+    expect(last.intent).toBe('discuss'); expect(last.basis).toBeUndefined(); expect(last.safeBrief).toBeUndefined();
+  });
   function providerState(blocked: boolean): providerIpc.ProviderState {
     const active = blocked ? { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'max', serviceTier: 'priority' } : providerIpc.localModel;
     return { settings: { revision: blocked ? '1' : '0', active, favorites: [] }, dispatch: { kind: blocked ? 'blocked' : 'localMock', detail: '' }, catalog: { models: [{ key: active, label: blocked ? 'GPT-5.6-Luna' : 'Local test model', providerLabel: 'Test catalog', reasoningLevels: [], serviceTiers: [], origin: 'builtIn', ready: !blocked, statusDetail: '', contextWindowTokens: null, maxOutputTokens: null }] } };

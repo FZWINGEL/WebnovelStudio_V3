@@ -335,6 +335,7 @@ mod tests {
                 expected: document.head,
                 instruction: "Discuss the promise.".into(),
                 intent: FeedbackIntent::Discuss,
+                basis: None,
                 scope: None,
                 pinned_document_ids: vec![],
                 safe_brief: None,

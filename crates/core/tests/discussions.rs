@@ -20,6 +20,9 @@ use webnovel_core::projects::{
 };
 use webnovel_core::transfer::{create_backup, recover_backup};
 
+#[path = "support/schema.rs"]
+mod legacy_schema;
+
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -96,6 +99,7 @@ fn start_request(
         expected: document.head.clone(),
         instruction: instruction.into(),
         intent: Default::default(),
+        basis: None,
         scope,
         pinned_document_ids,
         safe_brief: None,
@@ -457,6 +461,7 @@ fn save_draft(
             expected_version: expected_version.into(),
             text: text.into(),
             intent: Default::default(),
+            basis: None,
             scope: None,
             pinned_document_ids: Vec::new(),
             safe_brief: None,
@@ -1646,6 +1651,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             expected_version: "0".into(),
             text: "changed payload".into(),
             intent: Default::default(),
+            basis: None,
             scope: None,
             pinned_document_ids: Vec::new(),
             safe_brief: None,
@@ -1661,6 +1667,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             expected_version: "0".into(),
             text: "stale version".into(),
             intent: Default::default(),
+            basis: None,
             scope: None,
             pinned_document_ids: Vec::new(),
             safe_brief: None,
@@ -2024,6 +2031,7 @@ fn retry_composer_link_is_durable_payload_bound_and_fenced_in_recovered_copies()
         expected_version: "0".into(),
         text: retry.text,
         intent: retry.intent,
+        basis: None,
         scope: retry.scope,
         pinned_document_ids: retry.pinned_document_ids,
         safe_brief: None,
@@ -2094,6 +2102,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
     let saved = save_draft(&project, &access, "0", "old-save", "A retained thought.");
     drop(project);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
+    legacy_schema::remove_schema19_features(&connection).unwrap();
     connection
         .execute_batch(
             "DROP TABLE snapshot_navigation_views; DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position;
@@ -2136,7 +2145,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema18-")
+            .starts_with("schema6-before-schema19-")
     }));
 }
 
@@ -2253,6 +2262,7 @@ fn proposal_retry_exposes_and_preserves_intent() {
             expected_version: "0".into(),
             text: retry.text.clone(),
             intent: retry.intent,
+            basis: None,
             scope: retry.scope.clone(),
             pinned_document_ids: retry.pinned_document_ids.clone(),
             safe_brief: None,
@@ -2267,6 +2277,7 @@ fn proposal_retry_exposes_and_preserves_intent() {
         expected_version: "0".into(),
         text: retry.text.clone(),
         intent: FeedbackIntent::Discuss,
+        basis: None,
         scope: retry.scope.clone(),
         pinned_document_ids: retry.pinned_document_ids.clone(),
         safe_brief: None,
@@ -2473,6 +2484,7 @@ fn safe_brief_draft_retains_unconfirmed_text_across_reopen() {
             expected_version: "0".into(),
             text: "An unsubmitted revision note".into(),
             intent: FeedbackIntent::ProposeEdits,
+            basis: None,
             scope: Some(scope_input(&document)),
             pinned_document_ids: Vec::new(),
             safe_brief: Some(draft_brief.clone()),

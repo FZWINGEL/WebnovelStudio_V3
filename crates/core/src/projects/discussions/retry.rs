@@ -25,7 +25,8 @@ pub(super) fn guidance(
         &request.expected.document_id,
     )?;
     let (original, frozen) = original(db, &request.access, previous)?;
-    if request.intent != original.intent
+    if request.basis != original.basis
+        || request.intent != original.intent
         || request.instruction != original.text
         || request.scope != original.scope
         || request.pinned_document_ids != original.pinned_document_ids
@@ -87,6 +88,7 @@ fn original(
     let scope = started
         .user_message
         .scope
+        .filter(|_| intent != FeedbackIntent::Continue)
         .map(|scope| DiscussionScopeInput {
             kind: scope.kind,
             start: scope.start,
@@ -98,6 +100,7 @@ fn original(
         DiscussionRetry {
             text: started.user_message.content,
             intent,
+            basis: (intent == FeedbackIntent::Continue).then_some(frozen.snapshot.basis),
             scope,
             pinned_document_ids: pins,
             safe_brief: prepared.safe_brief,

@@ -19,6 +19,9 @@ use webnovel_core::projects::{
 use webnovel_core::transfer::{create_backup, recover_backup};
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
+#[path = "support/schema.rs"]
+mod legacy_schema;
+
 struct Cleanup(PathBuf);
 
 impl Drop for Cleanup {
@@ -524,6 +527,7 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
     drop(project);
 
     let connection = Connection::open(&legacy_database_path).unwrap();
+    legacy_schema::remove_schema19_features(&connection).unwrap();
     connection
         .execute_batch(
             "DROP TABLE snapshot_navigation_views; DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position",
@@ -564,7 +568,7 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
     let schema: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 18);
+    assert_eq!(schema, 19);
     let retained_json: String = connection
         .query_row(
             "SELECT manifest_json FROM story_snapshots WHERE id=?",

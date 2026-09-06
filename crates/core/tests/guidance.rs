@@ -10,6 +10,9 @@ use webnovel_core::projects::guidance::SaveGuidance;
 use webnovel_core::projects::{CreateDocument, ProjectAccess, ProjectSession};
 use webnovel_core::transfer::{create_backup, recover_backup};
 
+#[path = "support/schema.rs"]
+mod legacy_schema;
+
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -306,6 +309,7 @@ fn guidance_is_copied_into_recovery_and_remains_editable_with_local_history() {
             expected: document.head.clone(),
             instruction: "Describe the lantern's role in this chapter.".into(),
             intent: Default::default(),
+            basis: None,
             scope: None,
             pinned_document_ids: Vec::new(),
             safe_brief: None,
@@ -374,6 +378,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let database = project.path.join("project.sqlite3");
     drop(project);
     let connection = Connection::open(&database).expect("open current database");
+    legacy_schema::remove_schema19_features(&connection).unwrap();
     connection
         .execute_batch(
             "DROP TABLE snapshot_navigation_views; DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position;
@@ -416,7 +421,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 18);
+    assert_eq!(version, 19);
     for table in [
         "author_guidance_versions",
         "author_guidance_heads",

@@ -1,8 +1,13 @@
 //! Explicit review and atomic author decisions over immutable source passages.
 //! JavaScript prepares the full document; this module validates and stores it.
 use super::*;
+use crate::context::continuation::{
+    ContinuationCandidate, validate_continuation_output, validate_continuation_paragraphs,
+};
 use crate::context::{Audience, ContextPurpose};
-use crate::documents::{ScopeGrant, ScopeKind, ScopeValidationRequest, validate_text_replacement};
+use crate::documents::{
+    ScopeGrant, ScopeKind, ScopeValidationRequest, validate_append, validate_text_replacement,
+};
 use discussions::DiscussionRun;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -11,6 +16,48 @@ pub struct ProposalCandidate {
     pub title: String,
     pub replacement_text: String,
     pub explanation: String,
+}
+
+/// The durable kind discriminator is read before parsing candidate JSON.  The
+/// untagged wire representation preserves legacy passage bytes while allowing
+/// continuation candidates to use their paragraph payload directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ProposalKind {
+    #[default]
+    Passage,
+    Continuation,
+}
+
+impl ProposalKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Passage => "passage",
+            Self::Continuation => "continuation",
+        }
+    }
+
+    fn parse(value: &str) -> CoreResult<Self> {
+        match value {
+            "passage" => Ok(Self::Passage),
+            "continuation" => Ok(Self::Continuation),
+            _ => Err(CoreError::new(
+                "InvalidProposal",
+                "The suggestion has an unknown durable kind.",
+            )),
+        }
+    }
+
+    fn is_passage(&self) -> bool {
+        *self == Self::Passage
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ProposalContent {
+    Passage(ProposalCandidate),
+    Continuation(ContinuationCandidate),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +73,8 @@ pub struct PreparedProposal {
     pub proposal_id: String,
     pub version: String,
     pub replacement_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paragraphs: Option<Vec<String>>,
     pub body: Value,
     pub body_hash: String,
 }
@@ -56,7 +105,9 @@ pub struct ProposalDecision {
 pub struct Proposal {
     pub id: String,
     pub run_id: String,
-    pub candidate: ProposalCandidate,
+    #[serde(default, skip_serializing_if = "ProposalKind::is_passage")]
+    pub kind: ProposalKind,
+    pub candidate: ProposalContent,
     pub source: Head,
     pub source_body: Value,
     pub scope: ScopeGrant,
@@ -77,6 +128,18 @@ pub struct PrepareProposal {
     /// Zero for the first preparation. Editing creates another immutable version.
     pub expected_prepared_version: String,
     pub replacement_text: String,
+    pub body: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrepareContinuation {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub proposal_id: String,
+    /// Zero for the first preparation. Editing creates another immutable version.
+    pub expected_prepared_version: String,
+    pub paragraphs: Vec<String>,
     pub body: Value,
 }
 
@@ -115,6 +178,7 @@ pub struct ApplyAck {
 pub(super) enum ProposalCommand {
     List(ProjectAccess, String, Reply<Vec<Proposal>>),
     Prepare(PrepareProposal, Reply<PreparedProposal>),
+    PrepareContinuation(PrepareContinuation, Reply<PreparedProposal>),
     Apply(ApplyProposal, Reply<ApplyAck>),
     Reject(RejectProposal, Reply<ProposalDecision>),
 }
@@ -131,6 +195,16 @@ impl ProjectSession {
     }
     pub fn prepare_proposal(&self, request: PrepareProposal) -> CoreResult<PreparedProposal> {
         self.request(|reply| Command::Proposal(Box::new(ProposalCommand::Prepare(request, reply))))
+    }
+    pub fn prepare_continuation(
+        &self,
+        request: PrepareContinuation,
+    ) -> CoreResult<PreparedProposal> {
+        self.request(|reply| {
+            Command::Proposal(Box::new(ProposalCommand::PrepareContinuation(
+                request, reply,
+            )))
+        })
     }
     pub fn apply_proposal(&self, request: ApplyProposal) -> CoreResult<ApplyAck> {
         self.request(|reply| Command::Proposal(Box::new(ProposalCommand::Apply(request, reply))))
@@ -157,6 +231,9 @@ impl OwnedProject {
             ),
             ProposalCommand::Prepare(request, reply) => {
                 respond!(reply, self.prepare_proposal(request))
+            }
+            ProposalCommand::PrepareContinuation(request, reply) => {
+                respond!(reply, self.prepare_continuation(request))
             }
             ProposalCommand::Apply(request, reply) => respond!(reply, self.apply_proposal(request)),
             ProposalCommand::Reject(request, reply) => {
@@ -186,6 +263,12 @@ impl OwnedProject {
         }
         let proposal = read(&tx, &request.access, &request.proposal_id)?;
         require_owned_pending(&proposal)?;
+        if proposal.kind != ProposalKind::Passage {
+            return Err(CoreError::new(
+                "InvalidProposal",
+                "Continuation suggestions require the continuation preparation request.",
+            ));
+        }
         let current = proposal
             .prepared
             .as_ref()
@@ -205,7 +288,81 @@ impl OwnedProject {
             CoreError::new("VersionLimit", "The prepared version limit was reached.")
         })?;
         let id = new_id();
-        tx.execute("INSERT INTO proposal_versions(id,proposal_id,version,replacement_text,body_json,body_hash) VALUES(?,?,?,?,?,?)", params![id, proposal.id, version, request.replacement_text, validated.canonical_json, validated.hash])?;
+        tx.execute("INSERT INTO proposal_versions(id,proposal_id,version,replacement_text,body_json,body_hash,payload_json) VALUES(?,?,?,?,?,?,NULL)", params![id, proposal.id, version, request.replacement_text, validated.canonical_json, validated.hash])?;
+        insert_review_receipt(
+            &tx,
+            &request.access,
+            &request.operation_id,
+            "prepare",
+            &payload,
+            &id,
+        )?;
+        let prepared = read_prepared(&tx, &id)?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(prepared)
+    }
+
+    fn prepare_continuation(
+        &mut self,
+        request: PrepareContinuation,
+    ) -> CoreResult<PreparedProposal> {
+        self.check_access(&request.access)?;
+        check_id(&request.operation_id)?;
+        let expected = parse_version(&request.expected_prepared_version)?;
+        let payload = logical_hash(&request)?;
+        let tx = self
+            .db_mut()?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(id) = receipt(
+            &tx,
+            &request.access,
+            &request.operation_id,
+            "prepare",
+            &payload,
+        )? {
+            let prepared = read_prepared(&tx, &id)?;
+            tx.commit().map_err(CoreError::uncertain)?;
+            return Ok(prepared);
+        }
+        let proposal = read(&tx, &request.access, &request.proposal_id)?;
+        require_owned_pending(&proposal)?;
+        if proposal.kind != ProposalKind::Continuation {
+            return Err(CoreError::new(
+                "InvalidProposal",
+                "Passage suggestions require the passage preparation request.",
+            ));
+        }
+        let current = proposal
+            .prepared
+            .as_ref()
+            .map(|p| parse_version(&p.version))
+            .transpose()?
+            .unwrap_or(0);
+        if expected != current {
+            return Err(CoreError::new(
+                "PreparedVersionConflict",
+                "This suggestion was edited elsewhere. Load the latest prepared wording.",
+            ));
+        }
+        validate_continuation_paragraphs(&request.paragraphs)?;
+        let validated = validate_continuation(&proposal, &request.paragraphs, &request.body)?;
+        let version = current.checked_add(1).ok_or_else(|| {
+            CoreError::new("VersionLimit", "The prepared version limit was reached.")
+        })?;
+        let id = new_id();
+        let payload_json = serde_json::to_string(&request.paragraphs)?;
+        tx.execute(
+            "INSERT INTO proposal_versions(id,proposal_id,version,replacement_text,body_json,body_hash,payload_json) VALUES(?,?,?,?,?,?,?)",
+            params![
+                id,
+                proposal.id,
+                version,
+                "",
+                validated.canonical_json,
+                validated.hash,
+                payload_json,
+            ],
+        )?;
         insert_review_receipt(
             &tx,
             &request.access,
@@ -262,8 +419,7 @@ impl OwnedProject {
                     "The story changed after this request. Refresh the suggestion against the current text.",
                 ));
             }
-            let validated =
-                validate_replacement(&proposal, &prepared.replacement_text, &prepared.body)?;
+            let validated = validate_prepared(&proposal, prepared)?;
             if validated.hash != prepared.body_hash || validated.hash == before.head.body_hash {
                 return Err(CoreError::new(
                     "InvalidProposal",
@@ -377,6 +533,19 @@ fn validate_candidate(candidate: &ProposalCandidate) -> CoreResult<()> {
     Ok(())
 }
 
+fn validate_continuation_candidate(candidate: &ContinuationCandidate) -> CoreResult<()> {
+    if candidate.title.trim().is_empty()
+        || candidate.title.len() > 120
+        || candidate.explanation.len() > 4096
+    {
+        return Err(CoreError::new(
+            "InvalidProposal",
+            "A continuation suggestion must have a short title and bounded explanation.",
+        ));
+    }
+    validate_continuation_paragraphs(&candidate.paragraphs)
+}
+
 /// Called within the terminal-result transaction. Malformed or unsupported
 /// output remains retained discussion text, with no executable candidates.
 pub(super) fn retain_candidates_at(
@@ -387,15 +556,22 @@ pub(super) fn retain_candidates_at(
     let packet = context_packets::validated_packet_record(db, &run.packet_id)?;
     let (frozen, namespace) =
         story_context::validated_snapshot_record(db, &packet.receipt.snapshot_id)?;
-    if frozen.purpose != ContextPurpose::Revise
-        || frozen.policy.audience != Audience::RestrictedWriting
-    {
+    let kind = match frozen.purpose {
+        ContextPurpose::Revise => ProposalKind::Passage,
+        ContextPurpose::Continue => ProposalKind::Continuation,
+        _ => return Ok(()),
+    };
+    if frozen.policy.audience != Audience::RestrictedWriting {
         return Ok(());
     }
     let Some(scope) = packet_scope(db, &run.packet_id)? else {
         return Ok(());
     };
-    if scope.kind != ScopeKind::Passage
+    let expected_scope = match kind {
+        ProposalKind::Passage => ScopeKind::Passage,
+        ProposalKind::Continuation => ScopeKind::Append,
+    };
+    if scope.kind != expected_scope
         || namespace != run.owner.operation_namespace
         || frozen.snapshot.project_id != run.owner.project_id
     {
@@ -404,28 +580,52 @@ pub(super) fn retain_candidates_at(
             "The suggestion source does not belong to this run.",
         ));
     }
-    let Ok(output) = serde_json::from_str::<ProposalOutput>(text) else {
-        return Ok(());
-    };
-    if output.suggestions.is_empty()
-        || output.suggestions.len() > 3
-        || output
-            .suggestions
-            .iter()
-            .any(|candidate| validate_candidate(candidate).is_err())
-    {
-        return Ok(());
-    }
-    for (ordinal, candidate) in output.suggestions.iter().enumerate() {
-        db.execute(
-            "INSERT INTO proposals(id,run_id,ordinal,candidate_json) VALUES(?,?,?,?)",
-            params![
-                new_id(),
-                run.id,
-                ordinal as i64,
-                serde_json::to_string(candidate)?
-            ],
-        )?;
+    match kind {
+        ProposalKind::Passage => {
+            let Ok(output) = serde_json::from_str::<ProposalOutput>(text) else {
+                return Ok(());
+            };
+            if output.suggestions.is_empty()
+                || output.suggestions.len() > 3
+                || output
+                    .suggestions
+                    .iter()
+                    .any(|candidate| validate_candidate(candidate).is_err())
+            {
+                return Ok(());
+            }
+            for (ordinal, candidate) in output.suggestions.iter().enumerate() {
+                db.execute(
+                    "INSERT INTO proposals(id,run_id,ordinal,candidate_json,kind) VALUES(?,?,?,?,?)",
+                    params![
+                        new_id(),
+                        run.id,
+                        ordinal as i64,
+                        serde_json::to_string(candidate)?,
+                        kind.as_str(),
+                    ],
+                )?;
+            }
+        }
+        ProposalKind::Continuation => {
+            let Ok(output) = validate_continuation_output(text) else {
+                return Ok(());
+            };
+            let candidate = &output.suggestions[0];
+            if validate_continuation_candidate(candidate).is_err() {
+                return Ok(());
+            }
+            db.execute(
+                "INSERT INTO proposals(id,run_id,ordinal,candidate_json,kind) VALUES(?,?,?,?,?)",
+                params![
+                    new_id(),
+                    run.id,
+                    0_i64,
+                    serde_json::to_string(candidate)?,
+                    kind.as_str(),
+                ],
+            )?;
+        }
     }
     Ok(())
 }
@@ -441,16 +641,49 @@ fn list(db: &Connection, access: &ProjectAccess, document: &str) -> CoreResult<V
 
 fn read(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<Proposal> {
     check_id(id)?;
-    let (run_id, candidate, packet_id, project_id, namespace): (String,String,String,String,String) = db.query_row("SELECT p.run_id,p.candidate_json,r.packet_id,r.project_id,r.operation_namespace FROM proposals p JOIN discussion_runs r ON r.id=p.run_id WHERE p.id=?", [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).optional()?.ok_or_else(|| CoreError::new("ProposalNotFound", "This suggestion is not available in this project."))?;
+    let (run_id, candidate, kind, packet_id, project_id, namespace): (
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+    ) = db
+        .query_row(
+            "SELECT p.run_id,p.candidate_json,p.kind,r.packet_id,r.project_id,r.operation_namespace \
+             FROM proposals p JOIN discussion_runs r ON r.id=p.run_id WHERE p.id=?",
+            [id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| {
+            CoreError::new(
+                "ProposalNotFound",
+                "This suggestion is not available in this project.",
+            )
+        })?;
+    let kind = ProposalKind::parse(&kind)?;
     let packet = context_packets::validated_packet_record(db, &packet_id)?;
     let (frozen, stored_namespace) =
         story_context::validated_snapshot_record(db, &packet.receipt.snapshot_id)?;
-    let scope = packet_scope(db, &packet_id)?.ok_or_else(|| {
-        CoreError::new("InvalidProposal", "The suggestion has no selected passage.")
-    })?;
-    if frozen.purpose != ContextPurpose::Revise
+    let scope = packet_scope(db, &packet_id)?
+        .ok_or_else(|| CoreError::new("InvalidProposal", "The suggestion has no source scope."))?;
+    let expected = match kind {
+        ProposalKind::Passage => (ContextPurpose::Revise, ScopeKind::Passage),
+        ProposalKind::Continuation => (ContextPurpose::Continue, ScopeKind::Append),
+    };
+    if frozen.purpose != expected.0
         || frozen.policy.audience != Audience::RestrictedWriting
-        || scope.kind != ScopeKind::Passage
+        || scope.kind != expected.1
         || frozen.snapshot.project_id != project_id
         || namespace != stored_namespace
     {
@@ -460,12 +693,23 @@ fn read(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<Proposa
         ));
     }
     let source = read_revision(db, &frozen.snapshot.target.revision_id)?;
-    let (ordinal, raw, status, doc, version, hash): (u32,String,String,String,i64,String) = db.query_row("SELECT p.ordinal,r.output_text,r.status,r.target_document_id,r.target_version,r.target_body_hash FROM proposals p JOIN discussion_runs r ON r.id=p.run_id WHERE p.id=?", [id], |row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)))?;
-    let candidate: ProposalCandidate = serde_json::from_str(&candidate)?;
-    let output: ProposalOutput = serde_json::from_str(&raw)?;
+    let (ordinal, raw, status, doc, version, hash): (u32, String, String, String, i64, String) =
+        db.query_row(
+            "SELECT p.ordinal,r.output_text,r.status,r.target_document_id,r.target_version,r.target_body_hash \
+             FROM proposals p JOIN discussion_runs r ON r.id=p.run_id WHERE p.id=?",
+            [id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )?;
     if status != "completed"
-        || output.suggestions.get(ordinal as usize) != Some(&candidate)
-        || output.suggestions.len() > 3
         || source.head
             != (Head {
                 document_id: doc,
@@ -478,6 +722,34 @@ fn read(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<Proposa
             "The suggestion does not match its completed request and exact source.",
         ));
     }
+    let candidate = match kind {
+        ProposalKind::Passage => {
+            let candidate: ProposalCandidate = serde_json::from_str(&candidate)?;
+            let output: ProposalOutput = serde_json::from_str(&raw)?;
+            if output.suggestions.len() > 3
+                || output.suggestions.get(ordinal as usize) != Some(&candidate)
+            {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "The passage suggestion does not match its retained output.",
+                ));
+            }
+            validate_candidate(&candidate)?;
+            ProposalContent::Passage(candidate)
+        }
+        ProposalKind::Continuation => {
+            let candidate: ContinuationCandidate = serde_json::from_str(&candidate)?;
+            let output = validate_continuation_output(&raw)?;
+            if ordinal != 0 || output.suggestions.first() != Some(&candidate) {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "The continuation does not match its retained output.",
+                ));
+            }
+            validate_continuation_candidate(&candidate)?;
+            ProposalContent::Continuation(candidate)
+        }
+    };
     let historical_copy =
         access.project_id != project_id || access.operation_namespace != namespace;
     let (epoch, policy): (i64, i64) = db.query_row(
@@ -503,10 +775,10 @@ fn read(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<Proposa
             |row| row.get(0),
         )
         .optional()?;
-    validate_candidate(&candidate)?;
     Ok(Proposal {
         id: id.into(),
         run_id,
+        kind,
         candidate,
         source: source.head,
         source_body: source.body,
@@ -521,7 +793,21 @@ fn read(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<Proposa
 }
 
 fn read_prepared(db: &Connection, id: &str) -> CoreResult<PreparedProposal> {
-    let (proposal_id,version,text,body,hash): (String,i64,String,String,String) = db.query_row("SELECT proposal_id,version,replacement_text,body_json,body_hash FROM proposal_versions WHERE id=?", [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?)))?;
+    let (proposal_id, kind, version, text, body, hash, payload): (
+        String,
+        String,
+        i64,
+        String,
+        String,
+        String,
+        Option<String>,
+    ) = db.query_row(
+        "SELECT v.proposal_id,p.kind,v.version,v.replacement_text,v.body_json,v.body_hash,v.payload_json \
+         FROM proposal_versions v JOIN proposals p ON p.id=v.proposal_id WHERE v.id=?",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+    )?;
+    let kind = ProposalKind::parse(&kind)?;
     let valid =
         validate_snapshot_json(&body).map_err(|error| CoreError::new("InvalidProposal", &error))?;
     if valid.hash != hash || valid.canonical_json != body {
@@ -530,11 +816,51 @@ fn read_prepared(db: &Connection, id: &str) -> CoreResult<PreparedProposal> {
             "The prepared suggestion failed its fingerprint check.",
         ));
     }
+    let paragraphs = match kind {
+        ProposalKind::Passage => {
+            if payload.is_some() {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "A passage preparation cannot contain continuation paragraphs.",
+                ));
+            }
+            None
+        }
+        ProposalKind::Continuation => {
+            if !text.is_empty() {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "A continuation preparation must not contain passage replacement text.",
+                ));
+            }
+            let raw = payload.ok_or_else(|| {
+                CoreError::new(
+                    "InvalidProposal",
+                    "A continuation preparation is missing its paragraph payload.",
+                )
+            })?;
+            let paragraphs: Vec<String> = serde_json::from_str(&raw).map_err(|_| {
+                CoreError::new(
+                    "InvalidProposal",
+                    "A continuation preparation has invalid paragraph JSON.",
+                )
+            })?;
+            validate_continuation_paragraphs(&paragraphs)?;
+            if serde_json::to_string(&paragraphs)? != raw {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "A continuation preparation has noncanonical paragraph JSON.",
+                ));
+            }
+            Some(paragraphs)
+        }
+    };
     Ok(PreparedProposal {
         id: id.into(),
         proposal_id,
         version: parse_stored_version(version)?,
         replacement_text: text,
+        paragraphs,
         body: valid.snapshot,
         body_hash: hash,
     })
@@ -586,6 +912,63 @@ fn validate_replacement(
     .map_err(|error| CoreError::new("ScopeViolation", &error))?;
     validate_snapshot_json(&serde_json::to_string(body)?)
         .map_err(|error| CoreError::new("InvalidProposal", &error))
+}
+
+fn validate_continuation(
+    proposal: &Proposal,
+    paragraphs: &[String],
+    body: &Value,
+) -> CoreResult<crate::SnapshotReceipt> {
+    if proposal.kind != ProposalKind::Continuation || proposal.scope.kind != ScopeKind::Append {
+        return Err(CoreError::new(
+            "InvalidProposal",
+            "The suggestion does not carry append authority.",
+        ));
+    }
+    validate_continuation_paragraphs(paragraphs)?;
+    validate_append(
+        &ScopeValidationRequest {
+            source_snapshot: proposal.source_body.clone(),
+            result_snapshot: body.clone(),
+            scope: proposal.scope.clone(),
+        },
+        paragraphs,
+    )
+    .map_err(|error| CoreError::new("ScopeViolation", &error))?;
+    validate_snapshot_json(&serde_json::to_string(body)?)
+        .map_err(|error| CoreError::new("InvalidProposal", &error))
+}
+
+fn validate_prepared(
+    proposal: &Proposal,
+    prepared: &PreparedProposal,
+) -> CoreResult<crate::SnapshotReceipt> {
+    match proposal.kind {
+        ProposalKind::Passage => {
+            if prepared.paragraphs.is_some() {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "A passage preparation cannot carry continuation paragraphs.",
+                ));
+            }
+            validate_replacement(proposal, &prepared.replacement_text, &prepared.body)
+        }
+        ProposalKind::Continuation => {
+            let paragraphs = prepared.paragraphs.as_deref().ok_or_else(|| {
+                CoreError::new(
+                    "InvalidProposal",
+                    "A continuation preparation has no paragraph payload.",
+                )
+            })?;
+            if !prepared.replacement_text.is_empty() {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "A continuation preparation cannot carry passage replacement text.",
+                ));
+            }
+            validate_continuation(proposal, paragraphs, &prepared.body)
+        }
+    }
 }
 
 fn receipt(
@@ -764,6 +1147,7 @@ fn validate_apply_links(
     let prepared = read_prepared(db, prepared_id)?;
     let before = read_revision(db, before_id)?;
     let after = read_revision(db, after_id)?;
+    validate_prepared(proposal, &prepared)?;
     let applied = AppliedDecision {
         decision_id: decision.id.clone(),
         proposal_id: proposal.id.clone(),
@@ -906,7 +1290,7 @@ pub(crate) fn validate_proposal_storage(db: &Connection) -> CoreResult<()> {
                     "A prepared version belongs to a different suggestion.",
                 ));
             }
-            validate_replacement(&proposal, &prepared.replacement_text, &prepared.body)?;
+            validate_prepared(&proposal, &prepared)?;
         }
         if let Some(decision) = &proposal.decision {
             storage_id(&decision.id, "A decision has an invalid identity.")?;

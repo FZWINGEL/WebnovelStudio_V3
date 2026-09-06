@@ -43,6 +43,29 @@ function retainPreparationAttempt(reason: unknown): boolean {
   return !code || code === 'UncertainOutcome' || code === 'ProtocolError';
 }
 
+function isContinuation(proposal: Proposal): boolean {
+  // The durable kind is the authority. Do not infer an append operation from
+  // an untrusted candidate shape returned by an older or malformed record.
+  return proposal.kind === 'continuation';
+}
+
+function candidateText(proposal: Proposal): string {
+  return isContinuation(proposal)
+    ? (proposal.candidate as { paragraphs: string[] }).paragraphs.join('\n\n')
+    : (proposal.candidate as { replacementText: string }).replacementText;
+}
+
+function preparedText(proposal: Proposal, prepared: PreparedProposal): string | null {
+  if (isContinuation(proposal)) return prepared.paragraphs ? prepared.paragraphs.join('\n\n') : null;
+  return prepared.replacementText;
+}
+
+function paragraphs(text: string): string[] {
+  // Keep empty entries. Rust must reject blank paragraphs instead of the UI
+  // silently repairing the author's edited candidate.
+  return text.split('\n\n');
+}
+
 export function ProposalPanel({ access, proposals, disabled = false, onPrepareProposal, onApplyProposal, onRefresh }: ProposalPanelProps) {
   const [replacement, setReplacement] = useState<Map<string, string>>(() => new Map());
   const [prepared, setPrepared] = useState<Map<string, PreparedProposal>>(() => new Map());
@@ -81,7 +104,10 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
     const ids = new Set(proposals.map(proposal => proposal.id));
     setReplacement(previous => {
       const next = new Map<string, string>();
-      for (const proposal of proposals) next.set(proposal.id, previous.get(proposal.id) ?? proposal.prepared?.replacementText ?? proposal.candidate.replacementText);
+      for (const proposal of proposals) {
+        const retained = proposal.prepared ? preparedText(proposal, proposal.prepared) : null;
+        next.set(proposal.id, previous.get(proposal.id) ?? retained ?? candidateText(proposal));
+      }
       return next;
     });
     setPrepared(previous => {
@@ -105,12 +131,12 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
         rejectOperationRef.current.delete(proposal.id);
       } else {
         const attempt = preparingRef.current.get(proposal.id);
-        if (attempt && proposal.prepared?.replacementText === attempt.text && versionNumber(proposal.prepared.version) > versionNumber(attempt.expectedPreparedVersion)) preparingRef.current.delete(proposal.id);
+        if (attempt && proposal.prepared && preparedText(proposal, proposal.prepared) === attempt.text && versionNumber(proposal.prepared.version) > versionNumber(attempt.expectedPreparedVersion)) preparingRef.current.delete(proposal.id);
       }
     }
     setPreparing(previous => new Map([...previous].filter(([id, attempt]) => {
       const proposal = proposals.find(item => item.id === id);
-      return !!proposal && !proposal.decision && !(proposal.prepared?.replacementText === attempt.text && versionNumber(proposal.prepared.version) > versionNumber(attempt.expectedPreparedVersion));
+      return !!proposal && !proposal.decision && !(proposal.prepared && preparedText(proposal, proposal.prepared) === attempt.text && versionNumber(proposal.prepared.version) > versionNumber(attempt.expectedPreparedVersion));
     })));
     setApplying(previous => new Set([...previous].filter(id => ids.has(id) && !proposals.find(proposal => proposal.id === id)?.decision)));
     setRejecting(previous => new Set([...previous].filter(id => ids.has(id) && !proposals.find(proposal => proposal.id === id)?.decision)));
@@ -130,7 +156,7 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
     return prepared.get(proposal.id) ?? proposal.prepared;
   }
   function currentReplacement(proposal: Proposal): string {
-    return replacement.get(proposal.id) ?? proposal.candidate.replacementText;
+    return replacement.get(proposal.id) ?? candidateText(proposal);
   }
 
   async function refreshAfterMutation(id: string): Promise<void> {
@@ -145,8 +171,8 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
     const existing = preparingRef.current.get(id);
     const ready = exactPrepared(proposal);
     const attempt = existing ?? { proposal: structuredClone(ready ? { ...proposal, prepared: ready } : proposal), text: currentReplacement(proposal), operationId: crypto.randomUUID(), expectedPreparedVersion: ready?.version ?? '0' };
-    if (!existing && ready?.replacementText === attempt.text) {
-      setNotice(id, 'This wording is already previewed.');
+    if (!existing && ready && preparedText(proposal, ready) === attempt.text) {
+      setNotice(id, isContinuation(proposal) ? 'These paragraphs are already previewed.' : 'This wording is already previewed.');
       clearError(id);
       return;
     }
@@ -158,10 +184,10 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
     try {
       const result = await onPrepareProposal(attempt.proposal, attempt.text, attempt.operationId);
       if (!isLive() || preparingRef.current.get(id)?.operationId !== attempt.operationId) return;
-      if (result.proposalId !== id || result.replacementText !== attempt.text) throw new Error('The preview response did not match this suggestion.');
+      if (result.proposalId !== id || preparedText(proposal, result) !== attempt.text) throw new Error('The preview response did not match this suggestion.');
       setPrepared(previous => new Map(previous).set(id, result));
       preparingRef.current.delete(id); setPreparing(previous => { const next = new Map(previous); next.delete(id); return next; });
-      setNotice(id, 'Preview ready. Apply only this reviewed wording.');
+      setNotice(id, isContinuation(proposal) ? 'Preview ready. Apply only this reviewed continuation.' : 'Preview ready. Apply only this reviewed wording.');
       await refreshAfterMutation(id);
     } catch (reason) {
       if (!isLive() || preparingRef.current.get(id)?.operationId !== attempt.operationId) return;
@@ -176,7 +202,7 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
         // fresh Preview gets a fresh operation while preserving the wording.
         preparingRef.current.delete(id);
         setPreparing(previous => { const next = new Map(previous); next.delete(id); return next; });
-        setError(id, detail(reason)); setNotice(id, 'Edit the wording, then preview it again.');
+        setError(id, detail(reason)); setNotice(id, isContinuation(proposal) ? 'Edit the paragraphs, then preview them again.' : 'Edit the wording, then preview it again.');
       }
     }
   }
@@ -184,14 +210,14 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
   async function applySuggestion(proposal: Proposal): Promise<void> {
     const value = exactPrepared(proposal);
     const text = currentReplacement(proposal);
-    if (disabled || proposal.historicalCopy || proposal.decision || !proposal.current || !value || value.proposalId !== proposal.id || value.replacementText !== text || !onApplyProposal || applyingRef.current.has(proposal.id)) return;
+    if (disabled || proposal.historicalCopy || proposal.decision || !proposal.current || !value || value.proposalId !== proposal.id || preparedText(proposal, value) !== text || !onApplyProposal || applyingRef.current.has(proposal.id)) return;
     const id = proposal.id;
-    applyingRef.current.add(id); setApplying(previous => new Set(previous).add(id)); clearError(id); setNotice(id, 'Applying reviewed change…');
+    applyingRef.current.add(id); setApplying(previous => new Set(previous).add(id)); clearError(id); setNotice(id, isContinuation(proposal) ? 'Applying continuation…' : 'Applying reviewed change…');
     try {
       await onApplyProposal(proposal, value);
       if (!isLive()) return;
       applyingRef.current.delete(id); setApplying(previous => new Set([...previous].filter(item => item !== id)));
-      setNotice(id, 'Applied to the manuscript.');
+      setNotice(id, isContinuation(proposal) ? 'Continuation applied to the manuscript.' : 'Applied to the manuscript.');
       await refreshAfterMutation(id);
     } catch (reason) {
       if (!isLive()) return;
@@ -212,7 +238,7 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
       if (decision.proposalId !== id || decision.kind !== 'reject') throw new Error('The rejection response did not match this suggestion.');
       rejectingRef.current.delete(id); setRejecting(previous => new Set([...previous].filter(item => item !== id)));
       rejectOperationRef.current.delete(id);
-      setNotice(id, 'Suggestion rejected. The manuscript is unchanged.');
+      setNotice(id, isContinuation(proposal) ? 'Continuation rejected. The manuscript is unchanged.' : 'Suggestion rejected. The manuscript is unchanged.');
       await refreshAfterMutation(id);
     } catch (reason) {
       if (!isLive()) return;
@@ -222,35 +248,38 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
   }
 
   if (!ordered.length) return null;
-  return <section className="proposal-panel" aria-label="Suggested edits">
-    <div className="proposal-heading"><h3>Suggested edits</h3><span>{ordered.length} {ordered.length === 1 ? 'option' : 'options'}</span></div>
-    <p className="small-copy">Review each alternative against the captured passage. Preview an alternative, then apply it when you are ready.</p>
+  const continuationOnly = ordered.every(isContinuation);
+  return <section className="proposal-panel" aria-label={continuationOnly ? 'Suggested continuation' : 'Suggested edits'}>
+    <div className="proposal-heading"><h3>{continuationOnly ? 'Suggested continuation' : 'Suggested edits'}</h3><span>{ordered.length} {ordered.length === 1 ? 'option' : 'options'}</span></div>
+    <p className="small-copy">{continuationOnly ? 'Review the generated paragraphs after the chapter ending. Edit them, preview them, then apply them when you are ready.' : 'Review each alternative against the captured passage. Preview an alternative, then apply it when you are ready.'}</p>
     <div className="proposal-list">
       {ordered.map(proposal => {
         const status = statusOf(proposal);
         const value = exactPrepared(proposal);
         const text = currentReplacement(proposal);
+        const continuation = isContinuation(proposal);
         const attempt = preparing.get(proposal.id);
         const isPreparing = !!attempt;
         const isApplying = applying.has(proposal.id);
         const isRejecting = rejecting.has(proposal.id);
         const canMutate = !disabled && !proposal.historicalCopy && !proposal.decision;
-        const canApply = canMutate && proposal.current && !!value && value.proposalId === proposal.id && value.replacementText === text && !isPreparing && !isApplying && !isRejecting;
+        const canApply = canMutate && proposal.current && !!value && value.proposalId === proposal.id && preparedText(proposal, value) === text && !isPreparing && !isApplying && !isRejecting;
         const error = errors.get(proposal.id);
         const notice = notices.get(proposal.id);
         const replacementId = `proposal-replacement-${proposal.id}`;
-        return <article className={`proposal-card proposal-${status.kind}`} key={proposal.id} data-testid={`proposal-${proposal.id}`}>
+        const previewParagraphs = value && continuation && value.paragraphs ? value.paragraphs : [];
+        return <article className={`proposal-card proposal-${status.kind} ${continuation ? 'proposal-continuation' : ''}`} key={proposal.id} data-testid={`proposal-${proposal.id}`}>
           <div className="proposal-card-heading"><div><h4>{proposal.candidate.title}</h4><span className="proposal-status">{status.label}</span></div>{status.kind === 'stale' && <span className="proposal-warning">Review only</span>}</div>
-          <span className="preview-label">Before</span><blockquote className="proposal-before">{proposal.scope.quote}</blockquote>
+          <span className="preview-label">{continuation ? 'Append after chapter ending' : 'Before'}</span><blockquote className="proposal-before">{proposal.scope.quote}</blockquote>
           <p className="proposal-explanation">{proposal.candidate.explanation}</p>
-          <label htmlFor={replacementId}>Replacement wording</label>
+          <label htmlFor={replacementId}>{continuation ? 'Continuation paragraphs' : 'Replacement wording'}</label>
           <textarea id={replacementId} value={text} disabled={!canMutate || isPreparing || isApplying || isRejecting} onChange={event => { setReplacement(previous => new Map(previous).set(proposal.id, event.target.value)); clearError(proposal.id); setNotice(proposal.id, ''); }} />
-          {value && <div className="proposal-preview"><span className="preview-label">Preview after</span><blockquote className="after-text">{value.replacementText || <em>Remove the selected passage</em>}</blockquote>{value.replacementText !== text && <p className="stale-notice">The wording changed after this preview. Preview again before applying.</p>}</div>}
+          {value && (!continuation || value.paragraphs) && <div className="proposal-preview"><span className="preview-label">{continuation ? 'New paragraphs' : 'Preview after'}</span>{continuation ? <div className="continuation-after">{previewParagraphs.map((paragraph, index) => <p key={`${proposal.id}-preview-${index}`}>{paragraph}</p>)}</div> : <blockquote className="after-text">{value.replacementText || <em>Remove the selected passage</em>}</blockquote>}{preparedText(proposal, value) !== text && <p className="stale-notice">{continuation ? 'The paragraphs changed after this preview. Preview them again before applying.' : 'The wording changed after this preview. Preview again before applying.'}</p>}</div>}
           {error && <p className="proposal-error" role="alert">{error}</p>}
           {notice && <p className="proposal-status-message" role="status">{notice}</p>}
           <div className="proposal-actions">
             <button type="button" className="secondary-button" disabled={!canMutate || isApplying || isRejecting || !onPrepareProposal} onClick={() => void prepareSuggestion(proposal)}>{isPreparing ? (error ? 'Check preview' : 'Preparing…') : 'Preview'}</button>
-            <button type="button" className="primary-button" disabled={!canApply || !onApplyProposal} title={proposal.current ? 'Apply this exact preview' : 'This suggestion is stale and must be refreshed before applying.'} onClick={() => void applySuggestion(proposal)}>{isApplying ? 'Applying…' : 'Apply'}</button>
+            <button type="button" className="primary-button" disabled={!canApply || !onApplyProposal} title={proposal.current ? (continuation ? 'Apply this exact continuation' : 'Apply this exact preview') : 'This suggestion is stale and must be refreshed before applying.'} onClick={() => void applySuggestion(proposal)}>{isApplying ? 'Applying…' : 'Apply'}</button>
             <button type="button" className="text-button proposal-reject" disabled={!canMutate || isPreparing || isApplying || isRejecting} onClick={() => void rejectSuggestion(proposal)}>{isRejecting ? 'Rejecting…' : 'Reject'}</button>
           </div>
           {proposal.historicalCopy && <p className="small-copy">This suggestion is retained from another project copy and is read-only.</p>}

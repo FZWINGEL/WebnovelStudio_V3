@@ -58,7 +58,7 @@ export interface FrozenConversation { projectId: string; operationNamespace: str
 export interface SourcePassage { handle: string; source: SourceRef; blockId: string; blockOrder: number; text: string }
 export interface SourceRead { descriptor: SourceDescriptor; passages: SourcePassage[]; body: WnsDocument; usedValidatedProjection: boolean }
 export interface ScopeGrant {
-  kind: 'passage' | 'blocks' | 'wholeDocument';
+  kind: 'passage' | 'blocks' | 'wholeDocument' | 'append';
   start: Endpoint | null; end: Endpoint | null;
   sourceHash: string; quote: string; quoteHash: string; prefix: string | null; suffix: string | null;
 }

@@ -16,10 +16,17 @@ const access: ProjectAccess = { projectId: 'project', operationNamespace: 'names
 const source: WnsDocument = { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'paragraph-1' }, content: [{ type: 'text', text: 'The original passage.' }] }] } };
 const head: Head = { documentId: 'chapter', version: '2', bodyHash: 'a'.repeat(64) };
 const scope: ScopeGrant = { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 21 }, quote: 'The original passage.', sourceHash: head.bodyHash, quoteHash: 'b'.repeat(64), prefix: null, suffix: null };
+const continuationScope: ScopeGrant = { kind: 'append', start: null, end: { blockId: 'paragraph-1', utf16Offset: 21 }, quote: 'The original passage.', sourceHash: head.bodyHash, quoteHash: 'b'.repeat(64), prefix: null, suffix: null };
 function proposal(overrides: Partial<proposalIpc.Proposal> = {}): proposalIpc.Proposal {
   return { id: 'proposal-1', runId: 'run-1', candidate: { title: 'Clearer wording', replacementText: 'A clearer passage.', explanation: 'Keeps the moment direct.' }, source: head, sourceBody: source, scope, snapshotId: 'snapshot', packetId: 'packet', current: true, historicalCopy: false, prepared: null, decision: null, ...overrides };
 }
 function prepared(text: string): proposalIpc.PreparedProposal { return { id: 'prepared-1', proposalId: 'proposal-1', version: '1', replacementText: text, body: source, bodyHash: 'c'.repeat(64) }; }
+function continuationProposal(overrides: Partial<proposalIpc.Proposal> = {}): proposalIpc.Proposal {
+  return proposal({ kind: 'continuation', candidate: { title: 'Continue the chapter', paragraphs: ['She waited.', 'Then dawn broke.'], explanation: 'Carries the scene through its next beat.' }, scope: continuationScope, ...overrides });
+}
+function continuationPrepared(text: string): proposalIpc.PreparedProposal {
+  return { ...prepared(text), paragraphs: text.split('\n\n') };
+}
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(accept => { resolve = accept; }); return { promise, resolve }; }
 
 let host: HTMLDivElement;
@@ -138,5 +145,70 @@ describe('ProposalPanel review boundary', () => {
     const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
     expect(textarea.value).toBe('Her sister');
     expect(host.querySelector('.after-text')?.textContent).toBe('Her sister');
+  });
+
+  it('previews and applies continuation paragraphs with the append location', async () => {
+    const prepare = vi.fn(async (_proposal: proposalIpc.Proposal, text: string) => continuationPrepared(text));
+    const apply = vi.fn(async () => {});
+    await render([continuationProposal()], { onPrepareProposal: prepare, onApplyProposal: apply });
+    expect(host.textContent).toContain('Append after chapter ending');
+    expect(host.textContent).toContain('Continuation paragraphs');
+    expect(host.textContent).not.toContain('Replacement wording');
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
+    expect(textarea.value).toBe('She waited.\n\nThen dawn broke.');
+    await act(async () => { const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!; setter.call(textarea, 'The room went quiet.\n\nA new bell answered.'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+    await click('Preview');
+    await waitFor(() => expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ kind: 'continuation' }), 'The room went quiet.\n\nA new bell answered.', expect.any(String)));
+    expect(Array.from(host.querySelectorAll('.continuation-after p')).map(item => item.textContent)).toEqual(['The room went quiet.', 'A new bell answered.']);
+    expect((Array.from(host.querySelectorAll('button')).find(item => item.textContent === 'Apply') as HTMLButtonElement).disabled).toBe(false);
+    await click('Apply');
+    await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ kind: 'continuation' }), expect.objectContaining({ paragraphs: ['The room went quiet.', 'A new bell answered.'] })));
+    expect(host.textContent).toContain('Continuation applied to the manuscript.');
+  });
+
+  it('passes blank continuation entries through for Rust validation instead of repairing them', async () => {
+    const prepare = vi.fn().mockRejectedValue({ code: 'InvalidProposal', detail: 'Paragraphs must not be blank.' });
+    await render([continuationProposal()], { onPrepareProposal: prepare });
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
+    const invalid = 'First paragraph.\n\n\n\nSecond paragraph.';
+    await act(async () => { const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!; setter.call(textarea, invalid); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+    await click('Preview');
+    await waitFor(() => expect(host.textContent).toContain('Edit the paragraphs, then preview them again.'));
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ kind: 'continuation' }), invalid, expect.any(String));
+    expect(textarea.value).toBe(invalid);
+    expect(textarea.disabled).toBe(false);
+  });
+
+  it('retries uncertain continuation preparation with the same operation and serialized body', async () => {
+    const gate = deferred<proposalIpc.PreparedProposal>();
+    const prepare = vi.fn().mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'The preview response was lost.' }).mockReturnValueOnce(gate.promise);
+    await render([continuationProposal()], { onPrepareProposal: prepare });
+    await click('Preview');
+    await waitFor(() => expect(host.textContent).toContain('Check preview'));
+    await click('Check preview');
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(prepare.mock.calls[1][1]).toBe(prepare.mock.calls[0][1]);
+    expect(prepare.mock.calls[1][2]).toBe(prepare.mock.calls[0][2]);
+    await act(async () => gate.resolve(continuationPrepared('She waited.\n\nThen dawn broke.')));
+    await waitFor(() => expect(host.textContent).toContain('Preview ready. Apply only this reviewed continuation.'));
+  });
+
+  it('fails closed when a continuation preparation has no durable paragraph payload', async () => {
+    const apply = vi.fn(async () => {});
+    await render([continuationProposal({ prepared: prepared('A malformed serialized replacement.') })], { onApplyProposal: apply });
+    expect(host.querySelector('.continuation-after')).toBeNull();
+    const applyButton = Array.from(host.querySelectorAll('button')).find(item => item.textContent === 'Apply') as HTMLButtonElement;
+    expect(applyButton.disabled).toBe(true);
+    await act(async () => applyButton.click());
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('uses the durable passage kind when a candidate has stray paragraph-shaped data', async () => {
+    const ambiguous = proposal({ candidate: { title: 'Passage wording', replacementText: 'Keep this passage.', paragraphs: ['must not select continuation UI'], explanation: 'A passage candidate with an ignored extra field.' } as unknown as proposalIpc.Proposal['candidate'] });
+    await render([ambiguous]);
+    expect(host.querySelector('section')?.getAttribute('aria-label')).toBe('Suggested edits');
+    expect(host.textContent).toContain('Replacement wording');
+    expect(host.textContent).not.toContain('Append after chapter ending');
+    expect((host.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Keep this passage.');
   });
 });

@@ -16,6 +16,9 @@ use webnovel_core::transfer::{
 };
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
+#[path = "support/schema.rs"]
+mod legacy_schema;
+
 struct TempDir(PathBuf);
 impl TempDir {
     fn new(label: &str) -> Self {
@@ -1082,6 +1085,7 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
     drop(recovered);
     drop(project);
     let connection = Connection::open(source.join("project.sqlite3")).unwrap();
+    legacy_schema::remove_schema19_features(&connection).unwrap();
     connection
         .execute_batch(
             "DROP TABLE snapshot_navigation_views; DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position;
@@ -1117,7 +1121,7 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
         .unwrap()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 18);
+    assert_eq!(version, 19);
     let table: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row(
@@ -1265,5 +1269,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 18);
+    assert_eq!(version, 19);
 }

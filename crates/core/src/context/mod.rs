@@ -5,6 +5,7 @@
 //! The project owner supplies a frozen [`StorySnapshot`] whose source
 //! descriptors have already been resolved against the authoritative project.
 
+pub mod continuation;
 mod contracts;
 mod eligibility;
 pub mod memory;

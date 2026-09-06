@@ -535,6 +535,146 @@ try {
   await page.getByRole('button', { name: /^Harbour A copy Last opened/ }).click();
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Only the independent copy changes.');
   checks.push('Native duplicate uses an independent project; original and copy reopen with distinct prose after the desktop process is killed and restarted');
+
+  // Continuation is qualified in its own synthetic project so the later
+  // Harbour C passage/review checks retain their original fixture and counts.
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await createWritingProject('Continuation story', 'chapter', 'First chapter', 'The tide carried the lantern away.');
+  await page.evaluate(() => document.querySelector('.tiptap').editor.commands.setContent({ type: 'doc', content: [
+    { type: 'paragraph', attrs: { id: 'continuation-opening' }, content: [{ type: 'text', text: 'The tide carried the lantern away.' }] },
+    { type: 'paragraph', attrs: { id: 'continuation-ending' }, content: [{ type: 'text', text: 'At the pier, Mei waited for an answer.' }] },
+  ] }));
+  await page.waitForFunction(() => document.querySelector('.tiptap').editor.getJSON().content.length === 2);
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  const continuationBefore = await page.evaluate(() => {
+    window.continuationEditor = document.querySelector('.tiptap').editor;
+    return window.continuationEditor.getJSON();
+  });
+  await page.getByRole('button', { name: 'Continue chapter', exact: true }).click();
+  await page.getByRole('textbox', { name: 'What should happen next?', exact: true }).waitFor();
+  await page.getByLabel('Story basis', { exact: true }).selectOption('reviewed');
+  await page.getByRole('textbox', { name: 'What should happen next?', exact: true }).fill('Continue from the chapter ending with a quiet reveal.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'There is no earlier reviewed chapter' }).waitFor();
+  await page.getByLabel('Story basis', { exact: true }).selectOption('working');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const continuationCard = page.locator('.proposal-card').filter({ hasText: 'Local test continuation' });
+  await continuationCard.waitFor();
+  const typedContinuation = await continuationCard.getByRole('textbox', { name: 'Continuation paragraphs', exact: true }).inputValue();
+  assert.equal(typedContinuation.split('\n\n').length, 2);
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), continuationBefore);
+  const editedContinuation = 'The door opened beneath the rain.\n\nThe lantern answered from the hall.';
+  await continuationCard.getByRole('textbox', { name: 'Continuation paragraphs', exact: true }).fill(editedContinuation);
+  await page.evaluate(() => {
+    const fetch = window.fetch;
+    window.continuationPrepareRequests = [];
+    window.continuationPrepareLostAck = false;
+    window.continuationPrepareRetryAck = false;
+    window.continuationProposalReadAfterLoss = false;
+    window.fetch = async (...args) => {
+      const url = String(args[0]);
+      const init = args[1];
+      if (url.endsWith('/prepare_continuation')) {
+        let parsed = null;
+        try { parsed = typeof init?.body === 'string' ? JSON.parse(init.body) : null; } catch { /* The native command will report malformed input. */ }
+        const request = parsed?.request ?? parsed;
+        window.continuationPrepareRequests.push(structuredClone(request));
+        const response = await fetch.apply(window, args);
+        if (!window.continuationPrepareLostAck && response.headers.get('Tauri-Response') === 'ok') {
+          window.continuationPrepareLostAck = true;
+          return new Response(JSON.stringify({ code: 'UncertainOutcome', detail: 'Synthetic lost continuation preparation acknowledgment after commit' }),
+            { headers: { 'Content-Type': 'application/json', 'Tauri-Response': 'error' } });
+        }
+        if (window.continuationPrepareLostAck && response.headers.get('Tauri-Response') === 'ok') {
+          window.continuationPrepareRetryAck = true;
+          window.fetch = fetch;
+        }
+        return response;
+      }
+      const response = await fetch.apply(window, args);
+      // ProposalPanel reconciles an uncertain preparation immediately. Hide
+      // only that first read-back so the visible Check preview action proves
+      // the exact request is safely replayed rather than merely reread.
+      if (url.endsWith('/proposals') && window.continuationPrepareLostAck && !window.continuationProposalReadAfterLoss
+        && response.headers.get('Tauri-Response') === 'ok') {
+        const payload = await response.clone().json();
+        if (Array.isArray(payload)) {
+          window.continuationProposalReadAfterLoss = true;
+          const hidden = payload.map(item => item.id === window.continuationPrepareRequests[0]?.proposalId ? { ...item, prepared: null } : item);
+          return new Response(JSON.stringify(hidden), { headers: { 'Content-Type': 'application/json', 'Tauri-Response': 'ok' } });
+        }
+      }
+      return response;
+    };
+  });
+  await continuationCard.getByRole('button', { name: 'Preview', exact: true }).click();
+  await page.waitForFunction(() => window.continuationPrepareLostAck === true);
+  await continuationCard.getByRole('button', { name: 'Check preview', exact: true }).click();
+  await continuationCard.locator('.continuation-after p').nth(0).filter({ hasText: 'The door opened beneath the rain.' }).waitFor();
+  await continuationCard.locator('.continuation-after p').nth(1).filter({ hasText: 'The lantern answered from the hall.' }).waitFor();
+  await page.waitForFunction(() => window.continuationPrepareRequests?.length === 2 && window.continuationPrepareRetryAck === true);
+  const continuationPrepareRequests = await page.evaluate(() => window.continuationPrepareRequests);
+  assert.equal(continuationPrepareRequests.length, 2);
+  assert.equal(continuationPrepareRequests[1].operationId, continuationPrepareRequests[0].operationId);
+  assert.equal(continuationPrepareRequests[1].proposalId, continuationPrepareRequests[0].proposalId);
+  assert.deepEqual(continuationPrepareRequests[1].paragraphs, continuationPrepareRequests[0].paragraphs);
+  assert.deepEqual(continuationPrepareRequests[1].body, continuationPrepareRequests[0].body);
+  const preparedParagraphIds = continuationPrepareRequests[0].body.body.content.slice(-2).map(block => block.attrs.id);
+  assert.deepEqual(continuationPrepareRequests[1].body.body.content.slice(-2).map(block => block.attrs.id), preparedParagraphIds);
+  const continuationProposalId = (await continuationCard.getAttribute('data-testid')).replace(/^proposal-/, '');
+  const continuationLibrary = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
+  const continuationEntry = continuationLibrary.entries.find(entry => entry.title === 'Continuation story');
+  assert(continuationEntry, 'Continuation project must remain in the local library');
+  const continuationProjectPath = await realpath(continuationEntry.path);
+  const continuationDatabase = new DatabaseSync(resolve(continuationProjectPath, 'project.sqlite3'));
+  try {
+    assert.equal(continuationDatabase.prepare('SELECT count(*) AS count FROM proposal_versions WHERE proposal_id=?').get(continuationProposalId).count, 1);
+    assert.equal(continuationDatabase.prepare('SELECT count(*) AS count FROM proposal_receipts WHERE operation_id=? AND kind=\'prepare\'').get(continuationPrepareRequests[0].operationId).count, 1);
+  } finally { continuationDatabase.close(); }
+  assert(await page.evaluate(() => document.querySelector('.tiptap').editor === window.continuationEditor));
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), continuationBefore);
+  await page.screenshot({ path: resolve(output, 'continuation-preview.png') });
+  await continuationCard.getByRole('button', { name: 'Apply', exact: true }).click();
+  await continuationCard.locator('.proposal-status').filter({ hasText: /^Applied$/ }).waitFor();
+  const continuationAfter = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
+  assert(await page.evaluate(() => document.querySelector('.tiptap').editor === window.continuationEditor));
+  assert.deepEqual(continuationAfter.content.slice(0, continuationBefore.content.length), continuationBefore.content);
+  assert.deepEqual(continuationAfter.content.slice(-2).map(block => block.content?.[0]?.text), ['The door opened beneath the rain.', 'The lantern answered from the hall.']);
+  await page.screenshot({ path: resolve(output, 'continuation-post-apply.png') });
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.tiptap').editor.getJSON().content.length === 2);
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), continuationBefore);
+  assert(await page.evaluate(() => document.querySelector('.tiptap').editor === window.continuationEditor));
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.tiptap').editor.getJSON().content.length === 4);
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  const continuationFinal = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
+  assert.deepEqual(continuationFinal, continuationAfter);
+  assert(await page.evaluate(() => document.querySelector('.tiptap').editor === window.continuationEditor));
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.reload();
+  await page.getByRole('button', { name: /^Continuation story Last opened/ }).click();
+  await page.getByRole('heading', { name: 'First chapter', exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), continuationFinal);
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.getByRole('heading', { name: 'Saved versions', exact: true }).waitFor();
+  const continuationVersions = page.getByRole('combobox', { name: 'Saved version', exact: true });
+  await page.waitForFunction(() => document.querySelector('#saved-version')?.options.length > 1);
+  const continuationLabels = await continuationVersions.locator('option').allTextContents();
+  const appliedContinuation = continuationLabels.find(label => label.includes('Applied edit'));
+  assert(appliedContinuation, 'The applied continuation must remain in saved history');
+  await continuationVersions.selectOption({ label: appliedContinuation });
+  await page.locator('.history-preview .saved-prose').filter({ hasText: 'The door opened beneath the rain.' }).waitFor();
+  const retainedContinuation = await page.locator('.history-preview .saved-prose').innerText();
+  assert(retainedContinuation.includes('At the pier, Mei waited for an answer.'));
+  assert(retainedContinuation.includes('The lantern answered from the hall.'));
+  await page.screenshot({ path: resolve(output, 'continuation-applied.png') });
+  await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('button', { name: /^Harbour A copy Last opened/ }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Only the independent copy changes.');
+  checks.push('Native continuation refuses an unavailable reviewed prefix, requires explicit working-draft fallback, retries one lost preparation acknowledgment with the exact operation/body/IDs and one stored version, previews typed paragraphs without mutating the mounted editor, applies after the unchanged ending, survives visible undo/redo, and retains the new body in history after reload');
   const editorBeforeRename = await page.evaluate(() => { window.editorBeforeRename = document.querySelector('.tiptap').editor; return window.editorBeforeRename.getJSON(); });
   await page.getByRole('button', { name: 'Rename', exact: true }).click();
   await page.getByRole('textbox', { name: 'Project title', exact: true }).fill('Harbour C');
@@ -1230,7 +1370,7 @@ try {
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeNavigation);
   checks.push('Native ordinary discussion automatically supplies existing generated memory when full prose exceeds its allowance, exposes exact evidence, preserves the manuscript and historical packet across changes/reload, and excludes stale views without another memory job');
   assert.deepEqual(errors, []);
-  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'This flow uses only the local test model; live-provider qualification is separate. Durable Apply supports single-line passage replacements only', 'Backup/recovery dialog journeys remain separate W3 checks; this flow covers native draft Save/Cancel'], dataDirectory: data }, null, 2));
+  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'This flow uses only the local test model; live-provider qualification is separate. Durable Apply supports scoped passage replacements and append-only continuation; live-provider qualification is separate', 'Backup/recovery dialog journeys remain separate W3 checks; this flow covers native draft Save/Cancel'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));
 } catch (error) {
   if (observedPage && !observedPage.isClosed()) {

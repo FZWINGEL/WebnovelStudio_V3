@@ -368,6 +368,7 @@ fn staged_import_replays_by_operation_and_recovery_keeps_inert_evidence() {
             expected: imported_document.head,
             instruction: "Keep the chapter discussion open while reconciling import.".into(),
             intent: Default::default(),
+            basis: None,
             scope: None,
             pinned_document_ids: Vec::new(),
             safe_brief: None,

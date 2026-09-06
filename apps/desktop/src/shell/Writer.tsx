@@ -4,11 +4,12 @@ import { EditorContent } from '@tiptap/react';
 import { EditorState, Plugin, Selection, TextSelection, type Transaction } from '@tiptap/pm/state';
 import { closeHistory, redo, redoDepth, undo, undoDepth } from '@tiptap/pm/history';
 import { editorExtensions } from '../editor/schema';
-import { snapshotFromEditor } from '../editor/document';
+import { bodyHash, canonicalJson, snapshotFromEditor } from '../editor/document';
+import { prepareContinuation } from '../editor/continuation';
 import { DocumentSession, SessionError, type PreparedEditorChange } from '../editor/session';
 import { saveViewState, type DocumentRecord, type Endpoint, type Revision, type ViewState } from '../ipc/projects';
 import { captureSelection, prepareScopedReplacement, type Scope } from '../editor/selection';
-import { prepareProposal, type PreparedProposal, type Proposal } from '../ipc/proposals';
+import { prepareContinuationProposal, prepareProposal, type PrepareContinuation, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { FeedbackPanel } from '../assistant/FeedbackPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { ReviewPanel } from './ReviewPanel';
@@ -33,6 +34,8 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
   const discussionSaver = useRef<(() => Promise<void>) | null>(null);
   const registerDiscussionSaver = useCallback((save: (() => Promise<void>) | null) => { discussionSaver.current = save; }, []);
   const discuss = useRef<() => boolean>(() => false);
+  // Keep the exact IDs/body for a preview whose native acknowledgment is lost.
+  const continuationPreviews = useRef(new Map<string, PrepareContinuation>());
   const [editor] = useState(() => new Editor({
     extensions: [...editorExtensions, Extension.create({
       name: 'persistentEditing', priority: 1000,
@@ -53,6 +56,23 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
     },
   }));
   const prepare = async (proposal: Proposal, text: string, operationId: string): Promise<PreparedProposal> => {
+    if (proposal.kind === 'continuation') {
+      let request = continuationPreviews.current.get(operationId);
+      const paragraphs = text.split('\n\n');
+      if (request && (request.proposalId !== proposal.id || canonicalJson(request.paragraphs) !== canonicalJson(paragraphs))) {
+        throw new SessionError('InvalidProposal', 'This preview request already belongs to different wording.');
+      }
+      if (!request) {
+        try {
+          if (await bodyHash(canonicalJson(proposal.sourceBody)) !== proposal.scope.sourceHash || proposal.source.bodyHash !== proposal.scope.sourceHash) throw new Error('The captured source does not match this suggestion.');
+          const source = EditorState.create({ schema: editor.schema, doc: editor.schema.nodeFromJSON(proposal.sourceBody.body) });
+          const tr = prepareContinuation(source, proposal.scope, paragraphs);
+          request = { access: session.projectAccess, operationId, proposalId: proposal.id, expectedPreparedVersion: proposal.prepared?.version ?? '0', paragraphs, body: snapshotFromEditor(tr.doc.toJSON()) };
+          continuationPreviews.current.set(operationId, structuredClone(request));
+        } catch (error) { throw new SessionError('InvalidProposal', (error as Error).message); }
+      }
+      return prepareContinuationProposal({ ...structuredClone(request), access: session.projectAccess });
+    }
     let source: EditorState; let tr;
     try {
       source = EditorState.create({ schema: editor.schema, doc: editor.schema.nodeFromJSON(proposal.sourceBody.body) });
@@ -76,7 +96,14 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
       } };
   }
   const apply = async (proposal: Proposal, prepared: PreparedProposal): Promise<void> => {
-    await session.applyPrepared(proposal, prepared, () => prepareChange(prepareScopedReplacement(editor.state, proposal.scope, prepared.replacementText)));
+    await session.applyPrepared(proposal, prepared, () => {
+      if (proposal.kind === 'continuation') {
+        if (!prepared.paragraphs?.length) throw new SessionError('InvalidProposal', 'This continuation has no prepared paragraphs.');
+        const ids = prepared.body.body.content.slice(-prepared.paragraphs.length).map(block => block.attrs.id);
+        return prepareChange(prepareContinuation(editor.state, proposal.scope, prepared.paragraphs, ids));
+      }
+      return prepareChange(prepareScopedReplacement(editor.state, proposal.scope, prepared.replacementText));
+    });
   };
   const restore = async (revision: Revision): Promise<void> => {
     await session.restoreRevision(revision, () => {

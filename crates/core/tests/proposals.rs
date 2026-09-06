@@ -67,6 +67,7 @@ impl Fixture {
                 provider_binding: None,
                 previous_run_id: None,
                 intent: FeedbackIntent::ProposeEdits,
+                basis: None,
             })
             .unwrap()
     }
@@ -161,10 +162,16 @@ fn prepare_edit_apply_one_and_reject_others_keeps_decision_and_freshness_separat
     let f = Fixture::new();
     let proposals = f.candidates();
     assert_eq!(proposals.len(), 3);
+    assert!(
+        proposals
+            .iter()
+            .all(|proposal| proposal.kind == ProposalKind::Passage)
+    );
     assert!(proposals.iter().all(|p| p.current && p.decision.is_none()));
     assert_eq!(f.current().head, f.document.head);
     let prepare = f.prepare_request(&proposals[1], "firmer", "0", "prepare-1");
     let v1 = f.project().prepare_proposal(prepare.clone()).unwrap();
+    assert!(v1.paragraphs.is_none());
     assert_eq!(f.project().prepare_proposal(prepare).unwrap().id, v1.id);
     let v2 = f
         .project()

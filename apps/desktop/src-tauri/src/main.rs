@@ -136,6 +136,7 @@ fn main() {
             discussion_commands::stop_discussion,
             discussion_commands::proposals,
             discussion_commands::prepare_proposal,
+            discussion_commands::prepare_continuation,
             discussion_commands::apply_proposal,
             discussion_commands::reject_proposal,
             memory_commands::read_memory,

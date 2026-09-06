@@ -111,6 +111,15 @@ pub async fn prepare_proposal(
 }
 
 #[tauri::command]
+pub async fn prepare_continuation(
+    request: PrepareContinuation,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<PreparedProposal> {
+    let project = state.project(&request.access.project_id)?;
+    execute(move || project.prepare_continuation(request)).await
+}
+
+#[tauri::command]
 pub async fn apply_proposal(
     request: ApplyProposal,
     state: State<'_, DesktopProjects>,
@@ -409,7 +418,7 @@ fn save_worker_outcome(
     }
 }
 
-/// A fixed local fixture, deliberately labelled and incapable of writing prose.
+/// Fixed local fixtures, deliberately labelled; no external model is invoked.
 fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Vec<String>> {
     let invalid = || {
         CoreError::new(
@@ -422,6 +431,16 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
             != packet.receipt.input_hash
     {
         return Err(invalid());
+    }
+    if intent == FeedbackIntent::Continue {
+        return Ok(vec![serde_json::json!({
+            "schemaVersion": "continuation-output.v1",
+            "suggestions": [{
+                "title": "Local test continuation",
+                "paragraphs": ["A knock broke the silence. She folded the letter, keeping its final line hidden beneath her thumb.", "Beyond the door, someone was waiting for an answer."],
+                "explanation": "Fixed local test paragraphs. Review or edit them before applying; no live AI model was called."
+            }]
+        }).to_string()]);
     }
     let instruction = packet
         .messages
@@ -505,6 +524,13 @@ mod tests {
     use webnovel_core::projects::CreateDocument;
 
     fn started_project(label: &str) -> (ProjectSession, ProjectAccess, DiscussionStart) {
+        started_project_with_intent(label, FeedbackIntent::Discuss)
+    }
+
+    fn started_project_with_intent(
+        label: &str,
+        intent: FeedbackIntent,
+    ) -> (ProjectSession, ProjectAccess, DiscussionStart) {
         let path = std::env::temp_dir().join(format!(
             "wns-desktop-worker-{label}-{}-{}",
             std::process::id(),
@@ -526,7 +552,9 @@ mod tests {
                 operation_id: "start".into(),
                 expected: document.head,
                 instruction: "Discuss the ending.".into(),
-                intent: FeedbackIntent::Discuss,
+                intent,
+                basis: (intent == FeedbackIntent::Continue)
+                    .then_some(webnovel_core::context::BasisKind::Working),
                 scope: None,
                 pinned_document_ids: Vec::new(),
                 safe_brief: None,
@@ -539,6 +567,36 @@ mod tests {
     }
 
     #[test]
+    fn mock_continuation_retains_one_append_candidate_without_changing_the_chapter() {
+        let (project, access, started) =
+            started_project_with_intent("continuation-worker", FeedbackIntent::Continue);
+        let recovery = DiscussionRecovery::default();
+        let dispatch = recovery.claim(&project, &started.run).unwrap();
+        run_mock_with_pause(project.clone(), recovery, dispatch, || {});
+        let view = project
+            .read_discussion(access.clone(), "chapter".into())
+            .unwrap();
+        assert_eq!(view.runs[0].status, DiscussionRunStatus::Completed);
+        assert_eq!(view.runs[0].intent, FeedbackIntent::Continue);
+        assert_eq!(
+            view.runs[0].basis,
+            Some(webnovel_core::context::BasisKind::Working)
+        );
+        let candidates = project.proposals(access.clone(), "chapter".into()).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].kind, ProposalKind::Continuation);
+        assert!(candidates[0].prepared.is_none());
+        assert!(candidates[0].decision.is_none());
+        let document = project.document(access, "chapter".into()).unwrap();
+        assert_eq!(document.head, started.run.target);
+        assert_eq!(
+            document.body["body"]["content"][0]["content"][0]["text"],
+            "The ending stays."
+        );
+        clean_project(project);
+    }
+
+    #[test]
     fn model_selection_blocks_new_requests_without_rebinding_a_saved_request() {
         let (project, access, started) = started_project("model-binding");
         let request = StartDiscussion {
@@ -547,6 +605,7 @@ mod tests {
             expected: started.run.target.clone(),
             instruction: "Discuss the ending.".into(),
             intent: FeedbackIntent::Discuss,
+            basis: None,
             scope: None,
             pinned_document_ids: Vec::new(),
             safe_brief: None,

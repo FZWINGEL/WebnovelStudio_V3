@@ -29,6 +29,7 @@ pub enum ScopeKind {
     Passage,
     Blocks,
     WholeDocument,
+    Append,
 }
 
 /// A source-bound scope grant. Endpoints are required for passage and blocks;
@@ -179,6 +180,9 @@ pub fn validate_scope_json(input: &str) -> Result<ScopeReceipt, String> {
 /// the returned grant alongside its source revision. Validation still requires
 /// all three values and never silently fills them from an untrusted request.
 pub fn capture_scope(source_snapshot: &Value, mut scope: ScopeGrant) -> Result<ScopeGrant, String> {
+    if scope.kind == ScopeKind::Append {
+        return Err("append scope must be captured with capture_append_scope".to_owned());
+    }
     let source = canonical_snapshot(source_snapshot)
         .map_err(|error| format!("source snapshot is invalid: {error}"))?;
     let document = token_document(&source.snapshot)
@@ -196,9 +200,410 @@ pub fn capture_scope(source_snapshot: &Value, mut scope: ScopeGrant) -> Result<S
     Ok(scope)
 }
 
+/// Capture the exact end boundary for an append grant. The final block is
+/// quoted and fingerprinted as a structural unit, while the end endpoint is
+/// only an insertion anchor; it does not authorize replacing that block.
+pub fn capture_append_scope(source_snapshot: &Value) -> Result<ScopeGrant, String> {
+    let source = canonical_snapshot(source_snapshot)
+        .map_err(|error| format!("source snapshot is invalid: {error}"))?;
+    let document = token_document(&source.snapshot)
+        .map_err(|error| format!("source tokenization failed: {error}"))?;
+    let last = document
+        .blocks
+        .last()
+        .ok_or_else(|| "append scope requires at least one source block".to_owned())?;
+    let quote_tokens = &document.tokens[last.token_start..last.token_end];
+    Ok(ScopeGrant {
+        kind: ScopeKind::Append,
+        start: None,
+        end: Some(Endpoint {
+            block_id: last.id.clone(),
+            utf16_offset: last.utf16_units,
+        }),
+        source_hash: source.hash,
+        quote: plain_text(quote_tokens),
+        quote_hash: structured_hash(quote_tokens)?,
+        prefix: None,
+        suffix: None,
+    })
+}
+
 /// Validate a prepared result against its canonical source and explicit grant.
 pub fn validate_scope(request: &ScopeValidationRequest) -> Result<ScopeReceipt, String> {
+    if request.scope.kind == ScopeKind::Append {
+        return validate_append_impl(request, None);
+    }
     validate_scope_impl(request, None)
+}
+
+/// Validate an append result against the exact generated paragraphs. The
+/// source prefix and final anchor are always checked independently of the
+/// candidate text, so callers can use the same function during preparation
+/// and Apply.
+pub fn validate_append(
+    request: &ScopeValidationRequest,
+    paragraphs: &[String],
+) -> Result<ScopeReceipt, String> {
+    if request.scope.kind != ScopeKind::Append {
+        return Err("append validation requires an append scope".to_owned());
+    }
+    validate_append_paragraphs(paragraphs)?;
+    validate_append_impl(request, Some(paragraphs))
+}
+
+fn validate_append_paragraphs(paragraphs: &[String]) -> Result<(), String> {
+    if paragraphs.is_empty() {
+        return Err("append candidate must contain at least one paragraph".to_owned());
+    }
+    if paragraphs.len() > 128 {
+        return Err("append candidate may contain at most 128 paragraphs".to_owned());
+    }
+    let mut total_utf16 = 0_u64;
+    for paragraph in paragraphs {
+        if paragraph.trim().is_empty() {
+            return Err("append candidate paragraphs must be nonblank".to_owned());
+        }
+        if paragraph.contains(['\r', '\n']) {
+            return Err("append candidate paragraphs must be single-line".to_owned());
+        }
+        let units = paragraph.encode_utf16().count();
+        if units > 8192 {
+            return Err("an append paragraph exceeds 8,192 UTF-16 units".to_owned());
+        }
+        total_utf16 = total_utf16
+            .checked_add(units as u64)
+            .ok_or_else(|| "append candidate UTF-16 length overflowed".to_owned())?;
+        if total_utf16 > 100_000 {
+            return Err("append candidate exceeds 100,000 UTF-16 units".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn validate_append_impl(
+    request: &ScopeValidationRequest,
+    paragraphs: Option<&[String]>,
+) -> Result<ScopeReceipt, String> {
+    let source = canonical_snapshot(&request.source_snapshot)
+        .map_err(|error| format!("source snapshot is invalid: {error}"))?;
+    let result = canonical_snapshot(&request.result_snapshot).map_err(|error| {
+        if error.contains("attrs.id is duplicated") {
+            if result_reuses_source_id(&request.source_snapshot, &request.result_snapshot) {
+                format!("result snapshot reuses an existing block ID: {error}")
+            } else {
+                format!("result snapshot reuses a generated block ID: {error}")
+            }
+        } else {
+            format!("result snapshot is invalid: {error}")
+        }
+    })?;
+    let source_doc = token_document(&source.snapshot)
+        .map_err(|error| format!("source tokenization failed: {error}"))?;
+    let result_doc = token_document(&result.snapshot)
+        .map_err(|error| format!("result tokenization failed: {error}"))?;
+    let source_last = source_doc
+        .blocks
+        .last()
+        .ok_or_else(|| "append scope requires at least one source block".to_owned())?;
+    let source_quote_tokens = &source_doc.tokens[source_last.token_start..source_last.token_end];
+    let quote = plain_text(source_quote_tokens);
+    let quote_hash = structured_hash(source_quote_tokens)?;
+
+    if request.scope.start.is_some() {
+        return Err("append scope must not have a start endpoint".to_owned());
+    }
+    let end = request
+        .scope
+        .end
+        .as_ref()
+        .ok_or_else(|| "append scope requires an end endpoint".to_owned())?;
+    if end.block_id != source_last.id || end.utf16_offset != source_last.utf16_units {
+        return Err(
+            "append scope end must match the final source block and its complete UTF-16 length"
+                .to_owned(),
+        );
+    }
+    if request.scope.source_hash != source.hash {
+        return Err(format!(
+            "scope sourceHash does not match source snapshot: expected {}, got {}",
+            source.hash, request.scope.source_hash
+        ));
+    }
+    if request.scope.quote != quote {
+        return Err("append scope quote does not match the final source block".to_owned());
+    }
+    if request.scope.quote_hash != quote_hash {
+        return Err("append scope quoteHash does not match the final source block".to_owned());
+    }
+    if request.scope.prefix.is_some() || request.scope.suffix.is_some() {
+        return Err("append scope does not support prefix or suffix context".to_owned());
+    }
+
+    let source_is_empty_placeholder = is_empty_placeholder(&source_doc);
+    let source_block_count = source_doc.blocks.len();
+    let source_ids: HashSet<&str> = source_doc
+        .blocks
+        .iter()
+        .map(|block| block.id.as_str())
+        .collect();
+
+    if source_is_empty_placeholder {
+        if result_doc.blocks.is_empty() {
+            return Err("append result has no blocks".to_owned());
+        }
+        let first = &result_doc.blocks[0];
+        if first.id != source_doc.blocks[0].id || first.block_type != "paragraph" {
+            return Err(
+                "an empty chapter's first generated paragraph must retain the placeholder ID"
+                    .to_owned(),
+            );
+        }
+        if result_doc.blocks.len() == source_block_count
+            && paragraphs.is_none_or(|items| items.is_empty())
+        {
+            if first.text.is_empty() {
+                return finish_append_receipt(
+                    &source,
+                    &result,
+                    &source_doc,
+                    &result_doc,
+                    quote,
+                    quote_hash,
+                    0,
+                );
+            }
+            return Err("an empty chapter requires a generated paragraph candidate".to_owned());
+        }
+        if first.attrs != source_doc.blocks[0].attrs {
+            return Err("the empty placeholder block attributes changed".to_owned());
+        }
+        validate_plain_paragraph_block(
+            &result.snapshot["body"]["content"][0],
+            paragraphs
+                .and_then(|items| items.first())
+                .map(String::as_str),
+        )?;
+        if let Some(items) = paragraphs {
+            if items.is_empty() {
+                return Err("append candidate must contain at least one paragraph".to_owned());
+            }
+            if first.text != items[0] {
+                return Err("the first generated paragraph does not match the candidate".to_owned());
+            }
+        }
+        validate_appended_blocks(
+            &result,
+            &result_doc,
+            1,
+            &source_ids,
+            paragraphs.map(|items| &items[1..]),
+        )?;
+    } else {
+        if result_doc.tokens.len() < source_doc.tokens.len()
+            || result_doc.tokens[..source_doc.tokens.len()] != source_doc.tokens[..]
+        {
+            return Err("append result changes the existing source prefix".to_owned());
+        }
+        validate_appended_blocks(
+            &result,
+            &result_doc,
+            source_block_count,
+            &source_ids,
+            paragraphs,
+        )?;
+    }
+
+    let replacement_token_count = result_doc
+        .tokens
+        .len()
+        .saturating_sub(source_doc.tokens.len())
+        .try_into()
+        .map_err(|_| "append replacement token count exceeds u32".to_owned())?;
+    finish_append_receipt(
+        &source,
+        &result,
+        &source_doc,
+        &result_doc,
+        quote,
+        quote_hash,
+        replacement_token_count,
+    )
+}
+
+fn finish_append_receipt(
+    source: &SnapshotReceipt,
+    result: &SnapshotReceipt,
+    source_doc: &TokenDocument,
+    result_doc: &TokenDocument,
+    quote: String,
+    quote_hash: String,
+    replacement_token_count: u32,
+) -> Result<ScopeReceipt, String> {
+    Ok(ScopeReceipt {
+        accepted: true,
+        scope: ScopeKind::Append,
+        source_hash: source.hash.clone(),
+        result_hash: result.hash.clone(),
+        quote,
+        quote_hash,
+        prefix: plain_text(&source_doc.tokens),
+        suffix: String::new(),
+        source_token_count: source_doc
+            .tokens
+            .len()
+            .try_into()
+            .map_err(|_| "source token count exceeds u32".to_owned())?,
+        result_token_count: result_doc
+            .tokens
+            .len()
+            .try_into()
+            .map_err(|_| "result token count exceeds u32".to_owned())?,
+        replacement_token_count,
+    })
+}
+
+fn is_empty_placeholder(document: &TokenDocument) -> bool {
+    document.blocks.len() == 1
+        && document.blocks[0].block_type == "paragraph"
+        && document.blocks[0].text.is_empty()
+        && document.blocks[0].attrs == serde_json::json!({"id": document.blocks[0].id.clone()})
+}
+
+fn result_reuses_source_id(source: &Value, result: &Value) -> bool {
+    let source_ids = snapshot_block_ids(source);
+    let result_ids = snapshot_block_ids(result);
+    if !result_ids.iter().any(|id| source_ids.contains(id)) {
+        return false;
+    }
+    // The canonical empty placeholder is intentionally retained once for the
+    // first generated paragraph. A second occurrence is therefore a duplicate
+    // generated ID, not a permitted source identity.
+    if source_is_empty_placeholder_value(source) {
+        return false;
+    }
+    true
+}
+
+fn source_is_empty_placeholder_value(value: &Value) -> bool {
+    let parsed = match value {
+        Value::String(json) => serde_json::from_str(json).unwrap_or(Value::Null),
+        other => other.clone(),
+    };
+    let Some(blocks) = parsed
+        .get("body")
+        .and_then(|body| body.get("content"))
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    if blocks.len() != 1 {
+        return false;
+    }
+    let Some(block) = blocks[0].as_object() else {
+        return false;
+    };
+    block.get("type").and_then(Value::as_str) == Some("paragraph")
+        && block
+            .get("attrs")
+            .and_then(Value::as_object)
+            .is_some_and(|attrs| attrs.len() == 1 && attrs.contains_key("id"))
+        && block
+            .get("content")
+            .and_then(Value::as_array)
+            .is_none_or(|content| content.is_empty())
+}
+
+fn snapshot_block_ids(value: &Value) -> HashSet<String> {
+    let parsed = match value {
+        Value::String(json) => serde_json::from_str(json).unwrap_or(Value::Null),
+        other => other.clone(),
+    };
+    parsed
+        .get("body")
+        .and_then(|body| body.get("content"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|block| block.get("attrs")?.get("id")?.as_str())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn validate_appended_blocks(
+    result: &SnapshotReceipt,
+    result_doc: &TokenDocument,
+    first_appended: usize,
+    source_ids: &HashSet<&str>,
+    paragraphs: Option<&[String]>,
+) -> Result<(), String> {
+    if result_doc.blocks.len() < first_appended {
+        return Err("append result removed source blocks".to_owned());
+    }
+    let appended = &result_doc.blocks[first_appended..];
+    if let Some(expected) = paragraphs
+        && appended.len() != expected.len()
+    {
+        return Err("append result paragraph count does not match the candidate".to_owned());
+    }
+    for (index, block) in appended.iter().enumerate() {
+        if source_ids.contains(block.id.as_str()) {
+            return Err(format!(
+                "appended paragraph reuses an existing block ID {:?}",
+                block.id
+            ));
+        }
+        let value = result.snapshot["body"]["content"]
+            .as_array()
+            .and_then(|blocks| blocks.get(first_appended + index))
+            .ok_or_else(|| "append result block is missing".to_owned())?;
+        let expected = paragraphs.map(|items| items[index].as_str());
+        validate_plain_paragraph_block(value, expected)?;
+    }
+    Ok(())
+}
+
+fn validate_plain_paragraph_block(block: &Value, expected: Option<&str>) -> Result<(), String> {
+    let object = block
+        .as_object()
+        .ok_or_else(|| "appended block must be an object".to_owned())?;
+    if object.get("type").and_then(Value::as_str) != Some("paragraph") {
+        return Err("continuation may append only paragraph blocks".to_owned());
+    }
+    let attrs = object
+        .get("attrs")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "appended paragraph attrs are required".to_owned())?;
+    if attrs.len() != 1 || !attrs.contains_key("id") {
+        return Err("appended paragraphs may only carry their fresh ID".to_owned());
+    }
+    let content = object.get("content").and_then(Value::as_array);
+    let Some(content) = content else {
+        return Err("appended paragraphs must contain nonblank plain text".to_owned());
+    };
+    if content.len() != 1 {
+        return Err("appended paragraphs must contain one plain text node".to_owned());
+    }
+    let text_node = content[0]
+        .as_object()
+        .ok_or_else(|| "appended paragraph content must be an object".to_owned())?;
+    if text_node.get("type").and_then(Value::as_str) != Some("text")
+        || text_node.contains_key("marks")
+    {
+        return Err("appended paragraphs cannot contain formatting or hard breaks".to_owned());
+    }
+    let text = text_node
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "appended paragraph text is required".to_owned())?;
+    if text.trim().is_empty() || text.contains(['\r', '\n']) {
+        return Err("appended paragraph text must be nonblank and single-line".to_owned());
+    }
+    if let Some(expected) = expected
+        && text != expected
+    {
+        return Err("appended paragraph text does not match the candidate".to_owned());
+    }
+    Ok(())
 }
 
 /// Validate the first prepared-proposal fragment grammar: an exact single-line
@@ -612,6 +1017,7 @@ fn scope_range(document: &TokenDocument, scope: &ScopeGrant) -> Result<TokenRang
                 selected_ids: last - first + 1,
             })
         }
+        ScopeKind::Append => Err("append scope does not select a replacement range".to_owned()),
     }
 }
 

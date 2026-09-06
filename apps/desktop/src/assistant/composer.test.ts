@@ -3,8 +3,22 @@ import { ComposerSession } from './composer';
 import type { DiscussionDraft, SaveDiscussionDraft } from '../ipc/discussions';
 
 const access = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
-function ack(request: SaveDiscussionDraft): DiscussionDraft { return { documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, updatedAt: 'today' }; }
+function ack(request: SaveDiscussionDraft): DiscussionDraft { return { documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, basis: request.basis, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, updatedAt: 'today' }; }
 describe('unsent discussion persistence', () => {
+  it('keeps a continuation basis through lost save acknowledgment, later choice and reopening', async () => {
+    const write = vi.fn(async (request: SaveDiscussionDraft) => ack(request));
+    write.mockRejectedValueOnce(new Error('lost reply'));
+    const session = new ComposerSession('document', null, () => access, write);
+    const sent = { text: 'Let her ask about the letter.', scope: null, pinnedDocumentIds: [], intent: 'continue' as const, basis: 'working' as const };
+    session.update(sent); await expect(session.save()).rejects.toThrow('lost reply');
+    session.update({ ...sent, basis: 'reviewed' });
+    expect(session.clearIfUnchanged(sent)).toBe(false);
+    await session.save();
+    expect(write.mock.calls[0][0]).toEqual(write.mock.calls[1][0]);
+    const restored = new ComposerSession('document', ack(write.mock.calls[2][0]), () => access, write);
+    expect(restored.body.intent).toBe('continue'); expect(restored.body.basis).toBe('reviewed');
+    expect(restored.dirty).toBe(false);
+  });
   it('retains exact brief approval and origins across a lost reply, later edits and reopening', async () => {
     const write = vi.fn(async (request: SaveDiscussionDraft) => ack(request));
     write.mockRejectedValueOnce(new Error('lost reply'));
