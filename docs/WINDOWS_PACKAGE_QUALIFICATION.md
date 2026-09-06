@@ -2,6 +2,12 @@
 
 The initial distribution target is Windows x64 with an NSIS installer. Package configuration is implementation work; a successful build alone does not establish offline installation, accessibility, recovery, or author-trial acceptance. Current executed evidence is recorded in [implementation status](IMPLEMENTATION_STATUS.md).
 
+## Current 3.0.0 candidate
+
+This remains a private, unreleased candidate. The pending package retest uses builder source `63770b9122f598b3e32ea1b0f5f4020c4325115f` in hosted run `34067936098`; no 3.0.0 installed-lifecycle pass is claimed yet. The retest input and the separation between the original installer-build identity and the current qualification-source and harness identity are documented in [testing](TESTING.md).
+
+The preceding package attempt used builder source `729d6bdfe3f657badac80b114aee0f8a0b6b2970` in run `34066312408`. It built the 3.0.0 installer, then stopped before project creation because the qualification harness waited for the stale UIAutomation label `Library` while the current UI exposes `Your library`. That run remains failure evidence; it is not package qualification.
+
 ## Package contract
 
 - Product: **WebnovelStudio V3**; stable bundle identifier: `com.webnovelstudio.v3`.
@@ -20,7 +26,7 @@ Build with the pinned wrapper:
 
 This requests `x86_64-pc-windows-msvc`, NSIS, and the locked Cargo dependencies. `build` retains the release executable without bundling; `spike` and `native` retain the development qualification path. No signing identity or automatic updater is configured in this checkpoint.
 
-## Current installed-lifecycle checkpoint, 6 September 2026
+## Historical 0.1.0 installed-lifecycle checkpoint, 6 September 2026
 
 Package [run 34020898065](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34020898065) qualified source `12b8dd0c2ce50224de844ab8a557f912708d1bfc` on Windows Server 2025 `10.0.26100` x64 with WebView2 `151.0.4129.101`. The installer `WebnovelStudio V3_0.1.0_x64-setup.exe` has SHA-256 `f4fb306a5d5775f0758cab0a78828b627afc2d9e40ce4b84a4237e9b9807d508`; the run completed successfully with no errors or forced process stop. It installed the release Library without the debug trial, created and saved synthetic English prose, reopened it with text retained, closed normally, removed application files through the in-place default uninstall without a delete-data option, and reinstalled the identical version with the project, document, and text retained. The run claims only installed-release, synthetic write/reopen, and same-version uninstall/reinstall retention. It excludes offline/no-runtime installation, a true upgrade, live-provider behavior, and author-data qualification. Evidence is retained in `.local/ci-34020898065/build-metadata.json` and `.local/ci-34020898065/run-20260906-081658-595/result.json`.
 
