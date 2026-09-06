@@ -74,6 +74,24 @@ fn invalid(detail: &str) -> CoreError {
     CoreError::new("InvalidNavigationContext", detail)
 }
 
+/// Story epochs are persisted SQLite integer counters and cross the JSON
+/// boundary as canonical nonnegative decimal strings.  Keep this local to the
+/// pure navigation contract so a frozen historical view can be compared with
+/// the current snapshot without consulting mutable storage.
+fn parse_context_epoch(value: &str) -> CoreResult<i64> {
+    if value.is_empty()
+        || (value.len() > 1 && value.starts_with('0'))
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(invalid(
+            "Context epochs must be canonical nonnegative decimal strings.",
+        ));
+    }
+    value
+        .parse::<i64>()
+        .map_err(|_| invalid("Context epoch exceeds the supported canonical counter range."))
+}
+
 /// Validate frozen relationships without consulting today's mutable heads.
 /// Storage separately authenticates namespace ownership and immutable view
 /// records; this check remains valid for an already frozen historical packet.
@@ -98,13 +116,23 @@ pub fn validate_frozen_navigation_views(
             "Generated navigation is available only for bounded working-story discussions.",
         ));
     }
+    let snapshot_epoch = parse_context_epoch(&snapshot.context_source_epoch)?;
     let mut ids = HashSet::new();
     let mut documents = HashSet::new();
     for view in views {
+        // A closed single-chapter memory result may have been produced before
+        // an unrelated story write. Keep that original epoch as provenance;
+        // only a future or malformed view epoch is unsafe here. Request and
+        // proposal freshness remains globally fenced by their own validators.
+        let view_epoch = parse_context_epoch(&view.source_context_epoch)?;
+        if view_epoch > snapshot_epoch {
+            return Err(invalid(
+                "A navigation view cannot originate from a future context epoch.",
+            ));
+        }
         if !valid_id(&view.reference.view_id)
             || !valid_id(&view.reference.operation_namespace)
             || view.reference.project_id != snapshot.project_id
-            || view.source_context_epoch != snapshot.context_source_epoch
             || view.disclosure_policy_version != snapshot.disclosure_policy_version
             || view.disclosure_policy_version != policy.version
             || view.candidate.schema_version != DIGEST_SCHEMA_VERSION

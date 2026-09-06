@@ -5,7 +5,9 @@ use std::{fs, mem};
 use uuid::Uuid;
 use webnovel_core::context::memory::mock_navigation_digest;
 use webnovel_core::context::packet::{MockContextBudget, ProviderBinding, serialized_input};
+use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
 use webnovel_core::projects::memory::{CompleteMemory, MemoryJobStatus, StartMemory};
+use webnovel_core::projects::story_context::FreezeStory;
 use webnovel_core::projects::{
     CreateDocument, DocumentRecord, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
 };
@@ -175,6 +177,102 @@ fn stale_before_begin_is_refused_but_late_completion_is_retained_as_historical()
 }
 
 #[test]
+fn unrelated_source_epoch_keeps_exact_memory_view_current_without_rewriting_history() {
+    let temp = TempProject::new("unrelated-epoch");
+    let (project, access, document) = temp.create();
+    let discussion = project
+        .freeze_story(FreezeStory {
+            access: access.clone(),
+            operation_id: "discussion-before-unrelated-epoch".into(),
+            expected: document.head.clone(),
+            basis: BasisKind::Working,
+            purpose: ContextPurpose::Discuss,
+            policy: InformationPolicy {
+                version: project.context_epochs(access.clone()).unwrap().policy,
+                audience: Audience::AuthorRoom,
+                reader_frontier: None,
+                character_id: None,
+                character_grants: Vec::new(),
+                allow_alternatives: false,
+                allow_historical: false,
+            },
+        })
+        .unwrap();
+    let job = project
+        .start_memory(start_request(&access, &document, "memory-unrelated-epoch"))
+        .unwrap();
+    let dispatch = project.begin_memory(job.owner.clone()).unwrap();
+    project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "create-unrelated-chapter".into(),
+            document_id: "unrelated-chapter".into(),
+            title: "Unrelated chapter".into(),
+            kind: "chapter".into(),
+            body: body("A later chapter changes the collection epoch."),
+        })
+        .unwrap();
+    let completion = complete_mock(&project, &dispatch, "memory-unrelated-result", None);
+    let view = project.install_memory(job.owner).unwrap();
+    assert_eq!(completion.job.status, MemoryJobStatus::Completed);
+    assert!(view.current);
+    assert!(!view.source_changed);
+
+    let db = Connection::open(temp.path.join("project.sqlite3")).unwrap();
+    let installed_current: i64 = db
+        .query_row(
+            "SELECT installed_current FROM memory_views WHERE id=?",
+            [&view.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(installed_current, 0);
+    drop(db);
+
+    let read = project
+        .read_memory(access.clone(), document.head.document_id.clone())
+        .unwrap();
+    assert!(
+        read.views
+            .iter()
+            .any(|item| item.id == view.id && item.current)
+    );
+    assert!(
+        !project
+            .story_snapshot_is_current(access.clone(), discussion.snapshot.snapshot_id)
+            .unwrap()
+    );
+
+    mem::drop(project);
+    let reopened = ProjectSession::open(&temp.path).unwrap();
+    let reopened_access = reopened.attach("memory-unrelated-reopen".into()).unwrap();
+    let unrelated = reopened
+        .document(reopened_access.clone(), "unrelated-chapter".into())
+        .unwrap();
+    let epochs = reopened.context_epochs(reopened_access.clone()).unwrap();
+    let frozen = reopened
+        .freeze_story(FreezeStory {
+            access: reopened_access,
+            operation_id: "discussion-after-unrelated-epoch".into(),
+            expected: unrelated.head,
+            basis: BasisKind::Working,
+            purpose: ContextPurpose::Discuss,
+            policy: InformationPolicy {
+                version: epochs.policy,
+                audience: Audience::AuthorRoom,
+                reader_frontier: None,
+                character_id: None,
+                character_grants: Vec::new(),
+                allow_alternatives: false,
+                allow_historical: false,
+            },
+        })
+        .unwrap();
+    assert_eq!(frozen.navigation_views.len(), 1);
+    assert_eq!(frozen.navigation_views[0].reference.view_id, view.id);
+}
+
+#[test]
 fn malformed_terminal_output_is_retained_and_cannot_install() {
     let temp = TempProject::new("malformed");
     let (project, access, document) = temp.create();
@@ -244,7 +342,7 @@ fn queued_stop_without_terminal_result_is_valid_backup_history() {
     assert_eq!(stopped.status, MemoryJobStatus::Stopped);
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 17);
+    assert_eq!(manifest.database_schema_version, 18);
     let _ = fs::remove_file(backup);
 }
 
@@ -529,7 +627,7 @@ fn backup_validation_accepts_retained_memory_history() {
     project.install_memory(job.owner).unwrap();
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 17);
+    assert_eq!(manifest.database_schema_version, 18);
     let _ = fs::remove_file(backup);
 }
 

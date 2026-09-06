@@ -5,11 +5,14 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+use webnovel_core::context::memory::mock_navigation_digest;
 use webnovel_core::context::packet::MockContextBudget;
 use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
 use webnovel_core::documents::Endpoint;
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
+use webnovel_core::projects::discussions::ProviderOutcomeStatus;
 use webnovel_core::projects::discussions::SaveDiscussionDraft;
+use webnovel_core::projects::memory::{CompleteMemory, StartMemory};
 use webnovel_core::projects::reviewed_story::{MarkReady, ReviewState, StageAuthorReview};
 use webnovel_core::projects::story_context::FreezeStory;
 use webnovel_core::projects::{
@@ -117,7 +120,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .head,
         saved.head
     );
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 18);
     let backups: Vec<_> = fs::read_dir(path.join("migrations"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -128,7 +131,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .starts_with("schema14-before-schema17-")
+            .starts_with("schema14-before-schema18-")
     );
     assert_eq!(schema_version(&backups[0]), 14);
 }
@@ -184,8 +187,8 @@ fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
     drop(db);
 
     let reopened = ProjectSession::open(&path).unwrap();
-    let access = reopened.attach("schema17-reader".into()).unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
+    let access = reopened.attach("schema18-reader".into()).unwrap();
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 18);
     assert_eq!(
         serde_json::to_vec(
             &reopened
@@ -234,6 +237,141 @@ fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
         .collect();
     assert_eq!(backups.len(), 1);
     assert_eq!(schema_version(&backups[0]), 16);
+}
+
+#[test]
+fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
+    let temp = TempDir::new("schema17-chapter-freshness");
+    let path = temp.child("legacy");
+    let (project, access, _, saved) = setup_project(&path);
+    let target = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "create-discussion-target".into(),
+            document_id: "later-chapter".into(),
+            title: "Later chapter".into(),
+            kind: "chapter".into(),
+            body: body("The old promise still matters."),
+        })
+        .unwrap();
+    let job = project
+        .start_memory(StartMemory {
+            access: access.clone(),
+            operation_id: "legacy-memory".into(),
+            expected: saved.head.clone(),
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
+        })
+        .unwrap();
+    let dispatch = project.begin_memory(job.owner.clone()).unwrap();
+    project
+        .complete_memory(CompleteMemory {
+            owner: job.owner.clone(),
+            event_id: "legacy-memory-result".into(),
+            raw_output: serde_json::to_string(&mock_navigation_digest(&dispatch.source).unwrap())
+                .unwrap(),
+            outcome: ProviderOutcomeStatus::Completed,
+            confirmed_stdin_bytes: None,
+            usage: None,
+            cleanup: None,
+            error: None,
+            effective_identity: None,
+        })
+        .unwrap();
+    let view = project.install_memory(job.owner).unwrap();
+    let snapshot_id = freeze_one_snapshot(&project, &access, &target);
+    let frozen = project
+        .story_snapshot(access.clone(), snapshot_id.clone())
+        .unwrap();
+    assert_eq!(frozen.navigation_views.len(), 1);
+    let frozen_bytes = serde_json::to_vec(&frozen).unwrap();
+    let packet = match project
+        .prepare_context(PrepareContext {
+            access: access.clone(),
+            operation_id: "legacy-navigation-packet".into(),
+            snapshot_id: snapshot_id.clone(),
+            instruction: "What promise was made?".into(),
+            mandatory_handles: Vec::new(),
+            transient_mandatory_handles: None,
+            safe_brief: None,
+            scope: None,
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
+            response_contract: None,
+        })
+        .unwrap()
+    {
+        PreparationResult::Prepared { packet, .. } => *packet,
+        _ => panic!("legacy navigation packet must fit"),
+    };
+    let packet_bytes = serde_json::to_vec(&packet).unwrap();
+    // Capture immutable persisted rows, not just their public projections.
+    fn retained_rows(db: &Connection) -> Vec<String> {
+        [
+            "SELECT request_json FROM memory_jobs ORDER BY id",
+            "SELECT candidate_json FROM memory_results ORDER BY job_id",
+            "SELECT candidate_json || ':' || installed_current FROM memory_views ORDER BY id",
+            "SELECT snapshot_id || ':' || view_id || ':' || content_hash FROM snapshot_navigation_views ORDER BY snapshot_id,view_id",
+            "SELECT manifest_json FROM story_snapshots ORDER BY id",
+            "SELECT request_json FROM context_packets ORDER BY id",
+        ].iter().flat_map(|sql| {
+            db.prepare(sql).unwrap().query_map([], |row| row.get::<_, String>(0))
+                .unwrap().map(Result::unwrap).collect::<Vec<_>>()
+        }).collect()
+    }
+    drop(project);
+    let db = Connection::open(path.join("project.sqlite3")).unwrap();
+    let rows_before = retained_rows(&db);
+    db.pragma_update(None, "user_version", 17).unwrap();
+    drop(db);
+
+    let reopened = ProjectSession::open(&path).unwrap();
+    let access = reopened
+        .attach("schema18-navigation-reader".into())
+        .unwrap();
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 18);
+    assert_eq!(
+        serde_json::to_vec(
+            &reopened
+                .story_snapshot(access.clone(), snapshot_id)
+                .unwrap()
+        )
+        .unwrap(),
+        frozen_bytes
+    );
+    assert_eq!(
+        serde_json::to_vec(
+            &reopened
+                .prepared_context(access.clone(), packet.receipt.packet_id)
+                .unwrap()
+        )
+        .unwrap(),
+        packet_bytes
+    );
+    assert_eq!(
+        reopened
+            .document(access.clone(), saved.head.document_id.clone())
+            .unwrap()
+            .head,
+        saved.head
+    );
+    let memory = reopened.read_memory(access, view.document_id).unwrap();
+    assert!(
+        memory
+            .views
+            .iter()
+            .any(|retained| retained.id == view.id && retained.current)
+    );
+    let db = Connection::open(path.join("project.sqlite3")).unwrap();
+    assert_eq!(retained_rows(&db), rows_before);
+    let backups: Vec<_> = fs::read_dir(path.join("migrations"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(backups.len(), 1);
+    assert_eq!(schema_version(&backups[0]), 17);
+    let old = Connection::open(&backups[0]).unwrap();
+    assert_eq!(retained_rows(&old), rows_before);
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -482,7 +620,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 18);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -547,9 +685,9 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 18);
     let connection =
-        Connection::open(path.join("project.sqlite3")).expect("open migrated schema17 database");
+        Connection::open(path.join("project.sqlite3")).expect("open migrated schema18 database");
     let discussion_tables: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='discussion_runs'",
@@ -653,7 +791,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 18);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     let safe_brief_column: i64 = connection
         .query_row(
@@ -786,7 +924,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 17);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 18);
     assert_eq!(
         recovered
             .context_source_epoch()

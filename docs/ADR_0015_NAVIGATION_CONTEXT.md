@@ -1,6 +1,6 @@
 # ADR 0015: Generated chapter memory in working discussions
 
-Status: C4-B implemented development slice; local contracts, native diagnostic, and all 35 strict native CI checks verified. Broader qualification remains separate. This extends [chapter memory](ADR_0014_CHAPTER_MEMORY.md); executed checks belong in [implementation status](IMPLEMENTATION_STATUS.md).
+Status: C4-B implemented development slice; local contracts, native diagnostic, and all 35 strict native CI checks verified. C4-C chapter freshness has integrated local and native diagnostic evidence; strict CI is pending. Broader qualification remains separate. This extends [chapter memory](ADR_0014_CHAPTER_MEMORY.md); executed checks belong in [implementation status](IMPLEMENTATION_STATUS.md).
 
 ## Author experience
 
@@ -12,11 +12,11 @@ The first integration supports working-basis author-room discussion, planning, a
 
 A `FrozenNavigationView` has its own view ID, original project and operation namespace, canonical candidate fingerprint, source epoch, disclosure policy, complete original-source dependencies, and generated payload. The fingerprint identifies generated JSON; it is never a manuscript body hash. Original source descriptors and generated views remain separate contract families.
 
-When freezing an eligible request, Rust automatically selects at most 64 views, in stable source order: the latest valid current view for each eligible non-target chapter. It requires the same project and namespace, exact source revision, policy, and source epoch. A changed chapter or previously unsearched story source conservatively prevents old memory from entering a new snapshot. This currently includes edits to unrelated chapters: it is a conservative implementation limitation. The next increment should separate the closed single-chapter recipe's exact dependency freshness from collection-level request/proposal staleness, as required by Story Context §5.3. The full original chapter remains in the available source manifest.
+When freezing an eligible request, Rust automatically selects at most 64 views, in stable source order: the latest valid current view for each eligible non-target chapter. C4-C requires the same project and namespace, current disclosure policy, exact source revision and working head, and a fully validated immutable single-chapter `MemoryAnalysis` job/result/view chain. The view's generation epoch may precede the new snapshot, but cannot be malformed or in the future. Unrelated edits preserve chapter-memory reuse without another model call; changing the source chapter excludes it. Previously frozen discussions and proposals still use the global source epoch and become stale even when the changed document was not retrieved. Contextual or cross-chapter recipes do not inherit this exception. The full original chapter remains in the available source manifest.
 
 Schema 17 adds immutable `snapshot_navigation_views` pins. The snapshot and pins commit together. Historical reads validate the frozen payload against the immutable view and its original source dependencies, rather than reconstructing memory from current heads. Missing, extra, mismatched, or foreign pins are refused. Recovery retains historical evidence but gives the recovered project an independent namespace; copied views cannot silently become its current memory. Disclosure revocation still blocks request-facing reads.
 
-Existing schema-16 memory rows are not rewritten. Old snapshot and packet JSON omit empty new fields, preserving their serialized request input and receipts. Migration takes the normal pre-upgrade database backup.
+Schema 18 raises the minimum reader version because schema-17 readers reject an earlier generation epoch inside a newer snapshot. It changes no tables and rewrites no historical rows or request bytes. The old `installed_current` flag remains a record of installation-time eligibility; current availability is derived from the authenticated exact chapter dependency, including older rows excluded only by an unrelated epoch change. Unfinished or unsuccessful jobs, copied namespaces, revoked policy, and changed source chapters cannot become current through this projection. Migration takes the normal pre-upgrade database backup. Old snapshot and packet JSON still omit empty new fields.
 
 ## Packet priority and coverage
 

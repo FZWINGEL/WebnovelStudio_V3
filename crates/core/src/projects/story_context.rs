@@ -1142,8 +1142,8 @@ fn select_navigation_views_at(
              JOIN memory_results r ON r.job_id=v.job_id
              WHERE v.project_id=? AND v.operation_namespace=? AND v.document_id=?
                AND v.source_revision_id=? AND v.source_body_hash=?
-               AND v.context_source_epoch=? AND v.disclosure_policy_epoch=?
-               AND v.installed_current=1 AND j.status='completed'
+               AND v.context_source_epoch<=? AND v.disclosure_policy_epoch=?
+               AND j.status='completed'
                AND r.outcome='completed' AND r.candidate_json IS NOT NULL
              ORDER BY v.created_at DESC,v.rowid DESC,v.id DESC",
         )?;
@@ -1201,7 +1201,7 @@ fn read_current_navigation_view(
     let view = match crate::projects::memory::validate_navigation_view_record(
         db,
         view_id,
-        &frozen.snapshot.snapshot_id,
+        Some(&frozen.snapshot.snapshot_id),
     ) {
         Ok(view) => view,
         Err(_) => return Ok(None),
@@ -1213,9 +1213,9 @@ fn read_current_navigation_view(
         || view.operation_namespace != current_namespace
         || view.document_id != source.source.document_id
         || view.source != source.source
-        || view.context_source_epoch != frozen.snapshot.context_source_epoch
+        || parse_version(&view.context_source_epoch)?
+            > parse_version(&frozen.snapshot.context_source_epoch)?
         || view.disclosure_policy_version != frozen.policy.version
-        || !view.current
         || candidate.source != source.source
     {
         return Ok(None);
@@ -1594,7 +1594,7 @@ fn validate_navigation_view_record(
     let stored = crate::projects::memory::validate_navigation_view_record(
         db,
         &view.reference.view_id,
-        &frozen.snapshot.snapshot_id,
+        Some(&frozen.snapshot.snapshot_id),
     )?;
     let Some(stored_candidate) = stored.candidate.as_ref() else {
         return Err(CoreError::new(

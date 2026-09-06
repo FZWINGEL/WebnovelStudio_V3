@@ -264,6 +264,72 @@ fn full_text_fit_keeps_packet_shape_and_records_original_text_omission() {
 }
 
 #[test]
+fn closed_navigation_view_from_an_earlier_epoch_keeps_its_provenance() {
+    let target_body = body(&[("target-block", "The current scene.")]);
+    let chapter_body = body(&[
+        (
+            "chapter-block-0",
+            &"A long earlier chapter detail. ".repeat(80),
+        ),
+        (
+            "chapter-block-1",
+            &"Another long earlier chapter detail. ".repeat(80),
+        ),
+    ]);
+    let chapter = source("chapter", "chapter-doc", &chapter_body);
+    let navigation = view(&chapter, "A long earlier chapter detail.");
+    let mut request = request(&target_body, &chapter_body, 3_000, vec![navigation]);
+    request.frozen.snapshot.context_source_epoch = "2".into();
+
+    let packet = compile_packet(&request).expect("an earlier closed chapter view remains usable");
+    assert_eq!(packet.receipt.navigation_views.len(), 1);
+    assert_eq!(
+        request.frozen.navigation_views[0].source_context_epoch, "1",
+        "the view epoch is provenance and must not be rewritten to the newer snapshot epoch"
+    );
+    let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
+    assert_eq!(envelope["derivedViews"]["completeCandidate"], true);
+}
+
+#[test]
+fn future_or_malformed_navigation_epochs_are_refused() {
+    let target_body = body(&[("target-block", "The current scene.")]);
+    let chapter_body = body(&[("chapter-block-0", "Exact evidence.")]);
+    let chapter = source("chapter", "chapter-doc", &chapter_body);
+
+    let mut future = request(
+        &target_body,
+        &chapter_body,
+        100_000,
+        vec![view(&chapter, "Exact evidence.")],
+    );
+    future.frozen.snapshot.context_source_epoch = "2".into();
+    future.frozen.navigation_views[0].source_context_epoch = "3".into();
+    let error = compile_packet(&future).expect_err("a view from a future epoch");
+    assert!(matches!(error, PacketError::SourceBinding { .. }));
+
+    let mut malformed_view = request(
+        &target_body,
+        &chapter_body,
+        100_000,
+        vec![view(&chapter, "Exact evidence.")],
+    );
+    malformed_view.frozen.navigation_views[0].source_context_epoch = "01".into();
+    let error = compile_packet(&malformed_view).expect_err("a noncanonical view epoch");
+    assert!(matches!(error, PacketError::SourceBinding { .. }));
+
+    let mut malformed_snapshot = request(
+        &target_body,
+        &chapter_body,
+        100_000,
+        vec![view(&chapter, "Exact evidence.")],
+    );
+    malformed_snapshot.frozen.snapshot.context_source_epoch = "not-an-epoch".into();
+    let error = compile_packet(&malformed_snapshot).expect_err("a malformed snapshot epoch");
+    assert!(matches!(error, PacketError::SourceBinding { .. }));
+}
+
+#[test]
 fn smaller_view_is_delivered_without_duplicate_original_source() {
     let target_body = body(&[("target-block", "The current scene.")]);
     let chapter_body = body(&[
@@ -419,6 +485,20 @@ fn dependency_and_quote_tampering_fails_even_with_recomputed_hash() {
         vec![edited_quote],
     ))
     .expect_err("edited quote with a recomputed candidate hash");
+    assert!(matches!(error, PacketError::SourceBinding { .. }));
+
+    let mut unknown_source = view(&chapter, "Exact evidence.");
+    unknown_source.candidate.source.revision_id = "revision-edited".into();
+    unknown_source.dependencies = vec![unknown_source.candidate.source.clone()];
+    unknown_source.reference.content_hash =
+        navigation_content_hash(&unknown_source.candidate).unwrap();
+    let error = compile_packet(&request(
+        &target_body,
+        &chapter_body,
+        100_000,
+        vec![unknown_source],
+    ))
+    .expect_err("a candidate bound to an exact but unknown source revision");
     assert!(matches!(error, PacketError::SourceBinding { .. }));
 }
 

@@ -1720,7 +1720,7 @@ fn read_memory_view(db: &Connection, job_id: &str, reveal: bool) -> CoreResult<O
 pub(super) fn validate_navigation_view_record(
     db: &Connection,
     view_id: &str,
-    enclosing_snapshot_id: &str,
+    enclosing_snapshot_id: Option<&str>,
 ) -> CoreResult<MemoryView> {
     check_id(view_id)?;
     let job_id: Option<String> = db
@@ -1737,7 +1737,7 @@ pub(super) fn validate_navigation_view_record(
         )
     })?;
     let row = read_memory_job_row(db, &job_id)?;
-    if row.snapshot_id == enclosing_snapshot_id {
+    if enclosing_snapshot_id.is_some_and(|id| row.snapshot_id == id) {
         return Err(CoreError::new(
             "InvalidMemoryStorage",
             "A generated navigation view recursively refers to its enclosing snapshot.",
@@ -1802,22 +1802,23 @@ fn resolve_view_current(db: &Connection, mut view: MemoryView) -> CoreResult<Mem
     }
     let current_epoch = current_source_epoch(db)?;
     let current = read_document(db, &view.document_id)?;
-    let basis_current = owner_current
-        && current.head == view.target
-        && current_epoch == view.context_source_epoch
-        && view.disclosure_policy_version == current_policy;
     if !owner_current {
         // Rotated/recovered rows remain visible as bounded history, but can
         // never look current or authorize work in the new project identity.
         view.current = false;
         view.source_changed = false;
     } else {
-        // "Current" describes the source/policy basis, not a singleton
-        // winning candidate.  Several explicit refresh jobs may therefore
-        // remain current for the same exact basis; their immutable job IDs
-        // keep those candidates distinct for the caller to choose.
-        view.current = view.current && basis_current;
-        view.source_changed = !basis_current;
+        let source_current = current.head == view.target;
+        let generation_epoch = parse_version(&view.context_source_epoch)?;
+        let current_epoch = parse_version(&current_epoch)?;
+        // C4-C narrows freshness to the closed one-chapter MemoryAnalysis
+        // chain.  A later unrelated source epoch does not stale an aid whose
+        // exact source revision is still current; a future epoch is never
+        // accepted as current.
+        view.current = source_current
+            && generation_epoch <= current_epoch
+            && validate_navigation_view_record(db, &view.id, None).is_ok();
+        view.source_changed = !source_current;
     }
     Ok(view)
 }

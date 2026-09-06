@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 17;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 18;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -88,8 +88,10 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         if version < 17 {
             tx.execute_batch(include_str!("017_navigation_context.sql"))?;
         }
-        // Older readers also reject reviewed-basis JSON fields. The project
-        // version prevents them from opening newer receipts for writing.
+        // Schema 18 changes no tables or historical bytes. It raises the reader
+        // floor: schema-17 readers reject chapter-only navigation views from
+        // an earlier source epoch, now valid under their exact dependencies.
+        // The project version prevents those readers opening newer receipts.
         tx.pragma_update(None, "user_version", LATEST_SCHEMA_VERSION)?;
         tx.commit().map_err(CoreError::uncertain)?;
     }

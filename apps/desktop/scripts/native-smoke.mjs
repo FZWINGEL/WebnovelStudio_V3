@@ -1155,6 +1155,36 @@ try {
     const run = discussion.runs[0];
     const packet = await invoke('prepared_story_context', { access: opened.access, packetId: run.packetId });
     const frozen = await invoke('story_context_snapshot', { access: opened.access, snapshotId: packet.receipt.snapshotId });
+    const middle = opened.documents.find(item => item.head.documentId === 'navigation-middle');
+    await invoke('save_snapshot', { request: { access: opened.access, operationId: 'change-navigation-unrelated', expected: middle.head, localGeneration: '1', cause: 'typing',
+      body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'navigation-middle' }, content: [{ type: 'text', text: 'The road turned beneath a different moon. '.repeat(3600) }] }] } } } });
+    const originalStaleAfterUnrelated = await invoke('prepared_story_context_is_current', { access: opened.access, packetId: run.packetId });
+    const modelSelection = (await invoke('provider_state')).settings.active;
+    const followUp = await invoke('start_discussion', { request: {
+      access: opened.access, operationId: 'navigation-follow-up', expected: fixture.target.head,
+      instruction: 'What did the earlier promise establish?', scope: null, pinnedDocumentIds: [], safeBrief: null,
+      budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' }, previousRunId: null,
+    }, modelSelection });
+    // The native command returns after durable begin, while the local mock
+    // worker appends its chunks asynchronously.  Drain that worker here so
+    // the later source edit/reload assertions cannot observe a queued run.
+    const followUpDeadline = Date.now() + 15000;
+    let followUpStored;
+    do {
+      const latest = await invoke('read_discussion', { access: opened.access, documentId: fixture.target.head.documentId });
+      followUpStored = latest.runs.find(item => item.id === followUp.run.id);
+      if (followUpStored?.status === 'completed') break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } while (Date.now() < followUpDeadline);
+    if (followUpStored?.status !== 'completed') {
+      throw new Error(`Follow-up mock discussion did not complete before the navigation checks: ${JSON.stringify(followUpStored)}`);
+    }
+    const followUpPacket = followUp.packet;
+    const followUpFrozen = await invoke('story_context_snapshot', { access: opened.access, snapshotId: followUpPacket.receipt.snapshotId });
+    const followUpCurrent = await invoke('prepared_story_context_is_current', { access: opened.access, packetId: followUpPacket.receipt.packetId });
+    const followUpView = (followUpFrozen.navigationViews ?? []).find(view => view.reference.viewId === fixture.view.id);
+    if (!followUpView) throw new Error(`Fresh discussion did not retain the unchanged chapter memory view: ${JSON.stringify(followUpFrozen.navigationViews)}`);
+    const followUpEvidence = await invoke('read_story_context_source', { access: opened.access, snapshotId: followUpFrozen.snapshot.snapshotId, handle: followUpView.dependencies[0].revisionId });
     const old = opened.documents.find(item => item.head.documentId === fixture.view.documentId);
     await invoke('save_snapshot', { request: { access: opened.access, operationId: 'change-navigation-source', expected: old.head, localGeneration: '1', cause: 'typing',
       body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'navigation-old' }, content: [{ type: 'text', text: 'The key was returned.' }] }] } } } });
@@ -1166,11 +1196,24 @@ try {
       const read = await invoke('read_memory', { access: opened.access, documentId: document.head.documentId });
       projectMemoryJobs += read.jobs.length;
     }
-    return { packet, frozen, historical, current, freshViews: fresh.navigationViews ?? [], projectMemoryJobs };
+    return { packet, frozen, originalStaleAfterUnrelated, followUpPacket, followUpFrozen, followUpCurrent, followUpView, followUpEvidence, historical, current, freshViews: fresh.navigationViews ?? [], projectMemoryJobs };
   }, navigationFixture);
   assert.equal(navigationRetention.packet.receipt.navigationViews.length, 1);
   assert.equal(navigationRetention.packet.receipt.navigationViews[0].viewId, navigationFixture.view.id);
   assert.equal(navigationRetention.frozen.navigationViews[0].candidate.source.revisionId, navigationFixture.view.source.revisionId);
+  assert.equal(navigationRetention.originalStaleAfterUnrelated, false);
+  assert.equal(navigationRetention.followUpCurrent, true);
+  assert.equal(navigationRetention.followUpPacket.receipt.navigationViews.length, 1);
+  assert.equal(navigationRetention.followUpPacket.receipt.navigationViews[0].viewId, navigationFixture.view.id);
+  assert.equal(navigationRetention.followUpView.sourceContextEpoch, navigationFixture.view.contextSourceEpoch);
+  assert(BigInt(navigationRetention.followUpView.sourceContextEpoch) < BigInt(navigationRetention.followUpFrozen.snapshot.contextSourceEpoch), 'Fresh discussion must preserve the old view generation epoch while freezing the newer request epoch');
+  assert.deepEqual(navigationRetention.followUpView.candidate, navigationFixture.view.candidate);
+  assert.deepEqual(navigationRetention.followUpView.dependencies, [navigationFixture.view.source]);
+  assert(navigationRetention.followUpEvidence.passages.some(passage => passage.text.includes('Ren promised to return the silver key.')));
+  assert(navigationRetention.followUpEvidence.passages.reduce((total, passage) => total + passage.text.length, 0) > 100000, 'Fresh discussion must retain exact full evidence for the unchanged memory source');
+  const followUpEnvelope = JSON.parse(navigationRetention.followUpPacket.messages[1].content);
+  assert.equal(followUpEnvelope.derivedViews.views.length, 1);
+  assert.equal(followUpEnvelope.derivedViews.views[0].reference.viewId, navigationFixture.view.id);
   const navigationEnvelope = JSON.parse(navigationRetention.packet.messages[1].content);
   assert.equal(navigationEnvelope.derivedViews.views.length, 1);
   assert.equal(navigationEnvelope.derivedViews.coverage, 'unreviewedGenerated');

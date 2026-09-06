@@ -2136,7 +2136,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema17-")
+            .starts_with("schema6-before-schema18-")
     }));
 }
 

@@ -240,7 +240,7 @@ If the source changed during analysis, retain the result as historical job evide
 
 A text-only chapter digest depends on that chapter's exact revision. A claim such as “This resolves the promise from chapter 3” also depends on the earlier promise and story basis. Mark those different dependency sets explicitly.
 
-**Current C4-A/B implementation limitation:** generated chapter views also require the project-wide source epoch to match. Consequently, an unrelated story edit prevents reuse until a new explicit refresh. This is a conservative intermediate rule, not the intended final chapter-only freshness behavior. The next memory increment should qualify exact dependency freshness for the closed single-chapter recipe while preserving the collection-level epoch for request/proposal staleness and contextual interpretations. Disclosure and namespace checks remain mandatory.
+**C4-C implementation:** the closed single-chapter `MemoryAnalysis` recipe derives freshness from its exact chapter dependency and authenticated immutable history. Unrelated story edits preserve reuse without refreshing, and the view retains its original generation epoch. Collection-level epochs still fence frozen requests, proposals, and contextual interpretations. Disclosure and namespace checks remain mandatory; current evidence is recorded separately in implementation status.
 
 Changing chapter 8 can leave chapter 12's literal text index usable while invalidating its continuity interpretation. Recompute known dependents; preserve V3's conservative later-chapter review fence for unrecorded impacts. Missing dependency links do not prove independence.
 

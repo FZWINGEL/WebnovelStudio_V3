@@ -265,7 +265,7 @@ fn freeze_persists_current_navigation_and_keeps_historical_payload_after_stale_e
 }
 
 #[test]
-fn unrelated_new_evidence_epoch_excludes_old_navigation_view() {
+fn unrelated_new_evidence_epoch_reuses_old_navigation_view() {
     let fixture = Fixture::new();
     fixture.install_optional_memory();
     let frozen = fixture.freeze("freeze-before-unrelated-evidence");
@@ -297,7 +297,7 @@ fn unrelated_new_evidence_epoch_excludes_old_navigation_view() {
             policy: fixture.policy(),
         })
         .unwrap();
-    assert!(newer.navigation_views.is_empty());
+    assert_eq!(newer.navigation_views.len(), 1);
     assert_eq!(
         fixture
             .project
@@ -504,8 +504,28 @@ fn backup_rejects_recursive_memory_snapshot_reference() {
 fn recovered_copy_does_not_reuse_original_navigation_views() {
     let fixture = Fixture::new();
     fixture.install_optional_memory();
+    fixture
+        .project
+        .create_document(CreateDocument {
+            access: fixture.access.clone(),
+            operation_id: "create-copy-unrelated".into(),
+            document_id: "copy-unrelated".into(),
+            title: "Unrelated copy chapter".into(),
+            kind: "chapter".into(),
+            body: body("This advances the source epoch after memory generation."),
+        })
+        .unwrap();
     let frozen = fixture.freeze("original-navigation-copy");
     assert_eq!(frozen.navigation_views.len(), 1);
+    assert_eq!(
+        fixture
+            .project
+            .story_snapshot(fixture.access.clone(), frozen.snapshot.snapshot_id.clone())
+            .unwrap()
+            .navigation_views
+            .len(),
+        1
+    );
 
     let archive = fixture.root.with_extension("copy.wnsbackup");
     create_backup(&fixture.project, &archive).unwrap();
@@ -513,6 +533,12 @@ fn recovered_copy_does_not_reuse_original_navigation_views() {
     let recovered = recover_backup(&archive, &recovered_root, "Recovered navigation").unwrap();
     let recovered_access = recovered.attach("recovered-navigation".into()).unwrap();
     assert_ne!(recovered.info.project_id, frozen.snapshot.project_id);
+    let recovered_memory = recovered
+        .read_memory(recovered_access.clone(), "optional".into())
+        .unwrap();
+    assert!(recovered_memory.views.iter().any(|view| {
+        view.id == frozen.navigation_views[0].reference.view_id && view.historical && !view.current
+    }));
     assert_eq!(
         recovered
             .story_snapshot(
