@@ -1,6 +1,6 @@
 # WebnovelStudio V3 — first-slice implementation plan
 
-**Current provider choice:** the user authorized the V2 Codex reference and real LLM requests. The first integrated live development path is Codex GPT-5.6-Luna/Max/Fast on the exact checked Windows executable. This supersedes earlier provider ordering in W8 without changing its qualification gates. See [ADR 0011](ADR_0011_LIVE_CODEX.md) and [implementation status](IMPLEMENTATION_STATUS.md).
+**Current provider direction:** the user authorized the V2 Codex reference and real LLM requests. Codex is compatibility-checked against the installed CLI at connection time; V3 does not pin a Codex version or executable hash. All background summary, story-memory, and other maintenance calls use GPT-5.6 Luna with xhigh reasoning. Author-facing writing and revision uses the persistent V2-style model picker. V2 adapter behavior and configurable OpenAI-compatible endpoint APIs are planned provider work, with explicit Settings configuration and no silent substitution. Historical 0.153.3 dispatches remain dated evidence only. See [ADR 0011](ADR_0011_LIVE_CODEX.md) and [implementation status](IMPLEMENTATION_STATUS.md).
 
 **Baseline snapshot, 5 September 2026:** W0 was implemented as a native editor spike; W1/W2 work had landed at the stated boundaries and W3 registry/transfer work was active. Later implementation status and qualification evidence are maintained in [implementation status](IMPLEMENTATION_STATUS.md).
 
@@ -92,13 +92,13 @@ Build the core project's owned connection thread, migrations, working documents,
 
 **Done when:** delayed acknowledgments never replace newer editor text; the same operation/payload is idempotent; changed payload with a reused ID fails; stale versions/leases fail; definite save errors retain the live buffer; uncertain outcomes fence and reconcile before further writes; and every command carries the project/document/session identity needed to reject late callbacks. Kill the process after commit but before acknowledgment and recover the correct current body. Read back WAL/FULL/foreign-key configuration in the test binary. These safeguards precede the A author trial and a polished editor toolbar.
 
-**Current W2 status:** core and frontend session work is implemented, while persistent UI integration and the remaining file-backed persistence/reconciliation evidence are open. This status does not establish an integrated UI/persistence path.
+**Current W2 status:** core and frontend session work, persistent UI integration, default Workspace wiring, and file-backed save/reconciliation paths are implemented at development boundaries. The broader author trial and complete persistence/recovery evidence remain open.
 
 ### W3 — Library, free-order work, recovery, and the A trial
 
 **Dependencies:** W2. **Gates:** M/P plus development-native author trial.
 
-**Current W3 status:** registry and transfer work is active; the package remains incomplete and its A-trial gate is open.
+**Current W3 status:** registry, library, transfer, recovery, and free-order workspace flows are implemented at development boundaries. The A-trial gate, broader native dialogs, and release qualification remain open.
 
 Implement New/Open/Rename/Duplicate/Archive/Locate, blank note/character/chapter creation, last item/caret persistence, and detach-after-flush switching. Add thread/composer resume state with W4 when conversations exist. Add the OS project lock and normal second-launch activation behavior. Keep project identity and receipt namespaces explicit across copies. Do not add Import V2; its evidence gate is F1.
 
@@ -194,7 +194,7 @@ Basic source freezing, exact scope, and exclusion of privileged planning materia
 |---|---|---|
 | E1 — Native editor suitability | Restricted editor in the actual Tauri development window; English keyboard/dead-key input, selection composer, clipboard, screen reader, resize/focus; repeat minimal failures on a supported WebView | Keep Tauri/Tiptap. Trial Electron with the same editor/core only for an unresolved release blocker; direct PM only if wrapper behavior is the blocker. |
 | E2 — Snapshot/Apply cost | Real IPC and file-backed FULL commits with approximately 20k and 250k UTF-16-unit fixtures, many marks/blocks, concurrent streaming; measure serialization, input-to-paint, barrier, memory | Keep snapshots and the short barrier. Targets remain proposals. Optimize renders/copies first; sustained measured failure is required before an incremental protocol. |
-| E3 — CLI containment and honesty | Exact executable/version; isolated temp working directory; unexpected config/tool-loading attempt; child/grandchild fixture; Stop and internal-retry observation | Support only qualified modes. HTTP is preferable to pretending undocumented CLI controls exist. Billing/exactly-once guarantees remain out of scope. |
+| E3 — CLI containment and honesty | Installed-CLI compatibility discovery; record the observed version/hash per request; isolated temp working directory; unexpected config/tool-loading attempt; child/grandchild fixture; Stop and internal-retry observation | Support only qualified modes. Do not pin a frequently updated Codex release. HTTP/OpenAI-compatible adapters remain explicit configurable routes. Billing/exactly-once guarantees remain out of scope. |
 | E4 — Conservative conflict burden | At B: type while feedback runs, inspect stale proposals, refresh, and apply one of three suggestions. At F2: separately test the earlier-chapter review fence. | Keep conservative staleness initially. Design bounded rebase/selective invalidation only for a demonstrated burden and prove it against the adversarial suite. |
 | E5 — Memory value | Labelled exact evidence/knowledge-boundary tasks plus author review of paired outputs using frozen model/settings; compare recent prose, exact-state/search, and any richer memory | Add a feature only for a measured failure it fixes. Attractive examples do not establish long-novel quality. |
 

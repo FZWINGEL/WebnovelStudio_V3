@@ -36,7 +36,7 @@ describe('story memory panel', () => {
 
   it('explains unavailable model selection and disables refresh', async () => {
     await render({ modelAvailable: false, modelLabel: 'Unavailable model' });
-    expect(host.textContent).toContain('The selected model is unavailable for story memory.');
+    expect(host.textContent).toContain('The story-memory model is unavailable. Check the Codex connection in Settings');
     expect(button('Refresh story memory').disabled).toBe(true);
     await click('Refresh story memory');
     expect(props.onRefresh).not.toHaveBeenCalled();

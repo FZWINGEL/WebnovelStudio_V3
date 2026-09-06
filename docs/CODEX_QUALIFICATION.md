@@ -1,8 +1,55 @@
 # Codex qualification evidence
 
-This document records versioned discovery and thirteen bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, one native chapter-memory request, one native story-continuation request, one native structured-suggestion request, and two native promise-context discussions. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
+This document records historical versioned discovery and sixteen bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, one native chapter-memory request, one native story-continuation request, one native structured-suggestion request, two native promise-context discussions, and three invocations in one native story lookup. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
 
-## Exact installed identity and discovery
+## Current provider policy
+
+Codex is not version- or executable-hash-pinned. The adapter discovers the
+installed CLI, checks its current launch and response surface, and records the
+observed version/hash with each request. An update after connection check
+requires a fresh check before dispatch; no older executable is silently chosen. The exact `0.153.3` identity below describes historical
+qualification only. A 6 September 2026 C6 preflight found installed `0.153.4`
+while the old profile required `0.153.3`; it made zero model calls and is
+recorded as a compatibility finding below.
+
+Background summary, chapter-memory, and other maintenance calls route to
+GPT-5.6 Luna with xhigh reasoning. Author-facing writing and
+revision should use the persistent V2-style model picker and selected traits.
+The V2 adapters/catalog behavior and configurable OpenAI-compatible endpoint
+adapters remain in-progress work; the HTTP transport has nine local mock-server tests but no native endpoint integration yet. They must use the same packet, receipt, cleanup,
+and failure contracts and must never silently substitute a provider or model.
+
+## Current 0.153.4 lookup qualification (generations fourteen to sixteen)
+
+See the [current provider checkpoint](IMPLEMENTATION_STATUS.md#current-provider-checkpoint-compatibility-and-http-foundation)
+for the accepted 540-Rust/325-frontend wrapper and native executable identity.
+The 6 September live lookup used the current application profile,
+GPT-5.6-Luna/xhigh/priority, and one immutable story basis. Invocation 1 searched
+for an old compass promise; invocation 2 read its complete source; invocation 3
+answered using the exact promise and the separate splint explanation. It did
+not equate missing payoff evidence with proof that the promise was unfulfilled.
+
+| Invocation | Confirmed stdin bytes | Input tokens | Output tokens | Reasoning output tokens |
+| --- | ---: | ---: | ---: | ---: |
+| Search request | 23582 | 5881 | 189 | 141 |
+| Full-read request | 24521 | 6204 | 319 | 260 |
+| Final answer | 23869 | 6436 | 1516 | 1413 |
+
+All three results completed with settled local cleanup. Requested traits and
+observed executable identity were retained, but effective upstream traits were
+not echoed. The model could not name the chapter because the retrieved lookup
+metadata lacked its display title. This is useful evidence of retrieval and
+limited source use, not full task or narrative-quality acceptance.
+
+The initial harness failed after these calls on its exact context-selector
+label (`.local/live-lookup-qualification/qualification.json`). Same-data reopen
+passed using the select ID and retained all three contexts plus unchanged prose
+without another model request
+(`.local/live-lookup-reopen-qualification/qualification.json`). The failed record
+is preserved. Cumulative live generations: sixteen. No HTTP provider request
+has been made.
+
+## Historical installed identity and discovery (0.153.3)
 
 The tested executable was the direct native desktop `codex.exe`, distinct from the PATH/npm shim. Its exact version output was `codex-cli 0.153.3`. The native `app-server` handshake also reported user-agent version `0.153.3`; a direct stdio launch used its own process and did not forward to an already-running desktop host.
 
@@ -33,7 +80,7 @@ These controls reduce ordinary ambient surfaces but do not prove packet-only beh
 
 ## Pure launch profile prepared for the next adapter slice
 
-The exported pure constructor in [`codex_profile.rs`](../crates/core/src/providers/codex_profile.rs) accepts version output and an app-owned catalog path, rejects every version other than `0.153.3`, and produces the existing Windows stdin `exec` argument shape. It does not locate or launch Codex, read auth/config state, write the catalog, or make a provider request. The eventual process and catalog-file wiring remain outside this pure module. Its four focused tests pass.
+The historical exported pure constructor in [`codex_profile.rs`](../crates/core/src/providers/codex_profile.rs) accepted version output and an app-owned catalog path, rejected every version other than `0.153.3`, and produced the then-current Windows stdin `exec` argument shape. That exact gate is historical evidence and must be replaced by compatibility discovery before the provider path is treated as current. The constructor did not locate or launch Codex, read auth/config state, write the catalog, or make a provider request.
 
 Its requested Luna catalog keeps the discovered identity, `low`/`medium`/`high`/`xhigh`/`max` effort set, and `priority`/`Fast` service label while setting `tool_mode="direct"`, `shell_type="disabled"`, `apply_patch_tool_type=null`, `experimental_supported_tools=[]`, `multi_agent_version=null`, and `supports_search_tool=false`. Context limits remain absent because the live response did not expose them. Runtime overrides include `approval_policy="never"`, `web_search="disabled"`, empty MCP/plugins, disabled app/skill/instruction surfaces, `[agents].enabled=false`, disabled `tools.experimental_request_user_input` and `tools.update_plan`, hidden tool metadata, the `story-context` filesystem/network profile, and explicit 0.153.3 gates for shell, unified exec, request permissions, view image, sleep, deferred execution, token budget, current-time reminders, multi-agent, apps, plugins, MCP apps, skills, image/web/browser/computer/code-mode, goals, guardian, hooks, remote plugins, in-app surfaces, workspace dependencies, shell snapshots, capability discovery, retries, and elicitation. Removed/deprecated compatibility aliases are not emitted. The profile preserves `default_permissions="story-context"` through runtime overrides instead of adding the mutually exclusive `--sandbox` mode, and ends with `-` so the future adapter's packet remains stdin-only.
 
@@ -151,13 +198,18 @@ native screenshots, and `.local/promises-live-named.log`. Executable SHA-256 was
 restricted title exclusion has deterministic and native development evidence,
 not a live restricted-generation claim from these two discussions.
 
-The C6 bounded story-lookup experiment has not been dispatched. The prepared
-qualification harness is intended to make an initial request, receive a
-`story-lookup.v1` search request, resolve it locally, make a subsequent exact
-read request, and inspect the final packet; preparation is not provider
-evidence. The live-generation total therefore remains thirteen. No C6 live
-result, provider-native function-calling claim, model-specific token-budget
-claim, or narrative-quality conclusion is recorded here.
+The C6 bounded story-lookup experiment has not produced a generation. Its
+prepared harness was run on 6 September 2026 and stopped during compatibility
+preflight because the installed CLI reported `0.153.4` while the old profile
+required `0.153.3`. It made **zero model calls**; the record is
+`.local/live-lookup-preflight-01533/qualification.json`. The live-generation
+total therefore remains thirteen. This is a compatibility finding, not a
+failed generation. The harness is intended to make an initial request, receive
+a `story-lookup.v1` search request, resolve it locally, make a subsequent exact
+read request, and inspect the final packet after the compatibility-aware
+adapter is implemented. No C6 live result, provider-native function-calling
+claim, model-specific token-budget claim, or narrative-quality conclusion is
+recorded here.
 
 ## Authentication, sources, and cleanup limits
 
@@ -175,6 +227,12 @@ After the normal-home run, the older ignored harness was corrected to use the su
 
 These dispatches did not qualify the full refusal/truncation and broken/partial-stream matrix, provider-side cancellation or billing cessation, all recovered terminal outcomes, credential-entry/storage leakage, model token budgeting, general structured-output reliability, effective model-trait reporting, or provider-managed retry accounting. The eighth request established one native structured edit and same-data reopen, and the tenth established one native continuation and same-data reopen; neither closes those broader gates. The one synthetic Stop case only establishes the local `CodexStream` status and cleanup signal. They also did not prove that disabled feature settings remove every tool source. V3 must preserve upstream failures and partial output, fail closed on unexpected requests, and avoid claims of exactly-once external execution or billing.
 
-The bounded Windows development path is available only after an explicit exact-binary connection check, with the fixed Luna/Max/Fast binding. Other choices remain unavailable, and full provider support is still unqualified. Manual offline writing remains independent of this evidence. See [W8 in implementation status](IMPLEMENTATION_STATUS.md#W8--one-qualified-live-provider), [E3 in the first-slice plan](V3_FIRST_SLICE_PLAN.md#5-experiments-that-can-change-the-architecture), and the provider/lifecycle contract in [V3_ARCHITECTURE_REFINED.md](V3_ARCHITECTURE_REFINED.md#11-providers-jobs-and-interruption). No further live requests are planned for this profile qualification.
+The bounded Windows development path is available only after an explicit
+installed-CLI compatibility check. Historical dispatches used the
+Luna/Max/priority binding; background summary and memory work now target
+Luna/xhigh by policy, while author-facing requests are intended to follow the
+model picker. Other choices remain subject to adapter qualification, and full
+provider support is still unqualified. Manual offline writing remains
+independent of this evidence. See [W8 in implementation status](IMPLEMENTATION_STATUS.md#W8--one-qualified-live-provider), [E3 in the first-slice plan](V3_FIRST_SLICE_PLAN.md#5-experiments-that-can-change-the-architecture), and the provider/lifecycle contract in [V3_ARCHITECTURE_REFINED.md](V3_ARCHITECTURE_REFINED.md#11-providers-jobs-and-interruption).
 
 Official references used during qualification: [noninteractive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [sandboxing](https://learn.chatgpt.com/docs/sandboxing), and the [Codex app-server lifecycle](https://learn.chatgpt.com/docs/app-server). Additional exact-tag source links appear above; ignored local source notes are retained in `../.local/codex-contract-research.md`.

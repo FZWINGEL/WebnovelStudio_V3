@@ -1,4 +1,4 @@
-//! Pure launch profile for the exact Codex CLI surface qualified by W8.
+//! Pure launch profile for the capability-gated Codex CLI surface.
 //!
 //! This module only constructs arguments, `-c` overrides, and a restrictive
 //! model catalog.  It does not locate an executable, read Codex state, inspect
@@ -9,18 +9,26 @@ use serde_json::Value;
 use std::ffi::OsString;
 use std::path::Path;
 
-pub const CODEX_CLI_VERSION: &str = "0.153.3";
+/// Stable application identity for the stdin-based Codex adapter. The
+/// observed CLI version is recorded separately and is capability-gated at
+/// connection time.
+pub const CODEX_PROFILE_VERSION: &str = "codex-stdin.v1";
 pub const CODEX_LUNA_MODEL: &str = "gpt-5.6-luna";
-pub const CODEX_MAX_EFFORT: &str = "max";
+pub const CODEX_REASONING_EFFORT: &str = "xhigh";
+/// Compatibility name for callers that still refer to the old constant.
+pub const CODEX_MAX_EFFORT: &str = CODEX_REASONING_EFFORT;
 pub const CODEX_PRIORITY_SERVICE_TIER: &str = "priority";
 pub const CODEX_FAST_TIER_LABEL: &str = "Fast";
 
 const MAX_VERSION_OUTPUT_BYTES: usize = 512;
+const MAX_VERSION_TOKEN_BYTES: usize = 128;
 
 /// The exact version and local launch material that a later adapter may use.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodexLaunchProfile {
-    pub executable_version: &'static str,
+    /// The CLI version observed from this executable, without the `codex-cli`
+    /// prefix. This is descriptive metadata, not an allowlist decision.
+    pub executable_version: String,
     pub model: &'static str,
     pub reasoning_effort: &'static str,
     pub service_tier: &'static str,
@@ -38,7 +46,7 @@ impl CodexLaunchProfile {
         version_output: &str,
         catalog_path: &Path,
     ) -> Result<Self, CodexProfileError> {
-        validate_version_output(version_output)?;
+        let executable_version = parse_version_output(version_output)?;
         let catalog = CodexModelCatalog::restrictive_luna();
         let catalog_json = catalog
             .to_json()
@@ -46,7 +54,7 @@ impl CodexLaunchProfile {
         let catalog_path = config_path(catalog_path)?;
 
         Ok(Self {
-            executable_version: CODEX_CLI_VERSION,
+            executable_version,
             model: CODEX_LUNA_MODEL,
             reasoning_effort: CODEX_MAX_EFFORT,
             service_tier: CODEX_PRIORITY_SERVICE_TIER,
@@ -86,14 +94,42 @@ impl CodexLaunchProfile {
         arguments.push(OsString::from("-"));
         Ok(arguments)
     }
+
+    /// Build the same stdin invocation with an intentionally missing output
+    /// schema. The native runtime uses this before accepting a connection so
+    /// strict configuration and the JSON/exec surface are tested without a
+    /// provider request.
+    pub fn preflight_arguments(
+        &self,
+        cwd: &Path,
+        missing_schema: &Path,
+        unknown_override: Option<&str>,
+    ) -> Result<Vec<OsString>, CodexProfileError> {
+        let mut arguments = self.exec_arguments(cwd)?;
+        let stdin_position = arguments
+            .iter()
+            .rposition(|argument| argument == "-")
+            .expect("exec_arguments always ends with stdin marker");
+        arguments.splice(
+            stdin_position..stdin_position,
+            [
+                OsString::from("--output-schema"),
+                OsString::from(config_path(missing_schema)?),
+            ],
+        );
+        if let Some(override_value) = unknown_override {
+            arguments.splice(
+                stdin_position..stdin_position,
+                [OsString::from("-c"), OsString::from(override_value)],
+            );
+        }
+        Ok(arguments)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodexProfileError {
-    UnsupportedVersion {
-        expected: &'static str,
-        observed: String,
-    },
+    InvalidVersionOutput { observed: String },
     InvalidPath(String),
     CatalogSerialization(String),
 }
@@ -101,9 +137,9 @@ pub enum CodexProfileError {
 impl std::fmt::Display for CodexProfileError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnsupportedVersion { expected, observed } => write!(
+            Self::InvalidVersionOutput { observed } => write!(
                 formatter,
-                "unsupported Codex CLI version; expected {expected}, observed {observed}"
+                "Codex --version output must be a bounded `codex-cli <version>` value; observed {observed}"
             ),
             Self::InvalidPath(path) => {
                 write!(formatter, "path cannot be used in Codex config: {path}")
@@ -120,22 +156,39 @@ impl std::fmt::Display for CodexProfileError {
 
 impl std::error::Error for CodexProfileError {}
 
-fn validate_version_output(version_output: &str) -> Result<(), CodexProfileError> {
-    let exact = version_output
-        .split_whitespace()
-        .any(|token| token.strip_prefix('v').unwrap_or(token) == CODEX_CLI_VERSION);
-    if exact {
-        return Ok(());
+fn parse_version_output(version_output: &str) -> Result<String, CodexProfileError> {
+    let observed = version_output.trim();
+    let bounded_observed = observed.chars().take(MAX_VERSION_OUTPUT_BYTES).collect();
+    if observed.is_empty() || observed.len() > MAX_VERSION_OUTPUT_BYTES {
+        return Err(CodexProfileError::InvalidVersionOutput {
+            observed: bounded_observed,
+        });
     }
-    let observed = version_output
-        .trim()
-        .chars()
-        .take(MAX_VERSION_OUTPUT_BYTES)
-        .collect();
-    Err(CodexProfileError::UnsupportedVersion {
-        expected: CODEX_CLI_VERSION,
-        observed,
-    })
+    let mut fields = observed.split_whitespace();
+    let Some(prefix) = fields.next() else {
+        return Err(CodexProfileError::InvalidVersionOutput {
+            observed: bounded_observed,
+        });
+    };
+    let Some(version) = fields.next() else {
+        return Err(CodexProfileError::InvalidVersionOutput {
+            observed: bounded_observed,
+        });
+    };
+    if prefix != "codex-cli"
+        || fields.next().is_some()
+        || version.is_empty()
+        || version.len() > MAX_VERSION_TOKEN_BYTES
+        || !version.as_bytes()[0].is_ascii_digit()
+        || !version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+'))
+    {
+        return Err(CodexProfileError::InvalidVersionOutput {
+            observed: bounded_observed,
+        });
+    }
+    Ok(version.to_owned())
 }
 
 fn config_path(path: &Path) -> Result<String, CodexProfileError> {
@@ -183,7 +236,7 @@ fn restrictive_overrides(catalog_path: &str) -> Vec<String> {
         "permissions.story-context.network.enabled=false".to_owned(),
     ];
 
-    // These are the exact 0.153.3 feature keys needed to close the core and
+    // These are the exact 0.153.4 feature keys needed to close the core and
     // installed extension registration paths. Apply-patch availability is
     // controlled by model metadata; tool search is removed in this release.
     for (key, enabled) in [

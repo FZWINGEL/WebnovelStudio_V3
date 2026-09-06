@@ -3,6 +3,7 @@ use serde::Serialize;
 #[cfg(windows)]
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use webnovel_core::context::packet::ProviderBinding;
 use webnovel_core::projects::{CoreError, CoreResult};
 #[cfg(windows)]
 use webnovel_core::projects::{discussions::RunOwner, memory::MemoryOwner};
@@ -41,8 +42,30 @@ struct ConnectionView {
 pub fn is_supported_choice(choice: &ModelSelection) -> bool {
     choice.provider_id == "codex"
         && choice.model_id == "gpt-5.6-luna"
-        && choice.reasoning.as_deref() == Some("max")
+        && choice.reasoning.as_deref() == Some("xhigh")
         && choice.service_tier.as_deref() == Some("priority")
+}
+
+pub fn binding_matches_choice(binding: &ProviderBinding, choice: &ModelSelection) -> bool {
+    binding_matches_saved_model(binding, choice)
+        && binding.reasoning == choice.reasoning
+        && binding.service_tier == choice.service_tier
+}
+
+pub fn binding_matches_saved_model(binding: &ProviderBinding, choice: &ModelSelection) -> bool {
+    binding.validate().is_ok()
+        && binding.provider_id == choice.provider_id
+        && binding.model_id == choice.model_id
+}
+
+#[cfg(windows)]
+pub fn connection_binding(connection: &CodexConnection) -> ProviderBinding {
+    ProviderBinding::codex_luna_runtime(connection.version(), connection.fingerprint())
+}
+
+#[cfg(windows)]
+pub fn connection_matches_binding(connection: &CodexConnection, binding: &ProviderBinding) -> bool {
+    binding == &connection_binding(connection)
 }
 fn unavailable() -> CoreError {
     CoreError::new(
@@ -67,7 +90,7 @@ impl DesktopProviders {
                 model.key.provider_id == "codex" && model.key.model_id == "gpt-5.6-luna"
             }) {
                 model.ready = true;
-                model.status_detail = "Connected through Codex. Available with Max reasoning and Fast response speed.".into();
+                model.status_detail = "Connected through Codex. Available with Extra high reasoning and Fast response speed.".into();
             }
             if state.settings.active.provider_id == "codex" {
                 state.dispatch = if is_supported_choice(&state.settings.active) {
@@ -75,7 +98,7 @@ impl DesktopProviders {
                         detail: "Uses your Codex sign-in. Sending starts one live response.".into(),
                     }
                 } else {
-                    DispatchResolution::Blocked { detail: "This connection currently supports GPT-5.6-Luna with Max reasoning and Fast response speed. Choose those settings to send.".into() }
+                    DispatchResolution::Blocked { detail: "This connection currently supports GPT-5.6-Luna with Extra high reasoning and Fast response speed. Choose those settings to send.".into() }
                 };
             }
         }
@@ -109,7 +132,7 @@ impl DesktopProviders {
             match checked {
                 Ok(connection) => {
                     state.connection = Some(connection);
-                    state.detail = Some("Signed in through Codex. GPT-5.6-Luna is available with Max reasoning and Fast response speed.".into());
+                    state.detail = Some("Signed in through Codex. GPT-5.6-Luna is available with Extra high reasoning and Fast response speed.".into());
                 }
                 Err(error) => {
                     state.detail = Some(error.detail);
@@ -222,7 +245,7 @@ mod tests {
         let choice = ModelSelection {
             provider_id: "codex".into(),
             model_id: "gpt-5.6-luna".into(),
-            reasoning: Some("max".into()),
+            reasoning: Some("xhigh".into()),
             service_tier: Some("priority".into()),
         };
         assert!(is_supported_choice(&choice));

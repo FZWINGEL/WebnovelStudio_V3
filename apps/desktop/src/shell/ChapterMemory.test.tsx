@@ -9,6 +9,10 @@ import type { DigestCandidate, MemoryJob, MemoryRead, MemoryViewRecord } from '.
 import * as memory from '../ipc/memory';
 import * as context from '../ipc/context';
 import { ChapterMemory } from './ChapterMemory';
+import * as providerIpc from '../ipc/providers';
+import { ProviderSettingsProvider } from '../providers/ProviderContext';
+
+vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn() }));
 
 vi.mock('../ipc/memory', () => ({ readMemory: vi.fn(), readMemorySource: vi.fn(), retryMemorySave: vi.fn(), startMemory: vi.fn(), stopMemory: vi.fn() }));
 vi.mock('../ipc/context', () => ({
@@ -61,6 +65,19 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('chapter story memory controller', () => {
+  it('uses Luna xhigh for memory even when the writing picker has another model', async () => {
+    vi.mocked(providerIpc.readProviderState).mockResolvedValue({
+      settings: { revision: '3', active: { providerId: 'claude', modelId: 'claude-sonnet', reasoning: null, serviceTier: null }, favorites: [] },
+      catalog: { models: [{ key: providerIpc.storyMemoryModel, label: 'GPT-5.6-Luna', providerLabel: 'Codex', reasoningLevels: ['xhigh'], serviceTiers: [{ id: 'priority', label: 'Fast' }], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: true, statusDetail: 'Connected' }] },
+      dispatch: { kind: 'blocked', detail: 'Drafting model is unavailable' },
+      codexConnection: { ready: true, detail: 'Connected' },
+    });
+    await act(async () => root.render(<ProviderSettingsProvider><ChapterMemory session={session} state={state} title="The return" visible onClose={vi.fn()} /></ProviderSettingsProvider>));
+    expect(host.textContent).toContain('GPT-5.6-Luna · Extra high');
+    await click('Refresh story memory');
+    expect(memory.startMemory).toHaveBeenCalledOnce();
+    expect(vi.mocked(memory.startMemory).mock.calls[0][0].modelSelection).toEqual(providerIpc.storyMemoryModel);
+  });
   it('reads when shown without starting a generation, and starts only after Refresh', async () => {
     await render(false); expect(memory.readMemory).not.toHaveBeenCalled(); expect(memory.startMemory).not.toHaveBeenCalled();
     await render(true); expect(memory.readMemory).toHaveBeenCalledOnce(); expect(memory.startMemory).not.toHaveBeenCalled();

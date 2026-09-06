@@ -46,9 +46,11 @@ pub const MOCK_MODEL_ID: &str = "mock-story-context";
 pub const MOCK_TOKEN_ACCOUNTING_METHOD: &str = "utf8-byte-count/mock-story-context-v1";
 pub const CODEX_PROVIDER_ID: &str = "codex";
 pub const CODEX_LUNA_MODEL_ID: &str = "gpt-5.6-luna";
-pub const CODEX_REASONING_EFFORT: &str = "max";
+pub const CODEX_REASONING_EFFORT: &str = crate::providers::codex_profile::CODEX_REASONING_EFFORT;
 pub const CODEX_SERVICE_TIER: &str = "priority";
-pub const CODEX_PROFILE_VERSION: &str = "0.153.3";
+/// The application's launch contract, independent of Codex's release version.
+pub const CODEX_PROFILE_VERSION: &str = crate::providers::codex_profile::CODEX_PROFILE_VERSION;
+pub const CODEX_HISTORICAL_PROFILE_VERSION: &str = "0.153.3";
 pub const CODEX_INPUT_LIMIT_BYTES: usize = 24 * 1024;
 pub const CODEX_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 pub const CODEX_TOKEN_ACCOUNTING_METHOD: &str = "utf8-byte-count/codex-stdin-application-cap-v1";
@@ -144,28 +146,92 @@ pub struct ProviderBinding {
     pub reserved_protocol_bytes: String,
     pub output_limit_bytes: String,
     pub accounting_method: String,
+    /// Observed executable identity, not an allowlist or an effective-model claim.
+    /// Omitted for historical records and pure compiler fixtures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<ProviderRuntimeIdentity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderRuntimeIdentity {
+    pub cli_version: String,
+    pub executable_sha256: String,
+}
+
+impl ProviderRuntimeIdentity {
+    fn validate(&self) -> bool {
+        !self.cli_version.is_empty()
+            && self.cli_version.len() <= 128
+            && self
+                .cli_version
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+'))
+            && self.executable_sha256.len() == 64
+            && self
+                .executable_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    }
 }
 
 impl ProviderBinding {
     pub fn codex_luna() -> Self {
+        Self::codex_luna_with_profile(CODEX_PROFILE_VERSION)
+    }
+
+    /// Exact binding retained for packets created by the qualified 0.153.3
+    /// adapter. This is for persistence/reopen/export validation only; native
+    /// dispatch accepts the current [`Self::codex_luna`] value.
+    pub fn codex_luna_historical() -> Self {
+        let mut binding = Self::codex_luna_with_profile(CODEX_HISTORICAL_PROFILE_VERSION);
+        binding.reasoning = Some("max".to_owned());
+        binding
+    }
+
+    pub fn codex_luna_runtime(cli_version: &str, executable_sha256: &str) -> Self {
+        let mut binding = Self::codex_luna();
+        binding.runtime = Some(ProviderRuntimeIdentity {
+            cli_version: cli_version.to_owned(),
+            executable_sha256: executable_sha256.to_owned(),
+        });
+        binding
+    }
+
+    pub fn is_current_codex_profile(&self) -> bool {
+        self.profile_version == CODEX_PROFILE_VERSION && self.validate().is_ok()
+    }
+
+    fn codex_luna_with_profile(profile_version: &str) -> Self {
         Self {
             provider_id: CODEX_PROVIDER_ID.to_owned(),
             model_id: CODEX_LUNA_MODEL_ID.to_owned(),
             reasoning: Some(CODEX_REASONING_EFFORT.to_owned()),
             service_tier: Some(CODEX_SERVICE_TIER.to_owned()),
-            profile_version: CODEX_PROFILE_VERSION.to_owned(),
+            profile_version: profile_version.to_owned(),
             input_limit_bytes: CODEX_INPUT_LIMIT_BYTES.to_string(),
             reserved_output_bytes: "0".to_owned(),
             reserved_protocol_bytes: "0".to_owned(),
             output_limit_bytes: CODEX_OUTPUT_LIMIT_BYTES.to_string(),
             accounting_method: CODEX_TOKEN_ACCOUNTING_METHOD.to_owned(),
+            runtime: None,
         }
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if self != &Self::codex_luna() {
+        if self == &Self::codex_luna_historical() {
+            return Ok(());
+        }
+        let mut expected = Self::codex_luna();
+        expected.runtime = self.runtime.clone();
+        if self != &expected
+            || self
+                .runtime
+                .as_ref()
+                .is_some_and(|runtime| !runtime.validate())
+        {
             return Err(
-                "only the bounded Codex Luna max/priority development profile 0.153.3 is accepted"
+                "the Codex application profile, model settings, runtime identity, or byte allowances are invalid"
                     .to_owned(),
             );
         }

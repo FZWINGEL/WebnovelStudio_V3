@@ -169,7 +169,7 @@ export function MemoryPanel({ documentTitle, modelLabel, modelAvailable, allowan
         {modelLabel && <div><dt>Model</dt><dd>{modelLabel}</dd></div>}
         {allowanceLabel && <div><dt>Application limit</dt><dd>{allowanceLabel}</dd></div>}
       </dl>
-      {!modelAvailable && <p className="memory-model-unavailable" role="note">The selected model is unavailable for story memory. Choose an available model in Settings before refreshing.</p>}
+      {!modelAvailable && <p className="memory-model-unavailable" role="note">The story-memory model is unavailable. Check the Codex connection in Settings before refreshing.</p>}
       <button type="button" className="primary-button memory-refresh" disabled={refreshDisabled} onClick={onRefresh}>Refresh story memory</button>
       {active && <div className="memory-run-status" role="status" aria-live="polite">
         <p>{status}</p>

@@ -4,7 +4,7 @@
 use crate::memory_recovery::MemoryRecovery;
 use crate::provider_runtime::DesktopProviders;
 use std::time::Duration;
-use webnovel_core::context::packet::{ProviderBinding, packet_input_hash, serialized_input};
+use webnovel_core::context::packet::{packet_input_hash, serialized_input};
 use webnovel_core::projects::ProjectSession;
 use webnovel_core::projects::discussions::{ProviderCleanup, ProviderOutcomeStatus, ProviderUsage};
 use webnovel_core::projects::memory::{CompleteMemory, MemoryDispatch, MemoryJobStatus};
@@ -28,7 +28,14 @@ pub fn run_live(
     };
 
     let binding = match dispatch.packet.options.provider_binding.clone() {
-        Some(binding) if binding == ProviderBinding::codex_luna() => binding,
+        Some(binding)
+            if binding.is_current_codex_profile()
+                && connection.as_ref().is_some_and(|connection| {
+                    crate::provider_runtime::connection_matches_binding(connection, &binding)
+                }) =>
+        {
+            binding
+        }
         _ => {
             save_failure(
                 &project,

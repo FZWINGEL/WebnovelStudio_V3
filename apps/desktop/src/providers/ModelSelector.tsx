@@ -10,7 +10,7 @@ function matches(label: string, query: string): boolean {
 }
 function initialChoice(model: ModelDescriptor): ModelSelection {
   const luna = model.key.providerId === 'codex' && model.key.modelId === 'gpt-5.6-luna';
-  return { ...model.key, reasoning: luna && model.reasoningLevels.includes('max') ? 'max' : model.reasoningLevels.includes('medium') ? 'medium' : model.reasoningLevels[0] ?? null,
+  return { ...model.key, reasoning: luna && model.reasoningLevels.includes('xhigh') ? 'xhigh' : model.reasoningLevels.includes('medium') ? 'medium' : model.reasoningLevels[0] ?? null,
     serviceTier: luna && model.serviceTiers.some(tier => tier.id === 'priority') ? 'priority' : null };
 }
 export function ModelSelector() {

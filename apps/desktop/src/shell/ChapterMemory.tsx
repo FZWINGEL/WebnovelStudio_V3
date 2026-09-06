@@ -3,7 +3,7 @@ import { readStoryContextSource, type SourceRead } from '../ipc/context';
 import { readMemory, readMemorySource, retryMemorySave, startMemory, stopMemory, type DigestCandidate, type MemoryJob, type MemoryRead, type MemoryViewRecord, type StartMemory } from '../ipc/memory';
 import type { DocumentSession, SessionState } from '../editor/session';
 import { bodyHash, canonicalJson } from '../editor/document';
-import { sameModel } from '../ipc/providers';
+import { localModel, sameModel, storyMemoryModel } from '../ipc/providers';
 import { useProviders } from '../providers/ProviderContext';
 import { ContextInspector } from '../assistant/ContextInspector';
 import { MemoryPanel, type MemoryInspectedSource, type MemoryItem, type MemoryPanelState, type MemoryView } from './MemoryPanel';
@@ -150,8 +150,11 @@ export function ChapterMemory({ session, state, title, visible, onClose }: {
   session: DocumentSession; state: SessionState; title: string; visible: boolean; onClose(): void;
 }) {
   const providers = useProviders();
-  const model = providers.state?.catalog.models.find(item => sameModel(item.key, providers.state!.settings.active));
-  const modelAvailable = !providers.busy && !!providers.state && !!model && providers.state.dispatch.kind !== 'blocked' && model.ready !== false;
+  const memorySelection = providers.state?.settings.active.providerId === 'mock' ? localModel : storyMemoryModel;
+  const model = providers.state?.catalog.models.find(item => sameModel(item.key, memorySelection));
+  const modelAvailable = !providers.busy && !!providers.state && !!model && (memorySelection.providerId === 'mock'
+    ? providers.state.dispatch.kind === 'localMock'
+    : providers.state.codexConnection?.ready === true);
   const access = session.projectAccess;
   const ownerIdentity = `${access.projectId}/${access.operationNamespace}/${state.head.documentId}`;
   const identity = `${ownerIdentity}/${access.session}/${access.writerLease}`;
@@ -221,7 +224,7 @@ export function ChapterMemory({ session, state, title, visible, onClose }: {
   }, [visible, activeJobId, identity]);
   async function refresh() {
     if (!visible || busyRef.current || !modelAvailable || memoryState.kind === 'active') return;
-    const selectedModel = providers.state?.settings.active ? structuredClone(providers.state.settings.active) : null;
+    const selectedModel = providers.state ? structuredClone(memorySelection) : null;
     if (!selectedModel) return;
     const token = beginBusy(); setError(''); setMemoryState(previous => ({ kind: 'active', phase: 'queued', views: previous.views }));
     const capturedOwner = ownerIdentity;
@@ -309,10 +312,10 @@ export function ChapterMemory({ session, state, title, visible, onClose }: {
     || (memoryState.kind === 'completed' && memoryState.disposition === 'needsReconciliation'));
   const frozenModelId = showFrozenProfile ? frozenJob.providerBinding?.modelId : undefined;
   const frozenModel = frozenModelId ? providers.state?.catalog.models.find(item => item.key.modelId === frozenModelId) : undefined;
-  const currentModelId = providers.state?.settings.active.modelId;
-  const currentProviderId = providers.state?.settings.active.providerId;
+  const currentModelId = memorySelection.modelId;
+  const currentProviderId = memorySelection.providerId;
   const modelLabel = frozenJob && showFrozenProfile ? (frozenModelId ? (frozenModel?.label ?? frozenModelId) : 'Local test model')
-    : (model?.label ?? currentModelId ?? (providers.busy ? 'Loading model…' : ''));
+    : (memorySelection.providerId === 'codex' ? 'GPT-5.6-Luna · Extra high' : model?.label ?? currentModelId ?? (providers.busy ? 'Loading model…' : ''));
   const profileProviderId = showFrozenProfile ? frozenJob?.providerBinding?.providerId : currentProviderId;
   if (!visible) return null;
   return <MemoryPanel documentTitle={title} modelLabel={modelLabel} modelAvailable={modelAvailable}

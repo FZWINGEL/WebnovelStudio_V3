@@ -4,7 +4,7 @@ use crate::discussion_recovery::{
 };
 use crate::library_commands::DesktopLibrary;
 use crate::project_commands::{DesktopProjects, execute};
-use crate::provider_runtime::{DesktopProviders, is_supported_choice};
+use crate::provider_runtime::{DesktopProviders, binding_matches_choice, is_supported_choice};
 use tauri::State;
 use webnovel_core::context::packet::{
     CompiledPacket, MOCK_MODEL_ID, ProviderBinding, packet_input_hash,
@@ -163,15 +163,28 @@ pub async fn start_discussion(
         let selected = model_selection
             .clone()
             .unwrap_or_else(ModelSelection::local_mock);
+        let existing = saved_request(&project, &request)?;
+        #[cfg(windows)]
+        let connection = runtime.connection().ok();
         // Native code supplies the trusted binding, never renderer budgets or
         // arbitrary command options. Existing mock payloads stay unchanged.
-        request.provider_binding = if is_supported_choice(&selected) {
-            Some(ProviderBinding::codex_luna())
+        request.provider_binding = if let Some(existing) = &existing {
+            existing.provider_binding.clone()
+        } else if is_supported_choice(&selected) {
+            #[cfg(windows)]
+            {
+                connection
+                    .as_ref()
+                    .map(crate::provider_runtime::connection_binding)
+                    .or_else(|| Some(ProviderBinding::codex_luna()))
+            }
+            #[cfg(not(windows))]
+            {
+                Some(ProviderBinding::codex_luna())
+            }
         } else {
             None
         };
-        #[cfg(windows)]
-        let connection = runtime.connection().ok();
         let started = {
             // Preference acceptance and new request acceptance are serialized.
             // Subsequent setting changes cannot redirect this frozen request.
@@ -276,9 +289,14 @@ fn check_model_choice(
     let local = ModelSelection::local_mock();
     // Older native callers have an explicit mock-only packet contract.
     let requested = requested.unwrap_or(&local);
+    let saved = has_saved_request(project, request)?;
     if requested != &local
-        && !(is_supported_choice(requested)
-            && request.provider_binding.as_ref() == Some(&ProviderBinding::codex_luna()))
+        && !((is_supported_choice(requested) || saved)
+            && request.provider_binding.as_ref().is_some_and(|binding| {
+                binding_matches_choice(binding, requested)
+                    || (saved
+                        && crate::provider_runtime::binding_matches_saved_model(binding, requested))
+            }))
     {
         return Err(CoreError::new(
             "ProviderUnavailable",
@@ -291,7 +309,7 @@ fn check_model_choice(
     // An old uncertain acknowledgment must still be resolvable after a model
     // preference change. Core verifies the immutable operation payload before
     // returning its receipt; a new operation cannot use this exception.
-    if has_saved_request(project, request)? {
+    if saved {
         return Ok(());
     }
     Err(CoreError::new(
@@ -301,11 +319,18 @@ fn check_model_choice(
 }
 
 fn has_saved_request(project: &ProjectSession, request: &StartDiscussion) -> CoreResult<bool> {
+    Ok(saved_request(project, request)?.is_some())
+}
+
+fn saved_request(
+    project: &ProjectSession,
+    request: &StartDiscussion,
+) -> CoreResult<Option<DiscussionRun>> {
     Ok(project
         .read_discussion(request.access.clone(), request.expected.document_id.clone())?
         .runs
-        .iter()
-        .any(|run| {
+        .into_iter()
+        .find(|run| {
             run.operation_id == request.operation_id
                 && run.owner.operation_namespace == request.access.operation_namespace
                 && run.owner.project_id == request.access.project_id
@@ -770,7 +795,7 @@ mod tests {
         let codex = ModelSelection {
             provider_id: "codex".into(),
             model_id: "gpt-5.6-luna".into(),
-            reasoning: Some("max".into()),
+            reasoning: Some("xhigh".into()),
             service_tier: Some("priority".into()),
         };
         assert!(check_model_choice(&project, &request, Some(&local), &local).is_ok());

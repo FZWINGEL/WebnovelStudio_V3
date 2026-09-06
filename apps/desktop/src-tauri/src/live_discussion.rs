@@ -30,7 +30,14 @@ pub fn run_live(
     };
     let mut run = dispatch.run;
     let binding = match dispatch.packet.options.provider_binding.clone() {
-        Some(binding) if binding == ProviderBinding::codex_luna() => binding,
+        Some(binding)
+            if binding.is_current_codex_profile()
+                && connection.as_ref().is_some_and(|connection| {
+                    crate::provider_runtime::connection_matches_binding(connection, &binding)
+                }) =>
+        {
+            binding
+        }
         _ => {
             save_failure(
                 &project,
@@ -237,7 +244,10 @@ pub(super) fn report(run: &DiscussionRun, result: CodexRunResult) -> ProviderTer
         expected_sequence: run.sequence.clone(),
         event_id: format!("{}-provider-finish", run.id),
         assistant_text: result.assistant_text,
-        binding: ProviderBinding::codex_luna(),
+        binding: run
+            .provider_binding
+            .clone()
+            .unwrap_or_else(ProviderBinding::codex_luna),
         status,
         confirmed_stdin_bytes: result.confirmed_stdin_bytes.to_string(),
         usage: result.usage.map(|usage| ProviderUsage {
@@ -345,7 +355,10 @@ mod tests {
                 pinned_document_ids: vec![],
                 safe_brief: None,
                 budget: MockContextBudget::new("1", "0", "0"),
-                provider_binding: Some(ProviderBinding::codex_luna()),
+                provider_binding: Some(ProviderBinding::codex_luna_runtime(
+                    "0.154.0",
+                    &"a".repeat(64),
+                )),
                 previous_run_id: None,
             })
             .unwrap();

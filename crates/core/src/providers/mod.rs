@@ -4,6 +4,7 @@
 //! application dispatches frozen packets and reports terminal results back to
 //! the discussion actor; providers never own manuscript mutations.
 
+pub mod adapter;
 pub mod catalog;
 pub mod claude_exec;
 pub mod cli;
@@ -13,4 +14,5 @@ pub mod codex_profile;
 pub mod codex_runner;
 #[cfg(windows)]
 pub mod codex_runtime;
+pub mod openai_compatible;
 pub mod preferences;

@@ -725,6 +725,95 @@ fn codex_binding_uses_exact_utf8_byte_packet_and_keeps_model_limit_unknown() {
 }
 
 #[test]
+fn current_and_historical_codex_bindings_are_exact_and_history_round_trips() {
+    let current = ProviderBinding::codex_luna();
+    let historical = ProviderBinding::codex_luna_historical();
+    assert_eq!(current.profile_version, "codex-stdin.v1");
+    assert_eq!(current.reasoning.as_deref(), Some("xhigh"));
+    assert_eq!(historical.reasoning.as_deref(), Some("max"));
+    assert_eq!(historical.profile_version, "0.153.3");
+    assert_ne!(current, historical);
+    assert!(current.validate().is_ok());
+    assert!(historical.validate().is_ok());
+
+    let encoded = serde_json::to_string(&historical).unwrap();
+    assert!(!encoded.contains("runtime"));
+    let decoded: ProviderBinding = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(serde_json::to_string(&decoded).unwrap(), encoded);
+
+    let mut forged = historical.clone();
+    forged.model_id = "gpt-5.6-astra".into();
+    assert!(forged.validate().is_err());
+    forged = historical.clone();
+    forged.profile_version = "0.153.5".into();
+    assert!(forged.validate().is_err());
+}
+
+#[test]
+fn codex_runtime_versions_are_recorded_without_a_release_allowlist() {
+    for version in ["0.153.4", "0.154.0", "1.4.0-beta.2"] {
+        let binding = ProviderBinding::codex_luna_runtime(version, &"a".repeat(64));
+        assert!(binding.validate().is_ok());
+        assert!(binding.is_current_codex_profile());
+        let encoded = serde_json::to_string(&binding).unwrap();
+        assert!(encoded.contains(version));
+        assert_eq!(
+            serde_json::from_str::<ProviderBinding>(&encoded).unwrap(),
+            binding
+        );
+    }
+    assert!(
+        ProviderBinding::codex_luna_runtime("0.154.0\nignored", &"a".repeat(64))
+            .validate()
+            .is_err()
+    );
+    assert!(
+        ProviderBinding::codex_luna_runtime("0.154.0", "not-a-fingerprint")
+            .validate()
+            .is_err()
+    );
+    let mut forged = ProviderBinding::codex_luna_runtime("0.154.0", &"a".repeat(64));
+    forged.profile_version = "0.153.3".into();
+    forged.reasoning = Some("max".into());
+    assert!(forged.validate().is_err());
+}
+
+#[test]
+fn historical_codex_packet_input_and_hash_survive_reopen_serialization() {
+    let target_body = body(&[("target-1", "A historical packet must remain readable.")]);
+    let target = source("target", "target-doc", &target_body);
+    let mut request = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Discuss,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    request.provider_binding = Some(ProviderBinding::codex_luna_historical());
+    let packet = compile(request);
+    let original_input = serialized_input(&packet.messages, &packet.options).unwrap();
+    let original_hash = packet_input_hash(&packet.messages, &packet.options).unwrap();
+
+    let reopened_messages: Vec<PacketMessage> =
+        serde_json::from_str(&serde_json::to_string(&packet.messages).unwrap()).unwrap();
+    let reopened_options: PacketOptions =
+        serde_json::from_str(&serde_json::to_string(&packet.options).unwrap()).unwrap();
+    assert_eq!(
+        serialized_input(&reopened_messages, &reopened_options).unwrap(),
+        original_input
+    );
+    assert_eq!(
+        packet_input_hash(&reopened_messages, &reopened_options).unwrap(),
+        original_hash
+    );
+    assert_eq!(
+        reopened_options.provider_binding,
+        Some(ProviderBinding::codex_luna_historical())
+    );
+}
+
+#[test]
 fn codex_binding_rejects_mandatory_context_over_application_input_cap() {
     let target_body = body(&[("target-1", &"A".repeat(40_000))]);
     let target = source("target", "target-doc", &target_body);

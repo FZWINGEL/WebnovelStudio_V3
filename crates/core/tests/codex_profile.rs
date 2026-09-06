@@ -1,28 +1,30 @@
 use std::path::Path;
 
 use webnovel_core::providers::codex_profile::{
-    CODEX_CLI_VERSION, CODEX_FAST_TIER_LABEL, CODEX_LUNA_MODEL, CODEX_MAX_EFFORT,
-    CODEX_PRIORITY_SERVICE_TIER, CodexLaunchProfile, CodexProfileError,
+    CODEX_FAST_TIER_LABEL, CODEX_LUNA_MODEL, CODEX_PRIORITY_SERVICE_TIER, CODEX_REASONING_EFFORT,
+    CodexLaunchProfile, CodexProfileError,
 };
 
-fn profile() -> CodexLaunchProfile {
-    CodexLaunchProfile::for_version(
-        "codex-cli 0.153.3\n",
-        Path::new(r"D:\owned\codex\catalog.json"),
-    )
-    .expect("exact version should build a profile")
+fn profile(version: &str) -> CodexLaunchProfile {
+    CodexLaunchProfile::for_version(version, Path::new(r"D:\owned\codex\catalog.json"))
+        .expect("valid version should build a profile")
 }
 
 #[test]
-fn exact_version_builds_restrictive_luna_catalog() {
-    let profile = profile();
-    assert_eq!(profile.executable_version, CODEX_CLI_VERSION);
-    assert_eq!(profile.model, CODEX_LUNA_MODEL);
-    assert_eq!(profile.reasoning_effort, CODEX_MAX_EFFORT);
-    assert_eq!(profile.service_tier, CODEX_PRIORITY_SERVICE_TIER);
-    assert!(profile.catalog_json.contains("gpt-5.6-luna"));
+fn observed_versions_build_the_same_restrictive_luna_catalog() {
+    let current = profile("codex-cli 0.153.4\n");
+    assert_eq!(current.executable_version, "0.153.4");
+    assert_eq!(current.model, CODEX_LUNA_MODEL);
+    assert_eq!(current.reasoning_effort, CODEX_REASONING_EFFORT);
+    assert_eq!(current.reasoning_effort, "xhigh");
+    assert_eq!(current.service_tier, CODEX_PRIORITY_SERVICE_TIER);
+    assert!(current.catalog_json.contains("gpt-5.6-luna"));
 
-    let model = &profile.catalog.models[0];
+    let other = profile("codex-cli 9.4.1");
+    assert_eq!(other.executable_version, "9.4.1");
+    assert_eq!(other.config_overrides, current.config_overrides);
+
+    let model = &current.catalog.models[0];
     assert_eq!(model.slug, CODEX_LUNA_MODEL);
     assert_eq!(model.tool_mode, "direct");
     assert_eq!(model.shell_type, "disabled");
@@ -53,25 +55,62 @@ fn exact_version_builds_restrictive_luna_catalog() {
 }
 
 #[test]
-fn unsupported_versions_are_rejected_without_normalizing_to_nearest() {
+fn malformed_version_output_is_rejected_without_guessing_a_binary_version() {
     for version in [
-        "codex-cli 0.153.30",
-        "codex-cli 0.153.4",
-        "codex-cli 0.144.0",
+        "",
+        "codex 0.153.4",
+        "codex-cli",
         "codex-cli dev",
+        "codex-cli 0.153.4 extra",
+        "codex-cli 0.153.4\nextra",
+        "codex-cli 0.153.4/evil",
+        "codex-cli 0_153_4",
     ] {
         let error = CodexLaunchProfile::for_version(version, Path::new("catalog.json"))
-            .expect_err("version must be exact");
+            .expect_err("version output must be bounded and parseable");
         assert!(matches!(
             error,
-            CodexProfileError::UnsupportedVersion { .. }
+            CodexProfileError::InvalidVersionOutput { .. }
         ));
     }
+    let oversized = format!("codex-cli {}", "1".repeat(129));
+    assert!(matches!(
+        CodexLaunchProfile::for_version(&oversized, Path::new("catalog.json")),
+        Err(CodexProfileError::InvalidVersionOutput { .. })
+    ));
+}
+
+#[test]
+fn capability_preflight_reuses_stdin_profile_and_adds_only_validation_inputs() {
+    let profile = profile("codex-cli 2026.09");
+    let arguments = profile
+        .preflight_arguments(
+            Path::new(r"D:\owned\cwd"),
+            Path::new(r"D:\owned\missing.schema.json"),
+            Some("codex_qualification_sentinel=true"),
+        )
+        .expect("valid preflight paths");
+    let arguments = arguments
+        .iter()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| { pair == ["--output-schema", "D:/owned/missing.schema.json"] })
+    );
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| { pair == ["-c", "codex_qualification_sentinel=true"] })
+    );
+    assert_eq!(arguments.last().map(String::as_str), Some("-"));
+    assert!(arguments.contains(&"--strict-config".to_owned()));
 }
 
 #[test]
 fn launch_arguments_include_strict_profile_and_stdin_without_packet_text() {
-    let profile = profile();
+    let profile = profile("codex-cli 0.153.4");
     let arguments = profile
         .exec_arguments(Path::new(r"D:\owned\cwd"))
         .expect("valid cwd");
@@ -104,7 +143,7 @@ fn launch_arguments_include_strict_profile_and_stdin_without_packet_text() {
         .collect::<Vec<_>>();
     for expected in [
         "model=\"gpt-5.6-luna\"",
-        "model_reasoning_effort=\"max\"",
+        "model_reasoning_effort=\"xhigh\"",
         "service_tier=\"priority\"",
         "approval_policy=\"never\"",
         "web_search=\"disabled\"",
@@ -197,7 +236,7 @@ fn launch_arguments_include_strict_profile_and_stdin_without_packet_text() {
 
 #[test]
 fn paths_are_rendered_without_windows_backslash_or_control_injection() {
-    let profile = profile();
+    let profile = profile("codex-cli 0.153.4");
     let arguments = profile
         .exec_arguments(Path::new(r"D:\owned\work"))
         .expect("valid path");
@@ -210,7 +249,7 @@ fn paths_are_rendered_without_windows_backslash_or_control_injection() {
     assert!(!joined.contains(r"D:\owned\work"));
 
     let error = CodexLaunchProfile::for_version(
-        "codex-cli 0.153.3",
+        "codex-cli 0.153.4",
         Path::new("catalog.json\n-injected=true"),
     )
     .expect_err("control characters must not enter runtime config");

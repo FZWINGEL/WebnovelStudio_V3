@@ -14,10 +14,14 @@ const executable = process.env.WNS_V3_NATIVE_EXE ? resolve(process.env.WNS_V3_NA
 const output = resolve(root, '.local/native-results');
 await mkdir(output, { recursive: true });
 const data = await mkdtemp(resolve(tmpdir(), 'wns-v3-native-'));
-const server = createServer();
-await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const port = server.address().port;
-await new Promise(resolve => server.close(resolve));
+async function reservePort() {
+  const server = createServer();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+let port = await reservePort();
 let appLog = '';
 let spawnError;
 function launch() {
@@ -59,13 +63,15 @@ try {
     if (spawnError || app.exitCode !== null) throw new Error(`Native app did not start (exit ${app.exitCode}): ${appLog}`);
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(2000) });
-      if (response.ok && (await response.json()).webSocketDebuggerUrl) { ready = true; break; }
+      if (response.ok && (await response.json()).webSocketDebuggerUrl) {
+        browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 10000 });
+        ready = true; break;
+      }
       lastReadinessError = `Unexpected CDP HTTP status ${response.status}`;
     } catch (error) { lastReadinessError = String(error); }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   if (!ready) throw new Error(`WebView2 CDP was not ready after ${Date.now() - startup}ms. PID=${app.pid}; exit=${app.exitCode}; ${lastReadinessError}\nNative log:\n${appLog || '(empty)'}`);
-  browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 10000 });
   const context = browser.contexts()[0];
   let page = context.pages()[0];
   if (!page) page = await context.waitForEvent('page', { timeout: 10000 });
@@ -515,18 +521,24 @@ try {
   await browser.close(); browser = undefined;
   const exited = new Promise(resolve => app.once('exit', resolve));
   app.kill(); await exited;
+  // An exiting WebView child can briefly retain the old debugging endpoint.
+  // A fresh port makes readiness belong to this new application process.
+  const previousPort = port;
+  do { port = await reservePort(); } while (port === previousPort);
   app = launch();
   const restartedAt = Date.now(); let restarted = false;
   while (Date.now() - restartedAt < 90000) {
     if (app.exitCode !== null || spawnError) throw new Error(`Native restart failed: ${appLog}`);
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(2000) });
-      if (response.ok && (await response.json()).webSocketDebuggerUrl) { restarted = true; break; }
+      if (response.ok && (await response.json()).webSocketDebuggerUrl) {
+        browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 10000 });
+        restarted = true; break;
+      }
     } catch { /* A new WebView2 process is starting. */ }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   assert(restarted, `Native restart did not expose CDP: ${appLog}`);
-  browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 10000 });
   const restartedContext = browser.contexts()[0];
   page = restartedContext.pages()[0] ?? await restartedContext.waitForEvent('page', { timeout: 10000 });
   observedPage = page;

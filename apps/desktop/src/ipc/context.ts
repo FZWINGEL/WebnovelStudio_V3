@@ -151,6 +151,7 @@ export interface CompiledPacket {
   receipt: PacketReceipt;
 }
 export interface ProviderBinding {
+  runtime?: { cliVersion: string; executableSha256: string };
   providerId: string; modelId: string; reasoning: string | null; serviceTier: string | null;
   profileVersion: string; inputLimitBytes: string; reservedOutputBytes: string;
   reservedProtocolBytes: string; outputLimitBytes: string; accountingMethod: string;

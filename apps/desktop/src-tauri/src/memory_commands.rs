@@ -5,7 +5,7 @@
 use crate::library_commands::DesktopLibrary;
 use crate::memory_recovery::MemoryRecovery;
 use crate::project_commands::{DesktopProjects, execute};
-use crate::provider_runtime::{DesktopProviders, is_supported_choice};
+use crate::provider_runtime::{DesktopProviders, binding_matches_choice, is_supported_choice};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use webnovel_core::context::memory::mock_navigation_digest;
@@ -157,7 +157,7 @@ pub async fn start_memory(
     let _runtime = runtime;
     execute(move || {
         let selected = request.model_selection.clone();
-        let provider_binding = if is_supported_choice(&selected) {
+        let mut provider_binding = if is_supported_choice(&selected) {
             Some(ProviderBinding::codex_luna())
         } else {
             None
@@ -176,6 +176,14 @@ pub async fn start_memory(
         } else {
             None
         };
+        if let Some(existing) = &existing {
+            provider_binding = existing.provider_binding.clone();
+        } else {
+            #[cfg(windows)]
+            if let Some(connection) = &connection {
+                provider_binding = Some(crate::provider_runtime::connection_binding(connection));
+            }
+        }
         #[cfg(windows)]
         if provider_binding.is_some() && existing.is_none() && connection.is_none() {
             return Err(CoreError::new(
@@ -325,14 +333,24 @@ fn check_model_choice(
 ) -> CoreResult<()> {
     let local = ModelSelection::local_mock();
     if selected != &local
-        && !(is_supported_choice(selected) && binding == &Some(ProviderBinding::codex_luna()))
+        && !((is_supported_choice(selected) || saved_operation)
+            && binding.as_ref().is_some_and(|binding| {
+                binding_matches_choice(binding, selected)
+                    || (saved_operation
+                        && crate::provider_runtime::binding_matches_saved_model(binding, selected))
+            }))
     {
         return Err(CoreError::new(
             "ProviderUnavailable",
             "This model or its selected settings is unavailable. Check Settings before refreshing.",
         ));
     }
-    if active == selected || saved_operation {
+    // Live story-memory jobs use Luna/xhigh independently of the drafting
+    // picker. Switching to the offline test model still fences a new paid job.
+    if active == selected
+        || saved_operation
+        || (is_supported_choice(selected) && active.provider_id != "mock")
+    {
         Ok(())
     } else {
         Err(CoreError::new(
@@ -403,7 +421,7 @@ mod tests {
         ModelSelection {
             provider_id: "codex".into(),
             model_id: "gpt-5.6-luna".into(),
-            reasoning: Some("max".into()),
+            reasoning: Some("xhigh".into()),
             service_tier: Some("priority".into()),
         }
     }
@@ -430,6 +448,38 @@ mod tests {
                 .code,
             "ProviderUnavailable"
         );
+    }
+
+    #[test]
+    fn memory_uses_luna_xhigh_independently_of_the_drafting_model_and_preserves_old_receipts() {
+        let luna = codex_luna();
+        let drafting = ModelSelection {
+            provider_id: "claude".into(),
+            model_id: "claude-sonnet".into(),
+            reasoning: None,
+            service_tier: None,
+        };
+        assert!(
+            check_model_choice(
+                &luna,
+                &drafting,
+                false,
+                &Some(ProviderBinding::codex_luna())
+            )
+            .is_ok()
+        );
+        assert!(
+            check_model_choice(
+                &drafting,
+                &drafting,
+                false,
+                &Some(ProviderBinding::codex_luna())
+            )
+            .is_err()
+        );
+        let historical = Some(ProviderBinding::codex_luna_historical());
+        assert!(check_model_choice(&luna, &drafting, true, &historical).is_ok());
+        assert!(check_model_choice(&luna, &drafting, false, &historical).is_err());
     }
 
     #[test]

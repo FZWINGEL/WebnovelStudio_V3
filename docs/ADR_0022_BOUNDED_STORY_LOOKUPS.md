@@ -59,11 +59,23 @@ Omitting `blockIds` requests the complete source. A present array must contain a
 
 Each response may request 1–8 reads, with IDs distinct throughout the discussion. Search limits are 1–20, queries at most 512 UTF-8 bytes, handles at most 256 bytes, and block lists at most 32 IDs. The protocol rejects unknown keys, duplicate JSON keys, malformed shapes, arbitrary commands, and oversized output. Ordinary prose cannot execute a lookup. Normal JSON whitespace and multiline final discussion text are allowed.
 
-The pinned Codex development route retains its existing model and traits, process ownership, disabled external tools, cancellation, and exact-input checks. Every expansion starts a fresh invocation; it is never described as a provider-session resume. Intermediate response JSON is buffered and retained as invocation evidence. Only a validated final `discussion.text` becomes the assistant answer.
+The Codex development route retains the selected model and traits, process
+ownership, disabled external tools, cancellation, and exact-input checks.
+Codex compatibility is checked against the installed CLI at connection time;
+the route must not pin a frequently updated version or executable hash. The
+observed executable identity may be retained as request evidence. Background
+summary/memory jobs use GPT-5.6 Luna with xhigh reasoning; an
+author-facing lookup follows the persistent model picker. Every expansion
+starts a fresh invocation; it is never described as a provider-session
+resume. Intermediate response JSON is buffered and retained as invocation
+evidence. Only a validated final `discussion.text` becomes the assistant
+answer. The same protocol is intended to support the planned configurable
+OpenAI-compatible endpoint adapters once their capability and failure gates
+are qualified.
 
 ## Authority and durable records
 
-Schema 24 introduces separate lookup invocation, result, and read records plus the optional saved composer allowance. It raises the minimum compatible reader. Existing discussion packets and legacy provider-result bytes must remain valid without a lookup field.
+Schema 24 introduces separate lookup invocation, result, and read records plus the optional saved composer allowance. The current project database reader floor is schema 25 because the compatibility-aware provider receipt can retain observed runtime identity. Existing discussion packets, legacy provider-result bytes, and historical 0.153.3 Max packets remain valid without the new optional runtime field and preserve their serialized bytes/hashes.
 
 The existing discussion run owns the operation, project, namespace, target and initial packet. Every lookup invocation records its ordinal, exact packet and snapshot, source/policy epochs, allowance, and dispatch state. A committed claim can authorize one external start. Reading or reconciling an already claimed invocation cannot authorize a duplicate start.
 

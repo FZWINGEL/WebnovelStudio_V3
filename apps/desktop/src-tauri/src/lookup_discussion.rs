@@ -264,7 +264,17 @@ pub(super) fn run_live(
     }
     let _registration = Registration(runtime, dispatch.run.owner.clone());
     run_loop(project, recovery, dispatch, |grant, input| {
-        let result = collect_live(connection.as_ref(), input, stop.clone());
+        let matched = connection.as_ref().filter(|connection| {
+            grant
+                .packet
+                .options
+                .provider_binding
+                .as_ref()
+                .is_some_and(|binding| {
+                    crate::provider_runtime::connection_matches_binding(connection, binding)
+                })
+        });
+        let result = collect_live(matched, input, stop.clone());
         let legacy = crate::live_discussion::report(&grant.run, result);
         LookupInvocationReport {
             owner: grant.run.owner.clone(),

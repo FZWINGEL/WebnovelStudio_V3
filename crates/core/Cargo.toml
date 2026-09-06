@@ -9,6 +9,9 @@ serde_json = "=1.0.151"
 sha2 = "=0.11.0"
 url = "=2.5.8"
 rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+futures-util = "=0.3.34"
+reqwest = { version = "=0.13.4", features = ["json", "stream"] }
+tokio = { version = "=1.53.1", features = ["macros", "net", "rt", "time"] }
 unicode-segmentation = "=1.13.3"
 uuid = { version = "=1.26.0", features = ["v4"] }
 zip = { version = "=8.6.0", default-features = false }

@@ -1,6 +1,6 @@
 # Bounded Codex development path
 
-**Status:** Implemented bounded desktop path; enabled only after an explicit exact-binary session check
+**Status:** Implemented bounded desktop path; provider compatibility policy revision in progress, enabled only after an explicit installed-CLI compatibility check
 
 **Date:** 2026-09-06
 
@@ -9,7 +9,10 @@ bounded Codex runner to the existing packet, discussion, and recovery contracts
 without treating a successful native CLI experiment as full provider
 qualification. The Windows desktop can dispatch this bounded path only after
 the author explicitly checks the Codex connection; until that check succeeds,
-Codex remains blocked and the local test model remains available.
+Codex remains blocked and the local test model remains available. Because Codex
+updates frequently, compatibility is checked against the installed CLI at
+connection time. V3 does not pin a Codex version or executable hash; observed
+identity is recorded with the request for diagnosis and provenance.
 
 ## Decision
 
@@ -24,10 +27,10 @@ The first bounded development profile is:
 | Field | Value | Meaning |
 | --- | --- | --- |
 | Provider | `codex` | Native CLI provider identifier |
-| Model | `gpt-5.6-luna` | Requested model |
-| Reasoning | `max` | Requested reasoning level |
-| Service tier | `priority` | Provider ID for the discovered “Fast” option |
-| CLI profile | `0.153.3` | Exact profile version gate |
+| Model | `gpt-5.6-luna` for all background work; picker-selected for author requests | Requested model |
+| Reasoning | `xhigh` for all background work; picker-selected for author requests | Requested reasoning level |
+| Service tier | Picker-selected; historical Codex evidence used `priority` (“Fast”) | Provider service-tier ID when supported |
+| CLI profile | Installed CLI compatibility profile | Runtime compatibility check; no release-version or executable-hash pin |
 | Input allowance | `24576` bytes | Application cap over the exact UTF-8 stdin packet |
 | Reserved output/protocol | `0` / `0` | No model headroom claim; these fields are explicit non-capability values |
 | Retained output | `65536` bytes | Application cap for validated assistant text |
@@ -40,10 +43,16 @@ fields; locally cached values are deliberately not promoted into this
 contract. The exact packet and binding structures live in
 [`context/packet.rs`](../crates/core/src/context/packet.rs).
 
+The compatibility-aware runtime identity field is a schema-25 reader-floor
+change. Legacy 0.153.3 Max packets remain readable without that optional field,
+and their serialized bytes and hashes stay unchanged. New receipts may record
+the observed installed version and executable hash, but those observations do
+not become a future launch pin.
+
 ## Request and dispatch boundary
 
 `PrepareContext` and `StartDiscussion` accept an optional binding. When it is
-present, packet compilation validates the exact supported development profile,
+present, packet compilation validates the selected supported development profile,
 the model/trait values, the accounting label, and the byte allowance. The
 serialized packet is bounded before dispatch and its immutable packet record
 retains the request hash and options needed to reconstruct the same stdin
@@ -82,14 +91,14 @@ than what the application currently prefers.
 
 The desktop runtime does not enable Codex when the picker opens and does not
 substitute another model when the check fails. `check_connection` clears the
-session connection first, then `CodexConnection::check_installed` searches
-only the supported native Codex installation directory, pins the candidate
-executable, verifies the exact `codex-cli 0.153.3` version and the fixed
-qualified executable SHA-256, and confirms `login status`. The resulting
-session connection is held in native runtime state and is required before a
-live worker can start. The selected model, `max` reasoning, and `priority`
-service tier must also match the immutable bounded binding. No credential
-contents are read into application state.
+session connection first, discovers the installed native Codex executable,
+checks that its current version and supported launch surface are compatible,
+records the observed executable identity, and confirms `login status`. The
+resulting session connection is held in native runtime state and is required
+before a live worker can start. The selected model, reasoning, and service
+tier must also match the immutable bounded binding. No credential contents are
+read into application state. Historical 0.153.3 runs remain qualification
+evidence, not a current version requirement.
 
 ## Owned Stop and terminal outcomes
 
@@ -190,7 +199,7 @@ experiments are recorded with their individual limits in
 The recorded successful streams observed no tool events. That is observation
 evidence, not a universal no-tools guarantee. The runner cases exercised the
 Windows Job-contained process foundation. The native desktop case exercises the
-current bounded discussion path after the exact-binary session gate, but this
+current bounded discussion path after the installed-CLI compatibility gate, but this
 ledger still does not establish a supported provider or full W8 qualification.
 
 This evidence does not qualify provider support, token limits, output-token
@@ -211,10 +220,12 @@ effective identity remain null, and local byte caps are not presented as model
 capabilities.
 
 Before declaring a supported live provider, the project still needs the
-qualified process/profile adapter, provider JSONL decoding and refusal/tool
-handling, interruption and cleanup qualification, context-budget evidence,
-credential-boundary review, and native/package gates. Until those gates pass,
-`ProviderState` must expose Codex as ready only for the exact checked session
-and supported binding; otherwise it must remain explicitly blocked/reference
-only while the local test model stays ready. No full W8 qualification claim is
-made by this ADR.
+compatibility-aware process/profile adapter, provider JSONL decoding and
+refusal/tool handling, interruption and cleanup qualification, context-budget
+evidence, credential-boundary review, and native/package gates. Until those
+gates pass, `ProviderState` must expose Codex as ready only for the currently
+checked compatible session and supported binding; otherwise it must remain
+explicitly blocked/reference only while the local test model stays ready. The
+same contract must cover the planned model-picker adapters and configurable
+OpenAI-compatible endpoint APIs. No full W8 qualification claim is made by
+this ADR.

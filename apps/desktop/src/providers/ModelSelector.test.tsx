@@ -7,7 +7,7 @@ import { ModelSelector } from './ModelSelector';
 import { ModelSettings } from './ModelSettings';
 import { ProviderSettingsProvider, useProviders } from './ProviderContext';
 vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), checkCodexConnection: vi.fn(), saveModelSettings: vi.fn() }));
-const luna: ipc.ModelSelection = { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'max', serviceTier: 'priority' };
+const luna: ipc.ModelSelection = { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority' };
 function initial(): ipc.ProviderState {
   return { settings: { revision: '0', active: { ...ipc.localModel }, favorites: [] }, dispatch: { kind: 'localMock', detail: 'No live AI connected' }, codexConnection: { ready: false, detail: 'Check Settings to connect Codex.' }, catalog: { models: [
     { key: { providerId: 'mock', modelId: 'mock-story-context' }, label: 'Local test model', providerLabel: 'Local', reasoningLevels: [], serviceTiers: [], contextWindowTokens: null, maxOutputTokens: null, origin: 'builtIn', ready: true, statusDetail: 'No live AI connected' },
@@ -74,7 +74,7 @@ describe('persistent model selection', () => {
   it('checks Codex only when explicitly requested and preserves the saved choice', async () => {
     const before = structuredClone(state.settings);
     vi.mocked(ipc.checkCodexConnection).mockImplementationOnce(async () => {
-      state = { ...state, codexConnection: { ready: true, detail: 'Signed in through Codex. GPT-5.6-Luna is available with Max reasoning and Fast response speed.' } };
+      state = { ...state, codexConnection: { ready: true, detail: 'Signed in through Codex. GPT-5.6-Luna is available with Extra high reasoning and Fast response speed.' } };
       return structuredClone(state);
     });
     await render(); expect(ipc.checkCodexConnection).not.toHaveBeenCalled(); await click('Settings');
@@ -91,9 +91,9 @@ describe('persistent model selection', () => {
   });
   it('offers the exact Codex traits when a connection is ready', async () => {
     state.settings = { revision: '8', active: { ...luna, reasoning: 'high', serviceTier: null }, favorites: [luna] };
-    state.dispatch = { kind: 'blocked', detail: 'Choose Max reasoning and Fast response speed to send.' };
+    state.dispatch = { kind: 'blocked', detail: 'Choose Extra high reasoning and Fast response speed to send.' };
     state.codexConnection = { ready: true, detail: 'Signed in through Codex.' };
-    await render(); await click('Settings'); await click('Use Max reasoning + Fast response speed');
+    await render(); await click('Settings'); await click('Use Extra high reasoning + Fast response speed');
     expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('8', luna, [luna]);
   });
 });

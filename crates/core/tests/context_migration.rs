@@ -61,6 +61,65 @@ fn body(text: &str) -> Value {
 }
 
 #[test]
+fn schema24_upgrade_keeps_exact_historical_codex_packet_and_backup() {
+    use webnovel_core::context::packet::{ProviderBinding, serialized_input};
+    let temp = TempDir::new("codex-runtime-identity");
+    let path = temp.child("project");
+    let (project, access, _, saved) = setup_project(&path);
+    let current = project
+        .document(access.clone(), saved.head.document_id)
+        .unwrap();
+    let snapshot_id = freeze_one_snapshot(&project, &access, &current);
+    let packet = match project
+        .prepare_context(PrepareContext {
+            lookup: None,
+            access: access.clone(),
+            operation_id: "historical-codex-packet".into(),
+            snapshot_id,
+            instruction: "Explain the saved passage.".into(),
+            mandatory_handles: Vec::new(),
+            transient_mandatory_handles: None,
+            safe_brief: None,
+            scope: None,
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: Some(ProviderBinding::codex_luna_historical()),
+            response_contract: None,
+        })
+        .unwrap()
+    {
+        PreparationResult::Prepared { packet, .. } => *packet,
+        _ => panic!("historical packet fits"),
+    };
+    let original = serde_json::to_vec(&packet).unwrap();
+    let input = serialized_input(&packet.messages, &packet.options).unwrap();
+    assert!(!input.contains("\"runtime\""));
+    drop(project);
+    let database = Connection::open(path.join("project.sqlite3")).unwrap();
+    database.pragma_update(None, "user_version", 24).unwrap();
+    drop(database);
+    let reopened = ProjectSession::open(&path).unwrap();
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 25);
+    let access = reopened.attach("new-runtime-reader".into()).unwrap();
+    let restored = reopened
+        .prepared_context(access, packet.receipt.packet_id)
+        .unwrap();
+    assert_eq!(serde_json::to_vec(&restored).unwrap(), original);
+    assert_eq!(
+        serialized_input(&restored.messages, &restored.options).unwrap(),
+        input
+    );
+    let archive = temp.child("retained-history.wnsbackup");
+    create_backup(&reopened, &archive).unwrap();
+    let recovered = recover_backup(&archive, &temp.child("recovered"), "Historical Codex").unwrap();
+    drop(recovered);
+    let backups = fs::read_dir(path.join("migrations"))
+        .unwrap()
+        .collect::<Vec<_>>();
+    assert_eq!(backups.len(), 1);
+    assert_eq!(schema_version(&backups[0].as_ref().unwrap().path()), 24);
+}
+
+#[test]
 fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots() {
     let temp = TempDir::new("reviewed-reader-floor");
     let path = temp.child("project");
@@ -128,7 +187,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .head,
         saved.head
     );
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 24);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 25);
     let backups: Vec<_> = fs::read_dir(path.join("migrations"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -139,7 +198,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .starts_with("schema14-before-schema24-")
+            .starts_with("schema14-before-schema25-")
     );
     assert_eq!(schema_version(&backups[0]), 14);
 }
@@ -199,7 +258,7 @@ fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
 
     let reopened = ProjectSession::open(&path).unwrap();
     let access = reopened.attach("schema19-reader".into()).unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 24);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 25);
     assert_eq!(
         serde_json::to_vec(
             &reopened
@@ -343,7 +402,7 @@ fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
     let access = reopened
         .attach("schema19-navigation-reader".into())
         .unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 24);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 25);
     assert_eq!(
         serde_json::to_vec(
             &reopened
@@ -640,7 +699,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 24);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 25);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -705,7 +764,7 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 24);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 25);
     let connection =
         Connection::open(path.join("project.sqlite3")).expect("open migrated schema19 database");
     let discussion_tables: i64 = connection
@@ -816,7 +875,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 24);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 25);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     let safe_brief_column: i64 = connection
         .query_row(
@@ -884,7 +943,7 @@ fn schema23_lookup_migration_preserves_legacy_composer_draft_and_starts_empty_lo
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema23 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 24);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 25);
     let reader = upgraded.attach("schema23-lookup-reader".into()).unwrap();
     let restored = upgraded
         .read_discussion(reader, document.head.document_id.clone())
@@ -1022,7 +1081,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 24);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 25);
     assert_eq!(
         recovered
             .context_source_epoch()

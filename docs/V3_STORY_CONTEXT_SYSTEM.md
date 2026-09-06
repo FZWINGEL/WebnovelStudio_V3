@@ -241,9 +241,26 @@ Changed documents remain available through exact source reads even while indexes
 
 ### 5.2 Semantic analysis: optional and source-bound
 
-Semantic extraction and abstractive summaries need a model unless the author writes them. Offer **Refresh story memory** for a chapter or selected range. A project preference can explicitly authorize analysis on meaningful checkpoints, with a selected model and usage cap. It is off by default, never runs on every autosave, and never automatically launches a paid critique after each chapter.
+Semantic extraction and abstractive summaries need a model unless the author writes them. Offer **Refresh story memory** for a chapter or selected range. Background analysis uses the fixed GPT-5.6 Luna/xhigh profile with an explicit usage cap. It is off by default, never runs on every autosave, and never automatically launches a paid critique after each chapter.
 
 Without semantic analysis, the system still works through exact prose, accepted notes, local retrieval, and deterministic navigation cards. It should show that broader semantic orientation is limited rather than fabricate summaries.
+
+For semantic maintenance, the producer is GPT-5.6 Luna with xhigh reasoning:
+chapter-memory refreshes, generated navigation summaries, and other background
+summary/extraction jobs use that profile. Author-facing drafting,
+revision, and discussion requests use the persistent V2-style model picker and
+the author's selected model/traits. This is a routing policy, not a claim that
+the current provider integration already supports every model or trait.
+
+The provider layer must retain V2's model picker and adapter concepts while
+remaining explicit and inspectable. In addition to CLI adapters, it should
+support configurable OpenAI-compatible HTTP endpoints with a base URL, model
+identifier, authentication reference, request capabilities, and observed
+limits stored in Settings. Endpoint credentials stay outside packets and
+receipts. Codex compatibility is checked against the installed CLI at
+connection time; V3 must not pin a release version or executable hash, though
+the observed version/hash may be recorded as request evidence. Unsupported
+capabilities fail closed and never cause silent provider/model substitution.
 
 An analysis job reads a frozen source and returns a proposed digest plus observations, evidence anchors, uncertainties, and candidate entity links. Rust verifies schema, referenced source membership, quote/range integrity, and size limits. These checks cannot prove semantic truth.
 
