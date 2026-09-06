@@ -4,10 +4,7 @@ permissions:
   contents: read
 jobs:
   contracts:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.0.0
@@ -18,7 +15,7 @@ jobs:
       - run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: v3-core-contract-${{ matrix.os }}-rust-1.98.1
+          shared-key: v3-core-contract-ubuntu-latest-rust-1.98.1
           cache-on-failure: true
           cache-bin: false
       - run: cargo fmt --all --check
@@ -47,6 +44,10 @@ jobs:
           cache-on-failure: true
           cache-bin: false
       - run: npm ci
+        working-directory: apps/desktop
+      # Windows Rust contracts run once below as part of the complete workspace.
+      # Retain the Windows frontend gate here instead of duplicating the job.
+      - run: npm test
         working-directory: apps/desktop
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

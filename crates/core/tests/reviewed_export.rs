@@ -15,8 +15,7 @@ use webnovel_core::transfer::{
 };
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
-#[path = "support/schema.rs"]
-mod legacy_schema;
+use crate::legacy_schema;
 
 struct Cleanup(PathBuf);
 

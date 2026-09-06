@@ -88,6 +88,8 @@ Other development commands:
 
 Close an executable before rebuilding it on Windows. `native` requires a successful `spike` build and uses synthetic projects through a local debugging endpoint. These checks are development evidence; they do not qualify an installed release, a live provider, or literary quality.
 
+See [development checks](docs/TESTING.md) for focused test commands and the grouped Rust test harness. The full check still runs every test.
+
 Release builds use a stable library under `%LOCALAPPDATA%\com.webnovelstudio.v3`; development builds keep their separate checkout-specific data. The installer configuration includes an offline WebView2 installer. Package build and installed-release evidence are tracked in [Windows package qualification](docs/WINDOWS_PACKAGE_QUALIFICATION.md).
 
 ## Project and design

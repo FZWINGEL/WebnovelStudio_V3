@@ -22,8 +22,7 @@ use webnovel_core::projects::{
 use webnovel_core::transfer::{create_backup, recover_backup};
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
-#[path = "support/schema.rs"]
-mod legacy_schema;
+use crate::legacy_schema;
 
 struct Cleanup(PathBuf);
 

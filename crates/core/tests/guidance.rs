@@ -10,8 +10,7 @@ use webnovel_core::projects::guidance::SaveGuidance;
 use webnovel_core::projects::{CreateDocument, ProjectAccess, ProjectSession};
 use webnovel_core::transfer::{create_backup, recover_backup};
 
-#[path = "support/schema.rs"]
-mod legacy_schema;
+use crate::legacy_schema;
 
 struct TempDir(PathBuf);
 

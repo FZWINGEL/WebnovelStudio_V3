@@ -1,9 +1,43 @@
 # V3 implementation status
 
-**Status date:** 6 September 2026
+**Status date:** 7 September 2026
 
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
+
+### Test-runtime checkpoint — 7 September
+
+The core integration files now compile as modules in one standard Cargo test
+target. All existing test bodies remain intact; ten suites import the shared
+legacy-schema helper once from the harness. A new registration test rejects
+unregistered top-level suite files. Cargo still runs the unit, binary and
+documentation tests, including the existing Windows process fixtures.
+
+Four test threads are the default, with environment/CLI overrides available.
+This reduces contention between durable SQLite writers without changing WAL,
+FULL synchronization, migration, recovery, or timeout behavior. CI retains
+Ubuntu core/frontend checks and Windows workspace/frontend/native checks while
+removing the redundant Windows core job.
+
+The first grouped workspace run passed **721 Rust tests** in **38.83 seconds**
+including compilation, against the **92.58-second**, 720-test baseline. The
+extra test is the registration guard. The complete wrapper then passed all
+721 Rust tests and **434 frontend tests**, formatting, strict workspace Clippy,
+TypeScript and production build in **52.04 seconds**. The guard's negative
+qualification refused a temporary omitted file, which was removed afterward.
+Evidence: `.local/test-performance-local-baseline.{log,json}`,
+`.local/test-performance-grouped-workspace.{log,json}`,
+`.local/test-performance-registration-refusal.log` and
+`.local/test-performance-full-check-final.{log,json}`.
+
+The final warm workspace run passed all 721 Rust tests in **31.01 seconds**,
+about **66.5% faster** than the warm baseline. Both had under half a second of
+compilation. Evidence: `.local/test-performance-grouped-warm.{log,json}`.
+
+Core/SQLite optimization flags and frontend pool changes were measured but not
+adopted. No paid model request was made. This test-only change does not alter
+the delivered development executable. See [development checks](TESTING.md) for
+focused commands, suite registration and the retained full-check boundary.
 
 ### Current reviewed-memory lookup checkpoint — 6 September
 
@@ -63,9 +97,10 @@ this slice does not establish narrative understanding or exhaustive continuity.
 
 The implementation was pushed as `6efb184dd20e147fc02503222d881cb2d380ca7c`.
 [CI 34062589124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34062589124)
-has passed both Windows and Ubuntu contract jobs; its native job was still
-running at this documentation checkpoint. Those completed contract jobs do not
-stand in for the remaining native result.
+passed both Windows and Ubuntu contract jobs and the complete native job,
+including editor, HTTP, close, interruption, recovery and memory-lookup flows.
+This is the pre-optimization implementation baseline; the reorganized test
+workflow requires its own hosted verification.
 
 The author requested test-runtime optimization before further feature work on
 7 September (local time). Measure and shorten the development checks while

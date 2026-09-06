@@ -22,8 +22,7 @@ use webnovel_core::projects::proposals::{
 };
 use webnovel_core::projects::{CreateDocument, ProjectSession};
 
-#[path = "support/schema.rs"]
-mod legacy_schema;
+use crate::legacy_schema;
 
 struct Fixture {
     root: PathBuf,

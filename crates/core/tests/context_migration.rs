@@ -25,8 +25,7 @@ use webnovel_core::projects::{
 use webnovel_core::transfer::{BackupManifest, create_backup, recover_backup};
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
-#[path = "support/schema.rs"]
-mod legacy_schema;
+use crate::legacy_schema;
 use legacy_schema::remove_schema24_features;
 
 struct TempDir(PathBuf);

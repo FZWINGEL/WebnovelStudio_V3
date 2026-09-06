@@ -23,8 +23,7 @@ use webnovel_core::projects::{
 use webnovel_core::providers::http_request::prepare_request;
 use webnovel_core::transfer::{create_backup, recover_backup};
 
-#[path = "support/schema.rs"]
-mod legacy_schema;
+use crate::legacy_schema;
 
 struct TempDir(PathBuf);
 

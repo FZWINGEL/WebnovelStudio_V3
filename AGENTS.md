@@ -9,3 +9,4 @@
 - Preserve the later lifecycle and restore decisions: explicit project/document/session identity, conservative stale-edit refusal, short local Apply barriers, and restore into a new recovered project. These become durable implementation work after W0.
 - Keep toolchain and package pins in the root manifests. Use synthetic fixtures and temporary paths; never commit author databases, credentials, generated native results, or backups.
 - Proposed commands are not evidence. Record native WebView2 text input, accessibility, persistence, provider, and packaging evidence in the qualification documents before claiming support.
+- Register new core integration test files in `crates/core/tests/integration.rs`; see [development checks](docs/TESTING.md) for focused commands and the full verification path.

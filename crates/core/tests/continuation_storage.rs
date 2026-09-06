@@ -1,6 +1,5 @@
 use rusqlite::Connection;
-#[path = "support/schema.rs"]
-mod legacy_schema;
+use crate::legacy_schema;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{

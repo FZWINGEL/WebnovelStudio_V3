@@ -1,0 +1,4 @@
+[env]
+# More concurrent durable SQLite writers slowed the local suite. An existing
+# environment value or libtest --test-threads argument can override this default.
+RUST_TEST_THREADS = { value = "4", force = false }

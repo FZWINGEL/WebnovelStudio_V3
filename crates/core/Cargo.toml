@@ -2,6 +2,8 @@
 name = "webnovel-core"
 version = "0.1.0"
 edition = "2024"
+# Compile the integration suites once; tests/integration.rs checks registration.
+autotests = false
 
 [dependencies]
 serde = { version = "=1.0.229", features = ["derive"] }
@@ -33,3 +35,7 @@ windows-sys = { version = "=0.61.2", features = [
 [[bin]]
 name = "windows-process-fixture"
 path = "src/bin/windows-process-fixture.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
