@@ -1,5 +1,27 @@
 name: V3 editor contracts and Windows spike
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    paths-ignore:
+      - 'docs/**'
+      - '.impeccable/**'
+      - 'README.md'
+      - 'PRODUCT.md'
+      - 'DESIGN.md'
+      - 'AGENTS.md'
+      - 'CHANGELOG.md'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '.impeccable/**'
+      - 'README.md'
+      - 'PRODUCT.md'
+      - 'DESIGN.md'
+      - 'AGENTS.md'
+      - 'CHANGELOG.md'
+  workflow_dispatch:
+concurrency:
+  group: v3-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -12,6 +34,8 @@ jobs:
           node-version-file: .node-version
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
+      - name: Check product versions and release guard
+        run: node --test scripts/check-versions.test.mjs
       - run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -30,6 +54,11 @@ jobs:
   windows-native:
     runs-on: windows-latest
     timeout-minutes: 25
+    env:
+      # Keep line information for failures; CI does not need local variable/type
+      # debug data. Assertions and the Tauri development surface stay enabled.
+      CARGO_PROFILE_DEV_DEBUG: '1'
+      CARGO_PROFILE_TEST_DEBUG: '1'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.0.0
@@ -37,6 +66,8 @@ jobs:
           node-version-file: .node-version
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
+      - name: Check product versions and release guard
+        run: node --test scripts/check-versions.test.mjs
       - run: rustup toolchain install 1.98.1 --profile minimal --component clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:

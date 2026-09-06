@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WebnovelStudio V3",
-  "version": "0.1.0",
   "identifier": "com.webnovelstudio.v3",
   "build": {
     "beforeDevCommand": "node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 1420 --strictPort",

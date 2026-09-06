@@ -23,6 +23,9 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
 
+      - name: Verify product versions before packaging
+        run: node scripts/check-versions.mjs
+
       - name: Install the pinned Rust toolchain
         shell: pwsh
         run: |
@@ -82,3 +85,12 @@ jobs:
           path: ${{ runner.temp }}/webnovel-package-qualification/output
           include-hidden-files: true
           if-no-files-found: warn
+
+      - name: Retain the exact tested installer
+        if: success()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: windows-installer
+          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          compression-level: 0
+          if-no-files-found: error

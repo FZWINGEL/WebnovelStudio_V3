@@ -5,6 +5,34 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
+### V3.0.0 workspace preparation — 7 September
+
+The active goal is development-speed optimization and workspace cleanup for
+V3.0.0. Rust packages now inherit workspace version `3.0.0`; npm metadata and
+locks agree, and Tauri derives the installer version from Cargo. The stable
+application identifier and author-data paths are unchanged. Six focused
+version-guard checks cover agreement, inheritance, lock drift and line endings.
+
+The candidate's local full check passed all 721 Rust and 434 frontend tests,
+the six version checks, formatting, strict Clippy, TypeScript and production
+build in 85.64 seconds including recompilation in the normal root `target/`.
+Evidence: `.local/release-3.0.0-check.{log,json}`. A fresh hosted candidate and
+installer qualification are still pending. See [release preparation](RELEASE_3_0_0.md)
+and [changelog](../CHANGELOG.md); neither announces a public release.
+
+The warm candidate check then passed in **43.98 seconds** using the normal
+root `target/` cache (`.local/release-3.0.0-warm-check.{log,json}`). It includes
+the version guard and the complete Rust/frontend matrix.
+
+Workspace cleanup reclaimed **73.94 GiB** of obsolete project build products
+across 23 scratch Cargo trees. Automatic review blocked bulk directory deletion;
+the narrower `cargo clean --workspace` route succeeded and retained dependency
+caches, the normal root build cache, delivered builds and qualification reports.
+The stale root Vite cache and old root log were also removed. Before/after
+inventories are `.local/workspace-cleanup-inventory.json` and
+`.local/workspace-cleanup-after.json`. Thirteen obsolete GitHub cache entries
+were removed, reclaiming **5.37 GiB** while retaining current caches and fallbacks.
+
 ### Test-runtime checkpoint — 7 September
 
 The core integration files now compile as modules in one standard Cargo test
@@ -31,8 +59,31 @@ Evidence: `.local/test-performance-local-baseline.{log,json}`,
 `.local/test-performance-full-check-final.{log,json}`.
 
 The final warm workspace run passed all 721 Rust tests in **31.01 seconds**,
-about **66.5% faster** than the warm baseline. Both had under half a second of
+about **66.5% less wall time** than the warm baseline. Both had under half a second of
 compilation. Evidence: `.local/test-performance-grouped-warm.{log,json}`.
+Independent name-level comparison confirmed all 587 original integration
+tests across 63 files, with the 62 core unit tests, 71 desktop tests and one
+intentionally ignored unit fixture unchanged. Only the registration guard was
+added; no production application code changed.
+
+The hosted Rust test steps also passed on the optimized commit `db3df283`.
+Compared with the preceding implementation run `6efb184d`:
+
+| CI test step | Previous run | Optimized run |
+| --- | ---: | ---: |
+| Ubuntu core | 160 seconds | 96 seconds |
+| Windows workspace | 566 seconds | 300 seconds |
+
+These are single observed CI runs including compilation, with runner and cache
+variation; the local warm comparison above isolates the development loop more
+closely. Removing the duplicate Windows core job additionally reduces runner
+work, but its duration is not an equivalent reduction in workflow wall time.
+
+[CI 34064355153](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34064355153)
+passed both jobs on `db3df283`: Ubuntu core/frontend and Windows workspace,
+frontend, all 52 main native checks, HTTP, normal close, strict interruption,
+recovered-project and reviewed-memory lookup qualification. Cache-save overhead
+remains a separate CI optimization target.
 
 Core/SQLite optimization flags and frontend pool changes were measured but not
 adopted. No paid model request was made. This test-only change does not alter
@@ -92,7 +143,7 @@ The delivered 44,623,360-byte executable was built at
 The live three-call evidence above used the earlier stated hash; no additional
 paid call was needed for this connection-recovery retest.
 
-Hosted, author-trial and release qualification remain open, and
+Broader live-provider, author-trial and release qualification remain open, and
 this slice does not establish narrative understanding or exhaustive continuity.
 
 The implementation was pushed as `6efb184dd20e147fc02503222d881cb2d380ca7c`.
@@ -100,7 +151,7 @@ The implementation was pushed as `6efb184dd20e147fc02503222d881cb2d380ca7c`.
 passed both Windows and Ubuntu contract jobs and the complete native job,
 including editor, HTTP, close, interruption, recovery and memory-lookup flows.
 This is the pre-optimization implementation baseline; the reorganized test
-workflow requires its own hosted verification.
+workflow is independently verified by CI 34064355153 above.
 
 The author requested test-runtime optimization before further feature work on
 7 September (local time). Measure and shorten the development checks while

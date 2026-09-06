@@ -56,6 +56,17 @@ native editor, HTTP, close, interruption, recovery and memory-lookup flows.
 This removes the former duplicate Windows core job while retaining both
 operating systems' coverage. Native safety checks are not skipped for speed.
 
+Documentation-only changes skip the build workflow. Code, test, manifest,
+script and workflow changes retain both jobs; manual dispatch remains available.
+A newer push on the same branch cancels an obsolete run. Product-version checks
+run before expensive build setup and during the local check.
+
+The 3.0.0 candidate tests Windows CI with limited Rust debug information
+(`CARGO_PROFILE_DEV_DEBUG=1`, `CARGO_PROFILE_TEST_DEBUG=1`) to reduce dependency
+artifacts and cache work. Assertions and native development features remain
+enabled. Local debugging and release profiles are unchanged; hosted qualification
+must confirm the candidate before this experiment is counted as an improvement.
+
 ## Measured checkpoint — 7 September 2026
 
 The Windows baseline on the same 24-logical-processor machine was 92.58 seconds
@@ -72,8 +83,19 @@ a warm build (0.34 seconds), making this about **66.5% less wall time** for the
 same original tests plus the guard. Report:
 `.local/test-performance-grouped-warm.{log,json}`.
 
+An independent name-level comparison confirmed all 587 original integration
+tests across 63 files are present in the grouped harness. The 62 passing core
+unit tests, 71 desktop tests and one intentionally ignored unit fixture also
+remain unchanged; the registration guard is the only added test.
+
 Baseline and qualification logs are ignored under `.local/test-performance-*`.
 A temporary unregistered test file was correctly refused by the guard and
 removed afterward. Core and SQLite optimization-level experiments did not
 improve the slow discussion suite enough to adopt. Frontend thread-pool changes
 saved little, so its existing isolation and CI worker limit were retained.
+
+A later warm serial full check took **38.61 seconds**. Running its Rust chain
+alongside its frontend chain took **51.32 seconds** with the same passing tests,
+so that experiment was reverted. Cargo checks and the frontend suite remain
+sequential. Use the normal root `target/` cache for routine development; avoid
+creating a separate Cargo target tree for each feature or test invocation.

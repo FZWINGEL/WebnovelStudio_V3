@@ -1,6 +1,6 @@
 [package]
 name = "webnovel-core"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 # Compile the integration suites once; tests/integration.rs checks registration.
 autotests = false

@@ -25,6 +25,9 @@ if (action === 'setup' || !existsSync(resolve(desktop, 'node_modules/@tauri-apps
 }
 if (action === 'setup') process.exit(0);
 const tauri = resolve(desktop, 'node_modules/@tauri-apps/cli/tauri.js');
+if (['build', 'spike', 'package'].includes(action)) {
+  await node([resolve(root, 'scripts/check-versions.mjs')]);
+}
 switch (action) {
   case 'dev': await node([tauri, 'dev']); break;
   case 'spike': await node([tauri, 'build', '--debug', '--no-bundle', '--', '--locked']); break;
@@ -36,6 +39,7 @@ switch (action) {
   case 'test': await node(['node_modules/vitest/vitest.mjs', 'run']); break;
   case 'native': await node(['scripts/native-smoke.mjs']); break;
   case 'check':
+    await node(['--test', resolve(root, 'scripts/check-versions.test.mjs')]);
     await run('cargo', ['fmt', '--all', '--check']);
     await run('cargo', ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings']);
     await run('cargo', ['test', '--workspace', '--locked']);
