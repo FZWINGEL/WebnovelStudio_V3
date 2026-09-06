@@ -7,6 +7,11 @@
 pub mod adapter;
 pub mod catalog;
 pub mod claude_exec;
+pub mod claude_profile;
+#[cfg(windows)]
+pub mod claude_runner;
+#[cfg(windows)]
+pub mod claude_runtime;
 pub mod cli;
 pub mod codex_catalog;
 #[cfg(windows)]

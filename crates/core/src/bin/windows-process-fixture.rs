@@ -28,6 +28,7 @@ fn main() {
         "--exit-with-descendant" => exit_with_descendant(),
         "--check-sentinel" => check_sentinel(),
         "--codex-jsonl" => codex_jsonl(),
+        "--claude-jsonl" => claude_jsonl(),
         "--interactive" => interactive(),
         _ => root(),
     }
@@ -95,6 +96,153 @@ fn codex_jsonl() {
     eprintln!("PRIVATE_DIAGNOSTIC_FIXTURE_DO_NOT_EXPOSE");
     if mode == "nonzero" {
         std::process::exit(2);
+    }
+}
+
+fn claude_jsonl() {
+    let mode = std::env::args().nth(2).unwrap_or_default();
+    let marker = std::env::args_os().nth(3).map(PathBuf::from);
+    let release_marker = std::env::args_os().nth(4).map(PathBuf::from);
+    let pid_marker = std::env::args_os().nth(5).map(PathBuf::from);
+    let mut packet = Vec::new();
+    io::stdin().read_to_end(&mut packet).expect("fixture stdin");
+    if let Some(marker) = marker {
+        std::fs::write(marker, &packet).expect("write exact stdin marker");
+    }
+
+    let model = if mode == "mismatch" {
+        "claude-opus-5"
+    } else {
+        "claude-sonnet-5"
+    };
+    let text = if mode == "output-cap" {
+        "x".repeat(70 * 1024)
+    } else {
+        "The promise matters.".to_owned()
+    };
+    let mut output = Vec::new();
+    let line = |value: serde_json::Value| {
+        let mut bytes = serde_json::to_vec(&value).expect("fixture JSON");
+        bytes.push(b'\n');
+        bytes
+    };
+    output.extend(line(serde_json::json!({
+        "type":"system", "subtype":"init", "session_id":"fixture-session",
+        "model":model, "tools":[], "mcp_servers":[], "plugins":[], "agents":[], "skills":[]
+    })));
+    output.extend(line(serde_json::json!({
+        "type":"stream_event", "session_id":"fixture-session", "event":{
+            "type":"message_start", "message":{
+                "id":"fixture-message", "type":"message", "role":"assistant", "model":model,
+                "usage":{"input_tokens":4,"output_tokens":1}
+            }
+        }
+    })));
+    output.extend(line(serde_json::json!({
+        "type":"stream_event", "session_id":"fixture-session", "event":{
+            "type":"content_block_start", "index":0,
+            "content_block":{"type":"text","text":""}
+        }
+    })));
+
+    if mode == "flood" {
+        for _ in 0..2_000 {
+            output.extend(line(serde_json::json!({
+                "type":"stream_event", "session_id":"fixture-session", "index":0, "event":{
+                    "type":"content_block_delta", "index":0,
+                    "delta":{"type":"text_delta","text":"x"}
+                }
+            })));
+        }
+    } else if mode == "tool" {
+        output.extend(line(serde_json::json!({
+            "type":"stream_event", "session_id":"fixture-session", "index":0, "event":{
+                "type":"content_block_delta", "index":0,
+                "delta":{"type":"text_delta","text":"The promise"}
+            }
+        })));
+        output.extend(line(serde_json::json!({
+            "type":"stream_event", "session_id":"fixture-session", "event":{
+                "type":"content_block_delta", "index":0,
+                "delta":{"type":"tool_use_delta","partial_json":"must-not-run"}
+            }
+        })));
+    } else {
+        output.extend(line(serde_json::json!({
+            "type":"stream_event", "session_id":"fixture-session", "index":0, "event":{
+                "type":"content_block_delta", "index":0,
+                "delta":{"type":"text_delta","text":text}
+            }
+        })));
+    }
+
+    if mode == "stop" {
+        io::stdout().write_all(&output).expect("fixture stdout");
+        io::stdout().flush().expect("fixture stdout flush");
+        loop {
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
+
+    if mode == "flood" {
+        if let Some(path) = pid_marker {
+            std::fs::write(path, std::process::id().to_string()).expect("write flood pid marker");
+        }
+        let release = release_marker.expect("flood release marker");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !release.exists() {
+            assert!(Instant::now() < deadline, "flood fixture was not released");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    if mode == "malformed-tool" {
+        output.extend_from_slice(b"{malformed fixture JSON\n");
+        output.extend(line(serde_json::json!({
+            "type":"stream_event", "session_id":"fixture-session", "event":{
+                "type":"content_block_delta", "index":0,
+                "delta":{"type":"tool_use","name":"must-not-run"}
+            }
+        })));
+    } else if mode != "tool" {
+        output.extend(line(serde_json::json!({
+            "type":"stream_event", "session_id":"fixture-session", "event":{
+                "type":"content_block_stop", "index":0
+            }
+        })));
+        output.extend(line(serde_json::json!({
+            "type":"stream_event", "session_id":"fixture-session", "event":{
+                "type":"message_delta", "delta":{"stop_reason":"end_turn"},
+                "usage":{"output_tokens":2}
+            }
+        })));
+        output.extend(line(serde_json::json!({
+            "type":"stream_event", "session_id":"fixture-session", "event":{"type":"message_stop"}
+        })));
+        output.extend(line(serde_json::json!({
+            "type":"assistant", "session_id":"fixture-session", "message":{
+                "id":"fixture-message", "type":"message", "role":"assistant", "model":model,
+                "stop_reason":"end_turn", "content":[{"type":"text","text": if mode == "flood" { "x".repeat(2_000) } else { text.clone() }}]
+            }
+        })));
+        let result = serde_json::json!({
+            "type":"result", "subtype":"success", "is_error":false,
+            "session_id":"fixture-session", "model":model,
+            "result": if mode == "flood" { "x".repeat(2_000) } else { text.clone() },
+            "usage":{"input_tokens":4,"output_tokens":2}
+        });
+        if mode == "unterminated" {
+            output.extend(serde_json::to_vec(&result).expect("fixture result JSON"));
+        } else {
+            output.extend(line(result));
+        }
+    }
+
+    io::stdout().write_all(&output).expect("fixture stdout");
+    io::stdout().flush().expect("fixture stdout flush");
+    eprintln!("PRIVATE_CLAUDE_DIAGNOSTIC_FIXTURE_DO_NOT_EXPOSE");
+    if mode == "nonzero" {
+        std::process::exit(7);
     }
 }
 
