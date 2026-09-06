@@ -1,10 +1,11 @@
 use rusqlite::{Connection, params};
 
-/// Strip schema-20 and schema-19-only columns from a current fixture before it
+/// Strip schema-21, schema-20, and schema-19-only columns from a current fixture before it
 /// is presented as an older database. The production migrations are
 /// intentionally one-way; this helper only makes synthetic legacy fixtures
 /// truthful.
 pub fn remove_schema19_features(connection: &Connection) -> rusqlite::Result<()> {
+    remove_schema20_features(connection)?;
     drop_column_if_present(connection, "export_records", "review_bundle_id")?;
     drop_column_if_present(connection, "proposals", "kind")?;
     drop_column_if_present(connection, "proposal_versions", "payload_json")?;
@@ -41,6 +42,16 @@ pub fn remove_schema19_features(connection: &Connection) -> rusqlite::Result<()>
              DROP TABLE discussion_drafts_schema19;",
         )?;
     }
+    Ok(())
+}
+
+/// Strip only schema-21 reviewed evidence columns so a truthful schema-20
+/// archive can exercise the next migration without removing older features.
+pub fn remove_schema20_features(connection: &Connection) -> rusqlite::Result<()> {
+    drop_column_if_present(connection, "review_stages", "records_json")?;
+    drop_column_if_present(connection, "review_stages", "records_hash")?;
+    drop_column_if_present(connection, "ready_bundles", "records_json")?;
+    drop_column_if_present(connection, "ready_bundles", "records_hash")?;
     Ok(())
 }
 

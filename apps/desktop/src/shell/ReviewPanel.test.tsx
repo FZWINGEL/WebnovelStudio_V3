@@ -9,12 +9,13 @@ import * as ipc from '../ipc/reviews';
 import * as history from '../ipc/history';
 import { ReviewPanel } from './ReviewPanel';
 
-vi.mock('../ipc/reviews', () => ({ chapterReviewStatus: vi.fn(), stageAuthorReview: vi.fn(), readReviewStage: vi.fn(), markReady: vi.fn() }));
+vi.mock('../ipc/reviews', () => ({ chapterReviewStatus: vi.fn(), stageAuthorReview: vi.fn(), readReviewedRecordSet: vi.fn(), readReviewStage: vi.fn(), markReady: vi.fn() }));
 vi.mock('../ipc/history', () => ({ readDocumentRevision: vi.fn(), listDocumentHistory: vi.fn() }));
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 const body = (text: string): WnsDocument => ({ schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'p' }, content: [{ type: 'text', text }] }] } });
 let host: HTMLDivElement; let root: Root; let session: DocumentSession; let record: DocumentRecord;
 let staged: ipc.ReviewStage; let transport: ProjectTransport;
+const detail = (): ipc.PossessionRecord => ({ id: 'detail-1', object: { id: 'object-key', label: 'Key' }, holder: { id: 'holder-mei', label: 'Mei' }, timing: 'unknown', audience: 'authorRoom', evidence: { blockId: 'p', fromUtf16: 0, toUtf16: 17, quote: 'Mei held the key.', quoteHash: 'a'.repeat(64) } });
 function Harness({ visible = true, current = session }: { visible?: boolean; current?: DocumentSession }) {
   const [state, setState] = useState(current.state);
   useEffect(() => { setState(current.state); return current.subscribe(() => setState(current.state)); }, [current]);
@@ -37,6 +38,7 @@ beforeEach(async () => {
     revision: { id: 'revision', head: record.head, body: record.body, reason: 'review', parentId: null },
     previousBundleId: null, prefix: [], sourceEpoch: '3', policyEpoch: '0', createdAt: '2026-09-06T00:00:00Z' };
   vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'noReview', activeBundleId: null, pendingStageId: null, reason: null, canStage: true });
+  vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue(null);
   vi.mocked(ipc.stageAuthorReview).mockImplementation(async () => structuredClone(staged));
   vi.mocked(ipc.readReviewStage).mockImplementation(async () => structuredClone(staged));
   vi.mocked(ipc.markReady).mockResolvedValue({ id: 'bundle', projectId: 'project', operationNamespace: 'namespace', target: record.head, stageId: 'stage', createdAt: '2026-09-06T00:01:00Z' });
@@ -71,6 +73,15 @@ describe('author review', () => {
     await act(async () => session.update(body('Mei took the key.')));
     expect(host.textContent).toContain('Your writing changed.'); expect(host.querySelector('.saved-prose')!.textContent).toContain('left the key');
     expect(button('Mark this version reviewed')).toBeUndefined(); expect(ipc.markReady).not.toHaveBeenCalled();
+  });
+  it('blocks the review decision while a detail form is open', async () => {
+    staged.records = [detail()];
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    await click('Edit');
+    expect(button('Mark this version reviewed').disabled).toBe(true);
+    expect(host.textContent).toContain('Finish this reviewed detail with Keep detail or Cancel');
+    expect(button('Keep detail').disabled).toBe(false); expect(button('Cancel').disabled).toBe(false);
+    await click('Cancel'); await waitFor(() => expect(button('Mark this version reviewed').disabled).toBe(false));
   });
   it('reconciles a lost acknowledgment and retries the identical decision under the new lease', async () => {
     vi.mocked(ipc.markReady).mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'Acknowledgment lost.' });
@@ -126,5 +137,73 @@ describe('author review', () => {
     await waitFor(() => expect(host.textContent).toContain('The promise before the journey.'));
     expect(history.readDocumentRevision).toHaveBeenCalledExactlyOnceWith(access, 'earlier', 'earlier-revision');
     expect(session.body).toEqual(record.body); expect(ipc.markReady).not.toHaveBeenCalled();
+  });
+  it('sends the complete edited record array and retries the identical stage payload', async () => {
+    staged.records = [detail()];
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    await click('Edit');
+    const selects = host.querySelectorAll('select');
+    await act(async () => { (selects[2] as HTMLSelectElement).value = 'earlier'; selects[2].dispatchEvent(new Event('change', { bubbles: true })); });
+    await click('Keep detail'); await waitFor(() => expect(button('Save reviewed details')).toBeDefined());
+    vi.mocked(ipc.stageAuthorReview).mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'Acknowledgment lost.' }).mockResolvedValue(structuredClone(staged));
+    await click('Save reviewed details'); expect(button('Check review save')).toBeDefined();
+    const original = vi.mocked(ipc.stageAuthorReview).mock.calls[1][0];
+    expect(original.records).toEqual([expect.objectContaining({ id: 'detail-1', timing: 'earlier' })]);
+    await click('Check review save'); await waitFor(() => expect(ipc.stageAuthorReview).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[2][0]).toEqual({ ...original, access: { ...access, writerLease: 'new-lease' } });
+  });
+  it('sends an explicit empty array when the author removes inherited details', async () => {
+    staged.records = [detail()];
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    await click('Remove'); await waitFor(() => expect(button('Save reviewed details')).toBeDefined());
+    await click('Save reviewed details');
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[1][0].records).toEqual([]);
+  });
+  it('keeps a stage uncertain when the acknowledgment returns a different reviewed record set', async () => {
+    staged.records = [detail()];
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    await click('Remove'); await waitFor(() => expect(button('Save reviewed details')).toBeDefined());
+    vi.mocked(ipc.stageAuthorReview).mockResolvedValueOnce({ ...structuredClone(staged), records: [detail()] });
+    await click('Save reviewed details'); await waitFor(() => expect(button('Check review save')).toBeDefined());
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[1][0].records).toEqual([]);
+    expect(ipc.markReady).not.toHaveBeenCalled();
+  });
+  it('restages the full typed set after prose changes instead of silently inheriting an older bundle', async () => {
+    staged.records = [detail()];
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    const nextBody = body('Mei held the key. Later, she left.');
+    const nextHead = { documentId: 'chapter', version: '2', bodyHash: await bodyHash(canonicalJson(nextBody)) };
+    vi.mocked(transport.save).mockImplementation(async request => ({ projectId: access.projectId, documentId: 'chapter', session: access.session, operationNamespace: access.operationNamespace, operationId: request.operationId, head: nextHead, savedGeneration: request.localGeneration }));
+    vi.mocked(ipc.stageAuthorReview).mockImplementationOnce(async request => ({ ...structuredClone(staged), target: request.expected, revision: { id: 'revision-2', head: request.expected, body: nextBody, reason: 'review', parentId: 'revision' }, records: structuredClone(request.records ?? []) }));
+    await act(async () => session.update(nextBody));
+    await waitFor(() => expect(button('Review latest saved chapter')).toBeDefined()); await click('Review latest saved chapter'); await waitFor(() => expect(ipc.stageAuthorReview).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[1][0].records).toEqual([expect.objectContaining({ id: 'detail-1' })]);
+  });
+  it('keeps edited details visible when a definite restage refusal occurs', async () => {
+    staged.records = [detail()];
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    await click('Edit');
+    const selects = host.querySelectorAll('select');
+    await act(async () => { (selects[2] as HTMLSelectElement).value = 'earlier'; selects[2].dispatchEvent(new Event('change', { bubbles: true })); });
+    await click('Keep detail'); await waitFor(() => expect(button('Save reviewed details')).toBeDefined());
+    vi.mocked(ipc.stageAuthorReview).mockRejectedValueOnce({ code: 'ReviewStageStale', detail: 'The saved review is stale.' });
+    await click('Save reviewed details'); await waitFor(() => expect(host.textContent).toContain('The saved review is stale.'));
+    expect(host.textContent).toContain('Mei held the key.'); expect(button('Review saved chapter')).toBeDefined();
+  });
+  it('reads the selected record set after reload and offers the same-prose detail update', async () => {
+    const saved = detail();
+    vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'ready', activeBundleId: 'bundle', pendingStageId: null, reason: null, canStage: true });
+    vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue({ bundleId: 'bundle', projectId: 'project', operationNamespace: 'namespace', target: record.head, revision: staged.revision, records: [saved], recordsHash: 'b'.repeat(64), current: true });
+    await render(); await waitFor(() => expect(host.textContent).toContain('Mei held the key.'));
+    expect(ipc.readReviewedRecordSet).toHaveBeenCalledExactlyOnceWith(access, 'chapter'); expect(button('Update reviewed details')).toBeDefined();
+    expect(ipc.stageAuthorReview).not.toHaveBeenCalled();
+  });
+  it('keeps stale historical details available for explicit removal before restaging', async () => {
+    const saved = detail();
+    vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'changedProse', activeBundleId: 'bundle', pendingStageId: null, reason: 'Writing changed since review.', canStage: true });
+    vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue({ bundleId: 'bundle', projectId: 'project', operationNamespace: 'namespace', target: { ...record.head, version: '0' }, revision: staged.revision, records: [saved], recordsHash: 'b'.repeat(64), current: false });
+    await render(); await waitFor(() => expect(button('Remove')).toBeDefined());
+    await click('Remove'); await click('Review saved chapter');
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[0][0].records).toEqual([]);
   });
 });

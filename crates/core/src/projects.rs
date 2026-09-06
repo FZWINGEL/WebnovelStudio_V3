@@ -24,6 +24,7 @@ pub mod proposals;
 pub mod reviewed_story;
 pub mod source_pins;
 pub mod story_context;
+pub mod story_records;
 
 pub type CoreResult<T> = Result<T, CoreError>;
 

@@ -6,7 +6,9 @@
 //! bundles and stages remain historical evidence after the selection changes.
 
 use super::*;
+use crate::context::SourceRef;
 use crate::context::{ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind};
+use crate::projects::story_records::{PossessionRecord, canonical_records_json, validate_records};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -19,6 +21,8 @@ pub struct StageAuthorReview {
     pub access: ProjectAccess,
     pub operation_id: String,
     pub expected: Head,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records: Option<Vec<PossessionRecord>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +53,10 @@ pub struct ReviewStage {
     pub revision: Revision,
     pub previous_bundle_id: Option<String>,
     pub prefix: Vec<ReviewPrefixItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records: Option<Vec<PossessionRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records_hash: Option<String>,
     pub source_epoch: String,
     pub policy_epoch: String,
     pub created_at: String,
@@ -62,7 +70,25 @@ pub struct ReadyBundle {
     pub operation_namespace: String,
     pub stage_id: String,
     pub target: Head,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records: Option<Vec<PossessionRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records_hash: Option<String>,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReviewedRecordSet {
+    pub bundle_id: String,
+    pub project_id: String,
+    pub operation_namespace: String,
+    pub target: Head,
+    pub revision: Revision,
+    pub records: Vec<PossessionRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records_hash: Option<String>,
+    pub current: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +119,7 @@ pub(super) enum ReviewCommand {
     ReadStage(ProjectAccess, String, Reply<ReviewStage>),
     Stage(StageAuthorReview, Reply<ReviewStage>),
     Mark(MarkReady, Reply<ReadyBundle>),
+    ReadRecords(ProjectAccess, String, Reply<Option<ReviewedRecordSet>>),
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +135,8 @@ struct StageRow {
     previous_bundle_id: Option<String>,
     prefix: Vec<ReviewPrefixItem>,
     prefix_hash: String,
+    records: Option<Vec<PossessionRecord>>,
+    records_hash: Option<String>,
     created_at: String,
 }
 
@@ -123,6 +152,8 @@ struct BundleRow {
     policy_epoch: i64,
     prefix: Vec<ReviewPrefixItem>,
     coverage: String,
+    records: Option<Vec<PossessionRecord>>,
+    records_hash: Option<String>,
     created_at: String,
 }
 
@@ -139,6 +170,8 @@ type StageDbRow = (
     Option<String>,
     String,
     String,
+    Option<String>,
+    Option<String>,
     String,
 );
 type BundleDbRow = (
@@ -156,6 +189,8 @@ type BundleDbRow = (
     String,
     String,
     String,
+    Option<String>,
+    Option<String>,
     String,
 );
 
@@ -186,6 +221,20 @@ impl ProjectSession {
 
     pub fn mark_ready(&self, request: MarkReady) -> CoreResult<ReadyBundle> {
         self.request(|reply| Command::Review(Box::new(ReviewCommand::Mark(request, reply))))
+    }
+
+    pub fn read_reviewed_record_set(
+        &self,
+        access: ProjectAccess,
+        document_id: String,
+    ) -> CoreResult<Option<ReviewedRecordSet>> {
+        self.request(|reply| {
+            Command::Review(Box::new(ReviewCommand::ReadRecords(
+                access,
+                document_id,
+                reply,
+            )))
+        })
     }
 }
 
@@ -270,7 +319,55 @@ impl OwnedProject {
                 self.fence_uncertain(&result);
                 let _ = reply.send(result);
             }
+            ReviewCommand::ReadRecords(access, document_id, reply) => {
+                let _ = reply.send(self.read_reviewed_record_set_internal(access, &document_id));
+            }
         }
+    }
+
+    fn read_reviewed_record_set_internal(
+        &self,
+        access: ProjectAccess,
+        document_id: &str,
+    ) -> CoreResult<Option<ReviewedRecordSet>> {
+        self.check_access(&access)?;
+        check_id(document_id)?;
+        let db = self.db()?;
+        let document = read_document(db, document_id)?;
+        if document.kind != "chapter" {
+            return Err(CoreError::new(
+                "InvalidDocument",
+                "Reviewed evidence applies to chapter documents.",
+            ));
+        }
+        let Some(bundle_id) = active_bundle_id(db, &access, document_id)? else {
+            return Ok(None);
+        };
+        let bundle = read_bundle(db, &bundle_id)?.ok_or_else(|| {
+            CoreError::new("InvalidProject", "The selected reviewed bundle is missing.")
+        })?;
+        if bundle.project_id != access.project_id
+            || bundle.operation_namespace != access.operation_namespace
+            || bundle.document_id != document_id
+            || bundle.coverage != "authorOnly"
+        {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "The selected reviewed bundle crosses project identity.",
+            ));
+        }
+        let revision = read_revision(db, &bundle.revision_id)?;
+        let status = self.chapter_review_status(access, document_id)?;
+        Ok(Some(ReviewedRecordSet {
+            bundle_id,
+            project_id: bundle.project_id,
+            operation_namespace: bundle.operation_namespace,
+            target: bundle.target,
+            revision,
+            records: bundle.records.unwrap_or_default(),
+            records_hash: bundle.records_hash,
+            current: status.state == ReviewState::Ready,
+        }))
     }
 
     fn chapter_review_status(
@@ -439,11 +536,26 @@ impl OwnedProject {
         )?;
         let previous_bundle_id =
             active_bundle_id(&tx, &request.access, &document.head.document_id)?;
+        let records = match request.records {
+            Some(records) => Some(records),
+            None => match previous_bundle_id.as_deref() {
+                Some(id) => read_bundle(&tx, id)?.and_then(|bundle| bundle.records),
+                None => None,
+            },
+        };
+        let records_hash = validate_records(&records.clone().unwrap_or_default(), &revision)
+            .map_err(|error| {
+                CoreError::new(
+                    "InvalidReviewedRecords",
+                    &format!("The reviewed evidence is invalid: {}", error.detail),
+                )
+            })?;
+        let records_json = canonical_records_json(&records.clone().unwrap_or_default())?;
         let prefix_hash = hash_prefix(&prefix)?;
         let stage_id = new_id();
         tx.execute(
-            "INSERT INTO review_stages(id,project_id,operation_namespace,operation_id,payload_hash,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO review_stages(id,project_id,operation_namespace,operation_id,payload_hash,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 stage_id,
                 request.access.project_id,
@@ -459,6 +571,8 @@ impl OwnedProject {
                 previous_bundle_id,
                 serde_json::to_string(&prefix)?,
                 prefix_hash,
+                records_json,
+                records_hash,
             ],
         )?;
         let stage = read_stage(&tx, &request.access, &stage_id)?.ok_or_else(|| {
@@ -512,6 +626,15 @@ impl OwnedProject {
                 "The staged revision is no longer the current saved revision.",
             ));
         }
+        let stage_revision = read_revision(&tx, &stage.revision_id)?;
+        validate_records(&stage.records.clone().unwrap_or_default(), &stage_revision).map_err(
+            |error| {
+                CoreError::new(
+                    "InvalidReviewedRecords",
+                    &format!("The staged reviewed evidence is invalid: {}", error.detail),
+                )
+            },
+        )?;
         let prefix = selected_prefix(&tx, &request.access, &stage.document_id, policy_epoch)?;
         if !same_prefix_basis(&prefix, &stage.prefix) {
             return Err(CoreError::new(
@@ -529,8 +652,8 @@ impl OwnedProject {
         let bundle_id = new_id();
         let prefix_json = serde_json::to_string(&stage.prefix)?;
         tx.execute(
-            "INSERT INTO ready_bundles(id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'authorOnly')",
+            "INSERT INTO ready_bundles(id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'authorOnly',?,?)",
             params![
                 bundle_id,
                 request.access.project_id,
@@ -547,6 +670,8 @@ impl OwnedProject {
                 stage.previous_bundle_id,
                 prefix_json,
                 stage.prefix_hash,
+                canonical_records_json(&stage.records.clone().unwrap_or_default())?,
+                stage.records_hash,
             ],
         )?;
         let target_position: i64 = tx.query_row(
@@ -724,6 +849,49 @@ fn hash_prefix(prefix: &[ReviewPrefixItem]) -> CoreResult<String> {
     Ok(sha256_hex(serde_json::to_string(prefix)?.as_bytes()))
 }
 
+fn parse_record_set(
+    records_json: Option<String>,
+    records_hash: Option<String>,
+    revision: &Revision,
+) -> CoreResult<(Option<Vec<PossessionRecord>>, Option<String>)> {
+    match (records_json, records_hash) {
+        (None, None) => Ok((None, None)),
+        (Some(_), None) | (None, Some(_)) => Err(CoreError::new(
+            "InvalidProject",
+            "Reviewed evidence JSON and hash must be present together.",
+        )),
+        (Some(json), Some(hash)) => {
+            let records: Vec<PossessionRecord> = serde_json::from_str(&json).map_err(|error| {
+                CoreError::new(
+                    "InvalidProject",
+                    &format!("The saved reviewed evidence is malformed: {error}"),
+                )
+            })?;
+            if records.is_empty() {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "An empty reviewed evidence set must use the legacy null representation.",
+                ));
+            }
+            let actual = validate_records(&records, revision).map_err(|error| {
+                CoreError::new(
+                    "InvalidProject",
+                    &format!("The saved reviewed evidence is invalid: {}", error.detail),
+                )
+            })?;
+            if actual.as_deref() != Some(hash.as_str())
+                || canonical_records_json(&records)?.as_deref() != Some(json.as_str())
+            {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "The saved reviewed evidence hash or canonical JSON is invalid.",
+                ));
+            }
+            Ok((Some(records), Some(hash)))
+        }
+    }
+}
+
 fn read_stage(
     db: &Connection,
     access: &ProjectAccess,
@@ -731,11 +899,12 @@ fn read_stage(
 ) -> CoreResult<Option<StageRow>> {
     let row: Option<StageDbRow> = db
         .query_row(
-            "SELECT id,project_id,operation_namespace,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,created_at FROM review_stages WHERE id=? AND project_id=? AND operation_namespace=?",
+            "SELECT id,project_id,operation_namespace,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,created_at FROM review_stages WHERE id=? AND project_id=? AND operation_namespace=?",
             params![stage_id, access.project_id, access.operation_namespace],
             |row| Ok((
                 row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?,
                 row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?,
+                row.get(13)?, row.get(14)?,
             )),
         )
         .optional()?;
@@ -752,12 +921,25 @@ fn read_stage(
         previous_bundle_id,
         prefix_json,
         prefix_hash,
+        records_json,
+        records_hash,
         created_at,
     )) = row
     else {
         return Ok(None);
     };
     let prefix = parse_prefix(&prefix_json, &prefix_hash)?;
+    let revision = read_revision(db, &target_revision_id)?;
+    if revision.head.document_id != document_id
+        || revision.head.version != target_version.to_string()
+        || revision.head.body_hash != target_body_hash
+    {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The review stage revision does not match its target.",
+        ));
+    }
+    let (records, records_hash) = parse_record_set(records_json, records_hash, &revision)?;
     Ok(Some(StageRow {
         id,
         project_id,
@@ -774,6 +956,8 @@ fn read_stage(
         previous_bundle_id,
         prefix,
         prefix_hash,
+        records,
+        records_hash,
         created_at,
     }))
 }
@@ -794,6 +978,8 @@ fn stage_to_dto(db: &Connection, stage: StageRow) -> CoreResult<ReviewStage> {
         revision,
         previous_bundle_id: stage.previous_bundle_id,
         prefix: stage.prefix,
+        records: stage.records,
+        records_hash: stage.records_hash,
         source_epoch: parse_stored_version(stage.source_epoch)?,
         policy_epoch: parse_stored_version(stage.policy_epoch)?,
         created_at: stage.created_at,
@@ -803,11 +989,12 @@ fn stage_to_dto(db: &Connection, stage: StageRow) -> CoreResult<ReviewStage> {
 fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>> {
     let row: Option<BundleDbRow> = db
         .query_row(
-            "SELECT id,project_id,operation_namespace,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,created_at FROM ready_bundles WHERE id=?",
+            "SELECT id,project_id,operation_namespace,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,created_at FROM ready_bundles WHERE id=?",
             [bundle_id],
             |row| Ok((
                 row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?,
                 row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?, row.get(13)?, row.get(14)?,
+                row.get(15)?, row.get(16)?,
             )),
         )
         .optional()?;
@@ -826,11 +1013,24 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
         prefix_json,
         prefix_hash,
         coverage,
+        records_json,
+        records_hash,
         created_at,
     )) = row
     else {
         return Ok(None);
     };
+    let revision = read_revision(db, &target_revision_id)?;
+    if revision.head.document_id != document_id
+        || revision.head.version != target_version.to_string()
+        || revision.head.body_hash != target_body_hash
+    {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "A ready bundle revision does not match its target.",
+        ));
+    }
+    let (records, records_hash) = parse_record_set(records_json, records_hash, &revision)?;
     Ok(Some(BundleRow {
         id,
         project_id,
@@ -846,6 +1046,8 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
         policy_epoch,
         prefix: parse_prefix(&prefix_json, &prefix_hash)?,
         coverage,
+        records,
+        records_hash,
         created_at,
     }))
 }
@@ -857,6 +1059,8 @@ fn bundle_to_dto(bundle: BundleRow) -> ReadyBundle {
         operation_namespace: bundle.operation_namespace,
         stage_id: bundle.stage_id,
         target: bundle.target,
+        records: bundle.records,
+        records_hash: bundle.records_hash,
         created_at: bundle.created_at,
     }
 }
@@ -1014,6 +1218,140 @@ pub(super) fn validate_reviewed_export_source(
             "The reviewed export revision does not match its immutable source.",
         ));
     }
+    Ok(())
+}
+
+/// Resolve the explicit reviewed evidence attached to the currently selected
+/// bundle for one exact source.  A stale selected bundle is readable history,
+/// but it cannot authorize new packet context and therefore returns `None`.
+pub(super) fn current_records_for_source(
+    db: &Connection,
+    access: &ProjectAccess,
+    source: &SourceRef,
+) -> CoreResult<Option<ReviewedRecordSet>> {
+    check_id(&source.project_id)?;
+    check_id(&source.document_id)?;
+    check_id(&source.revision_id)?;
+    if !valid_hash(&source.body_hash) || source.project_id != access.project_id {
+        return Err(CoreError::new(
+            "InvalidReviewedRecords",
+            "The reviewed evidence source has invalid project or body identity.",
+        ));
+    }
+    let Some(bundle_id) = active_bundle_id(db, access, &source.document_id)? else {
+        return Ok(None);
+    };
+    let bundle = read_bundle(db, &bundle_id)?.ok_or_else(|| {
+        CoreError::new("InvalidProject", "The selected reviewed bundle is missing.")
+    })?;
+    let document = read_document(db, &source.document_id)?;
+    let policy_epoch = current_epochs(db)?.1;
+    if bundle.project_id != access.project_id
+        || bundle.operation_namespace != access.operation_namespace
+        || bundle.document_id != source.document_id
+        || bundle.coverage != "authorOnly"
+        || bundle.target != document.head
+    {
+        return Ok(None);
+    }
+    if bundle.policy_epoch != policy_epoch
+        || bundle.target.body_hash != source.body_hash
+        || bundle.revision_id != source.revision_id
+    {
+        return Ok(None);
+    }
+    let prefix = match selected_prefix(db, access, &source.document_id, policy_epoch) {
+        Ok(prefix) => prefix,
+        Err(error) if error.code == "ReviewBasisUnavailable" => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if !same_prefix_basis(&prefix, &bundle.prefix) {
+        return Ok(None);
+    }
+    let revision = read_revision(db, &bundle.revision_id)?;
+    if revision.head.document_id != source.document_id
+        || revision.head.body_hash != source.body_hash
+        || revision.id != source.revision_id
+    {
+        return Ok(None);
+    }
+    let Some(records) = bundle.records else {
+        return Ok(None);
+    };
+    Ok(Some(ReviewedRecordSet {
+        bundle_id,
+        project_id: bundle.project_id,
+        operation_namespace: bundle.operation_namespace,
+        target: bundle.target,
+        revision,
+        records,
+        records_hash: bundle.records_hash,
+        current: true,
+    }))
+}
+
+/// Authenticate a complete reviewed evidence array retained in a frozen
+/// historical packet.  This intentionally does not consult today's selected
+/// head, policy epoch, or ordered prefix.
+pub(super) fn validate_reviewed_records(
+    db: &Connection,
+    project_id: &str,
+    operation_namespace: &str,
+    bundle_id: &str,
+    source: &SourceRef,
+    records_hash: &str,
+    records: &[PossessionRecord],
+) -> CoreResult<()> {
+    check_id(project_id)?;
+    check_id(operation_namespace)?;
+    check_id(bundle_id)?;
+    if source.project_id != project_id {
+        return Err(CoreError::new(
+            "InvalidReviewedRecords",
+            "Reviewed evidence source belongs to another project.",
+        ));
+    }
+    let bundle = read_bundle(db, bundle_id)?.ok_or_else(|| {
+        CoreError::new(
+            "ReviewBundleNotFound",
+            "The reviewed evidence bundle is unavailable.",
+        )
+    })?;
+    if bundle.project_id != project_id
+        || bundle.operation_namespace != operation_namespace
+        || bundle.target.document_id != source.document_id
+        || bundle.target.body_hash != source.body_hash
+        || bundle.revision_id != source.revision_id
+        || bundle.coverage != "authorOnly"
+    {
+        return Err(CoreError::new(
+            "InvalidReviewedRecords",
+            "The reviewed evidence bundle does not match its immutable source.",
+        ));
+    }
+    let revision = read_revision(db, &bundle.revision_id)?;
+    let computed = validate_records(records, &revision).map_err(|error| {
+        CoreError::new(
+            "InvalidReviewedRecords",
+            &format!("The frozen reviewed evidence is invalid: {}", error.detail),
+        )
+    })?;
+    if computed.as_deref().unwrap_or("") != records_hash
+        || bundle.records_hash.as_deref().unwrap_or("") != records_hash
+        || bundle.records.as_deref().unwrap_or(&[]) != records
+    {
+        return Err(CoreError::new(
+            "InvalidReviewedRecords",
+            "The frozen reviewed evidence does not match its immutable bundle.",
+        ));
+    }
+    validate_prefix_evidence(
+        db,
+        project_id,
+        operation_namespace,
+        &source.document_id,
+        &bundle.prefix,
+    )?;
     Ok(())
 }
 
@@ -1285,7 +1623,7 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
         ));
     }
     let mut stages = db.prepare(
-        "SELECT id,project_id,operation_namespace,operation_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash FROM review_stages ORDER BY id",
+        "SELECT id,project_id,operation_namespace,operation_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash FROM review_stages ORDER BY id",
     )?;
     let stage_rows = stages.query_map([], |row| {
         Ok((
@@ -1302,6 +1640,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             row.get::<_, Option<String>>(10)?,
             row.get::<_, String>(11)?,
             row.get::<_, String>(12)?,
+            row.get::<_, Option<String>>(13)?,
+            row.get::<_, Option<String>>(14)?,
         ))
     })?;
     for row in stage_rows {
@@ -1319,6 +1659,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             previous,
             prefix_json,
             prefix_hash,
+            records_json,
+            records_hash,
         ) = row?;
         check_id(&id)?;
         check_id(&stage_project)?;
@@ -1353,10 +1695,11 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
                 "A review stage revision does not match its target.",
             ));
         }
+        let _ = parse_record_set(records_json, records_hash, &revision)?;
         let _ = prefix;
     }
     let mut bundles = db.prepare(
-        "SELECT id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage FROM ready_bundles ORDER BY id",
+        "SELECT id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash FROM ready_bundles ORDER BY id",
     )?;
     let bundle_rows = bundles.query_map([], |row| {
         Ok((
@@ -1376,6 +1719,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             row.get::<_, String>(13)?,
             row.get::<_, String>(14)?,
             row.get::<_, String>(15)?,
+            row.get::<_, Option<String>>(16)?,
+            row.get::<_, Option<String>>(17)?,
         ))
     })?;
     for row in bundle_rows {
@@ -1396,6 +1741,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             prefix_json,
             prefix_hash,
             coverage,
+            records_json,
+            records_hash,
         ) = row?;
         for id in [
             &id,
@@ -1447,6 +1794,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
                 "A ready bundle revision does not match its target.",
             ));
         }
+        let (bundle_records, bundle_records_hash) =
+            parse_record_set(records_json, records_hash, &revision)?;
         let stage_identity: Option<(String, String)> = db
             .query_row(
                 "SELECT project_id,operation_namespace FROM review_stages WHERE id=?",
@@ -1481,6 +1830,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             || stage.previous_bundle_id != previous
             || !same_prefix_basis(&stage.prefix, &prefix)
             || stage.prefix_hash != prefix_hash
+            || stage.records != bundle_records
+            || stage.records_hash != bundle_records_hash
         {
             return Err(CoreError::new(
                 "InvalidProject",

@@ -102,6 +102,7 @@ fn mark_ready(
             access: access.clone(),
             operation_id: format!("stage-{operation}"),
             expected: document.head.clone(),
+            records: None,
         })
         .unwrap();
     project
@@ -168,6 +169,10 @@ fn make_schema19_archive(
     connection
         .execute_batch(
             "ALTER TABLE export_records DROP COLUMN review_bundle_id;
+             ALTER TABLE review_stages DROP COLUMN records_json;
+             ALTER TABLE review_stages DROP COLUMN records_hash;
+             ALTER TABLE ready_bundles DROP COLUMN records_json;
+             ALTER TABLE ready_bundles DROP COLUMN records_hash;
              PRAGMA user_version=19;",
         )
         .unwrap();
@@ -487,7 +492,7 @@ fn legacy_working_preview_serialization_omits_review_bundle_id() {
 }
 
 #[test]
-fn schema19_working_export_archive_migrates_to20_without_changing_record_or_bytes() {
+fn schema19_working_export_archive_migrates_to21_without_changing_record_or_bytes() {
     let (cleanup, project, access, document) = setup();
     let preview =
         prepare_draft_export(&project, &access, document.head, DraftFormat::PlainText).unwrap();
@@ -511,7 +516,7 @@ fn schema19_working_export_archive_migrates_to20_without_changing_record_or_byte
     let schema: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 20);
+    assert_eq!(schema, 21);
     let row: (String, String, String, i64, String, i64, String, Option<String>) = connection
         .query_row(
             "SELECT id,project_id,operation_namespace,working_draft,format,format_version,sha256,review_bundle_id

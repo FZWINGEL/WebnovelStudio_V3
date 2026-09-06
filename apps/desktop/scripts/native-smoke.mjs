@@ -1047,6 +1047,8 @@ try {
   checks.push('Native renames preserve the mounted editor; last document and exact caret survive navigation/reload; archive and unarchive preserve the project');
   const { qualifyReviewedExport } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-reviewed-export.mjs')).href);
   await qualifyReviewedExport({ page, data, output, operateSaveDialog, createWritingProject, checks });
+  const { qualifyReviewedEvidence } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-reviewed-evidence.mjs')).href);
+  await qualifyReviewedEvidence({ page, data, output, createWritingProject, checks });
   await createWritingProject('Review story', 'chapter', 'The gate', 'Mei left the key beside the gate.');
   await page.getByRole('button', { name: 'Story review', exact: true }).click();
   await page.getByRole('button', { name: 'Review saved chapter', exact: true }).click();

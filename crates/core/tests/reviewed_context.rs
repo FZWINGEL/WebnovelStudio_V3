@@ -13,6 +13,9 @@ use webnovel_core::projects::reviewed_story::{MarkReady, StageAuthorReview};
 use webnovel_core::projects::story_context::{
     FreezeReviewedContinuation, FreezeStory, FrozenContext,
 };
+use webnovel_core::projects::story_records::{
+    EvidenceAnchor, EvidenceAudience, PossessionRecord, PossessionTiming, StoryEntityRef,
+};
 use webnovel_core::projects::{
     CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
 };
@@ -117,6 +120,7 @@ fn mark_ready(
             access: access.clone(),
             operation_id: format!("stage-{prefix}-{}", document.head.document_id),
             expected: document.head.clone(),
+            records: None,
         })
         .unwrap();
     project
@@ -322,6 +326,106 @@ fn reviewed_prefix_is_optional_packet_material_when_target_has_no_dependencies()
             .iter()
             .any(|omission| omission.contains("optional source omitted by input budget"))
     );
+}
+
+#[test]
+fn reviewed_evidence_freezes_from_marked_bundle_and_reaches_restricted_packet() {
+    let (_cleanup, project, access) = setup();
+    let first = chapter(&project, &access, "chapter-1", "The first promise.");
+    let target = chapter(&project, &access, "chapter-2", "The current draft.");
+    let quote = "The first promise.";
+    let stage = project
+        .stage_author_review(StageAuthorReview {
+            access: access.clone(),
+            operation_id: "stage-evidence".into(),
+            expected: first.head.clone(),
+            records: Some(vec![PossessionRecord {
+                id: "record-first".into(),
+                object: StoryEntityRef {
+                    id: "promise".into(),
+                    label: "First promise".into(),
+                },
+                holder: None,
+                timing: PossessionTiming::AtPassage,
+                audience: EvidenceAudience::Reader,
+                evidence: EvidenceAnchor {
+                    block_id: "p1".into(),
+                    from_utf16: 0,
+                    to_utf16: quote.encode_utf16().count() as u32,
+                    quote: quote.into(),
+                    quote_hash: hash_json(quote),
+                },
+            }]),
+        })
+        .unwrap();
+    project
+        .mark_ready(MarkReady {
+            access: access.clone(),
+            operation_id: "ready-evidence".into(),
+            stage_id: stage.id,
+        })
+        .unwrap();
+
+    let frozen = project
+        .freeze_reviewed_continuation(request(
+            &project,
+            &access,
+            "reviewed-evidence-freeze",
+            &target,
+            "1",
+        ))
+        .unwrap();
+    assert_eq!(frozen.reviewed_evidence.len(), 1);
+    assert_eq!(frozen.reviewed_evidence[0].records.len(), 1);
+    assert_eq!(frozen.reviewed_evidence[0].records[0].id, "record-first");
+
+    let target_handle = frozen.snapshot.sources[0].handle.clone();
+    let target_read = project
+        .read_story_source(
+            access.clone(),
+            frozen.snapshot.snapshot_id.clone(),
+            target_handle,
+        )
+        .unwrap();
+    let scope = capture_scope(
+        &target_read.body,
+        ScopeGrant {
+            kind: ScopeKind::WholeDocument,
+            start: None,
+            end: None,
+            source_hash: String::new(),
+            quote: String::new(),
+            quote_hash: String::new(),
+            prefix: None,
+            suffix: None,
+        },
+    )
+    .unwrap();
+    let prepared = project
+        .prepare_context(PrepareContext {
+            access,
+            operation_id: "reviewed-evidence-packet".into(),
+            snapshot_id: frozen.snapshot.snapshot_id,
+            instruction: "Continue this chapter from the reviewed evidence.".into(),
+            mandatory_handles: Vec::new(),
+            transient_mandatory_handles: None,
+            safe_brief: None,
+            scope: Some(scope),
+            budget: webnovel_core::context::packet::MockContextBudget::new("100000", "50", "50"),
+            provider_binding: None,
+            response_contract: None,
+        })
+        .unwrap();
+    let packet = match prepared {
+        PreparationResult::Prepared { packet, .. } => packet,
+        PreparationResult::BudgetRejected { error } => panic!("target should fit: {error:?}"),
+    };
+    assert_eq!(packet.receipt.reviewed_evidence.len(), 1);
+    assert_eq!(
+        packet.receipt.reviewed_evidence[0].record_ids,
+        vec!["record-first"]
+    );
+    assert!(packet.receipt.reviewed_evidence[0].complete_record_set);
 }
 
 #[test]
@@ -568,7 +672,7 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
     let schema: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 20);
+    assert_eq!(schema, 21);
     let retained_json: String = connection
         .query_row(
             "SELECT manifest_json FROM story_snapshots WHERE id=?",

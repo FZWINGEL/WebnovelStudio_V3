@@ -3,6 +3,7 @@ import type { WnsDocument } from '../editor/document';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { FrozenGuidance } from './guidance';
 import type { DigestCandidate } from './memory';
+import type { PossessionRecord } from './reviews';
 
 export type ContextPurpose = 'discuss' | 'revise' | 'continue' | 'plan' | 'storyQuestion' | 'memoryAnalysis';
 export type ContextAudience = 'authorRoom' | 'restrictedWriting';
@@ -45,6 +46,18 @@ export interface FrozenContext {
   guidance?: FrozenGuidance[];
   conversation?: FrozenConversation;
   navigationViews?: FrozenNavigationView[];
+  reviewedEvidence?: ReviewedEvidenceSet[];
+}
+export interface ReviewedEvidenceSet {
+  projectId: string; operationNamespace: string; bundleId: string; recordsHash: string;
+  sourceHandle: string; source: SourceRef; records: PossessionRecord[];
+}
+export interface ReviewedEvidenceCoverage {
+  sourceHandle: string; bundleId: string; recordsHash: string; projectionHash: string;
+  completeRecordSet: boolean; recordIds: string[];
+}
+export interface ReviewedEvidenceOmission {
+  sourceHandle: string; bundleId: string; recordsHash: string; reason: 'budget' | 'disclosure'; count: number;
 }
 export interface NavigationViewRef { viewId: string; projectId: string; operationNamespace: string; contentHash: string }
 export interface FrozenNavigationView {
@@ -72,6 +85,8 @@ export interface PacketReceipt {
   guidanceHandles?: string[];
   navigationViews?: NavigationViewRef[];
   navigationOmissions?: NavigationViewOmission[];
+  reviewedEvidence?: ReviewedEvidenceCoverage[];
+  reviewedEvidenceOmissions?: ReviewedEvidenceOmission[];
   safeBrief?: { text: string; textHash: string; originMessageId: string | null };
   conversationMessageIds?: string[];
   omittedDiscussionTurns?: number;

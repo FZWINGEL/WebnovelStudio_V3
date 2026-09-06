@@ -1118,6 +1118,8 @@ mod tests {
                 guidance_handles: Vec::new(),
                 navigation_views: Vec::new(),
                 navigation_omissions: Vec::new(),
+                reviewed_evidence: Vec::new(),
+                reviewed_evidence_omissions: Vec::new(),
                 conversation_message_ids: Vec::new(),
                 omitted_discussion_turns: 0,
                 safe_brief: None,

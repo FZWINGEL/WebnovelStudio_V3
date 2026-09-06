@@ -2,11 +2,15 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use uuid::Uuid;
 use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
 use webnovel_core::projects::reviewed_story::{MarkReady, ReviewState, StageAuthorReview};
 use webnovel_core::projects::story_context::FreezeStory;
+use webnovel_core::projects::story_records::{
+    EvidenceAnchor, EvidenceAudience, PossessionRecord, PossessionTiming, StoryEntityRef,
+};
 use webnovel_core::projects::{
     CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
 };
@@ -48,6 +52,41 @@ fn hash_json(value: &str) -> String {
         .collect()
 }
 
+fn hash_bytes(value: &[u8]) -> String {
+    Sha256::digest(value)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn evidence(
+    text: &str,
+    id: &str,
+    audience: EvidenceAudience,
+    holder: Option<&str>,
+) -> PossessionRecord {
+    PossessionRecord {
+        id: id.into(),
+        object: StoryEntityRef {
+            id: "object-sword".into(),
+            label: "The sword".into(),
+        },
+        holder: holder.map(|value| StoryEntityRef {
+            id: value.into(),
+            label: value.into(),
+        }),
+        timing: PossessionTiming::AtPassage,
+        audience,
+        evidence: EvidenceAnchor {
+            block_id: "p1".into(),
+            from_utf16: 0,
+            to_utf16: text.encode_utf16().count() as u32,
+            quote: text.into(),
+            quote_hash: hash_json(text),
+        },
+    }
+}
+
 fn setup() -> (TempProject, ProjectSession, ProjectAccess) {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Reviewed story test").unwrap();
@@ -85,6 +124,24 @@ fn stage(
             access: access.clone(),
             operation_id: operation_id.into(),
             expected: document.head.clone(),
+            records: None,
+        })
+        .unwrap()
+}
+
+fn stage_with_records(
+    project: &ProjectSession,
+    access: &ProjectAccess,
+    operation_id: &str,
+    document: &webnovel_core::projects::DocumentRecord,
+    records: Option<Vec<PossessionRecord>>,
+) -> webnovel_core::projects::reviewed_story::ReviewStage {
+    project
+        .stage_author_review(StageAuthorReview {
+            access: access.clone(),
+            operation_id: operation_id.into(),
+            expected: document.head.clone(),
+            records,
         })
         .unwrap()
 }
@@ -121,6 +178,7 @@ fn author_review_pins_exact_revisions_and_requires_an_earlier_prefix() {
             access: access.clone(),
             operation_id: "stage-second-too-early".into(),
             expected: second.head.clone(),
+            records: None,
         })
         .unwrap_err();
     assert_eq!(missing.code, "ReviewBasisUnavailable");
@@ -367,6 +425,42 @@ fn rehashed_corrupt_prefix_is_rejected_by_backup_validation() {
 }
 
 #[test]
+fn rehashed_corrupt_reviewed_evidence_is_rejected_by_backup_validation() {
+    let (temp, project, access) = setup();
+    let first = chapter(&project, &access, "chapter-1", "One", "The first chapter.");
+    let records = vec![evidence(
+        "The first chapter.",
+        "possession-tampered",
+        EvidenceAudience::AuthorRoom,
+        Some("hero"),
+    )];
+    let staged = stage_with_records(
+        &project,
+        &access,
+        "stage-tampered-evidence",
+        &first,
+        Some(records),
+    );
+    let bundle = ready(&project, &access, "ready-tampered-evidence", &staged.id);
+    drop(project);
+
+    let connection = Connection::open(temp.child("story").join("project.sqlite3")).unwrap();
+    connection
+        .execute_batch("DROP TRIGGER ready_bundles_no_update")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE ready_bundles SET records_hash='tampered' WHERE id=?",
+            [&bundle.id],
+        )
+        .unwrap();
+    drop(connection);
+    let corrupted = ProjectSession::open(temp.child("story")).unwrap();
+    let error = create_backup(&corrupted, &temp.child("corrupt-evidence.wnsbackup")).unwrap_err();
+    assert_eq!(error.code, "InvalidProject");
+}
+
+#[test]
 fn corrupt_ready_bundle_target_is_rejected_by_backup_validation() {
     let (temp, project, access) = setup();
     let first = chapter(&project, &access, "chapter-1", "One", "First.");
@@ -518,6 +612,7 @@ fn review_operations_replay_after_writer_lease_rotation() {
             access: access_one.clone(),
             operation_id: "stage-lease".into(),
             expected: first.head.clone(),
+            records: None,
         })
         .unwrap_err();
     assert_eq!(old_stage.code, "WriterLeaseExpired");
@@ -526,6 +621,7 @@ fn review_operations_replay_after_writer_lease_rotation() {
             access: access_two.clone(),
             operation_id: "stage-lease".into(),
             expected: first.head,
+            records: None,
         })
         .unwrap();
     assert_eq!(replayed_stage.id, staged.id);
@@ -541,6 +637,274 @@ fn review_operations_replay_after_writer_lease_rotation() {
     let bundle = ready(&project, &access_two, "ready-lease", &staged.id);
     let replay = ready(&project, &access_two, "ready-lease", &staged.id);
     assert_eq!(replay.id, bundle.id);
+}
+
+#[test]
+fn reviewed_evidence_accepts_unknown_reader_holder_and_exact_replay() {
+    let (_temp, project, access) = setup();
+    let first = chapter(&project, &access, "chapter-1", "One", "The first chapter.");
+    let records = vec![evidence(
+        "The first chapter.",
+        "possession-1",
+        EvidenceAudience::Reader,
+        None,
+    )];
+    let staged = stage_with_records(
+        &project,
+        &access,
+        "stage-evidence",
+        &first,
+        Some(records.clone()),
+    );
+    assert_eq!(staged.records.as_ref(), Some(&records));
+    assert!(staged.records_hash.is_some());
+    let replay = stage_with_records(
+        &project,
+        &access,
+        "stage-evidence",
+        &first,
+        Some(records.clone()),
+    );
+    assert_eq!(replay.id, staged.id);
+
+    let bundle = ready(&project, &access, "ready-evidence", &staged.id);
+    assert_eq!(bundle.records.as_ref(), Some(&records));
+    let selected = project
+        .read_reviewed_record_set(access, "chapter-1".into())
+        .unwrap()
+        .expect("selected evidence set");
+    assert!(selected.current);
+    assert_eq!(selected.records, records);
+    assert_eq!(selected.records_hash, bundle.records_hash);
+}
+
+#[test]
+fn replacing_only_evidence_fences_later_bundle_and_keeps_old_bundle_immutable() {
+    let (_temp, project, access) = setup();
+    let first = chapter(&project, &access, "chapter-1", "One", "The first chapter.");
+    let second = chapter(&project, &access, "chapter-2", "Two", "The second chapter.");
+    let first_record = evidence(
+        "The first chapter.",
+        "possession-old",
+        EvidenceAudience::AuthorRoom,
+        Some("hero"),
+    );
+    let first_stage = stage_with_records(
+        &project,
+        &access,
+        "stage-first-old-evidence",
+        &first,
+        Some(vec![first_record.clone()]),
+    );
+    let old_bundle = ready(
+        &project,
+        &access,
+        "ready-first-old-evidence",
+        &first_stage.id,
+    );
+    let second_stage = stage(&project, &access, "stage-second", &second);
+    let second_bundle = ready(&project, &access, "ready-second", &second_stage.id);
+
+    let replacement = evidence(
+        "The first chapter.",
+        "possession-new",
+        EvidenceAudience::Reader,
+        None,
+    );
+    let replacement_stage = stage_with_records(
+        &project,
+        &access,
+        "stage-first-new-evidence",
+        &first,
+        Some(vec![replacement.clone()]),
+    );
+    let replacement_bundle = ready(
+        &project,
+        &access,
+        "ready-first-new-evidence",
+        &replacement_stage.id,
+    );
+    assert_ne!(replacement_bundle.id, old_bundle.id);
+    assert_eq!(old_bundle.records, Some(vec![first_record]));
+    assert_eq!(replacement_bundle.records, Some(vec![replacement.clone()]));
+    assert_eq!(
+        project
+            .chapter_review_status(access.clone(), "chapter-2".into())
+            .unwrap()
+            .state,
+        ReviewState::EarlierBasisChanged
+    );
+    let selected = project
+        .read_reviewed_record_set(access, "chapter-1".into())
+        .unwrap()
+        .expect("replacement evidence set");
+    assert!(selected.current);
+    assert_eq!(selected.records, vec![replacement]);
+    assert_eq!(second_bundle.records, None);
+}
+
+#[test]
+fn inherited_evidence_is_revalidated_against_new_revision() {
+    let (_temp, project, access) = setup();
+    let first = chapter(&project, &access, "chapter-1", "One", "The first chapter.");
+    let original = evidence(
+        "The first chapter.",
+        "possession-inherited",
+        EvidenceAudience::AuthorRoom,
+        Some("hero"),
+    );
+    let staged = stage_with_records(
+        &project,
+        &access,
+        "stage-inherited-original",
+        &first,
+        Some(vec![original]),
+    );
+    ready(&project, &access, "ready-inherited-original", &staged.id);
+    project
+        .save(SaveSnapshot {
+            access: access.clone(),
+            operation_id: "edit-inherited-source".into(),
+            expected: first.head,
+            local_generation: "1".into(),
+            body: body("The changed chapter."),
+            cause: SaveCause::Typing,
+        })
+        .unwrap();
+    let changed = project
+        .document(access.clone(), "chapter-1".into())
+        .unwrap();
+    let error = project
+        .stage_author_review(StageAuthorReview {
+            access: access.clone(),
+            operation_id: "stage-invalid-inheritance".into(),
+            expected: changed.head.clone(),
+            records: None,
+        })
+        .unwrap_err();
+    assert_eq!(error.code, "InvalidReviewedRecords");
+
+    let cleared = stage_with_records(
+        &project,
+        &access,
+        "stage-explicit-clear",
+        &changed,
+        Some(Vec::new()),
+    );
+    assert_eq!(cleared.records, None);
+    let cleared_bundle = ready(&project, &access, "ready-explicit-clear", &cleared.id);
+    assert_eq!(cleared_bundle.records, None);
+}
+
+#[test]
+fn recovered_backup_preserves_historical_reviewed_evidence() {
+    let (temp, project, access) = setup();
+    let first = chapter(&project, &access, "chapter-1", "One", "The first chapter.");
+    let records = vec![evidence(
+        "The first chapter.",
+        "possession-recovery",
+        EvidenceAudience::AuthorRoom,
+        Some("hero"),
+    )];
+    let staged = stage_with_records(
+        &project,
+        &access,
+        "stage-recovery-evidence",
+        &first,
+        Some(records.clone()),
+    );
+    let bundle = ready(&project, &access, "ready-recovery-evidence", &staged.id);
+    let archive = temp.child("evidence.wnsbackup");
+    create_backup(&project, &archive).unwrap();
+    drop(project);
+
+    let recovered_path = temp.child("recovered-evidence");
+    let recovered = recover_backup(&archive, &recovered_path, "Recovered evidence").unwrap();
+    drop(recovered);
+    let connection = Connection::open(recovered_path.join("project.sqlite3")).unwrap();
+    let (records_json, records_hash): (String, String) = connection
+        .query_row(
+            "SELECT records_json,records_hash FROM ready_bundles WHERE id=?",
+            [&bundle.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Vec<PossessionRecord>>(&records_json).unwrap(),
+        records
+    );
+    assert_eq!(bundle.records_hash.as_deref(), Some(records_hash.as_str()));
+}
+
+#[test]
+fn schema20_archive_migrates_legacy_empty_evidence_rows() {
+    let (temp, project, access) = setup();
+    let first = chapter(&project, &access, "chapter-1", "One", "The first chapter.");
+    let staged = stage(&project, &access, "stage-schema20-evidence", &first);
+    let bundle = ready(&project, &access, "ready-schema20-evidence", &staged.id);
+    let current_archive = temp.child("evidence-current.wnsbackup");
+    create_backup(&project, &current_archive).unwrap();
+
+    let legacy_archive = temp.child("evidence-schema20.wnsbackup");
+    let current_file = fs::File::open(&current_archive).unwrap();
+    let mut current_zip = zip::ZipArchive::new(current_file).unwrap();
+    let mut manifest = String::new();
+    current_zip
+        .by_name("manifest.json")
+        .unwrap()
+        .read_to_string(&mut manifest)
+        .unwrap();
+    let mut database = Vec::new();
+    current_zip
+        .by_name("project.sqlite3")
+        .unwrap()
+        .read_to_end(&mut database)
+        .unwrap();
+    let legacy_db = temp.child("schema20.sqlite3");
+    fs::write(&legacy_db, database).unwrap();
+    let connection = Connection::open(&legacy_db).unwrap();
+    connection
+        .execute_batch(
+            "ALTER TABLE review_stages DROP COLUMN records_json;
+             ALTER TABLE review_stages DROP COLUMN records_hash;
+             ALTER TABLE ready_bundles DROP COLUMN records_json;
+             ALTER TABLE ready_bundles DROP COLUMN records_hash;
+             PRAGMA user_version=20;",
+        )
+        .unwrap();
+    drop(connection);
+    let legacy_database = fs::read(&legacy_db).unwrap();
+    let mut manifest_value: Value = serde_json::from_str(&manifest).unwrap();
+    manifest_value["databaseSchemaVersion"] = json!(20);
+    manifest_value["databaseSha256"] = json!(hash_bytes(&legacy_database));
+    let output = fs::File::create(&legacy_archive).unwrap();
+    let mut writer = zip::ZipWriter::new(output);
+    let options = zip::write::SimpleFileOptions::default();
+    writer.start_file("manifest.json", options).unwrap();
+    writer
+        .write_all(serde_json::to_string(&manifest_value).unwrap().as_bytes())
+        .unwrap();
+    writer.start_file("project.sqlite3", options).unwrap();
+    writer.write_all(&legacy_database).unwrap();
+    writer.finish().unwrap();
+
+    let recovered_path = temp.child("schema20-recovered");
+    let recovered = recover_backup(&legacy_archive, &recovered_path, "Recovered schema20").unwrap();
+    drop(recovered);
+    let connection = Connection::open(recovered_path.join("project.sqlite3")).unwrap();
+    let (schema, migrated_bundle, records_json, records_hash):
+        (i64, String, Option<String>, Option<String>) =
+        connection
+            .query_row(
+                "SELECT (SELECT user_version FROM pragma_user_version),id,records_json,records_hash FROM ready_bundles WHERE id=?",
+                [&bundle.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+    assert_eq!(schema, 21);
+    assert_eq!(migrated_bundle, bundle.id);
+    assert_eq!(records_json, None);
+    assert_eq!(records_hash, None);
 }
 
 #[test]

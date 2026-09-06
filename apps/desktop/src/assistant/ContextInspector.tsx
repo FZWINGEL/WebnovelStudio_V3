@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   preparedStoryContext, preparedStoryContextIsCurrent, readStoryContextSource, searchStoryContext, storyContextSnapshot,
-  type CompiledPacket, type FrozenContext, type FrozenNavigationView, type SourceDescriptor, type SourceRead, type SourceRef,
+  type CompiledPacket, type FrozenContext, type FrozenNavigationView, type ReviewedEvidenceSet, type SourceDescriptor, type SourceRead, type SourceRef,
 } from '../ipc/context';
 import type { ProjectAccess } from '../ipc/projects';
 
@@ -83,6 +83,52 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
     ref.viewId === view.reference.viewId && ref.contentHash === view.reference.contentHash
     && ref.projectId === view.reference.projectId && ref.operationNamespace === view.reference.operationNamespace));
   const navigationOmissions = state?.packet.receipt.navigationOmissions ?? [];
+  const reviewedEvidence = state?.frozen.reviewedEvidence ?? [];
+  const reviewedEvidenceCoverage = state?.packet.receipt.reviewedEvidence ?? [];
+  const reviewedEvidenceOmissions = state?.packet.receipt.reviewedEvidenceOmissions ?? [];
+  const restrictedAudience = state?.frozen.policy.audience === 'restrictedWriting';
+  function permittedReviewedRecord(record: ReviewedEvidenceSet['records'][number]): boolean {
+    return !restrictedAudience || record.audience === 'reader';
+  }
+  function reviewedSourceName(sourceHandle: string): string {
+    return items.find(item => item.handle === sourceHandle)?.displayName ?? 'Source unavailable';
+  }
+  function reviewedRecords(used: boolean) {
+    return reviewedEvidence.flatMap(set => {
+      const coverage = reviewedEvidenceCoverage.find(item => item.sourceHandle === set.sourceHandle
+        && item.bundleId === set.bundleId && item.recordsHash === set.recordsHash);
+      const delivered = new Set(coverage?.recordIds ?? []);
+      return set.records.filter(permittedReviewedRecord).filter(record => !used || delivered.has(record.id)).map(record => ({ set, record, coverage }));
+    });
+  }
+  function reviewedRows(used: boolean) {
+    return reviewedRecords(used).map(({ set, record, coverage }) => <li key={`${set.bundleId}/${record.id}`} className="context-reviewed-evidence">
+      <strong>{record.object.label}</strong>
+      <span className="context-detail">{record.holder?.label ?? 'Holder unknown'} · {record.timing === 'atPassage' ? 'Known at this passage' : record.timing === 'earlier' ? 'Known earlier' : 'Timing unknown'} · {record.audience === 'reader' ? 'Reader-visible' : 'Author room only'}</span>
+      <blockquote>{record.evidence.quote}</blockquote>
+      <span className="context-detail">Author-recorded evidence from {reviewedSourceName(set.sourceHandle)}. {record.timing === 'atPassage' ? 'Known at this passage; later transfers may be missing.' : record.timing === 'earlier' ? 'Known earlier; later transfers may be missing.' : 'Timing is unknown; later transfers may be missing.'}{used && coverage && !coverage.completeRecordSet ? ' Some reviewed details were not included.' : ''}</span>
+    </li>);
+  }
+  function reviewedProvenanceRows(used: boolean) {
+    if (!restrictedAudience) return [];
+    return reviewedEvidence.flatMap(set => {
+      const coverage = reviewedEvidenceCoverage.find(item => item.sourceHandle === set.sourceHandle
+        && item.bundleId === set.bundleId && item.recordsHash === set.recordsHash);
+      if (used && !coverage) return [];
+      const privateCount = set.records.filter(record => record.audience !== 'reader').length;
+      if (!privateCount) return [];
+      return <li key={`${set.bundleId}/provenance`} className="context-reviewed-evidence-provenance">
+        <strong>Reviewed set · {reviewedSourceName(set.sourceHandle)}</strong>
+        <span className="context-detail">{privateCount} private {privateCount === 1 ? 'detail from this chapter is' : 'details from this chapter are'} excluded from this writing request. Only reader-visible details are shown.</span>
+      </li>;
+    });
+  }
+  function reviewedOmission(text: typeof reviewedEvidenceOmissions[number]): string {
+    const source = reviewedSourceName(text.sourceHandle);
+    return String(text.reason).toLowerCase() === 'disclosure'
+      ? `${text.count} author-only reviewed ${text.count === 1 ? 'detail was' : 'details were'} withheld from ${source} by the reader disclosure policy.`
+      : `${text.count} reviewed ${text.count === 1 ? 'detail was' : 'details were'} withheld from ${source} by the request budget.`;
+  }
   function navigationSource(view: FrozenNavigationView): SourceDescriptor | undefined {
     if (view.dependencies.length !== 1 || !sameSource(view.dependencies[0], view.candidate.source)) return undefined;
     return items.find(item => sameSource(item.source, view.dependencies[0]));
@@ -150,11 +196,12 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
       <p className="small-copy">{delivered ? state.packet.options.providerBinding ? 'The complete prepared packet was written to Codex for this response. This confirms local delivery, not that the model understood every source.' : 'Sources supplied for this response.' : 'Prepared sources. Delivery has not been confirmed.'} Opening a source reads its saved version.</p>
       {state.packet.options.providerBinding && <p className="small-copy">This packet uses {Number(state.packet.receipt.inputTokens).toLocaleString()} bytes of the app’s {Number(state.packet.options.providerBinding.inputLimitBytes).toLocaleString()}-byte input allowance. This is not a model token count or context-window limit. The full prepared input is preserved; mandatory text is never shortened to fit.</p>}
       {state.packet.receipt.safeBrief && <section className="context-safe-brief" aria-label="Approved writing brief"><strong>Author-approved writing brief</strong><p>{state.packet.receipt.safeBrief.text}</p><p className="small-copy">Exact directions shared for this edit request. The originating discussion was not added as context.</p></section>}
-      <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} {supplied.size === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${suppliedNavigation.length} generated ${suppliedNavigation.length === 1 ? 'summary' : 'summaries'}` : ''}{guidance.length > 0 ? ` · ${suppliedGuidance.size} ${suppliedGuidance.size === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${suppliedTurns.length} earlier ${suppliedTurns.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}{navigationRows(true)}{guidanceRows(true)}{conversationRows(true)}</ul></details>
-      <details><summary>Available · {items.length} {items.length === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${navigation.length} generated ${navigation.length === 1 ? 'summary' : 'summaries'}` : ''}{guidance.length > 0 ? ` · ${guidance.length} ${guidance.length === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${conversation.length} earlier ${conversation.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><p className="small-copy">Permitted for this request. Availability does not mean the model read every source.</p><ul>{items.map(row)}{navigationRows(false)}{guidanceRows(false)}{conversationRows(false)}</ul></details>
+      <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} {supplied.size === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${suppliedNavigation.length} generated ${suppliedNavigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedRecords(true).length ? ` · ${reviewedRecords(true).length} reviewed ${reviewedRecords(true).length === 1 ? 'detail' : 'details'}` : ''}{guidance.length > 0 ? ` · ${suppliedGuidance.size} ${suppliedGuidance.size === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${suppliedTurns.length} earlier ${suppliedTurns.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}{reviewedProvenanceRows(true)}{reviewedRows(true)}{navigationRows(true)}{guidanceRows(true)}{conversationRows(true)}</ul></details>
+      <details><summary>Available · {items.length} {items.length === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${navigation.length} generated ${navigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedEvidence.length ? ` · ${reviewedRecords(false).length} reviewed ${reviewedRecords(false).length === 1 ? 'detail' : 'details'}` : ''}{guidance.length > 0 ? ` · ${guidance.length} ${guidance.length === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${conversation.length} earlier ${conversation.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><p className="small-copy">Permitted for this request. Availability does not mean the model read every source.</p><ul>{items.map(row)}{reviewedProvenanceRows(false)}{reviewedRows(false)}{navigationRows(false)}{guidanceRows(false)}{conversationRows(false)}</ul></details>
       <details><summary>Not included</summary>
         {state.packet.receipt.omissions.length ? <ul>{state.packet.receipt.omissions.map((text, i) => <li key={i}>{omission(text)}</li>)}</ul> : <p className="small-copy">All permitted sources fit this request.</p>}
         {navigationOmissions.length > 0 && <ul>{navigationOmissions.map(item => <li key={item.viewId}>{navigationOmission(item.viewId, item.reason)}</li>)}</ul>}
+        {reviewedEvidenceOmissions.length > 0 && <ul>{reviewedEvidenceOmissions.map((item, index) => <li key={`${item.sourceHandle}/${item.bundleId}/${item.reason}/${index}`}>{reviewedOmission(item)}</li>)}</ul>}
         {state.frozen.excludedSourceCount > 0 && <p className="small-copy">{state.frozen.excludedSourceCount} sources excluded by the request’s information boundary.</p>}
         {omittedTurns > 0 && <p className="small-copy">{omittedTurns} earlier complete {omittedTurns === 1 ? 'exchange was' : 'exchanges were'} not included. The full discussion remains saved.</p>}
       </details>

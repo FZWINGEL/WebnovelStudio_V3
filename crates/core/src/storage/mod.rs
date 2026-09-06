@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 20;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 21;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -93,6 +93,9 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         }
         if version < 20 {
             tx.execute_batch(include_str!("020_reviewed_export.sql"))?;
+        }
+        if version < 21 {
+            tx.execute_batch(include_str!("021_reviewed_story_evidence.sql"))?;
         }
         // Schema 18 changes no tables or historical bytes. It raises the reader
         // floor: schema-17 readers reject chapter-only navigation views from

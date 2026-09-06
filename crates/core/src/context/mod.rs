@@ -11,6 +11,7 @@ mod eligibility;
 pub mod memory;
 pub mod navigation;
 pub mod packet;
+pub mod reviewed_evidence;
 
 pub use contracts::{
     Audience, BasisKind, BudgetError, BudgetErrorCode, CharacterGrant, ContextPurpose,
@@ -22,6 +23,10 @@ pub use contracts::{
 pub use eligibility::{
     EligibilityError, EligibilityErrorCode, EligibilityReceipt, EligibleSource,
     evaluate_eligibility, evaluate_sources,
+};
+pub use reviewed_evidence::{
+    ReviewedEvidenceCoverage, ReviewedEvidenceOmission, ReviewedEvidenceOmissionReason,
+    ReviewedEvidenceSet, eligible_records,
 };
 pub mod conversation;
 pub mod guidance;

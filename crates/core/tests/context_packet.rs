@@ -117,6 +117,7 @@ fn frozen(
         guidance: Vec::new(),
         conversation: None,
         navigation_views: Vec::new(),
+        reviewed_evidence: Vec::new(),
     })
 }
 

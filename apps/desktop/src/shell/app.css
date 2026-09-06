@@ -256,6 +256,8 @@ input::placeholder { color: #637083; }
 .context-inspector .context-turn { display: block; }
 .context-turn p, .context-turn blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
 .context-turn strong { display: block; margin-top: 12px; }
+.context-reviewed-evidence, .context-reviewed-evidence-provenance { border-left: 3px solid var(--line); padding-left: 10px !important; }
+.context-reviewed-evidence blockquote { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .history-panel { width: 320px; }
   .document-sidebar { width: 205px; }.persistent-workspace .app-header { padding-inline: 16px; }
@@ -338,3 +340,19 @@ input::placeholder { color: #637083; }
 .review-panel .history-preview { flex: 1 0 180px; }
 .review-panel .history-restore { flex-shrink: 0; }
 .review-empty { color: var(--muted); }
+.review-details { padding: 16px 22px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.55; }
+.review-details-heading { display: block; }
+.review-details-heading > button { display: block; margin-top: 6px; white-space: nowrap; }
+.review-details h3 { margin: 0 0 4px; font-size: 13px; }
+.review-details p { margin: 0 0 10px; }
+.review-details-heading button, .review-detail-actions button { font-size: 11px; padding: 5px 8px; }
+.review-details-empty { color: var(--muted); }
+.review-detail-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.review-detail-card { padding: 9px; background: #fff; border: 1px solid var(--line); border-radius: 4px; }
+.review-detail-card blockquote, .review-detail-form blockquote { margin: 7px 0; padding-left: 9px; border-left: 2px solid #aebccc; color: var(--muted); }
+.review-detail-card small { color: var(--muted); }
+.review-detail-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.review-detail-form { margin-top: 10px; padding: 10px; background: #fff; border: 1px solid var(--line); border-radius: 4px; }
+.review-detail-form label { display: grid; gap: 4px; margin-bottom: 8px; font-size: 11px; font-weight: 600; }
+.review-detail-form select { width: 100%; padding: 6px; border: 1px solid #aebccc; border-radius: 4px; background: #fff; color: inherit; font: inherit; font-weight: 400; }
+.review-detail-checkbox { display: flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 7px !important; font-weight: 400 !important; }

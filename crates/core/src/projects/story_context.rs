@@ -7,6 +7,10 @@ use crate::context::navigation::{
     FrozenNavigationView, MAX_FROZEN_NAVIGATION_VIEWS, NavigationViewRef, navigation_content_hash,
     validate_frozen_navigation_views, validate_navigation_view_payload,
 };
+use crate::context::reviewed_evidence::{
+    ReviewedEvidenceSet, from_storage_parts, validate_evidence_payload,
+    validate_frozen_evidence_set,
+};
 use crate::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
     ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind, SourceRef,
@@ -59,6 +63,10 @@ pub struct FrozenContext {
     pub conversation: Option<FrozenConversation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub navigation_views: Vec<FrozenNavigationView>,
+    /// Complete author-reviewed record sets selected from immutable bundles.
+    /// Empty legacy snapshots omit this field and retain their original JSON.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_evidence: Vec<ReviewedEvidenceSet>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -666,6 +674,7 @@ pub(super) fn freeze_reviewed_continuation_at(
     let target_ref = source_ref(&target_revision);
     let mut reviewed_members = Vec::with_capacity(prefix.len());
     let mut reviewed_sources = Vec::with_capacity(prefix.len());
+    let mut reviewed_evidence = Vec::new();
     for item in &prefix {
         let revision = read_revision(tx, &item.revision_id)?;
         if revision.head != item.head {
@@ -689,6 +698,7 @@ pub(super) fn freeze_reviewed_continuation_at(
             ));
         }
         let source = source_ref(&revision);
+        let source_handle = format!("reviewed-{}", item.bundle_id);
         reviewed_members.push(ReviewedBasisMember {
             document_id: item.document_id.clone(),
             bundle_id: item.bundle_id.clone(),
@@ -696,8 +706,27 @@ pub(super) fn freeze_reviewed_continuation_at(
             version: item.head.version.clone(),
             body_hash: item.head.body_hash.clone(),
         });
+        if let Some(record_set) =
+            reviewed_story::current_records_for_source(tx, &request.access, &source)?
+        {
+            let records_hash = record_set.records_hash.ok_or_else(|| {
+                CoreError::new(
+                    "InvalidReviewedRecords",
+                    "A nonempty reviewed evidence set has no canonical hash.",
+                )
+            })?;
+            reviewed_evidence.push(from_storage_parts(
+                record_set.project_id,
+                record_set.operation_namespace,
+                record_set.bundle_id,
+                records_hash,
+                source_handle.clone(),
+                source.clone(),
+                record_set.records,
+            )?);
+        }
         reviewed_sources.push(SourceDescriptor {
-            handle: format!("reviewed-{}", item.bundle_id),
+            handle: source_handle,
             source,
             display_name: item.title.clone(),
             kind: SourceKind::ReviewedAuthority,
@@ -770,7 +799,11 @@ pub(super) fn freeze_reviewed_continuation_at(
         guidance: Vec::new(),
         conversation: None,
         navigation_views: Vec::new(),
+        reviewed_evidence,
     };
+    for evidence in &frozen.reviewed_evidence {
+        validate_frozen_evidence_set(evidence, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
     let json = serde_json::to_string(&frozen)?;
     tx.execute(
         "INSERT INTO story_snapshots(id,project_id,operation_namespace,operation_id,payload_hash,context_source_epoch,disclosure_policy_epoch,manifest_json,manifest_hash) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -1021,8 +1054,43 @@ fn freeze_story_impl(
             None
         },
         navigation_views: Vec::new(),
+        reviewed_evidence: Vec::new(),
     };
     frozen.navigation_views = select_navigation_views_at(tx, &frozen)?;
+    if frozen.policy.audience == Audience::AuthorRoom
+        && frozen.purpose != ContextPurpose::MemoryAnalysis
+    {
+        for source in &frozen.snapshot.sources {
+            if !matches!(
+                source.kind,
+                SourceKind::CurrentDraft | SourceKind::ReviewedAuthority
+            ) {
+                continue;
+            }
+            if let Some(record_set) =
+                reviewed_story::current_records_for_source(tx, &request.access, &source.source)?
+            {
+                let records_hash = record_set.records_hash.ok_or_else(|| {
+                    CoreError::new(
+                        "InvalidReviewedRecords",
+                        "A nonempty reviewed evidence set has no canonical hash.",
+                    )
+                })?;
+                frozen.reviewed_evidence.push(from_storage_parts(
+                    record_set.project_id,
+                    record_set.operation_namespace,
+                    record_set.bundle_id,
+                    records_hash,
+                    source.handle.clone(),
+                    source.source.clone(),
+                    record_set.records,
+                )?);
+            }
+        }
+    }
+    for evidence in &frozen.reviewed_evidence {
+        validate_frozen_evidence_set(evidence, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
     validate_frozen_navigation_views(
         &frozen.navigation_views,
         &frozen.snapshot,
@@ -1430,6 +1498,20 @@ fn validate_pins(
     frozen: &FrozenContext,
     snapshot_namespace: &str,
 ) -> CoreResult<()> {
+    for evidence in &frozen.reviewed_evidence {
+        validate_frozen_evidence_set(evidence, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+        let source = read_source(db, frozen, &evidence.source_handle)?;
+        validate_evidence_payload(evidence, &source)?;
+        reviewed_story::validate_reviewed_records(
+            db,
+            &frozen.snapshot.project_id,
+            snapshot_namespace,
+            &evidence.bundle_id,
+            &evidence.source,
+            &evidence.records_hash,
+            &evidence.records,
+        )?;
+    }
     if let Some(manifest) = frozen.snapshot.reviewed_basis.as_ref() {
         reviewed_story::validate_reviewed_snapshot_manifest(
             db,

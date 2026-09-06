@@ -19,6 +19,11 @@ use super::navigation::{
     FrozenNavigationView, NavigationOmissionReason, NavigationViewOmission, NavigationViewRef,
     validate_frozen_navigation_views, validate_navigation_view_payload,
 };
+use super::reviewed_evidence::{
+    ReviewedEvidenceCoverage, ReviewedEvidenceOmission, ReviewedEvidenceOmissionReason,
+    ReviewedEvidenceSet, eligible_records, record_id, records_hash, validate_evidence_payload,
+    validate_frozen_evidence_set,
+};
 use crate::documents::{ScopeGrant, ScopeKind, ScopeValidationRequest, validate_scope};
 use crate::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
 use crate::validate_snapshot_json;
@@ -294,6 +299,8 @@ struct ContextEnvelope {
     omitted_discussion_turns: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     derived_views: Option<DerivedViewsEnvelope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reviewed_evidence: Option<ReviewedEvidenceEnvelope>,
     omissions: Vec<String>,
 }
 
@@ -315,6 +322,38 @@ struct DerivedView {
     reference: NavigationViewRef,
     dependencies: Vec<SourceRef>,
     candidate: super::memory::DigestCandidate,
+}
+
+/// Reviewed evidence is separate from original prose and generated views. A
+/// partial packet carries the immutable set identity and marks the record list
+/// incomplete so the provider cannot mistake budget pressure for full state.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewedEvidenceEnvelope {
+    coverage: &'static str,
+    complete_record_set: bool,
+    sets: Vec<ReviewedEvidencePacketSet>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewedEvidencePacketSet {
+    project_id: String,
+    operation_namespace: String,
+    bundle_id: String,
+    records_hash: String,
+    projection_hash: String,
+    source_handle: String,
+    source: SourceRef,
+    records: Vec<crate::projects::story_records::PossessionRecord>,
+}
+
+#[derive(Debug, Clone)]
+struct PackedReviewedEvidence {
+    set: ReviewedEvidenceSet,
+    records: Vec<crate::projects::story_records::PossessionRecord>,
+    /// Hash of the complete policy-eligible projection before budget packing.
+    projection_hash: String,
 }
 
 #[derive(Debug, Clone)]
@@ -460,6 +499,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
     }
 
     let validated_navigation_views = validate_navigation_views(request, &canonical_reads)?;
+    let validated_reviewed_evidence = validate_reviewed_evidence(request, &canonical_reads)?;
 
     let available = match request.provider_binding.as_ref() {
         Some(binding) => binding.input_limit().map_err(|message| {
@@ -648,6 +688,8 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         .conversation
         .as_ref()
         .map_or(0, |c| c.turns.len());
+    let full_evidence_omissions =
+        reviewed_evidence_omissions(&validated_reviewed_evidence, &validated_reviewed_evidence);
     let full_packet = build_serialized(
         request,
         &target_handle,
@@ -658,6 +700,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             method: "fullText",
             conversation_turns: total_turns,
             navigation_views: &[],
+            reviewed_evidence: &validated_reviewed_evidence,
         },
         &options,
     )?;
@@ -669,16 +712,22 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             &full_sources,
             full_omissions,
             "fullText",
-            NavigationReceipt {
-                delivered_views: &[],
-                omissions: navigation_omissions(
-                    &validated_navigation_views,
-                    &[],
-                    full_sources
-                        .iter()
-                        .map(|source| source.read.read.descriptor.handle.as_str())
-                        .collect(),
-                ),
+            PacketReceipts {
+                navigation: NavigationReceipt {
+                    delivered_views: &[],
+                    omissions: navigation_omissions(
+                        &validated_navigation_views,
+                        &[],
+                        full_sources
+                            .iter()
+                            .map(|source| source.read.read.descriptor.handle.as_str())
+                            .collect(),
+                    ),
+                },
+                evidence: ReviewedEvidenceReceipt {
+                    delivered: &validated_reviewed_evidence,
+                    omissions: &full_evidence_omissions,
+                },
             },
         );
     }
@@ -700,6 +749,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             method: "layeredExcerpt",
             conversation_turns: 0,
             navigation_views: &[],
+            reviewed_evidence: &[],
         },
         &options,
     )?;
@@ -735,6 +785,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
                 method: "layeredExcerpt",
                 conversation_turns: count,
                 navigation_views: &[],
+                reviewed_evidence: &[],
             },
             &options,
         )?;
@@ -744,6 +795,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         included_turns = count;
     }
     if included_turns != total_turns {
+        let evidence_omissions = reviewed_evidence_omissions(&validated_reviewed_evidence, &[]);
         let packet = build_serialized(
             request,
             &target_handle,
@@ -754,6 +806,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
                 method: "layeredExcerpt",
                 conversation_turns: included_turns,
                 navigation_views: &[],
+                reviewed_evidence: &[],
             },
             &options,
         )?;
@@ -764,16 +817,22 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             &mandatory_sources,
             mandatory_omissions,
             "layeredExcerpt",
-            NavigationReceipt {
-                delivered_views: &[],
-                omissions: navigation_omissions(
-                    &validated_navigation_views,
-                    &[],
-                    mandatory_sources
-                        .iter()
-                        .map(|source| source.read.read.descriptor.handle.as_str())
-                        .collect(),
-                ),
+            PacketReceipts {
+                navigation: NavigationReceipt {
+                    delivered_views: &[],
+                    omissions: navigation_omissions(
+                        &validated_navigation_views,
+                        &[],
+                        mandatory_sources
+                            .iter()
+                            .map(|source| source.read.read.descriptor.handle.as_str())
+                            .collect(),
+                    ),
+                },
+                evidence: ReviewedEvidenceReceipt {
+                    delivered: &[],
+                    omissions: &evidence_omissions,
+                },
             },
         );
     }
@@ -820,6 +879,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
                 method: "layeredExcerpt",
                 conversation_turns: included_turns,
                 navigation_views: &candidate_views,
+                reviewed_evidence: &[],
             },
             &options,
         )?;
@@ -831,6 +891,64 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             view_budget_blocked = true;
         }
     }
+
+    // Reviewed records are accepted evidence rather than generated views.
+    // Select complete record values in stable bundle/record order, stopping at
+    // the first item that does not fit so more budget only extends coverage.
+    let mut delivered_reviewed_evidence: Vec<PackedReviewedEvidence> = Vec::new();
+    let mut evidence_budget_blocked = false;
+    for evidence in &validated_reviewed_evidence {
+        if evidence_budget_blocked {
+            break;
+        }
+        for record in &evidence.records {
+            let mut candidate_evidence = delivered_reviewed_evidence.clone();
+            if let Some(existing) = candidate_evidence.iter_mut().find(|item| {
+                item.set.source_handle == evidence.set.source_handle
+                    && item.set.bundle_id == evidence.set.bundle_id
+                    && item.set.records_hash == evidence.set.records_hash
+            }) {
+                existing.records.push(record.clone());
+            } else {
+                candidate_evidence.push(PackedReviewedEvidence {
+                    set: evidence.set.clone(),
+                    records: vec![record.clone()],
+                    projection_hash: evidence.projection_hash.clone(),
+                });
+            }
+            let packet = build_serialized(
+                request,
+                &target_handle,
+                &target,
+                &mandatory_sources,
+                &optional_omissions(
+                    &optional_handles_without_views(
+                        &optional_handles,
+                        &delivered_views,
+                        &navigation_by_handle,
+                    ),
+                    &canonical_by_handle,
+                    &HashMap::new(),
+                    &directory_omissions,
+                ),
+                Packing {
+                    method: "layeredExcerpt",
+                    conversation_turns: included_turns,
+                    navigation_views: &delivered_views,
+                    reviewed_evidence: &candidate_evidence,
+                },
+                &options,
+            )?;
+            if packet.input_tokens <= available {
+                delivered_reviewed_evidence = candidate_evidence;
+            } else {
+                evidence_budget_blocked = true;
+                break;
+            }
+        }
+    }
+    let reviewed_evidence_omissions =
+        reviewed_evidence_omissions(&validated_reviewed_evidence, &delivered_reviewed_evidence);
 
     // Add complete blocks in stable source/block order. A block is either
     // present in full or absent; no target or passage is ever truncated. A
@@ -894,6 +1012,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
                     method: "layeredExcerpt",
                     conversation_turns: included_turns,
                     navigation_views: &delivered_views,
+                    reviewed_evidence: &delivered_reviewed_evidence,
                 },
                 &options,
             )?;
@@ -921,6 +1040,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             method: "layeredExcerpt",
             conversation_turns: included_turns,
             navigation_views: &delivered_views,
+            reviewed_evidence: &delivered_reviewed_evidence,
         },
         &options,
     )?;
@@ -931,17 +1051,23 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         &selected,
         omissions,
         "layeredExcerpt",
-        NavigationReceipt {
-            delivered_views: &delivered_views,
-            omissions: navigation_omissions(
-                &validated_navigation_views,
-                &delivered_views,
-                selected
-                    .iter()
-                    .filter(|source| source.passages.is_none())
-                    .map(|source| source.read.read.descriptor.handle.as_str())
-                    .collect(),
-            ),
+        PacketReceipts {
+            navigation: NavigationReceipt {
+                delivered_views: &delivered_views,
+                omissions: navigation_omissions(
+                    &validated_navigation_views,
+                    &delivered_views,
+                    selected
+                        .iter()
+                        .filter(|source| source.passages.is_none())
+                        .map(|source| source.read.read.descriptor.handle.as_str())
+                        .collect(),
+                ),
+            },
+            evidence: ReviewedEvidenceReceipt {
+                delivered: &delivered_reviewed_evidence,
+                omissions: &reviewed_evidence_omissions,
+            },
         },
     )
 }
@@ -953,7 +1079,7 @@ fn finish_packet(
     sources: &[SelectedSource],
     omissions: Vec<String>,
     method: &str,
-    navigation: NavigationReceipt<'_>,
+    receipts: PacketReceipts<'_>,
 ) -> Result<CompiledPacket, PacketError> {
     let source_handles: Vec<String> = sources
         .iter()
@@ -993,12 +1119,32 @@ fn finish_packet(
         }),
         coverage,
         omissions,
-        navigation_views: navigation
+        navigation_views: receipts
+            .navigation
             .delivered_views
             .iter()
             .map(|view| view.reference.clone())
             .collect(),
-        navigation_omissions: navigation.omissions,
+        navigation_omissions: receipts.navigation.omissions,
+        reviewed_evidence: receipts
+            .evidence
+            .delivered
+            .iter()
+            .map(|item| ReviewedEvidenceCoverage {
+                source_handle: item.set.source_handle.clone(),
+                bundle_id: item.set.bundle_id.clone(),
+                records_hash: item.set.records_hash.clone(),
+                projection_hash: item.projection_hash.clone(),
+                complete_record_set: item.records.len() == item.set.records.len(),
+                record_ids: item
+                    .records
+                    .iter()
+                    .map(record_id)
+                    .map(str::to_owned)
+                    .collect(),
+            })
+            .collect(),
+        reviewed_evidence_omissions: receipts.evidence.omissions.to_vec(),
         input_hash: sha256_hex(packet.serialized.as_bytes()),
         input_tokens: packet.input_tokens.to_string(),
         token_accounting_method: options.token_accounting_method.clone(),
@@ -1058,6 +1204,109 @@ fn validate_navigation_views(
         });
     }
     Ok(validated)
+}
+
+/// Validate each authenticated frozen set against the exact source read before
+/// choosing any representation or entering a budget path. Restricted writing
+/// receives only reader-approved records; the frozen set and its original hash
+/// remain complete so private records are never silently rewritten.
+fn validate_reviewed_evidence(
+    request: &PacketRequest,
+    reads: &[CanonicalRead],
+) -> Result<Vec<PackedReviewedEvidence>, PacketError> {
+    let mut validated = Vec::with_capacity(request.frozen.reviewed_evidence.len());
+    for set in &request.frozen.reviewed_evidence {
+        validate_frozen_evidence_set(
+            set,
+            &request.frozen.snapshot,
+            &request.frozen.policy,
+            request.frozen.purpose,
+        )
+        .map_err(|error| PacketError::SourceBinding {
+            code: error.code,
+            message: error.detail,
+            handle: Some(set.source_handle.clone()),
+        })?;
+        let source = reads
+            .iter()
+            .find(|read| read.read.descriptor.handle == set.source_handle)
+            .ok_or_else(|| {
+                source_binding(
+                    "ReviewedEvidenceSourceReadMissing",
+                    "Every frozen reviewed evidence set needs its exact source read.",
+                    Some(set.source_handle.clone()),
+                )
+            })?;
+        validate_evidence_payload(set, &source.read).map_err(|error| {
+            PacketError::SourceBinding {
+                code: error.code,
+                message: error.detail,
+                handle: Some(set.source_handle.clone()),
+            }
+        })?;
+        let records: Vec<crate::projects::story_records::PossessionRecord> =
+            eligible_records(&set.records, request.frozen.policy.audience)
+                .into_iter()
+                .cloned()
+                .collect();
+        let projection_hash =
+            records_hash(&records).map_err(|error| PacketError::SourceBinding {
+                code: error.code,
+                message: error.detail,
+                handle: Some(set.source_handle.clone()),
+            })?;
+        validated.push(PackedReviewedEvidence {
+            set: set.clone(),
+            records,
+            projection_hash,
+        });
+    }
+    Ok(validated)
+}
+
+fn reviewed_evidence_omissions(
+    all: &[PackedReviewedEvidence],
+    delivered: &[PackedReviewedEvidence],
+) -> Vec<ReviewedEvidenceOmission> {
+    let mut omissions = Vec::new();
+    for set in all {
+        let delivered_ids: HashSet<&str> = delivered
+            .iter()
+            .filter(|item| {
+                item.set.source_handle == set.set.source_handle
+                    && item.set.bundle_id == set.set.bundle_id
+                    && item.set.records_hash == set.set.records_hash
+            })
+            .flat_map(|item| item.records.iter().map(record_id))
+            .collect();
+        let mut budget_count = 0;
+        let mut disclosure_count = 0;
+        for record in &set.set.records {
+            if delivered_ids.contains(record.id.as_str()) {
+                continue;
+            }
+            if set.records.iter().any(|item| item.id == record.id) {
+                budget_count += 1;
+            } else {
+                disclosure_count += 1;
+            }
+        }
+        for (reason, count) in [
+            (ReviewedEvidenceOmissionReason::Budget, budget_count),
+            (ReviewedEvidenceOmissionReason::Disclosure, disclosure_count),
+        ] {
+            if count != 0 {
+                omissions.push(ReviewedEvidenceOmission {
+                    source_handle: set.set.source_handle.clone(),
+                    bundle_id: set.set.bundle_id.clone(),
+                    records_hash: set.set.records_hash.clone(),
+                    reason,
+                    count,
+                });
+            }
+        }
+    }
+    omissions
 }
 
 fn optional_handles_without_views(
@@ -1145,6 +1394,17 @@ struct Packing<'a> {
     method: &'a str,
     conversation_turns: usize,
     navigation_views: &'a [FrozenNavigationView],
+    reviewed_evidence: &'a [PackedReviewedEvidence],
+}
+
+struct ReviewedEvidenceReceipt<'a> {
+    delivered: &'a [PackedReviewedEvidence],
+    omissions: &'a [ReviewedEvidenceOmission],
+}
+
+struct PacketReceipts<'a> {
+    navigation: NavigationReceipt<'a>,
+    evidence: ReviewedEvidenceReceipt<'a>,
 }
 
 fn is_zero(value: &u32) -> bool {
@@ -1227,6 +1487,30 @@ fn build_serialized(
                     candidate: view.candidate.clone(),
                 })
                 .collect(),
+        }),
+        reviewed_evidence: (!packing.reviewed_evidence.is_empty()).then(|| {
+            let complete_record_set = packing
+                .reviewed_evidence
+                .iter()
+                .all(|evidence| evidence.records.len() == evidence.set.records.len());
+            ReviewedEvidenceEnvelope {
+                coverage: "reviewedAccepted",
+                complete_record_set,
+                sets: packing
+                    .reviewed_evidence
+                    .iter()
+                    .map(|evidence| ReviewedEvidencePacketSet {
+                        project_id: evidence.set.project_id.clone(),
+                        operation_namespace: evidence.set.operation_namespace.clone(),
+                        bundle_id: evidence.set.bundle_id.clone(),
+                        records_hash: evidence.set.records_hash.clone(),
+                        projection_hash: evidence.projection_hash.clone(),
+                        source_handle: evidence.set.source_handle.clone(),
+                        source: evidence.set.source.clone(),
+                        records: evidence.records.clone(),
+                    })
+                    .collect(),
+            }
         }),
         omissions: omissions.to_vec(),
     };

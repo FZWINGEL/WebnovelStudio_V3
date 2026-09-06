@@ -91,6 +91,7 @@ fn mark_ready(
             access: access.clone(),
             operation_id: stage_operation.into(),
             expected: document.head.clone(),
+            records: None,
         })
         .expect("stage review");
     project

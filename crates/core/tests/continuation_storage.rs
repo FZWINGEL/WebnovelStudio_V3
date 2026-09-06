@@ -1,4 +1,6 @@
 use rusqlite::Connection;
+#[path = "support/schema.rs"]
+mod legacy_schema;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -237,14 +239,8 @@ fn make_schema18_archive(source: &Path, target: &Path, temp_root: &Path) {
     let legacy_path = temp_root.join("schema18.sqlite3");
     fs::write(&legacy_path, database_bytes).unwrap();
     let database = Connection::open(&legacy_path).unwrap();
-    database
-        .execute_batch(
-            "ALTER TABLE export_records DROP COLUMN review_bundle_id;
-             ALTER TABLE proposals DROP COLUMN kind;
-             ALTER TABLE proposal_versions DROP COLUMN payload_json;
-             PRAGMA user_version=18;",
-        )
-        .unwrap();
+    legacy_schema::remove_schema19_features(&database).unwrap();
+    database.execute_batch("PRAGMA user_version=18;").unwrap();
     drop(database);
     let database_bytes = fs::read(&legacy_path).unwrap();
     let _ = fs::remove_file(&legacy_path);
@@ -289,6 +285,7 @@ fn mark_ready(project: &ProjectSession, access: &ProjectAccess, chapter: &Head, 
             access: access.clone(),
             operation_id: format!("stage-{prefix}"),
             expected: chapter.clone(),
+            records: None,
         })
         .unwrap();
     project

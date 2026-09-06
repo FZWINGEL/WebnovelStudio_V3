@@ -121,6 +121,12 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
     setDiscussionSelection(previous => ({ scope, nonce: (previous?.nonce ?? 0) + 1 }));
     setHistoryVisible(false); setReviewVisible(false); setMemoryVisible(false); setDiscussionVisible(true); setMenu(null); return true;
   };
+  const captureReviewSelection = useCallback((): Scope | null => {
+    // Review evidence is tied to the last durable body. Do not capture an
+    // unsaved editor selection that the review stage cannot authenticate.
+    if (!session.state.editable || session.state.dirty) return null;
+    return captureSelection(editor);
+  }, [editor, session]);
   useEffect(() => {
     let disposed = false;
     let composing = false;
@@ -229,7 +235,7 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
   </main>
   <FeedbackPanel session={session} state={state} title={record.title} documentKind={record.kind} sources={sources} selection={discussionSelection} visible={discussionVisible && !historyVisible && !reviewVisible && !memoryVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} onPrepareProposal={prepare} onApplyProposal={apply} />
   <HistoryPanel access={session.projectAccess} documentId={state.head.documentId} body={session.body} visible={historyVisible} disabled={!state.editable} onClose={() => { setHistoryVisible(false); historyButton.current?.focus(); }} onRestore={restore} />
-  {record.kind === 'chapter' && <ReviewPanel session={session} state={state} visible={reviewVisible && !memoryVisible} onClose={() => { setReviewVisible(false); reviewButton.current?.focus(); }} />}
+  {record.kind === 'chapter' && <ReviewPanel session={session} state={state} visible={reviewVisible && !memoryVisible} captureSelection={captureReviewSelection} onClose={() => { setReviewVisible(false); reviewButton.current?.focus(); }} />}
   {record.kind === 'chapter' && <ChapterMemory session={session} state={state} title={record.title} visible={memoryVisible} onClose={() => { setMemoryVisible(false); memoryButton.current?.focus(); }} />}
   {menu && <><div className="menu-dismiss" onClick={() => setMenu(null)} /><div className="selection-menu" role="menu" aria-label="Selected passage" style={{ left: menu.x, top: menu.y }} onKeyDown={event => { if (event.key === 'Escape') { setMenu(null); editor.commands.focus(); } }}><button role="menuitem" autoFocus onMouseDown={event => event.preventDefault()} onClick={() => discuss.current()}>Discuss selection · Ctrl+Shift+F</button></div></>}
   </>;

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ContextInspector } from './ContextInspector';
 import * as context from '../ipc/context';
 import type { ProjectAccess } from '../ipc/projects';
+import type { PossessionRecord } from '../ipc/reviews';
 
 vi.mock('../ipc/context', () => ({
   preparedStoryContext: vi.fn(), preparedStoryContextIsCurrent: vi.fn(), storyContextSnapshot: vi.fn(),
@@ -23,6 +24,10 @@ const navigation: context.FrozenNavigationView = {
     evidence: [{ blockId: 'old-block', fromUtf16: 0, toUtf16: 28, quote: 'Ren promised to return it.' }],
   }] },
 };
+const reviewedRecord = (id: string, audience: PossessionRecord['audience'], objectLabel: string): PossessionRecord => ({
+  id, object: { id: `${id}-object`, label: objectLabel }, holder: { id: `${id}-holder`, label: 'Mei' }, timing: 'atPassage', audience,
+  evidence: { blockId: 'first-block', fromUtf16: 0, toUtf16: 17, quote: `${objectLabel} was in Mei's hand.`, quoteHash: 'a'.repeat(64) },
+});
 let host: HTMLDivElement; let root: Root;
 async function render(packetId = 'packet', refreshKey = '1', delivered = true) {
   await act(async () => root.render(<ContextInspector access={access} packetId={packetId} delivered={delivered} refreshKey={refreshKey} />));
@@ -176,6 +181,25 @@ describe('historical context inspection', () => {
     expect(host.textContent).toContain('2 earlier complete exchanges were not included');
     expect(host.textContent).toContain('not saved guidance or established story facts');
     expect(context.readStoryContextSource).not.toHaveBeenCalled();
+  });
+  it('shows delivered reviewed details as passage evidence and hides private records in restricted packets', async () => {
+    const authorOnly = reviewedRecord('author-detail', 'authorRoom', 'Private seal');
+    const reader = reviewedRecord('reader-detail', 'reader', 'Silver key');
+    const set: context.ReviewedEvidenceSet = { projectId: access.projectId, operationNamespace: access.operationNamespace, bundleId: 'bundle', recordsHash: 'b'.repeat(64), sourceHandle: first.handle, source: first.source, records: [authorOnly, reader] };
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, policy: { ...frozen.policy, audience: 'restrictedWriting' }, reviewedEvidence: [set] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt,
+      reviewedEvidence: [{ sourceHandle: first.handle, bundleId: set.bundleId, recordsHash: set.recordsHash, projectionHash: 'p'.repeat(64), completeRecordSet: false, recordIds: [reader.id] }],
+      reviewedEvidenceOmissions: [{ sourceHandle: first.handle, bundleId: set.bundleId, recordsHash: set.recordsHash, reason: 'disclosure', count: 1 }, { sourceHandle: first.handle, bundleId: set.bundleId, recordsHash: set.recordsHash, reason: 'budget', count: 2 }],
+    } });
+    await render();
+    expect(host.textContent).toContain('Silver key');
+    expect(host.textContent).toContain("Silver key was in Mei's hand.");
+    expect(host.textContent).not.toContain('Private seal');
+    expect(host.textContent).not.toContain("Private seal was in Mei's hand.");
+    expect(host.querySelector('.context-reviewed-evidence')?.textContent).toContain('Silver key');
+    expect(host.textContent).toContain('1 private detail from this chapter is excluded from this writing request');
+    expect(host.textContent).toContain('1 author-only reviewed detail was withheld');
+    expect(host.textContent).toContain('2 reviewed details were withheld');
   });
   it('keeps the exact adopted instruction visible when its packet becomes historical', async () => {
     const record = { handle: 'guidance-v1', projectId: access.projectId, version: { guidanceId: 'guidance', versionId: 'v1', version: '1', scope: 'document' as const, documentId: first.source.documentId, text: 'Keep the ending.\nHer sister survives.', textHash: 'hash', active: true, originMessageId: null, createdAt: 'then' } };

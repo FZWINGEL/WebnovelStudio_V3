@@ -249,6 +249,15 @@ pub struct PacketReceipt {
     /// kept separate from original-source omissions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub navigation_omissions: Vec<crate::context::navigation::NavigationViewOmission>,
+    /// Accepted reviewed story records delivered as a separate evidence
+    /// envelope. Empty legacy receipts omit this field entirely.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_evidence: Vec<crate::context::reviewed_evidence::ReviewedEvidenceCoverage>,
+    /// Record-level omissions remain distinct from source and navigation
+    /// omissions so partial evidence cannot be mistaken for full coverage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_evidence_omissions:
+        Vec<crate::context::reviewed_evidence::ReviewedEvidenceOmission>,
     pub input_hash: String,
     pub input_tokens: String,
     pub token_accounting_method: String,
