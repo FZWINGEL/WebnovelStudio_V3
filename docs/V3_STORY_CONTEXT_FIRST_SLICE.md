@@ -94,6 +94,10 @@ Unaccepted view installation does not advance `context_source_epoch`; manuscript
 
 **Completion:** late results, early-chapter revisions, future-source contamination, deleted indexes, and restored projects all preserve source/authority rules. Citation range validation rejects malformed evidence. The UI states that semantic correctness is unverified. Exact-text fallback still works with all generated digests removed.
 
+**Next C4-C increment — chapter-only freshness:** the C4-A/B global epoch fence is deliberately conservative but makes an unchanged chapter digest unavailable after unrelated writing. Qualify reuse against the closed `MemoryAnalysis` recipe's exact single source, original project/namespace, current disclosure policy, full immutable job/result/view chain, and validated evidence. Keep the view's generation epoch as provenance; do not rewrite it to pretend the analysis ran against a later story. Frozen discussion/request and proposal freshness must retain their global source epoch, including newly relevant evidence in previously unsearched documents. Contextual/cross-chapter interpretations do not inherit the chapter-only exception.
+
+The implementation must reconcile derived currentness for existing coarse-stale rows without rewriting their immutable history or permitting copied namespaces, revoked sources, changed chapter revisions, or unfinished jobs to become current. Review the minimum-reader schema version before persisting newly valid cross-epoch frozen views, because a C4-B reader rejects that relationship. Regression gates must prove both sides: unrelated writing preserves valid chapter-memory reuse without another model call, while the previously frozen discussion/proposal becomes stale; changing the digest's own chapter, policy, or namespace still excludes it. Retain the existing queued-dispatch and save/Apply safeguards.
+
 ### C5 — Add thin state, relationship, and thread views
 
 Reuse reviewed story records. Implement a few valuable queries: last established possession plus known transitions; character belief/knowledge at a boundary; unresolved promise plus known payoff; explicit creative decisions for a scope.

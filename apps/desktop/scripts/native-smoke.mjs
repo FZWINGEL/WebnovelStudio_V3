@@ -583,6 +583,9 @@ try {
   await page.locator('.context-inspector summary').filter({ hasText: /^Used/ }).waitFor();
   await page.waitForFunction(() => [...document.querySelectorAll('.context-inspector details[open] .context-detail')].filter(item => item.textContent === 'Required source').length === 1);
   await page.locator('.context-inspector details[open]').getByRole('button', { name: "Keep Mei's voice for future discussions", exact: true }).click();
+  // The inspector opens confirmation through a React adoption effect. A
+  // completed click does not guarantee that the controlled chooser committed.
+  await page.waitForFunction(() => document.querySelector('.source-pin-form select')?.selectedOptions[0]?.text === "Mei's voice");
   assert.equal(await page.getByRole('combobox', { name: 'Story source', exact: true }).evaluate(element => element.selectedOptions[0].text), "Mei's voice");
   assert.equal(await page.locator('.persistent-source-list li').count(), 2, 'Opening source confirmation must not save another pin');
   await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).fill('Remember the promise from this scene.');
