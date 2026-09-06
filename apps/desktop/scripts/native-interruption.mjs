@@ -4,7 +4,7 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, relative, resolve, sep, toNamespacedPath } from 'node:path';
 import { createServer as createNetServer } from 'node:net';
@@ -219,9 +219,16 @@ function inspect(path, read) {
   try { return read(db); } finally { db.close(); }
 }
 
-function assertOwnedEntry(entry, data) {
+async function assertOwnedEntry(entry, data) {
   assert(entry, 'Synthetic project must be indexed.');
-  const inside = relative(toNamespacedPath(resolve(data)), toNamespacedPath(resolve(entry.path)));
+  // Windows can expose the same temp directory through an 8.3 alias in the
+  // Node process while Rust returns its canonical long path in the library
+  // index. Resolve both sides before checking containment.
+  const [ownedRoot, projectPath] = await Promise.all([
+    realpath(resolve(data)),
+    realpath(entry.path),
+  ]);
+  const inside = relative(toNamespacedPath(ownedRoot), toNamespacedPath(projectPath));
   assert(inside && !isAbsolute(inside) && inside !== '..' && !inside.startsWith(`..${sep}`), 'Inspect only the owned synthetic project.');
 }
 
@@ -270,7 +277,7 @@ async function qualifySaveRendererLoss() {
     const { page } = run;
     const created = await createProject(page, 'Interrupted save', 'save-chapter', 'After the storm', 'The opening survives.');
     const entry = (await invoke(page, 'library_snapshot')).entries.find(item => item.projectId === created.project.projectId);
-    assertOwnedEntry(entry, data);
+    await assertOwnedEntry(entry, data);
     await page.reload();
     await openFixture(page, 'Interrupted save', 'After the storm');
     await holdAcknowledgment(page, 'save_snapshot');
@@ -324,7 +331,7 @@ async function qualifyApplyProcessLoss() {
     await chooseMock(page);
     const created = await createProject(page, 'Interrupted Apply', 'apply-chapter', 'The guarded ending', 'Mira held the lantern. The ending stays intact.');
     const entry = (await invoke(page, 'library_snapshot')).entries.find(item => item.projectId === created.project.projectId);
-    assertOwnedEntry(entry, data);
+    await assertOwnedEntry(entry, data);
     await page.reload();
     await openFixture(page, 'Interrupted Apply', 'The guarded ending');
     await page.evaluate(() => document.querySelector('.tiptap').editor.commands.setTextSelection({ from: 1, to: 5 }));
@@ -394,7 +401,7 @@ async function qualifyRunningRequestProcessLoss() {
     await configureAnonymousEndpoint(page, held.server.address().port);
     const created = await createProject(page, 'Interrupted reply', 'reply-chapter', 'A frozen request', 'The pendant was left under the old bridge.');
     const entry = (await invoke(page, 'library_snapshot')).entries.find(item => item.projectId === created.project.projectId);
-    assertOwnedEntry(entry, data);
+    await assertOwnedEntry(entry, data);
     await page.reload();
     await openFixture(page, 'Interrupted reply', 'A frozen request');
     await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).fill('Where was the pendant left? Keep the story unchanged.');

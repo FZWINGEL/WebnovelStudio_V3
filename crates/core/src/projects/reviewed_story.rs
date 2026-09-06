@@ -12,8 +12,9 @@ use crate::projects::reviewed_summary::{
     SummaryChange, SummaryRevision, canonical_summary_json, summary_hash, validate_summary_binding,
 };
 use crate::projects::story_records::{
-    PossessionRecord, PromiseRecord, canonical_promises_json, canonical_records_json,
-    validate_promises, validate_records,
+    KnowledgeRecord, PossessionRecord, PromiseRecord, canonical_knowledge_json,
+    canonical_promises_json, canonical_records_json, validate_knowledge, validate_promises,
+    validate_records,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,8 @@ pub struct StageAuthorReview {
     pub records: Option<Vec<PossessionRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promises: Option<Vec<PromiseRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge: Option<Vec<KnowledgeRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<SummaryChange>,
 }
@@ -72,6 +75,10 @@ pub struct ReviewStage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promises_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge: Option<Vec<KnowledgeRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<SummaryRevision>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary_hash: Option<String>,
@@ -97,6 +104,10 @@ pub struct ReadyBundle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promises_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge: Option<Vec<KnowledgeRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<SummaryRevision>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary_hash: Option<String>,
@@ -118,6 +129,10 @@ pub struct ReviewedRecordSet {
     pub promises: Option<Vec<PromiseRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promises_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge: Option<Vec<KnowledgeRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<SummaryRevision>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -173,6 +188,8 @@ struct StageRow {
     records_hash: Option<String>,
     promises: Option<Vec<PromiseRecord>>,
     promises_hash: Option<String>,
+    knowledge: Option<Vec<KnowledgeRecord>>,
+    knowledge_hash: Option<String>,
     summary: Option<SummaryRevision>,
     summary_hash: Option<String>,
     created_at: String,
@@ -194,6 +211,8 @@ struct BundleRow {
     records_hash: Option<String>,
     promises: Option<Vec<PromiseRecord>>,
     promises_hash: Option<String>,
+    knowledge: Option<Vec<KnowledgeRecord>>,
+    knowledge_hash: Option<String>,
     summary: Option<SummaryRevision>,
     summary_hash: Option<String>,
     created_at: String,
@@ -366,6 +385,75 @@ impl<'db> ReviewValidationContext<'db> {
                 return Err(CoreError::new(
                     "InvalidReviewedPromises",
                     "The frozen reviewed promises do not match their immutable bundle.",
+                ));
+            }
+        }
+        self.validate_prefix_evidence(
+            project_id,
+            operation_namespace,
+            &source.document_id,
+            bundle_id,
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn validate_reviewed_knowledge(
+        &mut self,
+        project_id: &str,
+        operation_namespace: &str,
+        bundle_id: &str,
+        source: &SourceRef,
+        knowledge_hash: &str,
+        knowledge: &[KnowledgeRecord],
+    ) -> CoreResult<()> {
+        check_id(project_id)?;
+        check_id(operation_namespace)?;
+        check_id(bundle_id)?;
+        if source.project_id != project_id {
+            return Err(CoreError::new(
+                "InvalidReviewedKnowledge",
+                "Reviewed knowledge source belongs to another project.",
+            ));
+        }
+        let revision_id = {
+            let bundle = self.read_bundle(bundle_id)?.ok_or_else(|| {
+                CoreError::new(
+                    "ReviewBundleNotFound",
+                    "The reviewed knowledge bundle is unavailable.",
+                )
+            })?;
+            if bundle.project_id != project_id
+                || bundle.operation_namespace != operation_namespace
+                || bundle.target.document_id != source.document_id
+                || bundle.target.body_hash != source.body_hash
+                || bundle.revision_id != source.revision_id
+                || bundle.coverage != "authorOnly"
+            {
+                return Err(CoreError::new(
+                    "InvalidReviewedKnowledge",
+                    "The reviewed knowledge bundle does not match its immutable source.",
+                ));
+            }
+            bundle.revision_id.clone()
+        };
+        let revision = self.read_revision(&revision_id)?;
+        let computed = validate_knowledge(knowledge, revision).map_err(|error| {
+            CoreError::new(
+                "InvalidReviewedKnowledge",
+                &format!("The frozen reviewed knowledge is invalid: {}", error.detail),
+            )
+        })?;
+        {
+            let bundle = self
+                .read_bundle(bundle_id)?
+                .expect("bundle inserted into validation cache");
+            if computed.as_deref().unwrap_or("") != knowledge_hash
+                || bundle.knowledge_hash.as_deref().unwrap_or("") != knowledge_hash
+                || bundle.knowledge.as_deref().unwrap_or(&[]) != knowledge
+            {
+                return Err(CoreError::new(
+                    "InvalidReviewedKnowledge",
+                    "The frozen reviewed knowledge does not match its immutable bundle.",
                 ));
             }
         }
@@ -676,6 +764,8 @@ type StageDbRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
+    Option<String>,
     String,
 );
 type BundleDbRow = (
@@ -693,6 +783,8 @@ type BundleDbRow = (
     String,
     String,
     String,
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -876,6 +968,8 @@ impl OwnedProject {
             records_hash: bundle.records_hash,
             promises: bundle.promises,
             promises_hash: bundle.promises_hash,
+            knowledge: bundle.knowledge,
+            knowledge_hash: bundle.knowledge_hash,
             summary: bundle.summary,
             summary_hash: bundle.summary_hash,
             current: status.state == ReviewState::Ready,
@@ -1078,6 +1172,21 @@ impl OwnedProject {
                 )
             })?;
         let promises_json = canonical_promises_json(&promises.clone().unwrap_or_default())?;
+        let knowledge = match request.knowledge {
+            Some(knowledge) => Some(knowledge),
+            None => match previous_bundle_id.as_deref() {
+                Some(id) => read_bundle(&tx, id)?.and_then(|bundle| bundle.knowledge),
+                None => None,
+            },
+        };
+        let knowledge_hash = validate_knowledge(&knowledge.clone().unwrap_or_default(), &revision)
+            .map_err(|error| {
+                CoreError::new(
+                    "InvalidReviewedKnowledge",
+                    &format!("The reviewed knowledge is invalid: {}", error.detail),
+                )
+            })?;
+        let knowledge_json = canonical_knowledge_json(&knowledge.clone().unwrap_or_default())?;
         let summary = resolve_summary(
             &tx,
             &request.access,
@@ -1092,8 +1201,8 @@ impl OwnedProject {
         let prefix_hash = hash_prefix(&prefix)?;
         let stage_id = new_id();
         tx.execute(
-            "INSERT INTO review_stages(id,project_id,operation_namespace,operation_id,payload_hash,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO review_stages(id,project_id,operation_namespace,operation_id,payload_hash,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,knowledge_json,knowledge_hash,summary_json,summary_hash)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 stage_id,
                 request.access.project_id,
@@ -1113,6 +1222,8 @@ impl OwnedProject {
                 records_hash,
                 promises_json,
                 promises_hash,
+                knowledge_json,
+                knowledge_hash,
                 summary_json,
                 summary_hash,
             ],
@@ -1185,6 +1296,16 @@ impl OwnedProject {
                 )
             },
         )?;
+        validate_knowledge(
+            &stage.knowledge.clone().unwrap_or_default(),
+            &stage_revision,
+        )
+        .map_err(|error| {
+            CoreError::new(
+                "InvalidReviewedKnowledge",
+                &format!("The staged reviewed knowledge is invalid: {}", error.detail),
+            )
+        })?;
         let prefix = selected_prefix(&tx, &request.access, &stage.document_id, policy_epoch)?;
         if !same_prefix_basis(&prefix, &stage.prefix) {
             return Err(CoreError::new(
@@ -1207,8 +1328,8 @@ impl OwnedProject {
             .map(canonical_summary_json)
             .transpose()?;
         tx.execute(
-            "INSERT INTO ready_bundles(id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'authorOnly',?,?,?,?,?,?)",
+            "INSERT INTO ready_bundles(id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,knowledge_json,knowledge_hash,summary_json,summary_hash)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'authorOnly',?,?,?,?,?,?,?,?)",
             params![
                 bundle_id,
                 request.access.project_id,
@@ -1229,6 +1350,8 @@ impl OwnedProject {
                 stage.records_hash,
                 canonical_promises_json(&stage.promises.clone().unwrap_or_default())?,
                 stage.promises_hash,
+                canonical_knowledge_json(&stage.knowledge.clone().unwrap_or_default())?,
+                stage.knowledge_hash,
                 summary_json,
                 stage.summary_hash,
             ],
@@ -1546,6 +1669,49 @@ fn parse_promise_set(
     }
 }
 
+fn parse_knowledge_set(
+    knowledge_json: Option<String>,
+    knowledge_hash: Option<String>,
+    revision: &Revision,
+) -> CoreResult<(Option<Vec<KnowledgeRecord>>, Option<String>)> {
+    match (knowledge_json, knowledge_hash) {
+        (None, None) => Ok((None, None)),
+        (Some(_), None) | (None, Some(_)) => Err(CoreError::new(
+            "InvalidProject",
+            "Reviewed knowledge JSON and hash must be present together.",
+        )),
+        (Some(json), Some(hash)) => {
+            let knowledge: Vec<KnowledgeRecord> = serde_json::from_str(&json).map_err(|error| {
+                CoreError::new(
+                    "InvalidProject",
+                    &format!("The saved reviewed knowledge is malformed: {error}"),
+                )
+            })?;
+            if knowledge.is_empty() {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "An empty reviewed knowledge set must use the legacy null representation.",
+                ));
+            }
+            let actual = validate_knowledge(&knowledge, revision).map_err(|error| {
+                CoreError::new(
+                    "InvalidProject",
+                    &format!("The saved reviewed knowledge is invalid: {}", error.detail),
+                )
+            })?;
+            if actual.as_deref() != Some(hash.as_str())
+                || canonical_knowledge_json(&knowledge)?.as_deref() != Some(json.as_str())
+            {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "The saved reviewed knowledge hash or canonical JSON is invalid.",
+                ));
+            }
+            Ok((Some(knowledge), Some(hash)))
+        }
+    }
+}
+
 fn parse_summary_set(
     summary_json: Option<String>,
     expected_hash: Option<String>,
@@ -1598,12 +1764,12 @@ fn read_stage(
 ) -> CoreResult<Option<StageRow>> {
     let row: Option<StageDbRow> = db
         .query_row(
-            "SELECT id,project_id,operation_namespace,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash,created_at FROM review_stages WHERE id=? AND project_id=? AND operation_namespace=?",
+            "SELECT id,project_id,operation_namespace,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,knowledge_json,knowledge_hash,summary_json,summary_hash,created_at FROM review_stages WHERE id=? AND project_id=? AND operation_namespace=?",
             params![stage_id, access.project_id, access.operation_namespace],
             |row| Ok((
                 row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?,
                 row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?,
-                row.get(13)?, row.get(14)?, row.get(15)?, row.get(16)?, row.get(17)?, row.get(18)?,
+                row.get(13)?, row.get(14)?, row.get(15)?, row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?, row.get(20)?,
             )),
         )
         .optional()?;
@@ -1624,6 +1790,8 @@ fn read_stage(
         records_hash,
         promises_json,
         promises_hash,
+        knowledge_json,
+        knowledge_hash,
         summary_json,
         summary_hash,
         created_at,
@@ -1644,6 +1812,8 @@ fn read_stage(
     }
     let (records, records_hash) = parse_record_set(records_json, records_hash, &revision)?;
     let (promises, promises_hash) = parse_promise_set(promises_json, promises_hash, &revision)?;
+    let (knowledge, knowledge_hash) =
+        parse_knowledge_set(knowledge_json, knowledge_hash, &revision)?;
     let (summary, summary_hash) = parse_summary_set(
         summary_json,
         summary_hash,
@@ -1676,6 +1846,8 @@ fn read_stage(
         records_hash,
         promises,
         promises_hash,
+        knowledge,
+        knowledge_hash,
         summary,
         summary_hash,
         created_at,
@@ -1702,6 +1874,8 @@ fn stage_to_dto(db: &Connection, stage: StageRow) -> CoreResult<ReviewStage> {
         records_hash: stage.records_hash,
         promises: stage.promises,
         promises_hash: stage.promises_hash,
+        knowledge: stage.knowledge,
+        knowledge_hash: stage.knowledge_hash,
         summary: stage.summary,
         summary_hash: stage.summary_hash,
         source_epoch: parse_stored_version(stage.source_epoch)?,
@@ -1713,12 +1887,12 @@ fn stage_to_dto(db: &Connection, stage: StageRow) -> CoreResult<ReviewStage> {
 fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>> {
     let row: Option<BundleDbRow> = db
         .query_row(
-            "SELECT id,project_id,operation_namespace,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash,created_at FROM ready_bundles WHERE id=?",
+            "SELECT id,project_id,operation_namespace,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,knowledge_json,knowledge_hash,summary_json,summary_hash,created_at FROM ready_bundles WHERE id=?",
             [bundle_id],
             |row| Ok((
                 row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?,
                 row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?, row.get(13)?, row.get(14)?,
-                row.get(15)?, row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?, row.get(20)?,
+                row.get(15)?, row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?, row.get(20)?, row.get(21)?, row.get(22)?,
             )),
         )
         .optional()?;
@@ -1741,6 +1915,8 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
         records_hash,
         promises_json,
         promises_hash,
+        knowledge_json,
+        knowledge_hash,
         summary_json,
         summary_hash,
         created_at,
@@ -1760,6 +1936,8 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
     }
     let (records, records_hash) = parse_record_set(records_json, records_hash, &revision)?;
     let (promises, promises_hash) = parse_promise_set(promises_json, promises_hash, &revision)?;
+    let (knowledge, knowledge_hash) =
+        parse_knowledge_set(knowledge_json, knowledge_hash, &revision)?;
     let target = Head {
         document_id: document_id.clone(),
         version: parse_stored_version(target_version)?,
@@ -1788,6 +1966,8 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
         records_hash,
         promises,
         promises_hash,
+        knowledge,
+        knowledge_hash,
         summary,
         summary_hash,
         created_at,
@@ -1805,6 +1985,8 @@ fn bundle_to_dto(bundle: BundleRow) -> ReadyBundle {
         records_hash: bundle.records_hash,
         promises: bundle.promises,
         promises_hash: bundle.promises_hash,
+        knowledge: bundle.knowledge,
+        knowledge_hash: bundle.knowledge_hash,
         summary: bundle.summary,
         summary_hash: bundle.summary_hash,
         created_at: bundle.created_at,
@@ -2055,6 +2237,7 @@ pub(super) fn current_records_for_sources(
         }
         if candidate.bundle.records.is_none()
             && candidate.bundle.promises.is_none()
+            && candidate.bundle.knowledge.is_none()
             && candidate.bundle.summary.is_none()
         {
             continue;
@@ -2069,6 +2252,8 @@ pub(super) fn current_records_for_sources(
             records_hash: candidate.bundle.records_hash,
             promises: candidate.bundle.promises,
             promises_hash: candidate.bundle.promises_hash,
+            knowledge: candidate.bundle.knowledge,
+            knowledge_hash: candidate.bundle.knowledge_hash,
             summary: candidate.bundle.summary,
             summary_hash: candidate.bundle.summary_hash,
             current: true,
@@ -2345,6 +2530,29 @@ pub(super) fn validate_reviewed_promises(
     Ok(())
 }
 
+/// Authenticate a complete reviewed knowledge array retained in a frozen
+/// historical packet without consulting current selection or policy state.
+#[allow(dead_code)]
+pub(super) fn validate_reviewed_knowledge(
+    db: &Connection,
+    project_id: &str,
+    operation_namespace: &str,
+    bundle_id: &str,
+    source: &SourceRef,
+    knowledge_hash: &str,
+    knowledge: &[KnowledgeRecord],
+) -> CoreResult<()> {
+    ReviewValidationContext::new(db).validate_reviewed_knowledge(
+        project_id,
+        operation_namespace,
+        bundle_id,
+        source,
+        knowledge_hash,
+        knowledge,
+    )?;
+    Ok(())
+}
+
 /// Validate the immutable bundle provenance retained by a frozen reviewed
 /// snapshot. This intentionally does not consult `ready_heads`: old
 /// snapshots remain readable evidence after a later review supersedes a
@@ -2514,7 +2722,7 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
         ));
     }
     let mut stages = db.prepare(
-        "SELECT id,project_id,operation_namespace,operation_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash FROM review_stages ORDER BY id",
+        "SELECT id,project_id,operation_namespace,operation_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,knowledge_json,knowledge_hash,summary_json,summary_hash FROM review_stages ORDER BY id",
     )?;
     let stage_rows = stages.query_map([], |row| {
         Ok((
@@ -2537,6 +2745,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             row.get::<_, Option<String>>(16)?,
             row.get::<_, Option<String>>(17)?,
             row.get::<_, Option<String>>(18)?,
+            row.get::<_, Option<String>>(19)?,
+            row.get::<_, Option<String>>(20)?,
         ))
     })?;
     for row in stage_rows {
@@ -2558,6 +2768,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             records_hash,
             promises_json,
             promises_hash,
+            knowledge_json,
+            knowledge_hash,
             summary_json,
             summary_hash,
         ) = row?;
@@ -2596,6 +2808,7 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
         }
         let _ = parse_record_set(records_json, records_hash, &revision)?;
         let _ = parse_promise_set(promises_json, promises_hash, &revision)?;
+        let _ = parse_knowledge_set(knowledge_json, knowledge_hash, &revision)?;
         let _ = parse_summary_set(
             summary_json,
             summary_hash,
@@ -2610,7 +2823,7 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
         )?;
     }
     let mut bundles = db.prepare(
-        "SELECT id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash FROM ready_bundles ORDER BY id",
+        "SELECT id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,knowledge_json,knowledge_hash,summary_json,summary_hash FROM ready_bundles ORDER BY id",
     )?;
     let bundle_rows = bundles.query_map([], |row| {
         Ok((
@@ -2636,6 +2849,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             row.get::<_, Option<String>>(19)?,
             row.get::<_, Option<String>>(20)?,
             row.get::<_, Option<String>>(21)?,
+            row.get::<_, Option<String>>(22)?,
+            row.get::<_, Option<String>>(23)?,
         ))
     })?;
     for row in bundle_rows {
@@ -2660,6 +2875,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             records_hash,
             promises_json,
             promises_hash,
+            knowledge_json,
+            knowledge_hash,
             summary_json,
             summary_hash,
         ) = row?;
@@ -2717,6 +2934,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             parse_record_set(records_json, records_hash, &revision)?;
         let (bundle_promises, bundle_promises_hash) =
             parse_promise_set(promises_json, promises_hash, &revision)?;
+        let (bundle_knowledge, bundle_knowledge_hash) =
+            parse_knowledge_set(knowledge_json, knowledge_hash, &revision)?;
         let (bundle_summary, bundle_summary_hash) = parse_summary_set(
             summary_json,
             summary_hash,
@@ -2767,6 +2986,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             || stage.records_hash != bundle_records_hash
             || stage.promises != bundle_promises
             || stage.promises_hash != bundle_promises_hash
+            || stage.knowledge != bundle_knowledge
+            || stage.knowledge_hash != bundle_knowledge_hash
             || stage.summary != bundle_summary
             || stage.summary_hash != bundle_summary_hash
         {

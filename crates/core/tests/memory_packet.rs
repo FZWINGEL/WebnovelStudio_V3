@@ -81,6 +81,7 @@ fn read(descriptor: &SourceDescriptor, body: &Value) -> SourceRead {
 fn frozen(descriptors: Vec<SourceDescriptor>) -> FrozenContext {
     let target = descriptors[0].source.clone();
     FrozenContext {
+        reviewed_knowledge: Vec::new(),
         snapshot: StorySnapshot {
             snapshot_id: "memory-snapshot".into(),
             project_id: PROJECT.into(),

@@ -2,7 +2,8 @@
 use crate::project_commands::{DesktopProjects, execute};
 use tauri::State;
 use webnovel_core::projects::evidence_queries::{
-    ReviewedEntityCatalog, ReviewedHistoryResult, ReviewedPromiseHistoryResult,
+    ReviewedEntityCatalog, ReviewedHistoryResult, ReviewedKnowledgeHistoryResult,
+    ReviewedPromiseHistoryResult,
 };
 use webnovel_core::projects::reviewed_story::{
     MarkReady, ReadyBundle, ReviewStage, ReviewStatus, ReviewedRecordSet, StageAuthorReview,
@@ -47,6 +48,37 @@ pub async fn reviewed_promise_history(
 ) -> CoreResult<ReviewedPromiseHistoryResult> {
     let project = state.project(&access.project_id)?;
     execute(move || project.reviewed_promise_history(access, snapshot_id, promise_id)).await
+}
+
+#[tauri::command]
+pub async fn reviewed_knowledge_character_catalog(
+    access: ProjectAccess,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<ReviewedEntityCatalog> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.reviewed_knowledge_character_catalog(access)).await
+}
+
+#[tauri::command]
+pub async fn reviewed_knowledge_topic_catalog(
+    access: ProjectAccess,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<ReviewedEntityCatalog> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.reviewed_knowledge_topic_catalog(access)).await
+}
+
+#[tauri::command]
+pub async fn reviewed_knowledge_history(
+    access: ProjectAccess,
+    snapshot_id: String,
+    character_id: String,
+    topic_id: Option<String>,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<ReviewedKnowledgeHistoryResult> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.reviewed_knowledge_history(access, snapshot_id, character_id, topic_id))
+        .await
 }
 
 #[tauri::command]

@@ -285,6 +285,7 @@ fn reviewed_chapter(
 fn mark_ready(project: &ProjectSession, access: &ProjectAccess, chapter: &Head, prefix: &str) {
     let stage = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: format!("stage-{prefix}"),
             expected: chapter.clone(),

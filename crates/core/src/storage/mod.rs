@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 32;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 33;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -144,6 +144,34 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
             }
             if missing.len() == columns.len() {
                 tx.execute_batch(include_str!("032_reviewed_summaries.sql"))?;
+            } else {
+                for (table, column) in missing {
+                    tx.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT"), [])?;
+                }
+            }
+        }
+        if version < 33 {
+            let columns = [
+                ("review_stages", "knowledge_json"),
+                ("review_stages", "knowledge_hash"),
+                ("ready_bundles", "knowledge_json"),
+                ("ready_bundles", "knowledge_hash"),
+            ];
+            let mut missing = Vec::new();
+            for &(table, column) in &columns {
+                let present: bool = tx.query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name=?)"
+                    ),
+                    [column],
+                    |row| row.get(0),
+                )?;
+                if !present {
+                    missing.push((table, column));
+                }
+            }
+            if missing.len() == columns.len() {
+                tx.execute_batch(include_str!("033_reviewed_knowledge.sql"))?;
             } else {
                 for (table, column) in missing {
                     tx.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT"), [])?;

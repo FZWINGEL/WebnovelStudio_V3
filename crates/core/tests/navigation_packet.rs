@@ -153,6 +153,7 @@ fn frozen(
 ) -> FrozenContext {
     let target = descriptors[0].source.clone();
     FrozenContext {
+        reviewed_knowledge: Vec::new(),
         snapshot: StorySnapshot {
             snapshot_id: "navigation-snapshot".into(),
             project_id: PROJECT.into(),

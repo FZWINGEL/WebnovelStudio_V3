@@ -103,6 +103,7 @@ fn frozen(
         reviewed_basis: None,
     }
     .pipe(|snapshot| FrozenContext {
+        reviewed_knowledge: Vec::new(),
         snapshot,
         policy: InformationPolicy {
             version: "1".into(),

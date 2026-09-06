@@ -3,7 +3,7 @@ import type { WnsDocument } from '../editor/document';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { FrozenGuidance } from './guidance';
 import type { DigestCandidate } from './memory';
-import type { PossessionRecord, PromiseRecord, SummaryRevision } from './reviews';
+import type { KnowledgeRecord, PossessionRecord, PromiseRecord, SummaryRevision } from './reviews';
 
 export interface EvidenceHistoryObservation extends Pick<PossessionRecord, 'object' | 'holder' | 'timing' | 'audience' | 'evidence'> {
   recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
@@ -25,6 +25,16 @@ export interface PromiseHistory {
 }
 export interface ReviewedPromiseHistoryResult { snapshotId: string; current: boolean; history: PromiseHistory }
 export const reviewedPromiseHistory = (access: ProjectAccess, snapshotId: string, promiseId: string): Promise<ReviewedPromiseHistoryResult> => invoke('reviewed_promise_history', { access, snapshotId, promiseId });
+export interface KnowledgeHistoryObservation extends Pick<KnowledgeRecord, 'character' | 'topic' | 'attitude' | 'statement' | 'timing' | 'audience' | 'evidence'> {
+  recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
+}
+export interface KnowledgeHistory {
+  characterId: string; topicId: string | null; labelVariants: string[];
+  observations: KnowledgeHistoryObservation[]; incomplete: true;
+  uncertainty: ('noEligibleObservations' | 'earlierOrUnknownTiming' | 'multipleRecordedAttitudes' | 'disclosureLimited')[];
+}
+export interface ReviewedKnowledgeHistoryResult { snapshotId: string; current: boolean; history: KnowledgeHistory }
+export const reviewedKnowledgeHistory = (access: ProjectAccess, snapshotId: string, characterId: string, topicId: string | null = null): Promise<ReviewedKnowledgeHistoryResult> => invoke('reviewed_knowledge_history', { access, snapshotId, characterId, topicId });
 
 export type ContextPurpose = 'discuss' | 'revise' | 'continue' | 'plan' | 'storyQuestion' | 'memoryAnalysis';
 export type ContextAudience = 'authorRoom' | 'restrictedWriting';
@@ -69,6 +79,7 @@ export interface FrozenContext {
   navigationViews?: FrozenNavigationView[];
   reviewedEvidence?: ReviewedEvidenceSet[];
   reviewedPromises?: ReviewedPromiseSet[];
+  reviewedKnowledge?: ReviewedKnowledgeSet[];
   reviewedSummaries?: ReviewedSummarySet[];
 }
 export interface ReviewedSummarySet {
@@ -86,7 +97,11 @@ export interface ReviewedEvidenceCoverage {
   completeRecordSet: boolean; recordIds: string[];
 }
 export interface ReviewedPromiseSet extends Omit<ReviewedEvidenceSet, 'records'> { records: PromiseRecord[] }
+export interface ReviewedKnowledgeSet extends Omit<ReviewedEvidenceSet, 'records'> { records: KnowledgeRecord[] }
 export interface ReviewedEvidenceOmission {
+  sourceHandle: string; bundleId: string; recordsHash: string; reason: 'budget' | 'disclosure'; count: number;
+}
+export interface ReviewedKnowledgeOmission {
   sourceHandle: string; bundleId: string; recordsHash: string; reason: 'budget' | 'disclosure'; count: number;
 }
 export interface NavigationViewRef { viewId: string; projectId: string; operationNamespace: string; contentHash: string }
@@ -152,6 +167,8 @@ export interface PacketReceipt {
   reviewedEvidenceOmissions?: ReviewedEvidenceOmission[];
   reviewedPromises?: ReviewedEvidenceCoverage[];
   reviewedPromiseOmissions?: ReviewedEvidenceOmission[];
+  reviewedKnowledge?: ReviewedEvidenceCoverage[];
+  reviewedKnowledgeOmissions?: ReviewedKnowledgeOmission[];
   reviewedSummaries?: ReviewedSummaryCoverage[];
   reviewedSummaryOmissions?: ReviewedSummaryOmission[];
   safeBrief?: { text: string; textHash: string; originMessageId: string | null };

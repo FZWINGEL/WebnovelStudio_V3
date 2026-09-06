@@ -5,6 +5,68 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
+### Character knowledge checkpoint — 6 September
+
+Schema 33 adds optional passage-backed character knowledge to chapter review.
+The author records a character, topic, attitude, statement, timing and exact
+quotation, then explicitly accepts the complete review. Stable identities can
+be reused across chapters; existing possession holders also appear as character
+choices. Set/inherit/Clear, saved-stage resumption, stale-source refusal,
+immutable history and recovered-copy authority follow the existing review
+contract. Knowledge observations never become independent world truth or
+automatic claims that a character is unaware. See
+[ADR 0031](ADR_0031_CHARACTER_KNOWLEDGE.md).
+
+Fresh working discussions and reviewed continuations retain authenticated
+knowledge sets. The compiler validates complete evidence before budgeting;
+restricted packets and inspector views include only reader-disclosed records
+from the eligible earlier story. The inspector distinguishes supplied from
+available observations and opens exact-source knowledge history. Foreign
+namespaces, duplicate sets and rehashed interpretations that disagree with the
+immutable review bundle are rejected. Fictional earlier timing never exposes
+future learning to an earlier scene.
+
+The complete local wrapper passed **700 Rust tests** and **426 frontend tests
+in 35 files**, with formatting, strict workspace Clippy, TypeScript and the
+production frontend build. Two added recovery/rollback cases subsequently
+passed in the final 9-case storage suite; the 8-case context suite and strict
+workspace Clippy also pass. Current coverage is **702 active Rust tests**
+(633 core and 69 desktop; one existing ignored child fixture). The native
+debug build passes. Logs: `.local/knowledge-full-check-final.log`,
+`.local/knowledge-focused-final.log`, `.local/knowledge-final-clippy.log` and
+`.local/knowledge-native-build.log`.
+
+The native WebView2 `152.0.4191.66` diagnostic passed **51 of 52 checks** with
+zero page errors at `2026-09-06T20:47:57Z`. Both new knowledge journeys passed:
+exact quotations, identity reuse, immutable acceptance, author-room history and
+source opening without another request, and private-record exclusion from
+restricted continuation and inspector display. The three new screenshots were
+visually inspected. Only the established local OS clipboard case was omitted;
+the tracked harness retains that strict check. Report:
+`.local/knowledge-native-regression/report.json`.
+
+The interruption diagnostic also passed all **three durable-boundary groups**
+at `2026-09-06T20:49:52.296Z`, including Save renderer loss, Apply process loss
+and running anonymous HTTP request process loss. The six native refresh-key
+checks remain omitted only from this local diagnostic and enabled in CI.
+Report: `.local/knowledge-interruption-diagnostic/qualification.json`.
+These checks use the 43,885,568-byte development executable built at
+`2026-09-06T20:40:38Z`, SHA-256
+`2b40246465eba384fb01a15fed130ad1c719d68aa61f0aa1e3fd56b44727e313`.
+Delivered copy: `.local/builds/2026-09-06-character-knowledge/webnovel-desktop.exe`.
+Installed-release and strict hosted qualification remain separate.
+
+The prior [CI 34057097573](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34057097573)
+passed both contract jobs and the main native/HTTP/close flows, then failed
+before interruption qualification because a Windows short temp-path alias
+differed from Rust's canonical path. The fixture now resolves both paths
+before its existing containment assertion. This does not relax containment.
+
+No new live model request was made; cumulative live CLI dispatches remain 21.
+F2/C5 remain partial: relationship/rule views, generated knowledge extraction,
+dedicated model lookups, richer transitions, narrative evaluation and broader
+native/provider/release and author-trial gates remain open.
+
 ### W6 refresh protection and interruption checkpoint — 6 September
 
 A native OS Ctrl+R test reproduced loss of unsaved text in the preceding
@@ -1062,6 +1124,7 @@ The first part stages an exact saved chapter and its complete earlier selected r
 - [x] Freeze the exact reviewed prefix and current working target through the core/IPC boundary, retaining immutable reader positions and historical namespace fencing.
 - [x] Extend these bundles with the first typed passage-backed reviewed record set, including exact evidence, identity choice, audience filtering, inheritance, explicit clear, historical validation, and restricted projection. This bounded possession slice does not establish complete continuity.
 - [x] Add optional immutable accepted narrative summaries to staged author review, with explicit source/basis decisions and separate context coverage. Current executed qualification is recorded above.
+- [x] Add passage-backed character knowledge observations to staged review, preserving attitudes, stable identities, exact evidence, Set/inherit/Clear, restricted reader projection and incomplete source-ordered history. This schema-33 development slice is described in [ADR 0031](ADR_0031_CHARACTER_KNOWLEDGE.md); broader C5 and semantic extraction remain open.
 - [ ] Extend the reviewed-story model with additional rules and records, issue decisions and exceptions, known dependency evidence, and broader continuity views.
 - [x] Enable reviewed-source continuation and append-only preview/Apply only with explicit validity; do not imply exhaustive continuity.
 - [x] Exercise continuation in local native WebView2, one bounded selected live provider, and strict CI 34008911179.
@@ -1108,7 +1171,7 @@ The maintained [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-sli
 | C3 | Before/alongside W4; scoped author guidance and the context inspector | Partial: guidance persistence, bounded recent exchanges, inspector, transient pins, persistent discussion sources, and approved writing briefs integrated | Chat or direct entry can be saved, edited, and retired as immutable exact versions at Next request, This document, or This project scope. CAS/idempotent guidance receipts, source-epoch invalidation, recovery retention/fencing, exact mandatory AuthorRoom packet binding, one-use consumption after successful persisted start, separate guidance handles in the inspector, and GuidancePanel lost-ack/late-response coverage are covered locally. Recent complete exchanges are frozen and packed with exact message receipts and explicit omissions; stopped/partial, other-document, revoked-policy, and copied historical turns are excluded. Unchanged unsuccessful retries preserve original one-use instructions without consuming newly waiting guidance; request identity, current policy, active versions, restart, and recovered-copy boundaries are tested. Optional approved briefs preserve exact restricted request text without transferring private origin material. Richer conversation selection and broader Apply integration remain open |
 | C4-A | F3; source-bound single-chapter navigation digest without automatic canon | Implemented development slice; local/native/live evidence recorded | Exact full-chapter revision, strict `navigation-digest.v1` UTF-16/evidence checks, separate job/result/view records, stale/revocation/recovery boundaries, native/provider evidence, and no paid autosave/open calls |
 | C4 | F3; derived-view packet integration and richer quality without automatic canon | Partial: C4-B frozen chapter-view reuse and C4-C chapter-only freshness implemented and CI-qualified; higher-level views and quality evaluation open | Broader contextual/arc digests and measured interpretation quality; chapter-only views retain their exact source, evidence, and disclosure limits |
-| C5 | F3 after F2; thin temporal, relationship, knowledge, and thread views | Partial: entity reuse, batched current-evidence freeze, authenticated object history, and schema-23 promise history implemented; current qualification recorded above | Build relationship/knowledge/rule views with source-bound retrieval, disclosure, uncertainty, and historical dependencies; add quality evidence for supported English tasks |
+| C5 | F3 after F2; thin temporal, relationship, knowledge, and thread views | Partial: entity reuse, batched current-evidence freeze, authenticated object history, schema-23 promise history and schema-33 passage-backed character knowledge/history implemented; current qualification recorded above | Build relationship/rule views and richer knowledge transitions with source-bound retrieval, disclosure, uncertainty, and historical dependencies; add generated knowledge extraction, model lookup and quality evidence for supported English tasks |
 | C6 | W8 additional qualification; bounded provider-side read loop | In progress: opt-in `story-lookup.v1` search/read implementation for Working, AuthorRoom, and Discuss; schema-24 durable invocation/read records; focused protocol, packet, boundary, core, frontend, local native, and wrapper evidence | Final delivery-label qualification; hosted/live-provider qualification; Stop/budget/duplicate-event/crash boundaries; visible unknown outcomes; fresh invocation labeling; restricted-writing/state/thread extensions |
 
 The public promise is layered: stored evidence, permitted available sources, the packet actually delivered, and what a model understood are separate states; the last requires evaluation. C1 retains original source and does not make copied historical snapshots authoritative for a new project. Context work does not authorize automatic canon or replacement of source text with a large rolling summary.

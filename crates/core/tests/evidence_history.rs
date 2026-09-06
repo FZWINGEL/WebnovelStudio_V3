@@ -147,6 +147,7 @@ fn working_frozen(
 ) -> FrozenContext {
     let target = sources[0].source.clone();
     FrozenContext {
+        reviewed_knowledge: Vec::new(),
         snapshot: StorySnapshot {
             snapshot_id: "snapshot-evidence-history".into(),
             project_id: PROJECT.into(),
@@ -178,6 +179,7 @@ fn restricted_frozen(
 ) -> FrozenContext {
     let bundle_id = evidence[0].bundle_id.clone();
     FrozenContext {
+        reviewed_knowledge: Vec::new(),
         snapshot: StorySnapshot {
             snapshot_id: "snapshot-restricted-evidence-history".into(),
             project_id: PROJECT.into(),

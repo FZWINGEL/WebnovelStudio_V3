@@ -145,6 +145,7 @@ fn request(
         session_id: "session-evidence".into(),
         invocation_ordinal: "1".into(),
         frozen: FrozenContext {
+            reviewed_knowledge: Vec::new(),
             snapshot,
             policy,
             purpose,

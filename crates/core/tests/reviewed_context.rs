@@ -117,6 +117,7 @@ fn mark_ready(
 ) {
     let stage = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: format!("stage-{prefix}-{}", document.head.document_id),
             expected: document.head.clone(),
@@ -339,6 +340,7 @@ fn reviewed_evidence_freezes_from_marked_bundle_and_reaches_restricted_packet() 
     let quote = "The first promise.";
     let stage = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: "stage-evidence".into(),
             expected: first.head.clone(),
@@ -679,7 +681,7 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
     let schema: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 32);
+    assert_eq!(schema, 33);
     let retained_json: String = connection
         .query_row(
             "SELECT manifest_json FROM story_snapshots WHERE id=?",

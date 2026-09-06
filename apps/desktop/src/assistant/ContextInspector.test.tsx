@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ContextInspector } from './ContextInspector';
 import * as context from '../ipc/context';
 import type { ProjectAccess } from '../ipc/projects';
-import type { PossessionRecord } from '../ipc/reviews';
+import type { KnowledgeRecord, PossessionRecord } from '../ipc/reviews';
 
 vi.mock('../ipc/context', () => ({
   preparedStoryContext: vi.fn(), preparedStoryContextIsCurrent: vi.fn(), storyContextSnapshot: vi.fn(),
-  readStoryContextSource: vi.fn(), reviewedEvidenceHistory: vi.fn(), reviewedPromiseHistory: vi.fn(), searchStoryContext: vi.fn(),
+  readStoryContextSource: vi.fn(), reviewedEvidenceHistory: vi.fn(), reviewedPromiseHistory: vi.fn(), reviewedKnowledgeHistory: vi.fn(), searchStoryContext: vi.fn(),
 }));
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 const descriptor = (handle: string, title: string): context.SourceDescriptor => ({ handle, displayName: title, source: { projectId: 'project', documentId: handle, revisionId: handle, bodyHash: 'hash' }, kind: 'currentDraft', current: true, coverage: 'verbatim', disclosure: { readerPosition: '1', visibleToCharacters: [], authorOnly: false, futurePrivate: false }, storyTime: null, dependencies: [] });
@@ -385,5 +385,32 @@ describe('recorded promise context and history', () => {
     await render(); await act(async () => historyButton().click()); expect(host.querySelector('[aria-label="Recorded promise history"]')).not.toBeNull();
     await act(async () => historyButton().click()); expect(host.querySelector('[aria-label="Recorded promise history"]')).toBeNull();
     expect(host.textContent).not.toContain('Ren promises'); expect(host.textContent).toContain('Promise permissions changed.');
+  });
+});
+
+describe('recorded character knowledge context and history', () => {
+  const knowledge = (id: string, audience: KnowledgeRecord['audience'] = 'reader'): KnowledgeRecord => ({
+    id, character: { id: 'mei', label: 'Mei' }, topic: { id: 'gate', label: 'The gate' }, attitude: 'believes', statement: id === 'private' ? 'Private plan.' : 'Mei believes the gate is watched.', timing: 'unknown', audience, evidence: reviewedRecord(id, audience, 'Gate').evidence,
+  });
+  const setup = (restricted = false) => {
+    const reader = knowledge('reader'); const hidden = knowledge('private', 'authorRoom');
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, policy: { ...frozen.policy, audience: restricted ? 'restrictedWriting' : 'authorRoom' }, reviewedKnowledge: [{ projectId: 'project', operationNamespace: 'namespace', bundleId: 'knowledge-bundle', recordsHash: 'knowledge-hash', sourceHandle: first.handle, source: first.source, records: [reader, hidden] }] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, reviewedKnowledge: [{ bundleId: 'knowledge-bundle', recordsHash: 'knowledge-hash', projectionHash: 'projection', sourceHandle: first.handle, recordIds: [reader.id], completeRecordSet: false }], reviewedKnowledgeOmissions: [{ sourceHandle: first.handle, bundleId: 'knowledge-bundle', recordsHash: 'knowledge-hash', reason: restricted ? 'disclosure' : 'budget', count: 1 }] } });
+    return { snapshotId: 'snapshot', current: true, history: { characterId: 'mei', topicId: 'gate', labelVariants: ['Mei'], observations: [{ ...reader, recordId: reader.id, sourceHandle: first.handle, source: first.source, sourceDisplayName: first.displayName, sourceOrder: 0 }], uncertainty: ['noEligibleObservations', 'multipleRecordedAttitudes'], incomplete: true } } satisfies context.ReviewedKnowledgeHistoryResult;
+  };
+  const historyButton = () => host.querySelector('button[aria-label="Find knowledge history for Mei about The gate"]') as HTMLButtonElement;
+  it('separates delivered knowledge from available private records', async () => {
+    setup(true); await render();
+    const used = [...host.querySelectorAll('details')].find(item => item.querySelector(':scope > summary')?.textContent?.startsWith('Used'))!;
+    expect(used.textContent).toContain('Mei believes the gate'); expect(used.textContent).not.toContain('Private plan'); expect(host.textContent).toContain('reader disclosure policy');
+  });
+  it('queries character and topic history and opens the exact frozen source', async () => {
+    const result = setup(); vi.mocked(context.reviewedKnowledgeHistory).mockResolvedValue({ ...result, current: false });
+    vi.mocked(context.readStoryContextSource).mockResolvedValue({ descriptor: first, body: { schemaVersion: 1, body: { type: 'doc', content: [] } }, passages: [], usedValidatedProjection: false });
+    await render(); await act(async () => historyButton().click());
+    expect(context.reviewedKnowledgeHistory).toHaveBeenCalledExactlyOnceWith(access, 'snapshot', 'mei', 'gate');
+    const history = host.querySelector('[aria-label="Character knowledge history"]')!;
+    expect(history.textContent).toContain('does not establish that the character is unaware'); expect(history.textContent).toContain('Earlier story version');
+    await act(async () => (history.querySelector('button[aria-label^="Read"]') as HTMLButtonElement).click()); expect(context.readStoryContextSource).toHaveBeenCalledExactlyOnceWith(access, 'snapshot', 'first');
   });
 });

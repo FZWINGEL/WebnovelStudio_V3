@@ -11,6 +11,10 @@ use crate::context::reviewed_evidence::{
     ReviewedEvidenceSet, from_storage_parts, validate_evidence_payload,
     validate_frozen_evidence_set,
 };
+use crate::context::reviewed_knowledge::{
+    ReviewedKnowledgeSet, from_storage_parts as knowledge_from_storage_parts,
+    validate_frozen_knowledge_set, validate_knowledge_payload,
+};
 use crate::context::reviewed_promises::{
     ReviewedPromiseSet, from_storage_parts as promise_from_storage_parts,
     validate_frozen_promise_set, validate_promise_payload,
@@ -78,6 +82,8 @@ pub struct FrozenContext {
     /// Empty legacy snapshots omit this field and retain their original JSON.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_promises: Vec<ReviewedPromiseSet>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_knowledge: Vec<ReviewedKnowledgeSet>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_summaries: Vec<ReviewedSummarySet>,
 }
@@ -628,6 +634,7 @@ pub(super) fn freeze_reviewed_continuation_at(
     let mut reviewed_source_refs = Vec::with_capacity(prefix.len());
     let mut reviewed_evidence = Vec::new();
     let mut reviewed_promises = Vec::new();
+    let mut reviewed_knowledge = Vec::new();
     let mut reviewed_summaries = Vec::new();
     for item in &prefix {
         let revision = read_revision(tx, &item.revision_id)?;
@@ -728,6 +735,25 @@ pub(super) fn freeze_reviewed_continuation_at(
                 record_set.records.clone(),
             )?);
         }
+        if let Some(knowledge) = record_set.knowledge
+            && !knowledge.is_empty()
+        {
+            let knowledge_hash = record_set.knowledge_hash.ok_or_else(|| {
+                CoreError::new(
+                    "InvalidReviewedKnowledge",
+                    "A nonempty reviewed knowledge set has no canonical hash.",
+                )
+            })?;
+            reviewed_knowledge.push(knowledge_from_storage_parts(
+                record_set.project_id.clone(),
+                record_set.operation_namespace.clone(),
+                record_set.bundle_id.clone(),
+                knowledge_hash,
+                source_handle.clone(),
+                source.clone(),
+                knowledge,
+            )?);
+        }
         if let Some(promises) = record_set.promises
             && !promises.is_empty()
         {
@@ -807,6 +833,7 @@ pub(super) fn freeze_reviewed_continuation_at(
         navigation_views: Vec::new(),
         reviewed_evidence,
         reviewed_promises,
+        reviewed_knowledge,
         reviewed_summaries,
     };
     for evidence in &frozen.reviewed_evidence {
@@ -814,6 +841,9 @@ pub(super) fn freeze_reviewed_continuation_at(
     }
     for promises in &frozen.reviewed_promises {
         validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
+    for knowledge in &frozen.reviewed_knowledge {
+        validate_frozen_knowledge_set(knowledge, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
     for summary in &frozen.reviewed_summaries {
         validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
@@ -1071,6 +1101,7 @@ fn freeze_story_impl(
         navigation_views: Vec::new(),
         reviewed_evidence: Vec::new(),
         reviewed_promises: Vec::new(),
+        reviewed_knowledge: Vec::new(),
         reviewed_summaries: Vec::new(),
     };
     frozen.navigation_views = select_navigation_views_at(tx, &frozen)?;
@@ -1142,6 +1173,25 @@ fn freeze_story_impl(
                     record_set.records.clone(),
                 )?);
             }
+            if let Some(knowledge) = record_set.knowledge
+                && !knowledge.is_empty()
+            {
+                let knowledge_hash = record_set.knowledge_hash.ok_or_else(|| {
+                    CoreError::new(
+                        "InvalidReviewedKnowledge",
+                        "A nonempty reviewed knowledge set has no canonical hash.",
+                    )
+                })?;
+                frozen.reviewed_knowledge.push(knowledge_from_storage_parts(
+                    record_set.project_id.clone(),
+                    record_set.operation_namespace.clone(),
+                    record_set.bundle_id.clone(),
+                    knowledge_hash,
+                    source_handle.clone(),
+                    source.source.clone(),
+                    knowledge,
+                )?);
+            }
             if let Some(promises) = record_set.promises
                 && !promises.is_empty()
             {
@@ -1168,6 +1218,9 @@ fn freeze_story_impl(
     }
     for promises in &frozen.reviewed_promises {
         validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
+    for knowledge in &frozen.reviewed_knowledge {
+        validate_frozen_knowledge_set(knowledge, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
     for summary in &frozen.reviewed_summaries {
         validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
@@ -1549,6 +1602,9 @@ pub(super) fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContex
     for promises in &frozen.reviewed_promises {
         validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
+    for knowledge in &frozen.reviewed_knowledge {
+        validate_frozen_knowledge_set(knowledge, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
     for summary in &frozen.reviewed_summaries {
         validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
@@ -1630,6 +1686,28 @@ fn validate_pins(
             &promises.source,
             &promises.records_hash,
             &promises.records,
+        )?;
+    }
+    let mut knowledge_handles = HashSet::new();
+    for knowledge in &frozen.reviewed_knowledge {
+        if knowledge.operation_namespace != snapshot_namespace
+            || !knowledge_handles.insert(&knowledge.source_handle)
+        {
+            return Err(CoreError::new(
+                "InvalidReviewedKnowledge",
+                "Reviewed knowledge has an invalid namespace or duplicate source.",
+            ));
+        }
+        validate_frozen_knowledge_set(knowledge, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+        let source = read_source(db, frozen, &knowledge.source_handle)?;
+        validate_knowledge_payload(knowledge, &source)?;
+        review_validation.validate_reviewed_knowledge(
+            &frozen.snapshot.project_id,
+            snapshot_namespace,
+            &knowledge.bundle_id,
+            &knowledge.source,
+            &knowledge.records_hash,
+            &knowledge.records,
         )?;
     }
     if let Some(manifest) = frozen.snapshot.reviewed_basis.as_ref() {

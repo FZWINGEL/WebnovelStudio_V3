@@ -124,6 +124,7 @@ fn stage(
 ) -> webnovel_core::projects::reviewed_story::ReviewStage {
     project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: operation_id.into(),
             expected: document.head.clone(),
@@ -143,6 +144,7 @@ fn stage_with_records(
 ) -> webnovel_core::projects::reviewed_story::ReviewStage {
     project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: operation_id.into(),
             expected: document.head.clone(),
@@ -182,6 +184,7 @@ fn author_review_pins_exact_revisions_and_requires_an_earlier_prefix() {
 
     let missing = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: "stage-second-too-early".into(),
             expected: second.head.clone(),
@@ -618,6 +621,7 @@ fn review_operations_replay_after_writer_lease_rotation() {
 
     let old_stage = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access_one.clone(),
             operation_id: "stage-lease".into(),
             expected: first.head.clone(),
@@ -629,6 +633,7 @@ fn review_operations_replay_after_writer_lease_rotation() {
     assert_eq!(old_stage.code, "WriterLeaseExpired");
     let replayed_stage = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access_two.clone(),
             operation_id: "stage-lease".into(),
             expected: first.head,
@@ -789,6 +794,7 @@ fn inherited_evidence_is_revalidated_against_new_revision() {
         .unwrap();
     let error = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: "stage-invalid-inheritance".into(),
             expected: changed.head.clone(),
@@ -921,7 +927,7 @@ fn schema20_archive_migrates_legacy_empty_evidence_rows() {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
-    assert_eq!(schema, 32);
+    assert_eq!(schema, 33);
     assert_eq!(migrated_bundle, bundle.id);
     assert_eq!(records_json, None);
     assert_eq!(records_hash, None);

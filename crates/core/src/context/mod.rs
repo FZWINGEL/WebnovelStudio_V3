@@ -9,12 +9,14 @@ pub mod continuation;
 mod contracts;
 mod eligibility;
 pub mod evidence_history;
+pub mod knowledge_history;
 pub mod lookup;
 pub mod memory;
 pub mod navigation;
 pub mod packet;
 pub mod promise_history;
 pub mod reviewed_evidence;
+pub mod reviewed_knowledge;
 pub mod reviewed_promises;
 pub mod reviewed_summaries;
 

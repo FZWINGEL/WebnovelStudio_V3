@@ -1094,6 +1094,8 @@ try {
   await qualifyStructuredSuggestions({ page, data, output, createWritingProject, checks });
   const { runPromiseHistoryFlow } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-promise-history.mjs')).href);
   await runPromiseHistoryFlow({ page, data, output, createWritingProject, checks });
+  const { runKnowledgeFlow } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-knowledge.mjs')).href);
+  await runKnowledgeFlow({ page, data, output, createWritingProject, checks });
   const { qualifyContextLookup } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-context-lookup.mjs')).href);
   await qualifyContextLookup({ page, output, testRoot: data, createWritingProject, checks });
   const { qualifyRecoveryCopy } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-recovery-copy.mjs')).href);

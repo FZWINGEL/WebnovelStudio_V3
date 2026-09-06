@@ -9,7 +9,7 @@ import * as ipc from '../ipc/reviews';
 import * as history from '../ipc/history';
 import { ReviewPanel } from './ReviewPanel';
 
-vi.mock('../ipc/reviews', async importOriginal => ({ ...await importOriginal<typeof ipc>(), reviewedPromiseCatalog: vi.fn(), chapterReviewStatus: vi.fn(), stageAuthorReview: vi.fn(), readReviewedRecordSet: vi.fn(), reviewedEntityCatalog: vi.fn(), readReviewStage: vi.fn(), markReady: vi.fn() }));
+vi.mock('../ipc/reviews', async importOriginal => ({ ...await importOriginal<typeof ipc>(), reviewedPromiseCatalog: vi.fn(), reviewedKnowledgeCharacterCatalog: vi.fn(), reviewedKnowledgeTopicCatalog: vi.fn(), chapterReviewStatus: vi.fn(), stageAuthorReview: vi.fn(), readReviewedRecordSet: vi.fn(), reviewedEntityCatalog: vi.fn(), readReviewStage: vi.fn(), markReady: vi.fn() }));
 vi.mock('../ipc/history', () => ({ readDocumentRevision: vi.fn(), listDocumentHistory: vi.fn() }));
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 const body = (text: string): WnsDocument => ({ schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'p' }, content: [{ type: 'text', text }] }] } });
@@ -48,6 +48,8 @@ beforeEach(async () => {
   vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue(null);
   vi.mocked(ipc.reviewedEntityCatalog).mockResolvedValue({ projectId: access.projectId, operationNamespace: access.operationNamespace, sourceEpoch: '0', entities: [] });
   vi.mocked(ipc.reviewedPromiseCatalog).mockResolvedValue({ projectId: access.projectId, operationNamespace: access.operationNamespace, sourceEpoch: '0', entities: [] });
+  vi.mocked(ipc.reviewedKnowledgeCharacterCatalog).mockResolvedValue({ projectId: access.projectId, operationNamespace: access.operationNamespace, sourceEpoch: '0', entities: [] });
+  vi.mocked(ipc.reviewedKnowledgeTopicCatalog).mockResolvedValue({ projectId: access.projectId, operationNamespace: access.operationNamespace, sourceEpoch: '0', entities: [] });
   vi.mocked(ipc.stageAuthorReview).mockImplementation(async () => structuredClone(staged));
   vi.mocked(ipc.readReviewStage).mockImplementation(async () => structuredClone(staged));
   vi.mocked(ipc.markReady).mockResolvedValue({ id: 'bundle', projectId: 'project', operationNamespace: 'namespace', target: record.head, stageId: 'stage', createdAt: '2026-09-06T00:01:00Z' });
@@ -291,6 +293,7 @@ describe('author review', () => {
 });
 
 const promiseDetail = (): ipc.PromiseRecord => ({ id: 'promise-record', promise: { id: 'return-key', label: 'Return the key' }, phase: 'setup', timing: 'unknown', note: 'Ren promises to return the key.', audience: 'authorRoom', evidence: detail().evidence });
+const knowledgeDetail = (): ipc.KnowledgeRecord => ({ id: 'knowledge-record', character: { id: 'mei', label: 'Mei' }, topic: { id: 'gate', label: 'The watched gate' }, attitude: 'believes', statement: 'Mei believes the gate is watched.', timing: 'unknown', audience: 'authorRoom', evidence: detail().evidence });
 describe('reviewed promises', () => {
   it('retains an inherited promise in the staged review without implicitly clearing it', async () => {
     staged.promises = [promiseDetail()];
@@ -331,5 +334,29 @@ describe('reviewed promises', () => {
     vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue({ bundleId: 'bundle', projectId: access.projectId, operationNamespace: access.operationNamespace, target: { ...record.head, version: '0' }, revision: staged.revision, records: [], promises: [saved], current: false });
     await render(); await click('Promises (1)'); await click('Remove promise'); await click('Review saved chapter');
     expect(vi.mocked(ipc.stageAuthorReview).mock.calls[0][0].promises).toEqual([]); expect(session.body).toEqual(record.body);
+  });
+});
+
+describe('reviewed character knowledge', () => {
+  it('inherits a saved knowledge set until the author explicitly changes it', async () => {
+    staged.knowledge = [knowledgeDetail()];
+    vi.mocked(ipc.markReady).mockResolvedValue({ id: 'bundle', projectId: 'project', operationNamespace: 'namespace', target: record.head, stageId: 'stage', createdAt: '2026-09-06T00:01:00Z', knowledge: staged.knowledge });
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Knowledge (1)')).toBeDefined()); await click('Knowledge (1)');
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[0][0].knowledge).toBeUndefined(); expect(host.textContent).toContain('Mei believes the gate is watched.');
+    await click('Mark this version reviewed'); await waitFor(() => expect(ipc.markReady).toHaveBeenCalledOnce());
+  });
+  it('sends an explicit empty knowledge array when an inherited observation is removed', async () => {
+    staged.knowledge = [knowledgeDetail()];
+    vi.mocked(ipc.stageAuthorReview).mockImplementation(async request => ({ ...structuredClone(staged), knowledge: request.knowledge ?? structuredClone(staged.knowledge) }));
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Knowledge (1)')).toBeDefined()); await click('Knowledge (1)'); await click('Remove knowledge');
+    await click('Save reviewed details'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[1][0].knowledge).toEqual([]);
+  });
+  it('keeps a resumed knowledge form open and blocks the review decision', async () => {
+    staged.knowledge = [knowledgeDetail()];
+    vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'noReview', activeBundleId: null, pendingStageId: 'stage', reason: null, canStage: true });
+    await render(); await click('Resume saved review'); await waitFor(() => expect(button('Knowledge (1)')).toBeDefined()); await click('Knowledge (1)'); await click('Edit knowledge');
+    expect(button('Mark this version reviewed').disabled).toBe(true); expect(button('Possessions (0)').disabled).toBe(true); expect(button('Promises (0)').disabled).toBe(true); expect(host.textContent).toContain('Finish this reviewed detail');
+    await click('Cancel'); expect(button('Mark this version reviewed').disabled).toBe(false);
   });
 });

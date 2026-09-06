@@ -202,6 +202,8 @@ fn packet(server_url: &str, stream: bool) -> CompiledPacket {
             provider_binding: Some(binding),
         },
         receipt: PacketReceipt {
+            reviewed_knowledge: Vec::new(),
+            reviewed_knowledge_omissions: Vec::new(),
             lookup: None,
             packet_id: "packet".into(),
             session_id: "session".into(),

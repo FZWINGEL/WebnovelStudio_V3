@@ -128,6 +128,7 @@ fn stage(
 ) -> webnovel_core::projects::reviewed_story::ReviewStage {
     project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: operation_id.into(),
             expected: document.head.clone(),
@@ -467,6 +468,7 @@ fn promise_quote_and_note_are_checked_before_persistence() {
     invalid_quote.evidence.quote = "Edited source".into();
     let error = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: "stage-bad-quote".into(),
             expected: document.head.clone(),
@@ -485,6 +487,7 @@ fn promise_quote_and_note_are_checked_before_persistence() {
     invalid_note.note = "\n".into();
     let error = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access,
             operation_id: "stage-bad-note".into(),
             expected: document.head,
@@ -501,6 +504,7 @@ fn schema22_fixture_migrates_and_preserves_legacy_evidence_columns() {
     let (temp, project, access, document) = setup();
     let first = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: "stage-legacy".into(),
             expected: document.head.clone(),
@@ -541,7 +545,7 @@ fn schema22_fixture_migrates_and_preserves_legacy_evidence_columns() {
     let version: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 32);
+    assert_eq!(version, 33);
     let columns: Vec<String> = migrated
         .prepare("SELECT name FROM pragma_table_info('ready_bundles')")
         .unwrap()

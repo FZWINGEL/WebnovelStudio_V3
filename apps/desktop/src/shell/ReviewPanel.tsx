@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { bodyHash, canonicalJson } from '../editor/document';
 import type { Scope } from '../editor/selection';
 import type { DocumentSession, SessionState } from '../editor/session';
-import { chapterReviewStatus, markReady, readReviewedRecordSet, reviewedEntityCatalog, reviewedPromiseCatalog, readReviewStage, stageAuthorReview, type MarkReady, type PossessionRecord, type PromiseRecord, type ReviewedEntityChoice, type ReviewMember, type ReviewStage, type ReviewStatus, type StageAuthorReview } from '../ipc/reviews';
+import { chapterReviewStatus, markReady, readReviewedRecordSet, reviewedEntityCatalog, reviewedKnowledgeCharacterCatalog, reviewedKnowledgeTopicCatalog, reviewedPromiseCatalog, readReviewStage, stageAuthorReview, type KnowledgeRecord, type MarkReady, type PossessionRecord, type PromiseRecord, type ReviewedEntityChoice, type ReviewMember, type ReviewStage, type ReviewStatus, type StageAuthorReview } from '../ipc/reviews';
 import type { SourceRef } from '../ipc/context';
 import type { SummaryChange, SummaryRevision } from '../ipc/reviews';
 import { readDocumentRevision } from '../ipc/history';
@@ -10,6 +10,7 @@ import type { ProjectAccess, Revision } from '../ipc/projects';
 import { SavedProse } from './HistoryPanel';
 import { ReviewEvidenceEditor } from './ReviewEvidenceEditor';
 import { ReviewPromiseEditor } from './ReviewPromiseEditor';
+import { ReviewKnowledgeEditor } from './ReviewKnowledgeEditor';
 import { ReviewSummaryEditor, type ReviewSummaryDraft } from './ReviewSummaryEditor';
 
 type Pending = { kind: 'stage'; request: StageAuthorReview } | { kind: 'mark'; request: MarkReady; reviewed: ReviewStage };
@@ -128,7 +129,13 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   const [orphanedPromises, setOrphanedPromises] = useState<PromiseRecord[] | null>(null);
   const [projectPromises, setProjectPromises] = useState<ReviewedEntityChoice[]>([]);
   const [promiseError, setPromiseError] = useState('');
-  const [detailKind, setDetailKind] = useState<'possessions' | 'promises'>('possessions');
+  const [currentKnowledge, setCurrentKnowledge] = useState<KnowledgeRecord[]>([]);
+  const [draftKnowledge, setDraftKnowledge] = useState<KnowledgeRecord[]>([]);
+  const [orphanedKnowledge, setOrphanedKnowledge] = useState<KnowledgeRecord[] | null>(null);
+  const [projectCharacters, setProjectCharacters] = useState<ReviewedEntityChoice[]>([]);
+  const [projectTopics, setProjectTopics] = useState<ReviewedEntityChoice[]>([]);
+  const [knowledgeError, setKnowledgeError] = useState('');
+  const [detailKind, setDetailKind] = useState<'possessions' | 'promises' | 'knowledge'>('possessions');
   const pending = useRef<Pending | null>(null);
   const busy = useRef(false);
   const sequence = useRef(0);
@@ -140,7 +147,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   const liveVisible = useRef(visible); liveVisible.current = visible;
   const owns = () => liveOwner.current === owner;
 
-  useEffect(() => { setStage(null); setCurrentPromises([]); setDraftPromises([]); setOrphanedPromises(null); setDetailKind('possessions'); setCurrentRecords([]); setCurrentRecordsCurrent(true); setCurrentSummary(null); setCurrentBundleTarget(null); setSummaryDraft({ choice: 'inherit', text: '', audience: 'authorRoom' }); setDraftRecords([]); setOrphanedRecords(null); setEvidenceEditing(false); setNotice(''); setError(''); setReadError(''); setRetry(false); pending.current = null; }, [owner]);
+  useEffect(() => { setStage(null); setCurrentPromises([]); setDraftPromises([]); setOrphanedPromises(null); setCurrentKnowledge([]); setDraftKnowledge([]); setOrphanedKnowledge(null); setDetailKind('possessions'); setCurrentRecords([]); setCurrentRecordsCurrent(true); setCurrentSummary(null); setCurrentBundleTarget(null); setSummaryDraft({ choice: 'inherit', text: '', audience: 'authorRoom' }); setDraftRecords([]); setOrphanedRecords(null); setEvidenceEditing(false); setNotice(''); setError(''); setReadError(''); setRetry(false); pending.current = null; }, [owner]);
   useEffect(() => { if (visible) heading.current?.focus(); }, [visible]);
   useEffect(() => {
     if (visible && !working && focusAfterSave.current) { focusAfterSave.current = false; heading.current?.focus(); }
@@ -154,6 +161,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       if (result.documentId !== state.head.documentId || canonicalJson(result.head) !== canonicalJson(state.head)) throw new Error('The review status belongs to a different saved version. Refresh to read it again.');
       let records: PossessionRecord[] = [];
       let promises: PromiseRecord[] = [];
+      let knowledge: KnowledgeRecord[] = [];
       let summary: SummaryRevision | null = null;
       let bundleCurrent = true;
       let bundleTarget: { documentId: string; version: string; bodyHash: string } | null = null;
@@ -161,11 +169,12 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
         const bundle = await readReviewedRecordSet(access, state.head.documentId);
         if (read !== sequence.current || !owns() || !liveVisible.current) return;
         if (bundle && (bundle.projectId !== access.projectId || bundle.operationNamespace !== access.operationNamespace || bundle.target.documentId !== state.head.documentId)) throw new Error('The reviewed details belong to a different chapter. Refresh to read them again.');
-        records = bundle?.records ?? []; promises = bundle?.promises ?? []; summary = bundle?.summary ?? null; bundleCurrent = bundle?.current ?? true; bundleTarget = bundle?.target ?? null;
+        records = bundle?.records ?? []; promises = bundle?.promises ?? []; knowledge = bundle?.knowledge ?? []; summary = bundle?.summary ?? null; bundleCurrent = bundle?.current ?? true; bundleTarget = bundle?.target ?? null;
         if (bundle) await validateSummary(bundle.summary, bundle.summaryHash, access, bundle.revision);
       }
       if (read !== sequence.current || !owns() || !liveVisible.current) return;
       setCurrentPromises(promises); setOrphanedPromises(previous => previous ?? (!bundleCurrent && promises.length ? structuredClone(promises) : null));
+      setCurrentKnowledge(knowledge); setOrphanedKnowledge(previous => previous ?? (!bundleCurrent && knowledge.length ? structuredClone(knowledge) : null));
       setCurrentRecords(records); setCurrentRecordsCurrent(bundleCurrent); setCurrentBundleTarget(bundleTarget); setOrphanedRecords(previous => previous ?? (!bundleCurrent && records.length ? structuredClone(records) : null));
       setCurrentSummary(summary); setSummaryDraft(makeSummaryDraft(summary, bundleCurrent && !!summary && result.state === 'ready' && sameHead(bundleTarget, state.head) && summaryBasisMatches(summary, access, state.head, true))); setStatus(result); setReadError('');
     }).catch(reason => { if (read === sequence.current && owns() && liveVisible.current) setReadError(message(reason)); })
@@ -197,6 +206,19 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
     return () => { cancelled = true; };
   }, [owner, access.writerLease, visible, state.editable, state.head.version, working, refresh]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setProjectCharacters([]); setProjectTopics([]); setKnowledgeError('');
+    if (!visible || !state.editable || working) return;
+    void Promise.all([reviewedKnowledgeCharacterCatalog(access), reviewedKnowledgeTopicCatalog(access)]).then(([characters, topics]) => {
+      if (cancelled || !owns()) return;
+      if (characters.projectId !== access.projectId || characters.operationNamespace !== access.operationNamespace
+        || topics.projectId !== access.projectId || topics.operationNamespace !== access.operationNamespace) throw new Error('The character knowledge lists belong to another project. Refresh review to read them again.');
+      setProjectCharacters(characters.entities); setProjectTopics(topics.entities);
+    }).catch(reason => { if (!cancelled && owns()) setKnowledgeError(message(reason)); });
+    return () => { cancelled = true; };
+  }, [owner, access.writerLease, visible, state.editable, state.head.version, working, refresh]);
+
   async function perform(operation: Pending) {
     // Reconciliation rotates only the lease. Every logical payload stays fixed.
     const currentAccess = session.projectAccess;
@@ -208,6 +230,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
         || await bodyHash(canonicalJson(result.revision.body)) !== result.target.bodyHash) throw new Error('The saved review did not match the selected writing. Check the review save.');
       if (operation.request.records !== undefined && canonicalJson(result.records ?? []) !== canonicalJson(operation.request.records)) throw new Error('The saved reviewed details did not match the requested complete set. Check the review save.');
       if (operation.request.promises !== undefined && canonicalJson(result.promises ?? []) !== canonicalJson(operation.request.promises)) throw new Error('The saved promises did not match the requested complete set. Check the review save.');
+      if (operation.request.knowledge !== undefined && canonicalJson(result.knowledge ?? []) !== canonicalJson(operation.request.knowledge)) throw new Error('The saved character knowledge did not match the requested complete set. Check the review save.');
       await validateSummary(result.summary, result.summaryHash, currentAccess, result.revision, result.prefix);
       if (operation.request.summary?.kind === 'set'
         && (!result.summary || result.summary.text !== operation.request.summary.text || result.summary.audience !== operation.request.summary.audience)) {
@@ -216,11 +239,14 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       if (operation.request.summary?.kind === 'clear' && result.summary) {
         throw new Error('The saved review did not clear its narrative summary. Check the review save.');
       }
-      if (owns()) { setStage(result); setSummaryDraft(makeSummaryDraft(result.summary ?? null, true)); setOrphanedPromises(null); setDraftPromises(structuredClone(result.promises ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(result.records ?? [])); setNotice('Read this saved version, then confirm your review.'); }
+      if (owns()) { setStage(result); setSummaryDraft(makeSummaryDraft(result.summary ?? null, true)); setOrphanedPromises(null); setDraftPromises(structuredClone(result.promises ?? [])); setOrphanedKnowledge(null); setDraftKnowledge(structuredClone(result.knowledge ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(result.records ?? [])); setNotice('Read this saved version, then confirm your review.'); }
     } else {
       const result = await markReady({ ...operation.request, access: currentAccess });
       if (result.projectId !== currentAccess.projectId || result.operationNamespace !== currentAccess.operationNamespace
         || result.stageId !== operation.request.stageId || canonicalJson(result.target) !== canonicalJson(operation.reviewed.target)) throw new Error('The review acknowledgment did not match your decision. Check the review save.');
+      if (operation.reviewed.knowledge !== undefined && canonicalJson(result.knowledge ?? []) !== canonicalJson(operation.reviewed.knowledge)) {
+        throw new Error('The review acknowledgment did not preserve its character knowledge. Check the review save.');
+      }
       await validateSummary(result.summary, result.summaryHash, currentAccess, operation.reviewed.revision, operation.reviewed.prefix);
       if ((result.summaryHash ?? null) !== (operation.reviewed.summaryHash ?? null)) {
         throw new Error('The review acknowledgment did not preserve its narrative summary fingerprint. Check the review save.');
@@ -243,7 +269,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
         || saved.target.documentId !== state.head.documentId || canonicalJson(saved.revision.head) !== canonicalJson(saved.target)
         || await bodyHash(canonicalJson(saved.revision.body)) !== saved.target.bodyHash) throw new Error('The saved review did not match this chapter. Refresh its review status.');
       await validateSummary(saved.summary, saved.summaryHash, currentAccess, saved.revision, saved.prefix);
-      if (owns()) { setStage(saved); setSummaryDraft(makeSummaryDraft(saved.summary ?? null, true)); setOrphanedPromises(null); setDraftPromises(structuredClone(saved.promises ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(saved.records ?? [])); setNotice('Your saved review is open. Read it before confirming.'); focusAfterSave.current = true; }
+      if (owns()) { setStage(saved); setSummaryDraft(makeSummaryDraft(saved.summary ?? null, true)); setOrphanedPromises(null); setDraftPromises(structuredClone(saved.promises ?? [])); setOrphanedKnowledge(null); setDraftKnowledge(structuredClone(saved.knowledge ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(saved.records ?? [])); setNotice('Your saved review is open. Read it before confirming.'); focusAfterSave.current = true; }
     } catch (reason) { if (owns()) setError(message(reason)); }
     finally { busy.current = false; if (owns()) setWorking(false); }
   }
@@ -269,6 +295,8 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
           else if (!stage && orphanedRecords !== null) request.records = structuredClone(orphanedRecords);
           if (stage) request.promises = structuredClone(draftPromises);
           else if (!stage && orphanedPromises !== null) request.promises = structuredClone(orphanedPromises);
+          if (stage) request.knowledge = structuredClone(draftKnowledge);
+          else if (!stage && orphanedKnowledge !== null) request.knowledge = structuredClone(orphanedKnowledge);
           if (requestedSummary !== undefined) request.summary = structuredClone(requestedSummary);
           pending.current = { kind: 'stage', request };
         } else if (kind === 'mark') {
@@ -279,7 +307,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
           try { await perform(pending.current); }
           catch (reason) {
             if (reason && typeof reason === 'object' && 'code' in reason
-            && ['ReviewStageStale', 'ReviewBasisUnavailable', 'ReviewStageNotFound', 'ReviewLimitExceeded', 'InvalidReviewedRecords', 'InvalidReviewedPromises', 'InvalidReviewedSummary', 'ReviewSummaryRequired', 'OperationIdReusedWithDifferentPayload'].includes(String(reason.code))) {
+            && ['ReviewStageStale', 'ReviewBasisUnavailable', 'ReviewStageNotFound', 'ReviewLimitExceeded', 'InvalidReviewedRecords', 'InvalidReviewedPromises', 'InvalidReviewedKnowledge', 'InvalidReviewedSummary', 'ReviewSummaryRequired', 'OperationIdReusedWithDifferentPayload'].includes(String(reason.code))) {
               reviewRejection = reason;
             } else { throw reason; }
           }
@@ -296,6 +324,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
           const changedDraft = pending.current?.kind === 'stage' && !!stage && canonicalJson(draftRecords) !== canonicalJson(stage.records ?? []);
           if (changedDraft) setOrphanedRecords(structuredClone(draftRecords));
           if (pending.current?.kind === 'stage' && stage && canonicalJson(draftPromises) !== canonicalJson(stage.promises ?? [])) setOrphanedPromises(structuredClone(draftPromises));
+          if (pending.current?.kind === 'stage' && stage && canonicalJson(draftKnowledge) !== canonicalJson(stage.knowledge ?? [])) setOrphanedKnowledge(structuredClone(draftKnowledge));
           pending.current = null;
           if (reason && typeof reason === 'object' && 'code' in reason
             && ['ReviewStageStale', 'ReviewBasisUnavailable', 'VersionConflict'].includes(String(reason.code))) {
@@ -307,7 +336,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   }
   if (!visible) return null;
   const outdated = !!stage && (state.dirty || canonicalJson(stage.target) !== canonicalJson(state.head));
-  const recordsChanged = !!stage && (canonicalJson(draftRecords) !== canonicalJson(stage.records ?? []) || canonicalJson(draftPromises) !== canonicalJson(stage.promises ?? []));
+  const recordsChanged = !!stage && (canonicalJson(draftRecords) !== canonicalJson(stage.records ?? []) || canonicalJson(draftPromises) !== canonicalJson(stage.promises ?? []) || canonicalJson(draftKnowledge) !== canonicalJson(stage.knowledge ?? []));
   const summaryChanged = !!stage && summaryDraft.choice !== 'inherit';
   const needsStage = !stage || outdated || recordsChanged || summaryChanged;
   const stagedSummary = stage ? stage.summary ?? null : currentSummary;
@@ -331,19 +360,22 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       {readError && <p className="history-error" role="alert">{readError}</p>}
       {entityError && <p className="history-error" role="alert">Could not load objects from other chapters. {entityError} Use Refresh review to try again; you can still create a new object.</p>}
       {promiseError && <p className="history-error" role="alert">Could not load promises from other chapters. {promiseError} Use Refresh review to try again; you can still create a new promise.</p>}
+      {knowledgeError && <p className="history-error" role="alert">Could not load character knowledge choices. {knowledgeError} Use Refresh review to try again; you can still create a new character or topic.</p>}
       {retry && <button disabled={working || state.phase === 'conflict' || state.phase === 'disposed'} onClick={() => void act('retry')}>Check review save</button>}
       {notice && <p role="status">{notice}</p>}
     </div>
     <div className="review-detail-tabs" role="group" aria-label="Reviewed detail type">
       <button aria-pressed={detailKind === 'possessions'} disabled={evidenceEditing || working} onClick={() => setDetailKind('possessions')}>Possessions ({(stage ? draftRecords : orphanedRecords ?? currentRecords).length})</button>
       <button aria-pressed={detailKind === 'promises'} disabled={evidenceEditing || working} onClick={() => setDetailKind('promises')}>Promises ({(stage ? draftPromises : orphanedPromises ?? currentPromises).length})</button>
+      <button aria-pressed={detailKind === 'knowledge'} disabled={evidenceEditing || working} onClick={() => setDetailKind('knowledge')}>Knowledge ({(stage ? draftKnowledge : orphanedKnowledge ?? currentKnowledge).length})</button>
     </div>
     {stage ? <>
       <div className="review-basis"><h3>Saved version {stage.target.version}</h3><p>{stage.prefix.length ? 'Reviewed against these earlier chapters:' : 'This is the first chapter in the reviewed story.'}</p>
         {!!stage.prefix.length && <ul>{stage.prefix.map(member => <li key={member.documentId}><EarlierReview access={access} member={member} /></li>)}</ul>}
       </div>
       {detailKind === 'possessions' ? <ReviewEvidenceEditor projectEntities={projectEntities} records={draftRecords} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftRecords} onEditingChange={setEvidenceEditing} />
-        : <ReviewPromiseEditor projectPromises={projectPromises} records={draftPromises} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftPromises} onEditingChange={setEvidenceEditing} />}
+        : detailKind === 'promises' ? <ReviewPromiseEditor projectPromises={projectPromises} records={draftPromises} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftPromises} onEditingChange={setEvidenceEditing} />
+          : <ReviewKnowledgeEditor projectCharacters={projectCharacters} projectTopics={projectTopics} records={draftKnowledge} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftKnowledge} onEditingChange={setEvidenceEditing} />}
       <ReviewSummaryEditor access={access} documentId={stage.target.documentId} target={state.head} current={stagedSummary} canInherit={summaryCanInherit} value={displayedSummaryDraft} disabled={!state.editable || working || retry} onChange={setSummaryDraft} />
       <div className="history-preview" aria-label="Chapter under review"><SavedProse body={stage.revision.body} /></div>
       <div className="history-restore">{outdated ? <p role="status">Your writing changed. Prepare a new review of the saved chapter.</p>
@@ -354,6 +386,9 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
     </> : <div className="review-empty"><p>Your manuscript stays editable. Reviewing chapters is optional.</p>{currentSummary && <ReviewSummaryEditor access={access} documentId={state.head.documentId} target={state.head} current={currentSummary} canInherit={summaryCanInherit} value={summaryDraft} disabled={!state.editable || working || retry} onChange={setSummaryDraft} />}{detailKind === 'promises' ? <>
       {orphanedPromises !== null && <p role="status">These promise details are retained. Reselect or remove outdated passages before preparing the saved chapter again.</p>}
       <ReviewPromiseEditor projectPromises={projectPromises} records={orphanedPromises ?? currentPromises} disabled={orphanedPromises === null || !state.editable || working || retry} captureSelection={selectEvidence} onChange={setOrphanedPromises} onEditingChange={setEvidenceEditing} />
+    </> : detailKind === 'knowledge' ? <>
+      {orphanedKnowledge !== null && <p role="status">These character knowledge observations are retained. Reselect or remove outdated passages before preparing the saved chapter again.</p>}
+      <ReviewKnowledgeEditor projectCharacters={projectCharacters} projectTopics={projectTopics} records={orphanedKnowledge ?? currentKnowledge} disabled={orphanedKnowledge === null || !state.editable || working || retry} captureSelection={selectEvidence} onChange={setOrphanedKnowledge} onEditingChange={setEvidenceEditing} />
     </> : <>{orphanedRecords !== null ? <><p role="status">{currentRecordsCurrent ? 'Your unsubmitted reviewed details are still here. Prepare the saved chapter again to submit them.' : 'These details belong to an older reviewed version. Reselect or remove any passage before preparing the new review.'}</p><ReviewEvidenceEditor projectEntities={projectEntities} records={orphanedRecords} captureSelection={selectEvidence} onChange={setOrphanedRecords} onEditingChange={setEvidenceEditing} /></> : currentRecords.length ? <ReviewEvidenceEditor projectEntities={projectEntities} records={currentRecords} disabled captureSelection={() => null} onChange={() => {}} /> : <p>No reviewed story details are recorded yet.</p>}</>}</div>}
   </aside>;
 }

@@ -97,6 +97,7 @@ fn review(
 ) {
     let stage = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: Uuid::new_v4().to_string(),
             expected: document.head.clone(),

@@ -88,6 +88,7 @@ fn mark_ready(
 ) -> webnovel_core::projects::reviewed_story::ReadyBundle {
     let stage = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: stage_operation.into(),
             expected: document.head.clone(),

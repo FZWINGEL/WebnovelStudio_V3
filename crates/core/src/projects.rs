@@ -841,6 +841,7 @@ impl OwnedProject {
         }
         storage::migrate(&mut connection, &path)?;
         storage::configure(&connection)?;
+        Self::validate_schema_floor(&connection)?;
         let info = if let Some(title) = title {
             let info = ProjectInfo {
                 project_id: new_id(),
@@ -902,6 +903,36 @@ impl OwnedProject {
         project.recover_interrupted_discussions()?;
         project.recover_interrupted_memory()?;
         Ok(project)
+    }
+
+    /// Schema 33 adds reviewed character-knowledge columns.  A database can
+    /// be manually copied or have its user_version altered without running
+    /// the migration, so opening it must verify the physical floor before
+    /// any review rows are read.
+    fn validate_schema_floor(connection: &Connection) -> CoreResult<()> {
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version < 33 {
+            return Ok(());
+        }
+        for (table, column) in [
+            ("review_stages", "knowledge_json"),
+            ("review_stages", "knowledge_hash"),
+            ("ready_bundles", "knowledge_json"),
+            ("ready_bundles", "knowledge_hash"),
+        ] {
+            let present: bool = connection.query_row(
+                &format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name=?)"),
+                [column],
+                |row| row.get(0),
+            )?;
+            if !present {
+                return Err(CoreError::new(
+                    "UnsupportedSchema",
+                    "This project claims schema 33 but is missing reviewed knowledge columns.",
+                ));
+            }
+        }
+        Ok(())
     }
     fn attach(&mut self, session: String) -> CoreResult<ProjectAccess> {
         check_id(&session)?;

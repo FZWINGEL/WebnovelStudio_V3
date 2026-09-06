@@ -110,6 +110,7 @@ fn mark_ready(
 ) {
     let stage = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: format!("stage-{operation_id}"),
             expected: document.head.clone(),

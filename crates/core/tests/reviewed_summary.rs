@@ -80,6 +80,7 @@ fn stage(
 ) -> webnovel_core::projects::reviewed_story::ReviewStage {
     project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: operation_id.into(),
             expected: document.head.clone(),
@@ -176,6 +177,7 @@ fn changed_source_requires_explicit_summary_decision_and_clear_is_atomic() {
         .unwrap();
     let stale = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: "stage-missing-decision".into(),
             expected: changed.head.clone(),
@@ -217,6 +219,7 @@ fn summary_text_rejects_invalid_controls_and_payload_is_canonical() {
     ] {
         let error = project
             .stage_author_review(StageAuthorReview {
+                knowledge: None,
                 access: access.clone(),
                 operation_id: operation_id.into(),
                 expected: document.head.clone(),

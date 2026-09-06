@@ -30,6 +30,12 @@ use super::reviewed_evidence::{
     ReviewedEvidenceSet, eligible_records, record_id, records_hash, validate_evidence_payload,
     validate_frozen_evidence_set,
 };
+use super::reviewed_knowledge::{
+    ReviewedKnowledgeCoverage, ReviewedKnowledgeOmission, ReviewedKnowledgeOmissionReason,
+    ReviewedKnowledgeSet, eligible_records as eligible_knowledge_records,
+    records_hash as knowledge_records_hash, validate_frozen_knowledge_set,
+    validate_knowledge_payload,
+};
 use super::reviewed_promises::{
     ReviewedPromiseCoverage, ReviewedPromiseOmission, ReviewedPromiseOmissionReason,
     ReviewedPromiseSet, eligible_records as eligible_promise_records,
@@ -793,6 +799,8 @@ struct ContextEnvelope {
     #[serde(skip_serializing_if = "Option::is_none")]
     reviewed_promises: Option<ReviewedPromiseEnvelope>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    reviewed_knowledge: Option<ReviewedKnowledgeEnvelope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     accepted_summaries: Option<AcceptedSummariesEnvelope>,
     omissions: Vec<String>,
 }
@@ -882,6 +890,42 @@ struct ReviewedPromisePacketSet {
 struct PackedReviewedPromises {
     set: ReviewedPromiseSet,
     records: Vec<crate::projects::story_records::PromiseRecord>,
+    projection_hash: String,
+}
+
+/// Character knowledge retains its own evidence and cannot establish world truth. A partial set retains its
+/// complete bundle identity and reports coverage through the receipt.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewedKnowledgeEnvelope {
+    interpretation: &'static str,
+    coverage: &'static str,
+    complete_record_set: bool,
+    sets: Vec<ReviewedKnowledgePacketSet>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewedKnowledgePacketSet {
+    project_id: String,
+    operation_namespace: String,
+    bundle_id: String,
+    records_hash: String,
+    projection_hash: String,
+    source_handle: String,
+    source: SourceRef,
+    /// The frozen chapter title is an author-room navigation aid.  It is
+    /// deliberately absent from restricted packets, including when the
+    /// original chapter body is omitted by layered packing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_display_name: Option<String>,
+    records: Vec<crate::projects::story_records::KnowledgeRecord>,
+}
+
+#[derive(Debug, Clone)]
+struct PackedReviewedKnowledge {
+    set: ReviewedKnowledgeSet,
+    records: Vec<crate::projects::story_records::KnowledgeRecord>,
     projection_hash: String,
 }
 
@@ -1052,6 +1096,7 @@ fn compile_packet_with_schema(
     let validated_navigation_views = validate_navigation_views(request, &canonical_reads)?;
     let validated_reviewed_evidence = validate_reviewed_evidence(request, &canonical_reads)?;
     let validated_reviewed_promises = validate_reviewed_promises(request, &canonical_reads)?;
+    let validated_reviewed_knowledge = validate_reviewed_knowledge(request, &canonical_reads)?;
     let mut summary_handles = HashSet::new();
     for summary in &request.frozen.reviewed_summaries {
         reviewed_summaries::validate_frozen_set(
@@ -1295,6 +1340,8 @@ fn compile_packet_with_schema(
         reviewed_evidence_omissions(&validated_reviewed_evidence, &validated_reviewed_evidence);
     let full_promise_omissions =
         reviewed_promise_omissions(&validated_reviewed_promises, &validated_reviewed_promises);
+    let full_knowledge_omissions =
+        reviewed_knowledge_omissions(&validated_reviewed_knowledge, &validated_reviewed_knowledge);
     let full_packet = build_serialized(
         request,
         &target_handle,
@@ -1308,6 +1355,7 @@ fn compile_packet_with_schema(
             navigation_views: &[],
             reviewed_evidence: &validated_reviewed_evidence,
             reviewed_promises: &validated_reviewed_promises,
+            reviewed_knowledge: &validated_reviewed_knowledge,
             accepted_summaries: &[],
         },
         &options,
@@ -1341,6 +1389,10 @@ fn compile_packet_with_schema(
                     delivered: &validated_reviewed_promises,
                     omissions: &full_promise_omissions,
                 },
+                knowledge: ReviewedKnowledgeReceipt {
+                    delivered: &validated_reviewed_knowledge,
+                    omissions: &full_knowledge_omissions,
+                },
             },
         );
     }
@@ -1365,6 +1417,7 @@ fn compile_packet_with_schema(
             navigation_views: &[],
             reviewed_evidence: &[],
             reviewed_promises: &[],
+            reviewed_knowledge: &[],
             accepted_summaries: &[],
         },
         &options,
@@ -1404,6 +1457,7 @@ fn compile_packet_with_schema(
                 navigation_views: &[],
                 reviewed_evidence: &[],
                 reviewed_promises: &[],
+                reviewed_knowledge: &[],
                 accepted_summaries: &[],
             },
             &options,
@@ -1416,6 +1470,7 @@ fn compile_packet_with_schema(
     if included_turns != total_turns {
         let evidence_omissions = reviewed_evidence_omissions(&validated_reviewed_evidence, &[]);
         let promise_omissions = reviewed_promise_omissions(&validated_reviewed_promises, &[]);
+        let knowledge_omissions = reviewed_knowledge_omissions(&validated_reviewed_knowledge, &[]);
         let packet = build_serialized(
             request,
             &target_handle,
@@ -1429,6 +1484,7 @@ fn compile_packet_with_schema(
                 navigation_views: &[],
                 reviewed_evidence: &[],
                 reviewed_promises: &[],
+                reviewed_knowledge: &[],
                 accepted_summaries: &[],
             },
             &options,
@@ -1460,6 +1516,10 @@ fn compile_packet_with_schema(
                 promises: ReviewedPromiseReceipt {
                     delivered: &[],
                     omissions: &promise_omissions,
+                },
+                knowledge: ReviewedKnowledgeReceipt {
+                    delivered: &[],
+                    omissions: &knowledge_omissions,
                 },
             },
         );
@@ -1497,6 +1557,7 @@ fn compile_packet_with_schema(
                 navigation_views: &[],
                 reviewed_evidence: &[],
                 reviewed_promises: &[],
+                reviewed_knowledge: &[],
                 accepted_summaries: &candidate,
             },
             &options,
@@ -1560,6 +1621,7 @@ fn compile_packet_with_schema(
                 navigation_views: &candidate_views,
                 reviewed_evidence: &[],
                 reviewed_promises: &[],
+                reviewed_knowledge: &[],
                 accepted_summaries: &delivered_summaries,
             },
             &options,
@@ -1619,6 +1681,7 @@ fn compile_packet_with_schema(
                     navigation_views: &delivered_views,
                     reviewed_evidence: &candidate_evidence,
                     reviewed_promises: &[],
+                    reviewed_knowledge: &[],
                     accepted_summaries: &delivered_summaries,
                 },
                 &options,
@@ -1681,6 +1744,7 @@ fn compile_packet_with_schema(
                     navigation_views: &delivered_views,
                     reviewed_evidence: &delivered_reviewed_evidence,
                     reviewed_promises: &candidate_promises,
+                    reviewed_knowledge: &[],
                     accepted_summaries: &delivered_summaries,
                 },
                 &options,
@@ -1695,6 +1759,70 @@ fn compile_packet_with_schema(
     }
     let reviewed_promise_omissions =
         reviewed_promise_omissions(&validated_reviewed_promises, &delivered_reviewed_promises);
+
+    // Knowledge observations preserve reported attitudes separately from world
+    // truth. They follow earlier evidence categories and retain a
+    // distinct envelope and receipt.  Each candidate is a prefix of the
+    // authenticated, policy-eligible order; a rejected candidate stops the
+    // knowledge stream so later observations cannot displace earlier ones.
+    let mut delivered_reviewed_knowledge: Vec<PackedReviewedKnowledge> = Vec::new();
+    let mut knowledge_budget_blocked = false;
+    for knowledge in &validated_reviewed_knowledge {
+        if knowledge_budget_blocked {
+            break;
+        }
+        for record in &knowledge.records {
+            let mut candidate_knowledge = delivered_reviewed_knowledge.clone();
+            if let Some(existing) = candidate_knowledge.iter_mut().find(|item| {
+                item.set.source_handle == knowledge.set.source_handle
+                    && item.set.bundle_id == knowledge.set.bundle_id
+                    && item.set.records_hash == knowledge.set.records_hash
+            }) {
+                existing.records.push(record.clone());
+            } else {
+                candidate_knowledge.push(PackedReviewedKnowledge {
+                    set: knowledge.set.clone(),
+                    records: vec![record.clone()],
+                    projection_hash: knowledge.projection_hash.clone(),
+                });
+            }
+            let packet = build_serialized(
+                request,
+                &target_handle,
+                &target,
+                &mandatory_sources,
+                &optional_omissions(
+                    &optional_handles_without_views(
+                        &optional_handles,
+                        &delivered_views,
+                        &navigation_by_handle,
+                    ),
+                    &canonical_by_handle,
+                    &HashMap::new(),
+                    &directory_omissions,
+                ),
+                Packing {
+                    schema,
+                    method: "layeredExcerpt",
+                    conversation_turns: included_turns,
+                    navigation_views: &delivered_views,
+                    reviewed_evidence: &delivered_reviewed_evidence,
+                    reviewed_promises: &delivered_reviewed_promises,
+                    reviewed_knowledge: &candidate_knowledge,
+                    accepted_summaries: &delivered_summaries,
+                },
+                &options,
+            )?;
+            if packet.input_tokens <= available {
+                delivered_reviewed_knowledge = candidate_knowledge;
+            } else {
+                knowledge_budget_blocked = true;
+                break;
+            }
+        }
+    }
+    let reviewed_knowledge_omissions =
+        reviewed_knowledge_omissions(&validated_reviewed_knowledge, &delivered_reviewed_knowledge);
 
     // Add complete blocks in stable source/block order. A block is either
     // present in full or absent; no target or passage is ever truncated. A
@@ -1761,6 +1889,7 @@ fn compile_packet_with_schema(
                     navigation_views: &delivered_views,
                     reviewed_evidence: &delivered_reviewed_evidence,
                     reviewed_promises: &delivered_reviewed_promises,
+                    reviewed_knowledge: &delivered_reviewed_knowledge,
                     accepted_summaries: &delivered_summaries,
                 },
                 &options,
@@ -1792,6 +1921,7 @@ fn compile_packet_with_schema(
             navigation_views: &delivered_views,
             reviewed_evidence: &delivered_reviewed_evidence,
             reviewed_promises: &delivered_reviewed_promises,
+            reviewed_knowledge: &delivered_reviewed_knowledge,
             accepted_summaries: &delivered_summaries,
         },
         &options,
@@ -1824,6 +1954,10 @@ fn compile_packet_with_schema(
             promises: ReviewedPromiseReceipt {
                 delivered: &delivered_reviewed_promises,
                 omissions: &reviewed_promise_omissions,
+            },
+            knowledge: ReviewedKnowledgeReceipt {
+                delivered: &delivered_reviewed_knowledge,
+                omissions: &reviewed_knowledge_omissions,
             },
         },
     )
@@ -1937,6 +2071,25 @@ fn finish_packet(
             })
             .collect(),
         reviewed_promise_omissions: receipts.promises.omissions.to_vec(),
+        reviewed_knowledge: receipts
+            .knowledge
+            .delivered
+            .iter()
+            .filter(|item| !item.records.is_empty())
+            .map(|item| ReviewedKnowledgeCoverage {
+                source_handle: item.set.source_handle.clone(),
+                bundle_id: item.set.bundle_id.clone(),
+                records_hash: item.set.records_hash.clone(),
+                projection_hash: item.projection_hash.clone(),
+                complete_record_set: item.records.len() == item.set.records.len(),
+                record_ids: item
+                    .records
+                    .iter()
+                    .map(|record| record.id.clone())
+                    .collect(),
+            })
+            .collect(),
+        reviewed_knowledge_omissions: receipts.knowledge.omissions.to_vec(),
         reviewed_summaries: receipts
             .accepted_summaries
             .iter()
@@ -2386,6 +2539,70 @@ fn validate_reviewed_promises(
     Ok(validated)
 }
 
+/// Validate every frozen knowledge set and resolve its exact source read before
+/// any budget branch.  The complete set remains authenticated; restricted
+/// writing receives only its reader-approved projection.
+fn validate_reviewed_knowledge(
+    request: &PacketRequest,
+    reads: &[CanonicalRead],
+) -> Result<Vec<PackedReviewedKnowledge>, PacketError> {
+    let mut validated = Vec::with_capacity(request.frozen.reviewed_knowledge.len());
+    let mut handles = HashSet::new();
+    for set in &request.frozen.reviewed_knowledge {
+        if !handles.insert(&set.source_handle) {
+            return Err(source_binding(
+                "InvalidReviewedKnowledge",
+                "A reviewed knowledge source may appear only once in a frozen snapshot.",
+                Some(set.source_handle.clone()),
+            ));
+        }
+        validate_frozen_knowledge_set(
+            set,
+            &request.frozen.snapshot,
+            &request.frozen.policy,
+            request.frozen.purpose,
+        )
+        .map_err(|error| PacketError::SourceBinding {
+            code: error.code,
+            message: error.detail,
+            handle: Some(set.source_handle.clone()),
+        })?;
+        let source = reads
+            .iter()
+            .find(|read| read.read.descriptor.handle == set.source_handle)
+            .ok_or_else(|| {
+                source_binding(
+                    "ReviewedKnowledgeSourceReadMissing",
+                    "Every frozen reviewed knowledge set needs its exact source read.",
+                    Some(set.source_handle.clone()),
+                )
+            })?;
+        validate_knowledge_payload(set, &source.read).map_err(|error| {
+            PacketError::SourceBinding {
+                code: error.code,
+                message: error.detail,
+                handle: Some(set.source_handle.clone()),
+            }
+        })?;
+        let records = eligible_knowledge_records(&set.records, request.frozen.policy.audience)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let projection_hash =
+            knowledge_records_hash(&records).map_err(|error| PacketError::SourceBinding {
+                code: error.code,
+                message: error.detail,
+                handle: Some(set.source_handle.clone()),
+            })?;
+        validated.push(PackedReviewedKnowledge {
+            set: set.clone(),
+            records,
+            projection_hash,
+        });
+    }
+    Ok(validated)
+}
+
 fn reviewed_evidence_omissions(
     all: &[PackedReviewedEvidence],
     delivered: &[PackedReviewedEvidence],
@@ -2464,6 +2681,54 @@ fn reviewed_promise_omissions(
         ] {
             if count != 0 {
                 omissions.push(ReviewedPromiseOmission {
+                    source_handle: set.set.source_handle.clone(),
+                    bundle_id: set.set.bundle_id.clone(),
+                    records_hash: set.set.records_hash.clone(),
+                    reason,
+                    count,
+                });
+            }
+        }
+    }
+    omissions
+}
+
+fn reviewed_knowledge_omissions(
+    all: &[PackedReviewedKnowledge],
+    delivered: &[PackedReviewedKnowledge],
+) -> Vec<ReviewedKnowledgeOmission> {
+    let mut omissions = Vec::new();
+    for set in all {
+        let delivered_ids: HashSet<&str> = delivered
+            .iter()
+            .filter(|item| {
+                item.set.source_handle == set.set.source_handle
+                    && item.set.bundle_id == set.set.bundle_id
+                    && item.set.records_hash == set.set.records_hash
+            })
+            .flat_map(|item| item.records.iter().map(|record| record.id.as_str()))
+            .collect();
+        let mut budget_count = 0;
+        let mut disclosure_count = 0;
+        for record in &set.set.records {
+            if delivered_ids.contains(record.id.as_str()) {
+                continue;
+            }
+            if set.records.iter().any(|item| item.id == record.id) {
+                budget_count += 1;
+            } else {
+                disclosure_count += 1;
+            }
+        }
+        for (reason, count) in [
+            (ReviewedKnowledgeOmissionReason::Budget, budget_count),
+            (
+                ReviewedKnowledgeOmissionReason::Disclosure,
+                disclosure_count,
+            ),
+        ] {
+            if count != 0 {
+                omissions.push(ReviewedKnowledgeOmission {
                     source_handle: set.set.source_handle.clone(),
                     bundle_id: set.set.bundle_id.clone(),
                     records_hash: set.set.records_hash.clone(),
@@ -2564,6 +2829,7 @@ struct Packing<'a> {
     navigation_views: &'a [FrozenNavigationView],
     reviewed_evidence: &'a [PackedReviewedEvidence],
     reviewed_promises: &'a [PackedReviewedPromises],
+    reviewed_knowledge: &'a [PackedReviewedKnowledge],
     accepted_summaries: &'a [ReviewedSummarySet],
 }
 
@@ -2577,10 +2843,16 @@ struct ReviewedPromiseReceipt<'a> {
     omissions: &'a [ReviewedPromiseOmission],
 }
 
+struct ReviewedKnowledgeReceipt<'a> {
+    delivered: &'a [PackedReviewedKnowledge],
+    omissions: &'a [ReviewedKnowledgeOmission],
+}
+
 struct PacketReceipts<'a> {
     navigation: NavigationReceipt<'a>,
     evidence: ReviewedEvidenceReceipt<'a>,
     promises: ReviewedPromiseReceipt<'a>,
+    knowledge: ReviewedKnowledgeReceipt<'a>,
     accepted_summaries: &'a [ReviewedSummarySet],
 }
 
@@ -2728,6 +3000,46 @@ fn build_serialized(
                             })
                             .flatten(),
                         records: promises.records.clone(),
+                    })
+                    .collect(),
+            }
+        }),
+        reviewed_knowledge: (packing.reviewed_knowledge.iter().any(|item| !item.records.is_empty())).then(|| {
+            let complete_record_set = packing
+                .reviewed_knowledge
+                .iter()
+                .all(|knowledge| knowledge.records.len() == knowledge.set.records.len());
+            ReviewedKnowledgeEnvelope {
+                interpretation: "Author-reviewed character attitudes with exact evidence, not independent world truth or exhaustive knowledge. Belief, suspicion, rejection and explicit unawareness remain distinct. Missing observations never prove absence; source order is disclosure order, not fictional chronology.",
+                coverage: "reviewedAccepted",
+                complete_record_set,
+                sets: packing
+                    .reviewed_knowledge
+                    .iter()
+                    .filter(|item| !item.records.is_empty())
+                    .map(|knowledge| ReviewedKnowledgePacketSet {
+                        project_id: knowledge.set.project_id.clone(),
+                        operation_namespace: knowledge.set.operation_namespace.clone(),
+                        bundle_id: knowledge.set.bundle_id.clone(),
+                        records_hash: knowledge.set.records_hash.clone(),
+                        projection_hash: knowledge.projection_hash.clone(),
+                        source_handle: knowledge.set.source_handle.clone(),
+                        source: knowledge.set.source.clone(),
+                        source_display_name: include_display_names
+                            .then(|| {
+                                request
+                                    .frozen
+                                    .snapshot
+                                    .sources
+                                    .iter()
+                                    .find(|descriptor| {
+                                        descriptor.handle == knowledge.set.source_handle
+                                            && descriptor.source == knowledge.set.source
+                                    })
+                                    .map(|descriptor| descriptor.display_name.clone())
+                            })
+                            .flatten(),
+                        records: knowledge.records.clone(),
                     })
                     .collect(),
             }

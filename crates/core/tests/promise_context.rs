@@ -150,6 +150,7 @@ fn working_frozen(
     promises: Vec<ReviewedPromiseSet>,
 ) -> FrozenContext {
     FrozenContext {
+        reviewed_knowledge: Vec::new(),
         snapshot: StorySnapshot {
             snapshot_id: "snapshot-promises".into(),
             project_id: PROJECT.into(),
@@ -323,6 +324,7 @@ fn restricted_history_filters_private_observations_without_private_identifiers()
     );
     let set = set(&reviewed, "bundle-reviewed", vec![private, reader]);
     let frozen = FrozenContext {
+        reviewed_knowledge: Vec::new(),
         snapshot: StorySnapshot {
             snapshot_id: "snapshot-reviewed".into(),
             project_id: PROJECT.into(),
@@ -651,6 +653,7 @@ fn restricted_packet_omits_frozen_source_titles() {
         )],
     );
     let frozen = FrozenContext {
+        reviewed_knowledge: Vec::new(),
         snapshot: StorySnapshot {
             snapshot_id: "snapshot-restricted-promise".into(),
             project_id: PROJECT.into(),

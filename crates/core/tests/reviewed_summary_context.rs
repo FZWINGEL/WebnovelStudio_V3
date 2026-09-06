@@ -81,6 +81,7 @@ fn ready(
 ) -> webnovel_core::projects::reviewed_story::ReadyBundle {
     let stage = project
         .stage_author_review(StageAuthorReview {
+            knowledge: None,
             access: access.clone(),
             operation_id: format!("stage-{operation}"),
             expected: document.head.clone(),
