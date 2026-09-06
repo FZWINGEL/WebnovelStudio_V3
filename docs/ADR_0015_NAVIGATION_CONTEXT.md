@@ -1,6 +1,6 @@
 # ADR 0015: Generated chapter memory in working discussions
 
-Status: C4-B implemented development slice; local contracts and native diagnostic verified. Strict CI and broader qualification are recorded separately. This extends [chapter memory](ADR_0014_CHAPTER_MEMORY.md); executed checks belong in [implementation status](IMPLEMENTATION_STATUS.md).
+Status: C4-B implemented development slice; local contracts, native diagnostic, and all 35 strict native CI checks verified. Broader qualification remains separate. This extends [chapter memory](ADR_0014_CHAPTER_MEMORY.md); executed checks belong in [implementation status](IMPLEMENTATION_STATUS.md).
 
 ## Author experience
 

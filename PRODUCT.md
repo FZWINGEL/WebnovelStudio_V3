@@ -30,7 +30,7 @@ The Story Context core implements C0 contracts, C1 exact working-basis evidence 
 
 V2 schema-8 imports now have a native Library action. The importer previews a stable read-only source, requires a choice where working text is missing, and installs an independent V3 project with inert legacy evidence. Original V2 approvals are not promoted into reviewed V3 authority. Imports and recovery retain source/operation identities for reconciliation. See [supported imports and limitations](docs/V2_IMPORT_PREVIEW.md).
 
-Current test, native, live-provider, and installed-package evidence is maintained in [implementation status](docs/IMPLEMENTATION_STATUS.md). These are separate qualification gates. C4-A has local, strict native CI, and bounded live evidence. C4-B navigation packet integration has local contract and native diagnostic evidence; typed reviewed-story records, richer C4 summaries, temporal/thread views, bounded model lookups, narrative evaluation, broader native author trials, and full installed-release qualification remain open.
+Current test, native, live-provider, and installed-package evidence is maintained in [implementation status](docs/IMPLEMENTATION_STATUS.md). These are separate qualification gates. C4-A has local, strict native CI, and bounded live evidence. C4-B navigation packet integration has local contract and strict native CI evidence; typed reviewed-story records, richer C4 summaries, temporal/thread views, bounded model lookups, narrative evaluation, broader native author trials, and full installed-release qualification remain open.
 
 ## Explicit W0 trial
 
