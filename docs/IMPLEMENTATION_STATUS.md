@@ -46,7 +46,7 @@ the tracked harness retains that strict check. Report:
 `.local/knowledge-native-regression/report.json`.
 
 The interruption diagnostic also passed all **three durable-boundary groups**
-at `2026-09-06T20:49:52.296Z`, including Save renderer loss, Apply process loss
+at `2026-09-06T20:51:42.803Z` with Node 24.12.0 as its test driver, including Save renderer loss, Apply process loss
 and running anonymous HTTP request process loss. The six native refresh-key
 checks remain omitted only from this local diagnostic and enabled in CI.
 Report: `.local/knowledge-interruption-diagnostic/qualification.json`.
