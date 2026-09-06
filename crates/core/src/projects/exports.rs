@@ -10,6 +10,7 @@ use crate::transfer::{DraftExportPreview, DraftFormat, ExportRecord, project_dra
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 pub(crate) enum ExportCommand {
+    ResolveReviewedSource(ProjectAccess, Head, Reply<(String, Revision)>),
     Install(
         ProjectAccess,
         Box<DraftExportPreview>,
@@ -21,6 +22,18 @@ pub(crate) enum ExportCommand {
 }
 
 impl ProjectSession {
+    pub(crate) fn resolve_reviewed_export_source(
+        &self,
+        access: ProjectAccess,
+        expected: Head,
+    ) -> CoreResult<(String, Revision)> {
+        self.request(|reply| {
+            Command::Export(Box::new(ExportCommand::ResolveReviewedSource(
+                access, expected, reply,
+            )))
+        })
+    }
+
     pub(crate) fn install_export(
         &self,
         access: ProjectAccess,
@@ -63,6 +76,13 @@ impl OwnedProject {
             }};
         }
         match command {
+            ExportCommand::ResolveReviewedSource(access, expected, reply) => {
+                respond!(
+                    reply,
+                    self.check_access(&access)
+                        .and_then(|()| { self.resolve_reviewed_export_source(&access, &expected) })
+                );
+            }
             ExportCommand::Install(access, preview, target, basename, reply) => {
                 respond!(
                     reply,
@@ -96,11 +116,26 @@ impl OwnedProject {
         // Finalization runs entirely on the owned project actor.  No second
         // caller can pass the same preview through preflight while this file
         // is being installed, so a duplicate cannot create a second output.
-        let source = read_revision_checked(
-            self.db()?,
-            &preview.source_head.document_id,
-            &preview.revision_id,
-        )?;
+        let source = if let Some(review_bundle_id) = preview.review_bundle_id.as_deref() {
+            let (resolved_bundle_id, revision) =
+                self.resolve_reviewed_export_source(&access, &preview.source_head)?;
+            if resolved_bundle_id != review_bundle_id
+                || revision.id != preview.revision_id
+                || revision.head != preview.source_head
+            {
+                return Err(CoreError::new(
+                    "ReviewedExportStale",
+                    "The selected reviewed bundle or chapter changed after preview.",
+                ));
+            }
+            revision
+        } else {
+            read_revision_checked(
+                self.db()?,
+                &preview.source_head.document_id,
+                &preview.revision_id,
+            )?
+        };
         let projected = project_draft(&source.body, preview.format)?;
         if projected.text != preview.preview_text
             || projected.utf8_bytes != preview.utf8_bytes
@@ -136,8 +171,8 @@ impl OwnedProject {
                 "INSERT INTO export_records(
                     id,project_id,operation_namespace,document_id,revision_id,
                     source_version,source_body_hash,working_draft,format,format_version,
-                    utf8_bytes,sha256,basename
-                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    utf8_bytes,sha256,basename,review_bundle_id
+                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 params![
                     preview.id,
                     preview.project_id,
@@ -146,7 +181,7 @@ impl OwnedProject {
                     preview.revision_id,
                     parse_version(&preview.source_head.version)?,
                     preview.source_head.body_hash,
-                    1_i64,
+                    i64::from(preview.review_bundle_id.is_none()),
                     preview.format.storage_name(),
                     preview.format_version,
                     i64::try_from(preview.utf8_bytes).map_err(|_| {
@@ -154,6 +189,7 @@ impl OwnedProject {
                     })?,
                     preview.sha256,
                     basename,
+                    preview.review_bundle_id,
                 ],
             )?;
             let record = read_export_record(&tx, &access.operation_namespace, &preview.id)?;
@@ -198,12 +234,13 @@ fn same_payload(record: &ExportRecord, preview: &DraftExportPreview, basename: &
         && record.document_id == preview.source_head.document_id
         && record.revision_id == preview.revision_id
         && record.source_head == preview.source_head
-        && record.working_draft
+        && record.working_draft == preview.review_bundle_id.is_none()
         && record.format == preview.format
         && record.format_version == preview.format_version
         && record.utf8_bytes == preview.utf8_bytes
         && record.sha256 == preview.sha256
         && record.basename == basename
+        && record.review_bundle_id == preview.review_bundle_id
 }
 
 fn validate_export_preview(
@@ -238,6 +275,17 @@ fn validate_export_preview(
         ));
     }
     validate_basename(basename)?;
+    if let Some(review_bundle_id) = preview.review_bundle_id.as_deref() {
+        check_id(review_bundle_id)?;
+        crate::projects::reviewed_story::validate_reviewed_export_source(
+            connection,
+            &preview.project_id,
+            &preview.operation_namespace,
+            review_bundle_id,
+            &preview.source_head,
+            &preview.revision_id,
+        )?;
+    }
     let source = read_revision_checked(
         connection,
         &preview.source_head.document_id,
@@ -311,7 +359,7 @@ fn read_export_record_optional(
         .query_row(
             "SELECT id,project_id,operation_namespace,document_id,revision_id,
                     source_version,source_body_hash,working_draft,format,format_version,
-                    utf8_bytes,sha256,basename,created_at
+                    utf8_bytes,sha256,basename,created_at,review_bundle_id
              FROM export_records WHERE operation_namespace=? AND id=?",
             params![operation_namespace, export_id],
             |row| {
@@ -341,6 +389,7 @@ fn read_export_record_optional(
                     sha256: row.get(11)?,
                     basename: row.get(12)?,
                     created_at: row.get(13)?,
+                    review_bundle_id: row.get(14)?,
                 })
             },
         )
@@ -406,7 +455,7 @@ fn validate_export_record(connection: &Connection, record: &ExportRecord) -> Cor
     if record.source_head.document_id != record.document_id
         || !valid_hash(&record.source_head.body_hash)
         || !valid_hash(&record.sha256)
-        || !record.working_draft
+        || (record.working_draft != record.review_bundle_id.is_none())
         || record.format_version != 1
         || !record.format.is_supported()
         || record.utf8_bytes > i64::MAX as u64
@@ -439,6 +488,22 @@ fn validate_export_record(connection: &Connection, record: &ExportRecord) -> Cor
             "InvalidProject",
             "An export record points at a different revision head.",
         ));
+    }
+    if let Some(review_bundle_id) = record.review_bundle_id.as_deref() {
+        check_id(review_bundle_id).map_err(|_| {
+            CoreError::new(
+                "InvalidProject",
+                "A reviewed export record contains an invalid bundle identity.",
+            )
+        })?;
+        crate::projects::reviewed_story::validate_reviewed_export_source(
+            connection,
+            &record.project_id,
+            &record.operation_namespace,
+            review_bundle_id,
+            &record.source_head,
+            &record.revision_id,
+        )?;
     }
     let projected = project_draft(&source.body, record.format)?;
     if projected.utf8_bytes != record.utf8_bytes || projected.sha256 != record.sha256 {

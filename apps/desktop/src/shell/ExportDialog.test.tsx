@@ -2,19 +2,19 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ExportDialog } from './ExportDialog';
+import { ExportDialog, type ExportBasis } from './ExportDialog';
 import { bodyHash } from '../editor/document';
 import type { DraftExportPreview, DraftFormat } from '../ipc/exports';
 import type { ProjectAccess } from '../ipc/projects';
 
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 let host: HTMLDivElement; let root: Root;
-let prepare: ReturnType<typeof vi.fn<(format: DraftFormat) => Promise<DraftExportPreview>>>;
+let prepare: ReturnType<typeof vi.fn<(format: DraftFormat, basis: ExportBasis) => Promise<DraftExportPreview>>>;
 let save: ReturnType<typeof vi.fn<(preview: DraftExportPreview) => Promise<string | null>>>;
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason: Error) => void; return { promise: new Promise<T>((accept, fail) => { resolve = accept; reject = fail; }), resolve: (value: T) => resolve(value), reject: (reason: Error) => reject(reason) }; }
-async function preview(format: DraftFormat, id = 'preview', text = format === 'markdown' ? '**A promise** <script>inert</script>' : 'A promise') : Promise<DraftExportPreview> {
+async function preview(format: DraftFormat, id = 'preview', text = format === 'markdown' ? '**A promise** <script>inert</script>' : 'A promise', reviewBundleId?: string) : Promise<DraftExportPreview> {
   return { id, projectId: access.projectId, operationNamespace: access.operationNamespace, sourceHead: { documentId: 'chapter', version: '4', bodyHash: 'source-hash' }, revisionId: 'revision',
-    format, formatVersion: 1, previewText: text, utf8Bytes: new TextEncoder().encode(text).length, sha256: await bodyHash(text), formatLoss: 'The file contains this document only.' };
+    format, formatVersion: 1, previewText: text, utf8Bytes: new TextEncoder().encode(text).length, sha256: await bodyHash(text), formatLoss: 'The file contains this document only.', ...(reviewBundleId ? { reviewBundleId } : {}) };
 }
 async function render(props: Partial<React.ComponentProps<typeof ExportDialog>> = {}) {
   await act(async () => root.render(<ExportDialog access={access} documentId="chapter" title="The promise" onPrepare={prepare} onExport={save} onClose={() => {}} {...props} />));
@@ -47,6 +47,41 @@ describe('exact draft export preview', () => {
     await act(async () => host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }))); expect(close).not.toHaveBeenCalled();
     await act(async () => pending.resolve('C:/Exports/Chapter.md')); expect(host.textContent).toContain('Draft exported: C:/Exports/Chapter.md');
     await click('Done'); expect(close).toHaveBeenCalledOnce();
+  });
+  it('offers a chapter-only reviewed basis and requires its bundle before saving', async () => {
+    prepare.mockImplementation(async (format, basis) => preview(format, 'reviewed-preview', 'Reviewed chapter', basis === 'reviewed' ? 'bundle-1' : undefined));
+    await render({ isChapter: true }); await waitFor(() => expect(host.querySelector('pre')).not.toBeNull());
+    expect(host.textContent).toContain('Working draft'); expect(host.textContent).toContain('Author-reviewed snapshot');
+    await act(async () => { const radio = host.querySelector('input[value="reviewed"]') as HTMLInputElement; radio.click(); });
+    await waitFor(() => expect(host.querySelector('h2')?.textContent).toBe('Export author-reviewed chapter'));
+    expect(prepare).toHaveBeenLastCalledWith('markdown', 'reviewed');
+    await click('Choose destination…'); expect(save.mock.calls[0][0].reviewBundleId).toBe('bundle-1');
+    expect(host.textContent).toContain('Author-reviewed snapshot exported');
+  });
+  it('fails closed when a reviewed response omits its bundle and rejects authority on working previews', async () => {
+    prepare.mockImplementation(async (format, basis) => preview(format, basis === 'reviewed' ? 'missing-bundle' : 'unexpected-authority', undefined, basis === 'reviewed' ? undefined : 'bundle-should-not-be-here'));
+    await render({ isChapter: true });
+    await act(async () => { const radio = host.querySelector('input[value="reviewed"]') as HTMLInputElement; radio.click(); });
+    await waitFor(() => expect(host.textContent).toContain('did not include its review bundle'));
+    expect(button('Choose destination…').disabled).toBe(true); expect(save).not.toHaveBeenCalled();
+    await act(async () => { const radio = host.querySelector('input[value="working"]') as HTMLInputElement; radio.click(); });
+    await waitFor(() => expect(host.querySelector('[role=alert]')).not.toBeNull());
+  });
+  it('treats a reviewed refusal during destination save as a definite no-file result', async () => {
+    prepare.mockImplementation(async (format, basis) => preview(format, 'reviewed-preview', 'Reviewed chapter', basis === 'reviewed' ? 'bundle-1' : undefined));
+    save.mockRejectedValueOnce({ code: 'ReviewedExportStale', detail: 'The reviewed snapshot is no longer current.' });
+    await render({ isChapter: true }); await act(async () => { const radio = host.querySelector('input[value="reviewed"]') as HTMLInputElement; radio.click(); });
+    await waitFor(() => expect(button('Choose destination…').disabled).toBe(false)); await click('Choose destination…');
+    expect(host.textContent).toContain('no longer current'); expect(host.textContent).not.toContain('A file may already have been created');
+    expect(save).toHaveBeenCalledOnce();
+  });
+  it('treats a same-head reviewed policy refusal as a definite no-file result', async () => {
+    prepare.mockImplementation(async (format, basis) => preview(format, 'reviewed-policy', 'Reviewed chapter', basis === 'reviewed' ? 'bundle-1' : undefined));
+    save.mockRejectedValueOnce({ code: 'ReviewStale', detail: 'The reviewed policy changed.' });
+    await render({ isChapter: true }); await act(async () => { const radio = host.querySelector('input[value="reviewed"]') as HTMLInputElement; radio.click(); });
+    await waitFor(() => expect(button('Choose destination…').disabled).toBe(false)); await click('Choose destination…');
+    expect(host.textContent).toContain('reviewed policy changed'); expect(host.textContent).not.toContain('A file may already have been created');
+    expect(save).toHaveBeenCalledOnce();
   });
   it('drops a late prior-format response and error after a newer selection', async () => {
     const first = deferred<DraftExportPreview>(); prepare.mockImplementationOnce(() => first.promise);

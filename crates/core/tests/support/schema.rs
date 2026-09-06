@@ -1,9 +1,11 @@
 use rusqlite::{Connection, params};
 
-/// Strip schema-19-only columns from a current fixture before it is presented
-/// as an older database. The production migration is intentionally one-way;
-/// this helper only makes synthetic legacy fixtures truthful.
+/// Strip schema-20 and schema-19-only columns from a current fixture before it
+/// is presented as an older database. The production migrations are
+/// intentionally one-way; this helper only makes synthetic legacy fixtures
+/// truthful.
 pub fn remove_schema19_features(connection: &Connection) -> rusqlite::Result<()> {
+    drop_column_if_present(connection, "export_records", "review_bundle_id")?;
     drop_column_if_present(connection, "proposals", "kind")?;
     drop_column_if_present(connection, "proposal_versions", "payload_json")?;
 

@@ -6,10 +6,10 @@ import { canonicalJson } from '../editor/document';
 import { createDocument, reconcileProject, readDocument, projectTransport, projectMetadata, renameProject, renameDocument, type CreateDocumentIntent, type DocumentRecord, type OpenedProject, type ProjectAccess, type ViewState } from '../ipc/projects';
 import { CreateIntentRecoveryError, CreateIntentUnresolvedError, runCreateIntent } from '../ipc/createIntent';
 import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, libraryResumeImport, projectBackup, type LibrarySnapshot } from '../ipc/library';
-import { prepareDraftExport, exportPreparedDraft, type DraftExportPreview, type DraftFormat } from '../ipc/exports';
+import { prepareDraftExport, prepareReviewedDraftExport, exportPreparedDraft, type DraftExportPreview, type DraftFormat } from '../ipc/exports';
 import { App as EditorTrial } from './App';
 import { Writer } from './Writer';
-import { ExportDialog } from './ExportDialog';
+import { ExportDialog, type ExportBasis } from './ExportDialog';
 import { V2ImportDialog } from './V2ImportDialog';
 import { runtimeInfo } from '../ipc/native';
 import { ModelSelector } from '../providers/ModelSelector';
@@ -307,13 +307,21 @@ export function Workspace() {
     const current = activeRef.current; if (!current) return;
     setExporting(current);
   }
-  async function prepareExport(current: ActiveDocument, format: DraftFormat): Promise<DraftExportPreview> {
+  async function prepareExport(current: ActiveDocument, format: DraftFormat, basis: ExportBasis): Promise<DraftExportPreview> {
     return current.session.withLifecycleGuard(async () => {
       if (activeRef.current?.session !== current.session) throw new Error('Open this document again to export it.');
       await current.session.flush();
       const head = current.session.state.head;
-      const preview = await prepareDraftExport(current.session.projectAccess, head, format);
+      const preview = basis === 'reviewed'
+        ? await prepareReviewedDraftExport(current.session.projectAccess, head, format)
+        : await prepareDraftExport(current.session.projectAccess, head, format);
       if (canonicalJson(preview.sourceHead) !== canonicalJson(head)) throw new Error('The export preview does not match the saved writing. Prepare it again.');
+      if (basis === 'reviewed' && (!preview.reviewBundleId || !preview.reviewBundleId.trim())) {
+        throw new Error('The author-reviewed preview did not include its review bundle. Prepare it again.');
+      }
+      if (basis === 'working' && preview.reviewBundleId !== undefined) {
+        throw new Error('The working-draft preview unexpectedly included review authority. Prepare it again.');
+      }
       return preview;
     });
   }
@@ -326,7 +334,7 @@ export function Workspace() {
       if (result.previewId !== preview.id || result.sha256 !== preview.sha256 || result.utf8Bytes !== preview.utf8Bytes || !result.path) {
         throw new Error('Could not verify the exported file. Check the chosen destination before trying again.');
       }
-      if (activeRef.current?.session === current.session) setNotice(`Draft exported: ${result.path}`);
+      if (activeRef.current?.session === current.session) setNotice(`${preview.reviewBundleId ? 'Author-reviewed snapshot exported' : 'Draft exported'}: ${result.path}`);
       return result.path;
     } finally { running.current = false; setBusy(false); }
   }
@@ -358,8 +366,8 @@ export function Workspace() {
       </aside>
       {active ? <Writer key={`${project.project.projectId}:${active.record.head.documentId}`} active={active} sources={project.documents.map(document => ({ id: document.head.documentId, title: document.title }))} onError={setError} onRename={() => { setRenamedDocumentTitle(active.record.title); setRenamingDocument(!renamingDocument); }} /> : <main className="empty-project"><h1>Where would you like to start?</h1><p>A character, a world, a chapter, or just a thought.</p><button className="primary-button" disabled={busy} onClick={() => setNewDocument(true)}>Add your first document</button></main>}
     </div>}
-    {exporting && active?.session === exporting.session && <ExportDialog access={exporting.session.projectAccess} documentId={exporting.record.head.documentId} title={exporting.record.title}
-      onPrepare={format => prepareExport(exporting, format)} onExport={preview => writeExport(exporting, preview)}
+    {exporting && active?.session === exporting.session && <ExportDialog access={exporting.session.projectAccess} documentId={exporting.record.head.documentId} title={exporting.record.title} isChapter={exporting.record.kind === 'chapter'}
+      onPrepare={(format, basis) => prepareExport(exporting, format, basis)} onExport={preview => writeExport(exporting, preview)}
       onClose={() => { setExporting(null); exportButton.current?.focus(); }} />}
     {importingV2 && !project && <V2ImportDialog session={renderer.current}
       onImported={opened => { setImportingV2(false); activate(opened); void refreshLibrary(); }}

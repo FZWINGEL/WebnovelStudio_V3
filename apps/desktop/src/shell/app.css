@@ -306,6 +306,10 @@ input::placeholder { color: #637083; }
 .export-document { margin: 16px 0 20px; overflow-wrap: anywhere; font-weight: 600; }
 .export-dialog > label { display: block; margin-bottom: 7px; font-size: 12px; font-weight: 600; }
 .export-dialog > select { width: 100%; border: 1px solid #aebccc; background: #fff; border-radius: 5px; padding: 9px 11px; color: inherit; }
+.export-basis { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0 0 20px; padding: 9px 12px 10px; border: 1px solid #aebccc; border-radius: 5px; }
+.export-basis legend { padding: 0 4px; font-size: 12px; font-weight: 600; }
+.export-basis label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.export-basis input { min-width: 0; }
 .export-format-note { margin: 11px 0 20px; font-size: 12px; line-height: 1.55; color: var(--muted); }
 .export-preview-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
 .export-preview-heading h3 { margin: 0; font-size: 13px; }.export-preview-heading span { color: var(--muted); font-size: 11px; }

@@ -1,8 +1,11 @@
 param(
     [Parameter(Mandatory)][int]$OwnerPid,
-    [Parameter(Mandatory)][ValidateSet('Save', 'Cancel')][string]$Action,
+    [Parameter(Mandatory)][ValidateSet('Save', 'Cancel', 'Wait')][string]$Action,
     [Parameter(Mandatory)][string]$TestRoot,
-    [string]$Destination = ''
+    [string]$Destination = '',
+    [ValidateSet('Save draft as a new file', 'Save author-reviewed snapshot as a new file')]
+    [string]$DialogTitle = 'Save draft as a new file',
+    [switch]$ExpectNoFile
 )
 $ErrorActionPreference = 'Stop'
 $ownedProcess = Get-Process -Id $OwnerPid
@@ -51,13 +54,13 @@ function Assert-OwnedControl([IntPtr]$handle, [int]$controlId, [string]$classNam
     }
 }
 $processCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ProcessIdProperty, $OwnerPid)
-$nameCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty, 'Save draft as a new file')
+$nameCondition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty, $DialogTitle)
 $dialogElement = $null
 $deadline = [DateTime]::UtcNow.AddSeconds(15)
 while ([DateTime]::UtcNow -lt $deadline -and $null -eq $dialogElement) {
     $windows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, $processCondition)
     foreach ($window in $windows) {
-        if ($window.Current.Name -eq 'Save draft as a new file') { $dialogElement = $window; break }
+        if ($window.Current.Name -eq $DialogTitle) { $dialogElement = $window; break }
         $dialogElement = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $nameCondition)
         if ($null -ne $dialogElement) { break }
     }
@@ -66,6 +69,10 @@ while ([DateTime]::UtcNow -lt $deadline -and $null -eq $dialogElement) {
 if ($null -eq $dialogElement -or $dialogElement.Current.ProcessId -ne $OwnerPid) { throw 'The owned Save dialog did not appear.' }
 $dialogHandle = [IntPtr]$dialogElement.Current.NativeWindowHandle
 if ($dialogHandle -eq [IntPtr]::Zero) { throw 'The owned Save dialog has no native handle.' }
+if ($Action -eq 'Wait') {
+    Write-Output 'The owned Save dialog is open; no controls changed.'
+    exit 0
+}
 function Find-Control([int]$id, [string]$className) {
     $condition = [Windows.Automation.AndCondition]::new(
         [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, [string]$id),
@@ -122,7 +129,7 @@ if ($button.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [r
 $deadline = [DateTime]::UtcNow.AddSeconds(10)
 while ([OwnedSaveDialog]::IsWindow($dialogHandle) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
 if ([OwnedSaveDialog]::IsWindow($dialogHandle)) { throw "The owned Save dialog did not close after $Action ($method)." }
-if ($Action -eq 'Save') {
+if ($Action -eq 'Save' -and -not $ExpectNoFile) {
     while (-not (Test-Path -LiteralPath $resolvedDestination) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
     if (-not (Test-Path -LiteralPath $resolvedDestination)) { throw 'The requested export file was not created.' }
 }

@@ -3,24 +3,29 @@ import { bodyHash } from '../editor/document';
 import type { DraftExportPreview, DraftFormat } from '../ipc/exports';
 import type { ProjectAccess } from '../ipc/projects';
 
+export type ExportBasis = 'working' | 'reviewed';
+
 function errorText(error: unknown): string {
   return error && typeof error === 'object' && 'detail' in error ? String(error.detail)
     : error instanceof Error ? error.message : 'Could not prepare this export. Try again.';
 }
 function definitelyNotWritten(error: unknown): boolean {
-  return !!error && typeof error === 'object' && 'code' in error
-    && ['TargetExists', 'InvalidRequest', 'InvalidExport', 'ExportPreviewMismatch', 'ExportSourceMismatch', 'InvalidDocument', 'DocumentNotFound', 'InvalidPath', 'ExportAlreadyRecorded', 'RevisionNotFound', 'RevisionMismatch', 'RevisionDocumentMismatch', 'WrongProjectSession', 'OperationIdReusedWithDifferentPayload', 'VersionConflict'].includes(String(error.code));
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  const code = String(error.code);
+  return ['TargetExists', 'InvalidRequest', 'InvalidExport', 'ExportPreviewMismatch', 'ExportSourceMismatch', 'InvalidDocument', 'DocumentNotFound', 'InvalidPath', 'ExportAlreadyRecorded', 'RevisionNotFound', 'RevisionMismatch', 'RevisionDocumentMismatch', 'WrongProjectSession', 'OperationIdReusedWithDifferentPayload', 'VersionConflict', 'ReviewRequired', 'ReviewStale', 'ReviewSourceMismatch', 'ReviewBundleNotFound', 'ReviewBasisUnavailable', 'ReviewedExportStale'].includes(code);
 }
 function errorCode(error: unknown): string { return error && typeof error === 'object' && 'code' in error ? String(error.code) : ''; }
 
 /** Preview exact frozen output; no destination is written until the author chooses one. */
-export function ExportDialog({ access, documentId, title, onPrepare, onExport, onClose }: {
+export function ExportDialog({ access, documentId, title, isChapter = false, onPrepare, onExport, onClose }: {
   access: ProjectAccess; documentId: string; title: string;
-  onPrepare(format: DraftFormat): Promise<DraftExportPreview>;
+  isChapter?: boolean;
+  onPrepare(format: DraftFormat, basis: ExportBasis): Promise<DraftExportPreview>;
   onExport(preview: DraftExportPreview): Promise<string | null>;
   onClose(): void;
 }) {
   const [format, setFormat] = useState<DraftFormat>('markdown');
+  const [basis, setBasis] = useState<ExportBasis>('working');
   const [preview, setPreview] = useState<DraftExportPreview | null>(null);
   const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false);
   const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [exported, setExported] = useState(false);
@@ -35,18 +40,25 @@ export function ExportDialog({ access, documentId, title, onPrepare, onExport, o
     const current = ++sequence.current;
     setPreview(null); setLoading(true); setSaving(false); setError(''); setNotice(''); setExported(false);
     const owns = () => sequence.current === current && liveOwner.current === owner;
-    void callbacks.current.onPrepare(format).then(async value => {
+    const requestedBasis: ExportBasis = isChapter && basis === 'reviewed' ? 'reviewed' : 'working';
+    void callbacks.current.onPrepare(format, requestedBasis).then(async value => {
       if (!owns()) return;
       if (value.projectId !== access.projectId || value.operationNamespace !== access.operationNamespace || value.sourceHead.documentId !== documentId
         || value.format !== format || value.formatVersion !== 1 || !value.id || !value.revisionId
         || new TextEncoder().encode(value.previewText).length !== value.utf8Bytes || await bodyHash(value.previewText) !== value.sha256) {
         throw new Error('The export preview did not match the selected document and format. Prepare it again.');
       }
+      const hasReviewBundle = typeof value.reviewBundleId === 'string' && value.reviewBundleId.trim().length > 0;
+      if ((requestedBasis === 'reviewed' && !hasReviewBundle) || (requestedBasis === 'working' && value.reviewBundleId !== undefined)) {
+        throw new Error(requestedBasis === 'reviewed'
+          ? 'The author-reviewed preview did not include its review bundle. Prepare it again.'
+          : 'The working-draft preview unexpectedly included review authority. Prepare it again.');
+      }
       if (owns()) setPreview(value);
     }).catch(reason => { if (owns()) setError(errorText(reason)); })
       .finally(() => { if (owns()) setLoading(false); });
     return () => { ++sequence.current; };
-  }, [owner, format, refresh]);
+  }, [owner, format, basis, isChapter, refresh]);
   function close() {
     if (saving) return;
     // Release the modal's inert background before the parent restores focus.
@@ -61,7 +73,7 @@ export function ExportDialog({ access, documentId, title, onPrepare, onExport, o
     try {
       const path = await callbacks.current.onExport(preview);
       if (!owns()) return;
-      if (path) { setExported(true); setNotice(`Draft exported: ${path}`); }
+      if (path) { setExported(true); setNotice(`${preview.reviewBundleId ? 'Author-reviewed snapshot exported' : 'Draft exported'}: ${path}`); }
       else setNotice('No destination chosen. Your preview is still ready.');
     } catch (reason) {
       if (!owns()) return;
@@ -73,11 +85,13 @@ export function ExportDialog({ access, documentId, title, onPrepare, onExport, o
       }
     } finally { if (saveFlight.current === flight) saveFlight.current = null; if (owns()) setSaving(false); }
   }
+  const reviewed = isChapter && basis === 'reviewed';
   return <dialog className="export-dialog" ref={dialog} aria-labelledby="export-heading" onCancel={event => {
     event.preventDefault(); close();
   }}>
-    <div className="export-heading"><div><p className="export-kicker">Working draft</p><h2 id="export-heading">Export draft</h2></div><button disabled={saving} onClick={close} aria-label="Close export">Close</button></div>
-    <p className="export-document">{title}</p><p className="export-format-note">Export this document to a new file. Existing files are kept.</p>
+    <div className="export-heading"><div><p className="export-kicker">{reviewed ? 'Author-reviewed snapshot' : 'Working draft'}</p><h2 id="export-heading">{reviewed ? 'Export author-reviewed chapter' : 'Export draft'}</h2></div><button disabled={saving} onClick={close} aria-label="Close export">Close</button></div>
+    <p className="export-document">{title}</p><p className="export-format-note">{reviewed ? 'Save the exact author-reviewed chapter snapshot. This does not publish or change the manuscript.' : 'Export this document to a new file. Existing files are kept.'}</p>
+    {isChapter && <fieldset className="export-basis" disabled={saving}><legend>Export basis</legend><label><input type="radio" name="export-basis" value="working" checked={basis === 'working'} onChange={() => setBasis('working')} /> Working draft</label><label><input type="radio" name="export-basis" value="reviewed" checked={basis === 'reviewed'} onChange={() => setBasis('reviewed')} /> Author-reviewed snapshot</label></fieldset>}
     <label htmlFor="export-format">File format</label>
     <select autoFocus id="export-format" value={format} disabled={saving} onChange={event => setFormat(event.target.value as DraftFormat)}>
       <option value="markdown">Markdown (.md)</option><option value="plainText">Plain text (.txt)</option>
@@ -89,6 +103,6 @@ export function ExportDialog({ access, documentId, title, onPrepare, onExport, o
     {notice && <p className="export-notice" role="status">{notice}</p>}
     <footer className="export-actions"><button disabled={loading || saving} onClick={() => setRefresh(value => value + 1)}>{preview ? 'Refresh preview' : 'Prepare export again'}</button>
       {exported ? <button className="primary-button" onClick={close}>Done</button>
-        : <button className="primary-button" disabled={loading || saving || !preview} onClick={() => void save()}>{saving ? 'Saving draft…' : 'Choose destination…'}</button>}</footer>
+        : <button className="primary-button" disabled={loading || saving || !preview} onClick={() => void save()}>{saving ? (reviewed ? 'Saving snapshot…' : 'Saving draft…') : 'Choose destination…'}</button>}</footer>
   </dialog>;
 }

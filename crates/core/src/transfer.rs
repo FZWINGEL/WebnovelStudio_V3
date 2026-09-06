@@ -116,6 +116,8 @@ pub struct DraftExportPreview {
     pub sha256: String,
     pub format_loss: String,
     pub preview_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_bundle_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -134,6 +136,8 @@ pub struct ExportRecord {
     pub sha256: String,
     pub basename: String,
     pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_bundle_id: Option<String>,
 }
 
 pub(crate) struct ProjectedDraft {
@@ -2160,6 +2164,43 @@ pub fn prepare_draft_export(
         sha256: projected.sha256,
         format_loss: draft_format_loss(format).into(),
         preview_text: projected.text,
+        review_bundle_id: None,
+    })
+}
+
+/// Freeze the current author-reviewed chapter source without creating a
+/// checkpoint.  The project actor resolves the active ReadyBundle and returns
+/// its immutable target revision; the caller-supplied head is only evidence for
+/// that resolution.
+pub fn prepare_reviewed_draft_export(
+    project: &ProjectSession,
+    access: &ProjectAccess,
+    expected: Head,
+    format: DraftFormat,
+) -> CoreResult<DraftExportPreview> {
+    if !format.is_supported() {
+        return Err(transfer_error(
+            "InvalidRequest",
+            "The requested export format is unsupported.",
+        ));
+    }
+    let (review_bundle_id, revision) =
+        project.resolve_reviewed_export_source(access.clone(), expected)?;
+    let projected = project_draft(&revision.body, format)?;
+    let metadata = project.project_metadata()?;
+    Ok(DraftExportPreview {
+        id: Uuid::new_v4().to_string(),
+        project_id: metadata.project.project_id,
+        operation_namespace: metadata.project.operation_namespace,
+        source_head: revision.head,
+        revision_id: revision.id,
+        format,
+        format_version: 1,
+        utf8_bytes: projected.utf8_bytes,
+        sha256: projected.sha256,
+        format_loss: draft_format_loss(format).into(),
+        preview_text: projected.text,
+        review_bundle_id: Some(review_bundle_id),
     })
 }
 

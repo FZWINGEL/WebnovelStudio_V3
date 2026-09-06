@@ -239,7 +239,8 @@ fn make_schema18_archive(source: &Path, target: &Path, temp_root: &Path) {
     let database = Connection::open(&legacy_path).unwrap();
     database
         .execute_batch(
-            "ALTER TABLE proposals DROP COLUMN kind;
+            "ALTER TABLE export_records DROP COLUMN review_bundle_id;
+             ALTER TABLE proposals DROP COLUMN kind;
              ALTER TABLE proposal_versions DROP COLUMN payload_json;
              PRAGMA user_version=18;",
         )

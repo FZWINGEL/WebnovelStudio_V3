@@ -1,9 +1,10 @@
 # ADR 0017: Export an author-reviewed chapter snapshot
 
-Status: next implementation package; not built or qualified. This extends the
-author-only review records in [ADR 0012](ADR_0012_AUTHOR_REVIEW.md) and the
-existing single-document export path. It does not add publication, canon, or
-continuity authority.
+Status: implemented and locally native-qualified as a development slice; full
+wrapper/CI qualification is pending. This extends the author-only review
+records in [ADR 0012](ADR_0012_AUTHOR_REVIEW.md) and the existing
+single-document export path. It does not add publication, canon, or continuity
+authority.
 
 ## Author outcome
 
@@ -105,8 +106,9 @@ state, and narrative-quality claims remain outside this package.
 
 The focused contract suite should cover:
 
-1. A reviewed preview uses the exact bundle revision and creates no checkpoint.
-2. No review, first chapter, changed target, changed earlier basis, and policy
+1. A reviewed preview uses the exact bundle revision and creates no checkpoint,
+   including a reviewed first chapter with an empty earlier prefix.
+2. No review, changed target, changed earlier basis, and policy
    revocation refuse without working-draft fallback.
 3. A preview made current becomes stale during destination selection and writes
    no file.
@@ -127,3 +129,22 @@ review, export, exact readback, reopen/history, stale-refusal, and recovery
 journey. Live-provider qualification is irrelevant to this export feature and
 must not be inferred from it; broader release/package qualification remains a
 separate gate.
+
+The rebuilt local native diagnostic now covers this reviewed-export journey in
+37 of 38 checks with zero errors; only the OS clipboard check is omitted.
+Evidence is
+`.local/native-other-results/report.json` from `2026-09-06T03:53:42.453Z`,
+using WebView2 `152.0.4191.62`; the executable is SHA-256
+`456a0cf1c327c330c0f56e4e472630e5dfeaf2976cb969cc17f052696208492d`,
+29,184,000 bytes, built at `2026-09-06T03:51:09Z`. The flow covers first-chapter
+reviewed Markdown/TXT export, exact readback, reopened history, copied-authority
+refusal, recording-failure preservation, and stale refusal after the native Save
+dialog. Root review found the Markdown readback and stale-refusal screens
+readable. It made no new LLM calls. The bundle measured 690.55 KB JavaScript
+and 33.29 KB CSS with the existing Vite chunk warning.
+
+This is local development qualification, not full wrapper or CI qualification.
+The latest confirmed CI remains [34008911179](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34008911179),
+which passed the continuation checkpoint's 36 native checks. Requalification
+of the current schema-20 tree is pending repair of the synthetic schema-18
+continuation-archive fixture's missing schema-20 column drop.

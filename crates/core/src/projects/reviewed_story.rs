@@ -122,6 +122,7 @@ struct BundleRow {
     revision_id: String,
     policy_epoch: i64,
     prefix: Vec<ReviewPrefixItem>,
+    coverage: String,
     created_at: String,
 }
 
@@ -152,6 +153,7 @@ type BundleDbRow = (
     i64,
     i64,
     Option<String>,
+    String,
     String,
     String,
     String,
@@ -188,6 +190,68 @@ impl ProjectSession {
 }
 
 impl OwnedProject {
+    /// Resolve the current author-reviewed revision for a chapter export.
+    ///
+    /// The selected head and current review status are authoritative here;
+    /// historical bundle validation alone is intentionally insufficient for a
+    /// new export.  The returned revision is the exact immutable checkpoint
+    /// recorded by the ready bundle.
+    pub(super) fn resolve_reviewed_export_source(
+        &self,
+        access: &ProjectAccess,
+        expected: &Head,
+    ) -> CoreResult<(String, Revision)> {
+        self.check_access(access)?;
+        check_id(&expected.document_id)?;
+        parse_version(&expected.version)?;
+
+        let db = self.db()?;
+        let document = read_document(db, &expected.document_id)?;
+        if document.kind != "chapter" {
+            return Err(CoreError::new(
+                "InvalidDocument",
+                "Reviewed export applies to chapter documents.",
+            ));
+        }
+        require_head(&document.head, expected)?;
+
+        let status = self.chapter_review_status(access.clone(), expected.document_id.as_str())?;
+        if status.state == ReviewState::NoReview {
+            return Err(CoreError::new(
+                "ReviewRequired",
+                "Mark this chapter reviewed before exporting the reviewed snapshot.",
+            ));
+        }
+        if status.state != ReviewState::Ready {
+            return Err(CoreError::new(
+                "ReviewStale",
+                "The reviewed chapter is no longer current; review it again before exporting.",
+            ));
+        }
+        let bundle_id = status.active_bundle_id.ok_or_else(|| {
+            CoreError::new(
+                "ReviewRequired",
+                "Mark this chapter reviewed before exporting the reviewed snapshot.",
+            )
+        })?;
+        let bundle = read_bundle(db, &bundle_id)?.ok_or_else(|| {
+            CoreError::new(
+                "ReviewSourceMismatch",
+                "The current reviewed bundle is unavailable.",
+            )
+        })?;
+        validate_reviewed_export_source(
+            db,
+            &access.project_id,
+            &access.operation_namespace,
+            &bundle_id,
+            expected,
+            &bundle.revision_id,
+        )?;
+        let revision = read_revision(db, &bundle.revision_id)?;
+        Ok((bundle_id, revision))
+    }
+
     pub(super) fn handle_review(&mut self, command: ReviewCommand) {
         match command {
             ReviewCommand::Status(access, document_id, reply) => {
@@ -739,11 +803,11 @@ fn stage_to_dto(db: &Connection, stage: StageRow) -> CoreResult<ReviewStage> {
 fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>> {
     let row: Option<BundleDbRow> = db
         .query_row(
-            "SELECT id,project_id,operation_namespace,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,created_at FROM ready_bundles WHERE id=?",
+            "SELECT id,project_id,operation_namespace,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,created_at FROM ready_bundles WHERE id=?",
             [bundle_id],
             |row| Ok((
                 row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?,
-                row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?, row.get(13)?,
+                row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?, row.get(13)?, row.get(14)?,
             )),
         )
         .optional()?;
@@ -761,6 +825,7 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
         _previous_bundle_id,
         prefix_json,
         prefix_hash,
+        coverage,
         created_at,
     )) = row
     else {
@@ -780,6 +845,7 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
         revision_id: target_revision_id,
         policy_epoch,
         prefix: parse_prefix(&prefix_json, &prefix_hash)?,
+        coverage,
         created_at,
     }))
 }
@@ -873,6 +939,82 @@ pub(super) fn selected_prefix(
         });
     }
     Ok(result)
+}
+
+/// Validate immutable reviewed provenance for an export or historical read.
+///
+/// This deliberately does not consult `ready_heads`, current policy, or the
+/// current ordered prefix. Those are required by
+/// `resolve_reviewed_export_source` for a new export, while an already-recorded
+/// export must remain independently verifiable after a later review replaces
+/// the selected head.
+pub(super) fn validate_reviewed_export_source(
+    connection: &Connection,
+    project_id: &str,
+    operation_namespace: &str,
+    bundle_id: &str,
+    expected: &Head,
+    revision_id: &str,
+) -> CoreResult<()> {
+    check_id(project_id)?;
+    check_id(operation_namespace)?;
+    check_id(bundle_id)?;
+    check_id(&expected.document_id)?;
+    check_id(revision_id)?;
+    parse_version(&expected.version)?;
+    if !valid_hash(&expected.body_hash) {
+        return Err(CoreError::new(
+            "ReviewSourceMismatch",
+            "The reviewed export target has an invalid body fingerprint.",
+        ));
+    }
+
+    let bundle = read_bundle(connection, bundle_id)?.ok_or_else(|| {
+        CoreError::new(
+            "ReviewBundleNotFound",
+            "The reviewed export bundle is not available.",
+        )
+    })?;
+    if bundle.coverage != "authorOnly"
+        || bundle.project_id != project_id
+        || bundle.operation_namespace != operation_namespace
+        || bundle.document_id != expected.document_id
+        || bundle.target != *expected
+        || bundle.revision_id != revision_id
+    {
+        return Err(CoreError::new(
+            "ReviewSourceMismatch",
+            "The reviewed export bundle does not match its immutable source.",
+        ));
+    }
+
+    validate_prefix_evidence(
+        connection,
+        project_id,
+        operation_namespace,
+        &expected.document_id,
+        &bundle.prefix,
+    )
+    .map_err(|error| {
+        CoreError::new(
+            "ReviewSourceMismatch",
+            &format!("The reviewed export prefix is invalid: {}", error.detail),
+        )
+    })?;
+
+    let revision = read_revision(connection, revision_id).map_err(|error| {
+        CoreError::new(
+            "ReviewSourceMismatch",
+            &format!("The reviewed export revision is invalid: {}", error.detail),
+        )
+    })?;
+    if revision.id != revision_id || revision.head != *expected {
+        return Err(CoreError::new(
+            "ReviewSourceMismatch",
+            "The reviewed export revision does not match its immutable source.",
+        ));
+    }
+    Ok(())
 }
 
 /// Validate the immutable bundle provenance retained by a frozen reviewed
@@ -1027,6 +1169,7 @@ fn validate_prefix_evidence(
         })?;
         if bundle.project_id != project_id
             || bundle.operation_namespace != operation_namespace
+            || bundle.coverage != "authorOnly"
             || bundle.document_id != item.document_id
             || bundle.document_id == owner_document_id
             || bundle.revision_id != item.revision_id

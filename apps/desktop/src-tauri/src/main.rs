@@ -125,6 +125,7 @@ fn main() {
             provider_commands::check_codex_connection,
             provider_commands::save_model_settings,
             export_commands::prepare_draft_export,
+            export_commands::prepare_reviewed_draft_export,
             export_commands::export_prepared_draft,
             guidance_commands::read_guidance,
             guidance_commands::save_guidance,

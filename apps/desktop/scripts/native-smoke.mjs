@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, relative, resolve, sep, toNamespacedPath } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -31,10 +31,12 @@ function launch() {
   return process;
 }
 let app = launch();
-async function operateSaveDialog(action, destination = '') {
+async function operateSaveDialog(action, destination = '', reviewed = false, expectNoFile = false) {
   const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', resolve(root, 'apps/desktop/scripts/native-save-dialog.ps1'),
     '-OwnerPid', String(app.pid), '-Action', action, '-TestRoot', data];
   if (destination) args.push('-Destination', destination);
+  if (reviewed) args.push('-DialogTitle', 'Save author-reviewed snapshot as a new file');
+  if (expectNoFile) args.push('-ExpectNoFile');
   return new Promise((accept, reject) => {
     const helper = spawn('powershell.exe', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
@@ -1043,6 +1045,8 @@ try {
   await page.getByRole('button', { name: 'Show active', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor();
   checks.push('Native renames preserve the mounted editor; last document and exact caret survive navigation/reload; archive and unarchive preserve the project');
+  const { qualifyReviewedExport } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-reviewed-export.mjs')).href);
+  await qualifyReviewedExport({ page, data, output, operateSaveDialog, createWritingProject, checks });
   await createWritingProject('Review story', 'chapter', 'The gate', 'Mei left the key beside the gate.');
   await page.getByRole('button', { name: 'Story review', exact: true }).click();
   await page.getByRole('button', { name: 'Review saved chapter', exact: true }).click();

@@ -26,6 +26,18 @@ pub async fn prepare_draft_export(
 }
 
 #[tauri::command]
+pub async fn prepare_reviewed_draft_export(
+    access: ProjectAccess,
+    expected: Head,
+    format: DraftFormat,
+    projects: State<'_, DesktopProjects>,
+) -> CoreResult<DraftExportPreview> {
+    let project = projects.project(&access.project_id)?;
+    execute(move || transfer::prepare_reviewed_draft_export(&project, &access, expected, format))
+        .await
+}
+
+#[tauri::command]
 pub async fn export_prepared_draft(
     access: ProjectAccess,
     preview: DraftExportPreview,
@@ -33,12 +45,19 @@ pub async fn export_prepared_draft(
 ) -> CoreResult<Option<DraftExportResult>> {
     let project = projects.project(&access.project_id)?;
     execute(move || {
-        let (label, extension, filename) = match preview.format {
-            DraftFormat::PlainText => ("Plain text", "txt", "Chapter draft.txt"),
-            DraftFormat::Markdown => ("Markdown", "md", "Chapter draft.md"),
+        let reviewed = preview.review_bundle_id.is_some();
+        let (label, extension, filename) = match (preview.format, reviewed) {
+            (DraftFormat::PlainText, false) => ("Plain text", "txt", "Chapter draft.txt"),
+            (DraftFormat::Markdown, false) => ("Markdown", "md", "Chapter draft.md"),
+            (DraftFormat::PlainText, true) => ("Plain text", "txt", "Author-reviewed chapter.txt"),
+            (DraftFormat::Markdown, true) => ("Markdown", "md", "Author-reviewed chapter.md"),
         };
         let Some(path) = rfd::FileDialog::new()
-            .set_title("Save draft as a new file")
+            .set_title(if reviewed {
+                "Save author-reviewed snapshot as a new file"
+            } else {
+                "Save draft as a new file"
+            })
             .add_filter(label, &[extension])
             .set_file_name(filename)
             .save_file()
