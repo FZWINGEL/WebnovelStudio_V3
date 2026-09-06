@@ -6,12 +6,13 @@ import * as ipc from '../ipc/providers';
 import { ModelSelector } from './ModelSelector';
 import { ModelSettings } from './ModelSettings';
 import { ProviderSettingsProvider, useProviders } from './ProviderContext';
-vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), checkCodexConnection: vi.fn(), saveModelSettings: vi.fn() }));
+vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), readEndpointSettings: vi.fn(), checkCodexConnection: vi.fn(), saveModelSettings: vi.fn() }));
 const luna: ipc.ModelSelection = { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority' };
 function initial(): ipc.ProviderState {
   return { settings: { revision: '0', active: { ...ipc.localModel }, favorites: [] }, dispatch: { kind: 'localMock', detail: 'No live AI connected' }, codexConnection: { ready: false, detail: 'Check Settings to connect Codex.' }, catalog: { models: [
     { key: { providerId: 'mock', modelId: 'mock-story-context' }, label: 'Local test model', providerLabel: 'Local', reasoningLevels: [], serviceTiers: [], contextWindowTokens: null, maxOutputTokens: null, origin: 'builtIn', ready: true, statusDetail: 'No live AI connected' },
     { key: { providerId: 'codex', modelId: 'gpt-5.6-luna' }, label: 'GPT-5.6-Luna', providerLabel: 'Codex CLI', reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'], serviceTiers: [{ id: 'priority', label: 'Fast' }], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: false, statusDetail: 'Not connected' },
+    { key: { providerId: 'openai-compatible:11111111-1111-1111-1111-111111111111', modelId: 'nova' }, label: 'Nova Writer', providerLabel: 'Local API', reasoningLevels: ['low', 'high'], serviceTiers: [{ id: 'standard', label: 'Standard' }], contextWindowTokens: null, maxOutputTokens: null, origin: 'openAiCompatible', ready: true, statusDetail: 'Ready' },
   ] } };
 }
 let state: ipc.ProviderState; let host: HTMLDivElement; let root: Root;
@@ -24,12 +25,20 @@ beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.removeAttribute('open'); } });
   vi.mocked(ipc.readProviderState).mockImplementation(async () => structuredClone(state));
+  vi.mocked(ipc.readEndpointSettings).mockResolvedValue({ revision: '0', profiles: [] });
   vi.mocked(ipc.checkCodexConnection).mockImplementation(async () => structuredClone(state));
   vi.mocked(ipc.saveModelSettings).mockImplementation(async (_revision, active, favorites) => { state = { ...state, settings: { revision: String(Number(state.settings.revision) + 1), active, favorites }, dispatch: { kind: active.providerId === 'mock' ? 'localMock' : 'blocked', detail: '' } }; return structuredClone(state); });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 describe('persistent model selection', () => {
+  it('does not match opaque endpoint identity characters as part of a model name', async () => {
+    const endpoint = state.catalog.models[2]; endpoint.key.modelId = 'test-editor-v2'; endpoint.label = 'test-editor-v2';
+    await render(); await click('Choose model: Local test model');
+    const input = host.querySelector('#model-search') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'test-editor-v1'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(host.querySelectorAll('.model-choice')).toHaveLength(0);
+  });
   it('browses without changing the model and commits a keyboard choice with exact traits', async () => {
     await render(); await click('Choose model: Local test model');
     await act(async () => host.querySelector('#model-search')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
@@ -47,6 +56,28 @@ describe('persistent model selection', () => {
     const input = host.querySelector('#model-search') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'lun'); input.dispatchEvent(new Event('input', { bubbles: true })); });
     expect(host.querySelectorAll('.model-choice')).toHaveLength(1); expect(state.settings.active).toEqual(ipc.localModel);
+  });
+  it('searches every provider while a provider rail filter is active', async () => {
+    await render(); await click('Choose model: Local test model');
+    await click('Codex CLI');
+    expect(host.querySelectorAll('.model-choice')).toHaveLength(1);
+    expect(host.querySelector('.model-choice')?.textContent).toContain('GPT-5.6-Luna');
+    const input = host.querySelector('#model-search') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'nova'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(host.querySelector('[role=status]')?.textContent).toContain('Searching all providers');
+    expect(host.querySelectorAll('.model-choice')).toHaveLength(1);
+    expect(host.querySelector('.model-choice')?.textContent).toContain('Nova Writer');
+    expect(host.querySelectorAll('.model-rail-item[aria-pressed=true]')).toHaveLength(0);
+  });
+  it('edits declared traits beside the persistent selector without selecting a model', async () => {
+    state.settings = { revision: '8', active: luna, favorites: [luna] }; state.dispatch.kind = 'blocked'; await render();
+    await click('Edit model traits: Extra high · Fast');
+    expect(host.querySelector('dialog.model-traits-dialog')).not.toBeNull();
+    const reasoning = host.querySelector('#traits-reasoning') as HTMLSelectElement;
+    await act(async () => { reasoning.value = 'high'; reasoning.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('8', { ...luna, reasoning: 'high' }, [luna]);
+    expect(host.querySelector('dialog.model-picker-dialog')).toBeNull();
+    await click('Close model traits'); expect(document.activeElement).toBe(button('Edit model traits: High · Fast'));
   });
   it('reconciles a lost save acknowledgment by reading settings without replaying', async () => {
     await render(); await click('Choose model: Local test model');

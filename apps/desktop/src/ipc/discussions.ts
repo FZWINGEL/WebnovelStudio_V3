@@ -39,6 +39,7 @@ export interface LookupInvocationSummary {
 }
 export interface LookupRunSummary { allowance: LookupAllowance; invocations: LookupInvocationSummary[] }
 export interface ProviderResult {
+  delivery?: { bodyHash: string; bodyBytes: string; submission: 'notSent' | 'uncertain' | 'responseReceived'; usage?: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null } };
   binding: ProviderBinding; status: 'completed' | 'stopped' | 'timedOut' | 'outputLimit' | 'failed';
   confirmedStdinBytes: string; cleanup: 'settled' | 'unresolved'; error: string | null; effectiveIdentity: string | null;
   usage: { inputTokens: number; cachedInputTokens: number; cacheWriteInputTokens: number; outputTokens: number; reasoningOutputTokens: number } | null;

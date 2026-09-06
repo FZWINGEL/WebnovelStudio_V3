@@ -6,10 +6,18 @@ use std::time::Duration;
 use tokio::runtime::Builder;
 
 use serde_json::{Value, json};
-use webnovel_core::providers::adapter::{
-    CancellationToken, ChatAdapter, ChatMessage, ChatRequest, MessageRole, ProviderErrorKind,
-    ResponseFormat, StreamEvent,
+use sha2::Digest;
+use webnovel_core::context::PacketReceipt;
+use webnovel_core::context::packet::{
+    CompiledPacket, HTTP_INPUT_LIMIT_BYTES, HTTP_OUTPUT_LIMIT_BYTES, HTTP_PROFILE_VERSION,
+    HTTP_TOKEN_ACCOUNTING_METHOD, HttpProviderBinding, HttpResponseFormat, PacketMessage,
+    PacketOptions, ProviderBinding,
 };
+use webnovel_core::providers::adapter::{
+    CancellationToken, ChatAdapter, ChatMessage, ChatRequest, HttpRequestStage, MessageRole,
+    ProviderErrorKind, ResponseFormat, StreamEvent,
+};
+use webnovel_core::providers::http_request::prepare_request;
 use webnovel_core::providers::openai_compatible::{
     OpenAiCompatibleAdapter, OpenAiCompatibleConfig, normalize_base_url,
 };
@@ -162,6 +170,64 @@ fn request() -> ChatRequest {
     request
 }
 
+fn packet(server_url: &str, stream: bool) -> CompiledPacket {
+    let binding = ProviderBinding {
+        provider_id: "openai-compatible:00000000-0000-0000-0000-000000000001".into(),
+        model_id: "gpt-5.6-luna".into(),
+        reasoning: Some("xhigh".into()),
+        service_tier: Some("priority".into()),
+        profile_version: HTTP_PROFILE_VERSION.into(),
+        input_limit_bytes: HTTP_INPUT_LIMIT_BYTES.to_string(),
+        reserved_output_bytes: "0".into(),
+        reserved_protocol_bytes: "0".into(),
+        output_limit_bytes: HTTP_OUTPUT_LIMIT_BYTES.to_string(),
+        accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.into(),
+        runtime: None,
+        http: Some(HttpProviderBinding {
+            base_url: format!("{server_url}/v1"),
+            config_revision: "1".into(),
+            stream,
+            response_format: HttpResponseFormat::Text,
+        }),
+    };
+    CompiledPacket {
+        messages: vec![PacketMessage {
+            role: "user".into(),
+            content: "Write one sentence.".into(),
+        }],
+        options: PacketOptions {
+            model_id: binding.model_id.clone(),
+            max_output_tokens: "128".into(),
+            token_accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.into(),
+            provider_binding: Some(binding),
+        },
+        receipt: PacketReceipt {
+            lookup: None,
+            packet_id: "packet".into(),
+            session_id: "session".into(),
+            snapshot_id: "snapshot".into(),
+            invocation_ordinal: "1".into(),
+            source_handles: Vec::new(),
+            mandatory_source_handles: Vec::new(),
+            guidance_handles: Vec::new(),
+            conversation_message_ids: Vec::new(),
+            omitted_discussion_turns: 0,
+            safe_brief: None,
+            coverage: Vec::new(),
+            omissions: Vec::new(),
+            navigation_views: Vec::new(),
+            navigation_omissions: Vec::new(),
+            reviewed_evidence: Vec::new(),
+            reviewed_evidence_omissions: Vec::new(),
+            reviewed_promises: Vec::new(),
+            reviewed_promise_omissions: Vec::new(),
+            input_hash: "a".repeat(64),
+            input_tokens: "1".into(),
+            token_accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.into(),
+        },
+    }
+}
+
 #[test]
 fn endpoint_validation_normalizes_v1_without_leaking_credentials() {
     assert_eq!(
@@ -175,6 +241,12 @@ fn endpoint_validation_normalizes_v1_without_leaking_credentials() {
             .unwrap()
             .as_str(),
         "https://example.test/api/v1"
+    );
+    assert_eq!(
+        normalize_base_url("http://localhost:9000/api/chat/")
+            .unwrap()
+            .as_str(),
+        "http://localhost:9000/api/chat"
     );
     for invalid in [
         "ftp://example.test",
@@ -297,6 +369,38 @@ fn stream_handles_split_sse_multiline_reasoning_usage_and_done() {
             |event| matches!(event, StreamEvent::Usage(usage) if usage.total_tokens == Some(5))
         )
     );
+    server
+        .captured
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    server.thread.join().unwrap();
+}
+
+#[test]
+fn stream_preserves_final_content_when_provider_stops_at_length() {
+    let sse = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"final partial\"},\"finish_reason\":\"length\"}]}\n\n",
+        "data: [DONE]\n\n"
+    )
+    .as_bytes()
+    .to_vec();
+    let server = mock_server(200, "text/event-stream", sse, None);
+    let adapter = adapter(&server, None);
+    let mut stream_request = request();
+    stream_request.response_format = ResponseFormat::PlainText;
+    let mut events = Vec::new();
+    let error = run(
+        adapter.stream(&stream_request, &CancellationToken::new(), &mut |event| {
+            events.push(event)
+        }),
+    )
+    .expect_err("length termination must remain a failed stream");
+
+    assert_eq!(error.kind, ProviderErrorKind::Incomplete);
+    assert_eq!(error.partial_text, "final partial");
+    assert!(events.iter().any(
+        |event| matches!(event, StreamEvent::ContentDelta(value) if value == "final partial")
+    ));
     server
         .captured
         .recv_timeout(Duration::from_secs(2))
@@ -444,4 +548,80 @@ fn stream_rejects_empty_malformed_and_non_text_completions() {
             .unwrap();
         server.thread.join().unwrap();
     }
+}
+
+#[test]
+fn packet_stream_sends_the_compiled_body_and_reports_http_stages() {
+    let sse = concat!(
+        "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"compiled\"},\"finish_reason\":\"stop\"}]}\n\n",
+        "data: [DONE]\n\n"
+    )
+    .as_bytes()
+    .to_vec();
+    let server = mock_server(200, "text/event-stream", sse, None);
+    let packet = packet(&server.url, true);
+    let expected = prepare_request(&packet.messages, &packet.options).unwrap();
+    let adapter = adapter(&server, Some("packet-secret"));
+    let mut events = Vec::new();
+    let mut stages = Vec::new();
+    let response = run(adapter.stream_packet_async(
+        &packet,
+        &CancellationToken::new(),
+        &mut |event| events.push(event),
+        &mut |stage| stages.push(stage),
+    ))
+    .unwrap();
+    assert_eq!(response.text, "compiled");
+    assert_eq!(
+        stages,
+        vec![
+            HttpRequestStage::Submitted,
+            HttpRequestStage::ResponseReceived
+        ]
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, StreamEvent::ContentDelta(value) if value == "compiled"))
+    );
+    let captured = server
+        .captured
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    server.thread.join().unwrap();
+    assert_eq!(captured.body, expected.body);
+    let digest = sha2::Sha256::digest(&captured.body);
+    assert_eq!(
+        digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>(),
+        expected.body_hash
+    );
+    assert!(!String::from_utf8_lossy(&captured.body).contains("packet-secret"));
+}
+
+#[test]
+fn packet_stream_rejects_an_endpoint_binding_mismatch_before_network_io() {
+    let server = mock_server(200, "text/event-stream", b"data: [DONE]\n\n".to_vec(), None);
+    let packet = packet("http://127.0.0.1:1", true);
+    let adapter = adapter(&server, None);
+    let mut stages = Vec::new();
+    let error = run(adapter.stream_packet_async(
+        &packet,
+        &CancellationToken::new(),
+        &mut |_| {},
+        &mut |stage| stages.push(stage),
+    ))
+    .expect_err("a packet for another endpoint must not be sent");
+    assert_eq!(error.kind, ProviderErrorKind::Configuration);
+    assert!(stages.is_empty());
+    assert!(
+        server
+            .captured
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+    drop(server);
 }

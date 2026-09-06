@@ -5,9 +5,10 @@
 //! app-local Library stores them separately from project databases.
 
 use super::catalog::{
-    DispatchResolution, ProviderState, built_in_catalog, find_model, validate_catalog,
-    validate_selection,
+    DispatchResolution, ProviderState, built_in_catalog, catalog_with_endpoints, find_model,
+    validate_catalog, validate_selection,
 };
+use super::endpoints::EndpointProfilesSettings;
 use crate::projects::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -105,6 +106,14 @@ impl ModelSettings {
         validate_catalog(&catalog)?;
         validate_settings_against_catalog(self, &catalog)
     }
+
+    pub(crate) fn validate_with_endpoints(
+        &self,
+        endpoints: &EndpointProfilesSettings,
+    ) -> CoreResult<()> {
+        let catalog = catalog_with_endpoints(endpoints, self)?;
+        validate_settings_against_catalog(self, &catalog)
+    }
 }
 
 pub fn validate_settings_against_catalog(
@@ -157,9 +166,12 @@ pub fn parse_revision(value: &str) -> CoreResult<i64> {
     Ok(revision)
 }
 
-pub(crate) fn provider_state(settings: ModelSettings) -> CoreResult<ProviderState> {
-    settings.validate()?;
-    let catalog = built_in_catalog();
+pub(crate) fn provider_state_with_endpoints(
+    settings: ModelSettings,
+    endpoints: &EndpointProfilesSettings,
+) -> CoreResult<ProviderState> {
+    let catalog = catalog_with_endpoints(endpoints, &settings)?;
+    validate_settings_against_catalog(&settings, &catalog)?;
     let model = find_model(&catalog, &settings.active.key())?;
     let dispatch = if model.key
         == ModelKey::new(
@@ -169,6 +181,19 @@ pub(crate) fn provider_state(settings: ModelSettings) -> CoreResult<ProviderStat
         DispatchResolution::LocalMock {
             detail: "The deterministic local mock is ready.".to_owned(),
         }
+    } else if let Some(profile) = endpoints.find(&model.key.provider_id) {
+        let detail = if profile.enabled {
+            format!(
+                "{} is saved as the active choice, but native OpenAI-compatible dispatch is not ready yet.",
+                model.label
+            )
+        } else {
+            format!(
+                "{} is saved as the active choice, but its endpoint profile is disabled.",
+                model.label
+            )
+        };
+        DispatchResolution::Blocked { detail }
     } else {
         DispatchResolution::Blocked {
             detail: format!(

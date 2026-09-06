@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { sameModel } from '../ipc/providers';
 import { useProviders } from './ProviderContext';
 import './providers.css';
+import { EndpointSettings } from './EndpointSettings';
 
 export function ModelSettings() {
   const [open, setOpen] = useState(false); const button = useRef<HTMLButtonElement>(null);
@@ -21,10 +22,11 @@ function SettingsDialog({ onClose }: { onClose(): void }) {
   function close() { dialog.current?.close(); onClose(); }
   return <dialog ref={dialog} className="model-dialog settings-dialog" aria-labelledby="model-settings-title" onCancel={event => { event.preventDefault(); close(); }}>
     <div className="provider-dialog-heading"><h2 id="model-settings-title">Settings</h2><button onClick={close} aria-label="Close settings">Close</button></div>
+    <div className="settings-content">
     <h3>Writing assistant</h3>
     {model && active && state ? <>
       <p className="provider-active-name">{model.label}<span>{model.providerLabel}</span></p>
-      <p className="provider-note">{model.key.providerId === 'mock' ? 'The local test model is ready. No live AI connection is used.' : model.ready ? 'Codex is connected. Live requests require Extra high reasoning and Fast response speed.' : 'This Codex model is saved as your choice. Check the connection before sending a request.'}</p>
+      <p className="provider-note">{state.dispatch.detail || model.statusDetail}</p>
       {!!model.reasoningLevels.length && <div className="provider-field"><label htmlFor="model-reasoning">Reasoning</label>
         <select id="model-reasoning" value={active.reasoning ?? ''} disabled={busy} onChange={event => void save({ ...active, reasoning: event.target.value || null }, state.settings.favorites)}>
           <option value="">Provider default</option>{model.reasoningLevels.map(level => <option key={level} value={level}>{level === 'xhigh' ? 'Extra high' : level.charAt(0).toUpperCase() + level.slice(1)}</option>)}
@@ -45,8 +47,10 @@ function SettingsDialog({ onClose }: { onClose(): void }) {
       <p className="provider-note" role="status" aria-live="polite">{state.codexConnection?.detail ?? 'Check this computer for the installed Codex sign-in.'}</p>
       <button type="button" disabled={busy} onClick={() => void checkConnection()}>Check Codex connection</button>
     </section>}
+    <EndpointSettings />
     {error && <p role="alert" className="provider-error">{error}</p>}
     <button type="button" disabled={busy} onClick={() => void refresh()}>Reload saved settings</button>
     <p className="provider-note">Choose a model from the selector in the app header.</p>
+    </div>
   </dialog>;
 }

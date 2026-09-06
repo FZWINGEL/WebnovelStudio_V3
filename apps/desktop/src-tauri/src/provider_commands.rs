@@ -19,16 +19,7 @@ pub async fn provider_state(
 ) -> CoreResult<DesktopProviderState> {
     let state = state.inner().clone();
     let runtime = runtime.inner().clone();
-    execute(move || {
-        runtime.view(
-            state
-                .0
-                .lock()
-                .map_err(|_| unavailable())?
-                .provider_state()?,
-        )
-    })
-    .await
+    execute(move || runtime.view_library(&*state.0.lock().map_err(|_| unavailable())?)).await
 }
 
 #[tauri::command]
@@ -40,13 +31,7 @@ pub async fn check_codex_connection(
     let runtime = runtime.inner().clone();
     execute(move || {
         runtime.check_connection()?;
-        runtime.view(
-            state
-                .0
-                .lock()
-                .map_err(|_| unavailable())?
-                .provider_state()?,
-        )
+        runtime.view_library(&*state.0.lock().map_err(|_| unavailable())?)
     })
     .await
 }
@@ -62,13 +47,9 @@ pub async fn save_model_settings(
     let state = state.inner().clone();
     let runtime = runtime.inner().clone();
     execute(move || {
-        runtime.view(
-            state
-                .0
-                .lock()
-                .map_err(|_| unavailable())?
-                .save_model_settings(&expected_revision, active, favorites)?,
-        )
+        let mut library = state.0.lock().map_err(|_| unavailable())?;
+        library.save_model_settings(&expected_revision, active, favorites)?;
+        runtime.view_library(&library)
     })
     .await
 }

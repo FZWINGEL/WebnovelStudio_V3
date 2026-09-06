@@ -10,6 +10,16 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+/// Observability points for an OpenAI-compatible HTTP request.  `Submitted`
+/// means the worker is about to hand the immutable body to the HTTP client;
+/// `ResponseReceived` means response headers have arrived.  A response-body
+/// parse result is deliberately not represented here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpRequestStage {
+    Submitted,
+    ResponseReceived,
+}
+
 /// A chat message sent to an OpenAI-compatible endpoint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
@@ -192,7 +202,7 @@ pub trait ChatAdapter: Send + Sync {
         &self,
         request: &ChatRequest,
         cancel: &CancellationToken,
-        on_event: &mut dyn FnMut(StreamEvent),
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
     ) -> Result<ChatResponse, ProviderError>;
     async fn list_models(&self, cancel: &CancellationToken) -> Result<Vec<String>, ProviderError>;
 }

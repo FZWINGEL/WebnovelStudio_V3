@@ -76,6 +76,7 @@ pub fn remove_schema24_features(connection: &Connection) -> rusqlite::Result<()>
     }
 
     drop_column_if_present(connection, "discussion_drafts", "lookup_json")?;
+    drop_column_if_present(connection, "provider_results", "delivery_json")?;
     Ok(())
 }
 

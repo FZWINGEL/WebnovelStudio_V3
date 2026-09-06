@@ -152,6 +152,7 @@ export interface CompiledPacket {
 }
 export interface ProviderBinding {
   runtime?: { cliVersion: string; executableSha256: string };
+  http?: { baseUrl: string; configRevision: string; stream: boolean; responseFormat: 'text' | 'jsonObject' };
   providerId: string; modelId: string; reasoning: string | null; serviceTier: string | null;
   profileVersion: string; inputLimitBytes: string; reservedOutputBytes: string;
   reservedProtocolBytes: string; outputLimitBytes: string; accountingMethod: string;

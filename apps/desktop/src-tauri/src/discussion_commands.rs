@@ -159,6 +159,20 @@ pub async fn start_discussion(
     let recovery = recovery.inner().clone();
     let library = library.inner().clone();
     let runtime = runtime.inner().clone();
+    if model_selection
+        .as_ref()
+        .is_some_and(|choice| choice.provider_id.starts_with("openai-compatible:"))
+    {
+        return crate::http_discussion::start(
+            request,
+            model_selection.unwrap(),
+            project,
+            recovery,
+            library,
+            runtime,
+        )
+        .await;
+    }
     execute(move || {
         let selected = model_selection
             .clone()
@@ -322,7 +336,7 @@ fn has_saved_request(project: &ProjectSession, request: &StartDiscussion) -> Cor
     Ok(saved_request(project, request)?.is_some())
 }
 
-fn saved_request(
+pub(super) fn saved_request(
     project: &ProjectSession,
     request: &StartDiscussion,
 ) -> CoreResult<Option<DiscussionRun>> {

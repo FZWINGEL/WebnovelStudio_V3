@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 25;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 26;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -105,6 +105,9 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         }
         if version < 24 {
             tx.execute_batch(include_str!("024_discussion_lookup.sql"))?;
+        }
+        if version < 26 {
+            tx.execute_batch(include_str!("026_http_provider_delivery.sql"))?;
         }
         // Schema 25 also changes no tables: new provider bindings record the
         // app profile and observed CLI identity independently. Older readers

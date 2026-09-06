@@ -25,6 +25,7 @@ use crate::documents::{
 use crate::projects::context_packets::PrepareContext;
 use crate::projects::discussion_lookup;
 use crate::projects::story_context::{FreezeReviewedContinuation, FreezeStory, FrozenContext};
+use crate::providers::http_request::prepare_request as prepare_http_request;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -301,6 +302,38 @@ impl ProviderCleanup {
     }
 }
 
+/// Evidence about the HTTP request itself.  This is intentionally separate
+/// from Codex's local stdin count: an HTTP request can be accepted by a remote
+/// server even when the local process loses the response before it is parsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HttpDeliverySubmission {
+    NotSent,
+    Uncertain,
+    ResponseReceived,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HttpProviderUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderDeliveryReceipt {
+    pub body_hash: String,
+    pub body_bytes: String,
+    pub submission: HttpDeliverySubmission,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<HttpProviderUsage>,
+}
+
 /// Raw provider usage is optional. Missing usage is an explicit unknown value;
 /// no estimate is substituted from the packet's byte accounting.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -329,6 +362,10 @@ pub struct ProviderTerminalReport {
     /// The adapter cannot establish an effective identity in this slice. Keep
     /// this optional so a later qualified adapter can report one explicitly.
     pub effective_identity: Option<String>,
+    /// Present only for OpenAI-compatible HTTP.  Historical Codex reports
+    /// omit this field and retain their exact wire shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<ProviderDeliveryReceipt>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -347,6 +384,8 @@ pub struct ProviderResult {
     pub error: Option<String>,
     pub effective_identity: Option<String>,
     pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<ProviderDeliveryReceipt>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1956,15 +1995,25 @@ impl OwnedProject {
         }
         let serialized =
             serialized_input(&packet.messages, &packet.options).map_err(packet_error)?;
-        if confirmed_stdin_bytes > serialized.len() as u64
-            || (request.status == ProviderOutcomeStatus::Completed
-                && confirmed_stdin_bytes != serialized.len() as u64)
-        {
-            return Err(CoreError::new(
-                "ProviderInputMismatch",
-                "The provider reported more stdin than the frozen packet, or a completed run did not consume the exact packet.",
-            ));
-        }
+        let delivered = if binding.is_http() {
+            validate_http_delivery(&packet, &request)?;
+            matches!(
+                request.delivery.as_ref().map(|receipt| receipt.submission),
+                Some(HttpDeliverySubmission::ResponseReceived)
+            )
+        } else {
+            if request.delivery.is_some()
+                || confirmed_stdin_bytes > serialized.len() as u64
+                || (request.status == ProviderOutcomeStatus::Completed
+                    && confirmed_stdin_bytes != serialized.len() as u64)
+            {
+                return Err(CoreError::new(
+                    "ProviderInputMismatch",
+                    "The Codex provider reported invalid stdin delivery evidence.",
+                ));
+            }
+            confirmed_stdin_bytes == serialized.len() as u64
+        };
         let output_limit = binding
             .output_limit()
             .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
@@ -2017,7 +2066,7 @@ impl OwnedProject {
                 next,
                 request.assistant_text,
                 reason,
-                confirmed_stdin_bytes == serialized.len() as u64,
+                delivered,
                 current.id,
                 current.owner.project_id,
                 current.owner.operation_namespace,
@@ -2054,8 +2103,13 @@ impl OwnedProject {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
+        let delivery_json = request
+            .delivery
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
         tx.execute(
-            "INSERT INTO provider_results(run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO provider_results(run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,delivery_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 current.id,
                 current.packet_id,
@@ -2071,6 +2125,7 @@ impl OwnedProject {
                 request.cleanup.as_str(),
                 request.error,
                 request.effective_identity,
+                delivery_json,
             ],
         )?;
         if status == DiscussionRunStatus::Completed {
@@ -2311,6 +2366,12 @@ fn validate_start(request: &StartDiscussion) -> CoreResult<()> {
         binding
             .validate()
             .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
+        if binding.is_http() && request.lookup.is_some() {
+            return Err(CoreError::new(
+                "UnsupportedProviderFeature",
+                "OpenAI-compatible HTTP discussions do not support bounded story lookup yet.",
+            ));
+        }
     }
     if let Some(scope) = &request.scope
         && (scope.quote.len() > MAX_SCOPE_QUOTE_BYTES
@@ -2858,6 +2919,7 @@ type ProviderResultRow = (
     Option<String>,
     Option<String>,
     String,
+    Option<String>,
 );
 
 fn read_provider_result(
@@ -2867,7 +2929,7 @@ fn read_provider_result(
 ) -> CoreResult<Option<ProviderResult>> {
     let row: Option<ProviderResultRow> = db
         .query_row(
-            "SELECT run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,created_at FROM provider_results WHERE run_id=?",
+            "SELECT run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,created_at,delivery_json FROM provider_results WHERE run_id=?",
             [run_id],
             |row| {
                 Ok((
@@ -2884,6 +2946,7 @@ fn read_provider_result(
                     row.get(10)?,
                     row.get(11)?,
                     row.get(12)?,
+                    row.get(13)?,
                 ))
             },
         )
@@ -2902,6 +2965,7 @@ fn read_provider_result(
         error,
         effective_identity,
         created_at,
+        delivery_json,
     )) = row
     else {
         return Ok(None);
@@ -2926,13 +2990,49 @@ fn read_provider_result(
     let usage = usage_json
         .map(|json| serde_json::from_str(&json))
         .transpose()?;
+    let delivery = delivery_json
+        .map(|json| serde_json::from_str(&json))
+        .transpose()?;
+    let status = ProviderOutcomeStatus::parse(&outcome)?;
+    let cleanup = ProviderCleanup::parse(&cleanup)?;
     let input_limit = binding
         .input_limit()
         .map_err(|message| CoreError::new("InvalidProject", &message))?;
-    if assistant_text.len() > CODEX_OUTPUT_LIMIT_BYTES
+    if binding.is_http() {
+        if confirmed_stdin_bytes != 0 {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "An HTTP provider result must retain a zero Codex stdin count.",
+            ));
+        }
+        let packet = context_packets::validated_packet_record(db, packet_id)?;
+        validate_stored_http_delivery(&packet, &binding, delivery.as_ref())?;
+        if status == ProviderOutcomeStatus::Completed
+            && !matches!(
+                delivery.as_ref().map(|receipt| receipt.submission),
+                Some(HttpDeliverySubmission::ResponseReceived)
+            )
+        {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A completed HTTP provider result needs complete response evidence.",
+            ));
+        }
+    } else if delivery.is_some()
+        || assistant_text.len() > CODEX_OUTPUT_LIMIT_BYTES
         || confirmed_stdin_bytes > input_limit as u64
-        || (status_is_completed(&outcome) && assistant_text.is_empty())
-        || (status_is_completed(&outcome) && error.is_some())
+    {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The saved Codex provider result has invalid transport evidence.",
+        ));
+    }
+    let output_limit = binding
+        .output_limit()
+        .map_err(|message| CoreError::new("InvalidProject", &message))?;
+    if assistant_text.len() > output_limit
+        || (status == ProviderOutcomeStatus::Completed && assistant_text.is_empty())
+        || (status == ProviderOutcomeStatus::Completed && error.is_some())
         || error.as_deref().is_some_and(|value| {
             value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control)
         })
@@ -2950,18 +3050,15 @@ fn read_provider_result(
         expected_sequence,
         assistant_text,
         binding,
-        status: ProviderOutcomeStatus::parse(&outcome)?,
+        status,
         confirmed_stdin_bytes: confirmed_stdin_bytes.to_string(),
         usage,
-        cleanup: ProviderCleanup::parse(&cleanup)?,
+        cleanup,
         error,
         effective_identity,
         created_at,
+        delivery,
     }))
-}
-
-fn status_is_completed(value: &str) -> bool {
-    value == "completed"
 }
 
 /// Validate immutable provider receipts when opening or transferring a
@@ -2992,7 +3089,15 @@ pub(crate) fn validate_provider_results(db: &Connection) -> CoreResult<()> {
             .map_err(packet_error)?
             .len() as u64;
         let confirmed = parse_decimal_u64(&result.confirmed_stdin_bytes)?;
-        if confirmed > input_len
+        if result.binding.is_http() {
+            if confirmed != 0 {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "An HTTP provider result must retain a zero Codex stdin count.",
+                ));
+            }
+            validate_stored_http_delivery(&packet, &result.binding, result.delivery.as_ref())?;
+        } else if confirmed > input_len
             || (result.status == ProviderOutcomeStatus::Completed && confirmed != input_len)
         {
             return Err(CoreError::new(
@@ -3680,16 +3785,34 @@ fn validate_provider_report_shape(request: &ProviderTerminalReport) -> CoreResul
         .validate()
         .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
     let bytes = parse_decimal_u64(&request.confirmed_stdin_bytes)?;
-    if bytes > CODEX_INPUT_LIMIT_BYTES as u64 {
+    if request.binding.is_http() && bytes != 0 {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "An HTTP provider report must retain a zero Codex stdin count.",
+        ));
+    }
+    if !request.binding.is_http() && bytes > CODEX_INPUT_LIMIT_BYTES as u64 {
         return Err(CoreError::new(
             "InputTooLarge",
             "The provider stdin exceeds the application byte cap.",
         ));
     }
-    if request.assistant_text.len() > CODEX_OUTPUT_LIMIT_BYTES {
+    let output_limit = request
+        .binding
+        .output_limit()
+        .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
+    if request.assistant_text.len() > output_limit {
         return Err(CoreError::new(
             "OutputTooLarge",
             "The provider output exceeds the application byte cap.",
+        ));
+    }
+    if request.binding.is_http() {
+        validate_http_delivery_shape(request.delivery.as_ref(), request.status)?;
+    } else if request.delivery.is_some() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A Codex provider report cannot contain HTTP delivery evidence.",
         ));
     }
     if let Some(error) = &request.error
@@ -3709,6 +3832,93 @@ fn validate_provider_report_shape(request: &ProviderTerminalReport) -> CoreResul
     Ok(())
 }
 
+fn validate_http_delivery_shape(
+    delivery: Option<&ProviderDeliveryReceipt>,
+    status: ProviderOutcomeStatus,
+) -> CoreResult<()> {
+    let Some(delivery) = delivery else {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "An OpenAI-compatible provider report needs HTTP delivery evidence.",
+        ));
+    };
+    if delivery.body_hash.len() != 64
+        || !delivery
+            .body_hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The HTTP request body hash is invalid.",
+        ));
+    }
+    let body_bytes = parse_decimal_u64(&delivery.body_bytes)?;
+    if body_bytes == 0 || body_bytes > crate::context::packet::HTTP_INPUT_LIMIT_BYTES as u64 {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The HTTP request body byte count is outside the application limit.",
+        ));
+    }
+    if status == ProviderOutcomeStatus::Completed
+        && delivery.submission != HttpDeliverySubmission::ResponseReceived
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A completed HTTP provider result needs a fully received response.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_http_delivery(
+    packet: &CompiledPacket,
+    request: &ProviderTerminalReport,
+) -> CoreResult<()> {
+    validate_http_delivery_shape(request.delivery.as_ref(), request.status)?;
+    let delivery = request.delivery.as_ref().expect("validated above");
+    let prepared = prepare_http_request(&packet.messages, &packet.options)?;
+    if delivery.body_hash != prepared.body_hash
+        || delivery.body_bytes != prepared.body_bytes
+        || request.status == ProviderOutcomeStatus::Completed
+            && delivery.submission != HttpDeliverySubmission::ResponseReceived
+    {
+        return Err(CoreError::new(
+            "ProviderInputMismatch",
+            "The HTTP delivery receipt does not match the immutable request body.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_stored_http_delivery(
+    packet: &CompiledPacket,
+    binding: &ProviderBinding,
+    delivery: Option<&ProviderDeliveryReceipt>,
+) -> CoreResult<()> {
+    let Some(delivery) = delivery else {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "An HTTP provider result is missing its delivery receipt.",
+        ));
+    };
+    validate_http_delivery_shape(Some(delivery), ProviderOutcomeStatus::Failed)?;
+    if packet.options.provider_binding.as_ref() != Some(binding) {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The HTTP delivery receipt does not match its packet binding.",
+        ));
+    }
+    let prepared = prepare_http_request(&packet.messages, &packet.options)?;
+    if delivery.body_hash != prepared.body_hash || delivery.body_bytes != prepared.body_bytes {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The saved HTTP delivery receipt does not match the immutable request body.",
+        ));
+    }
+    Ok(())
+}
+
 fn provider_result_matches_report(saved: &ProviderResult, report: &ProviderTerminalReport) -> bool {
     saved.run_id == report.owner.run_id
         && saved.event_id == report.event_id
@@ -3721,6 +3931,7 @@ fn provider_result_matches_report(saved: &ProviderResult, report: &ProviderTermi
         && saved.cleanup == report.cleanup
         && saved.error == report.error
         && saved.effective_identity == report.effective_identity
+        && saved.delivery == report.delivery
 }
 
 fn provider_discussion_status(

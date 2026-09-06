@@ -5,19 +5,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use webnovel_core::context::packet::{
-    MockContextBudget, PROPOSAL_RESPONSE_CONTRACT, ProviderBinding, serialized_input,
+    HTTP_INPUT_LIMIT_BYTES, HTTP_OUTPUT_LIMIT_BYTES, HTTP_PROFILE_VERSION,
+    HTTP_TOKEN_ACCOUNTING_METHOD, HttpProviderBinding, HttpResponseFormat, MockContextBudget,
+    PROPOSAL_RESPONSE_CONTRACT, ProviderBinding, serialized_input,
 };
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::discussions::{
     DiscussionBegin, DiscussionFail, DiscussionFinish, DiscussionMessageRole,
     DiscussionOutputAppend, DiscussionRunStatus, DiscussionScopeInput, DiscussionStopCleanup,
-    DiscussionStopSettled, FeedbackIntent, ProviderCleanup, ProviderOutcomeStatus,
-    ProviderTerminalReport, ProviderUsage, RunOwner, SafeBriefInput, SaveDiscussionDraft,
-    StartDiscussion,
+    DiscussionStopSettled, FeedbackIntent, HttpDeliverySubmission, ProviderCleanup,
+    ProviderDeliveryReceipt, ProviderOutcomeStatus, ProviderTerminalReport, ProviderUsage,
+    RunOwner, SafeBriefInput, SaveDiscussionDraft, StartDiscussion,
 };
 use webnovel_core::projects::{
     CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
 };
+use webnovel_core::providers::http_request::prepare_request;
 use webnovel_core::transfer::{create_backup, recover_backup};
 
 #[path = "support/schema.rs"]
@@ -83,6 +86,41 @@ fn setup_project(
 
 fn budget() -> MockContextBudget {
     MockContextBudget::new("100000", "100", "100")
+}
+
+fn http_binding(response_format: HttpResponseFormat) -> ProviderBinding {
+    ProviderBinding {
+        provider_id: "openai-compatible:00000000-0000-0000-0000-000000000001".into(),
+        model_id: "gpt-5.6-luna".into(),
+        reasoning: Some("xhigh".into()),
+        service_tier: Some("priority".into()),
+        profile_version: HTTP_PROFILE_VERSION.into(),
+        input_limit_bytes: HTTP_INPUT_LIMIT_BYTES.to_string(),
+        reserved_output_bytes: "0".into(),
+        reserved_protocol_bytes: "0".into(),
+        output_limit_bytes: HTTP_OUTPUT_LIMIT_BYTES.to_string(),
+        accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.into(),
+        runtime: None,
+        http: Some(HttpProviderBinding {
+            base_url: "https://example.test/v1".into(),
+            config_revision: "1".into(),
+            stream: true,
+            response_format,
+        }),
+    }
+}
+
+fn http_delivery(
+    dispatch: &webnovel_core::projects::discussions::DiscussionDispatch,
+    submission: HttpDeliverySubmission,
+) -> ProviderDeliveryReceipt {
+    let prepared = prepare_request(&dispatch.packet.messages, &dispatch.packet.options).unwrap();
+    ProviderDeliveryReceipt {
+        body_hash: prepared.body_hash,
+        body_bytes: prepared.body_bytes,
+        submission,
+        usage: None,
+    }
 }
 
 fn start_request(
@@ -2157,7 +2195,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema25-")
+            .starts_with("schema6-before-schema26-")
     }));
 }
 
@@ -2754,6 +2792,7 @@ fn bounded_provider_completion_persists_binding_usage_and_replays_after_restart(
         cleanup: ProviderCleanup::Settled,
         error: None,
         effective_identity: None,
+        delivery: None,
     };
     let settled = project
         .settle_provider_discussion(report.clone())
@@ -2787,6 +2826,182 @@ fn bounded_provider_completion_persists_binding_usage_and_replays_after_restart(
     assert_eq!(run.status, DiscussionRunStatus::Completed);
     assert_eq!(run.provider_binding, Some(binding));
     assert_eq!(run.output_text, "A complete bounded answer.");
+}
+
+#[test]
+fn http_provider_completion_persists_delivery_body_and_reopens_without_stdin_claim() {
+    let temp = TempDir::new("http-provider-complete");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let binding = http_binding(HttpResponseFormat::Text);
+    let mut request = start_request(
+        &access,
+        &document,
+        "http-provider-complete-start",
+        "Answer about the selected chapter.",
+        None,
+        Vec::new(),
+    );
+    request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(request).unwrap();
+    let dispatch = project
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .unwrap();
+    let report = ProviderTerminalReport {
+        owner: started.run.owner.clone(),
+        expected_sequence: "0".into(),
+        event_id: "http-provider-terminal-complete".into(),
+        assistant_text: "A complete HTTP answer.".into(),
+        binding: binding.clone(),
+        status: ProviderOutcomeStatus::Completed,
+        confirmed_stdin_bytes: "0".into(),
+        usage: None,
+        cleanup: ProviderCleanup::Settled,
+        error: None,
+        effective_identity: None,
+        delivery: Some(http_delivery(
+            &dispatch,
+            HttpDeliverySubmission::ResponseReceived,
+        )),
+    };
+    let settled = project
+        .settle_provider_discussion(report.clone())
+        .expect("settle HTTP provider completion");
+    let replay = project
+        .settle_provider_discussion(report)
+        .expect("replay HTTP provider completion");
+    assert_eq!(replay.provider_result, settled.provider_result);
+    assert_eq!(settled.provider_result.confirmed_stdin_bytes, "0");
+    assert_eq!(
+        settled
+            .provider_result
+            .delivery
+            .as_ref()
+            .unwrap()
+            .body_bytes,
+        prepare_request(&dispatch.packet.messages, &dispatch.packet.options)
+            .unwrap()
+            .body
+            .len()
+            .to_string()
+    );
+    drop(project);
+    let reopened = ProjectSession::open(&path).expect("reopen HTTP provider project");
+    let reopened_access = reopened.attach("http-provider-reopen".into()).unwrap();
+    let run = reopened
+        .read_discussion(reopened_access, "chapter-one".into())
+        .unwrap()
+        .runs
+        .last()
+        .unwrap()
+        .clone();
+    assert_eq!(run.status, DiscussionRunStatus::Completed);
+    assert_eq!(run.output_text, "A complete HTTP answer.");
+}
+
+#[test]
+fn http_provider_rejects_tampered_body_and_seals_uncertain_delivery_history() {
+    let temp = TempDir::new("http-provider-uncertain");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let binding = http_binding(HttpResponseFormat::JsonObject);
+    let mut complete_request = start_request(
+        &access,
+        &document,
+        "http-provider-tamper-start",
+        "Return a structured proposal.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    complete_request.intent = FeedbackIntent::ProposeEdits;
+    complete_request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(complete_request).unwrap();
+    let dispatch = project
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .unwrap();
+    let mut tampered = http_delivery(&dispatch, HttpDeliverySubmission::ResponseReceived);
+    tampered.body_hash = "00".repeat(32);
+    let error = project
+        .settle_provider_discussion(ProviderTerminalReport {
+            owner: started.run.owner.clone(),
+            expected_sequence: "0".into(),
+            event_id: "http-provider-tampered".into(),
+            assistant_text: "{}".into(),
+            binding: binding.clone(),
+            status: ProviderOutcomeStatus::Completed,
+            confirmed_stdin_bytes: "0".into(),
+            usage: None,
+            cleanup: ProviderCleanup::Settled,
+            error: None,
+            effective_identity: None,
+            delivery: Some(tampered),
+        })
+        .unwrap_err();
+    assert_eq!(error.code, "ProviderInputMismatch");
+
+    let mut uncertain_request = start_request(
+        &access,
+        &document,
+        "http-provider-uncertain-start",
+        "Discuss the selected chapter.",
+        None,
+        Vec::new(),
+    );
+    uncertain_request.provider_binding = Some(binding.clone());
+    let uncertain_started = project.start_discussion(uncertain_request).unwrap();
+    let uncertain_dispatch = project
+        .begin_discussion_run(DiscussionBegin {
+            owner: uncertain_started.run.owner.clone(),
+        })
+        .unwrap();
+    let settled = project
+        .settle_provider_discussion(ProviderTerminalReport {
+            owner: uncertain_started.run.owner.clone(),
+            expected_sequence: "0".into(),
+            event_id: "http-provider-uncertain".into(),
+            assistant_text: "Partial answer".into(),
+            binding,
+            status: ProviderOutcomeStatus::Failed,
+            confirmed_stdin_bytes: "0".into(),
+            usage: None,
+            cleanup: ProviderCleanup::Unresolved,
+            error: Some("The response became unreachable after submission.".into()),
+            effective_identity: None,
+            delivery: Some(http_delivery(
+                &uncertain_dispatch,
+                HttpDeliverySubmission::Uncertain,
+            )),
+        })
+        .unwrap();
+    assert_eq!(settled.run.status, DiscussionRunStatus::Interrupted);
+    drop(project);
+    let reopened = ProjectSession::open(&path).expect("reopen uncertain HTTP project");
+    let reopened_access = reopened
+        .attach("http-provider-uncertain-reopen".into())
+        .unwrap();
+    let reopened_view = reopened
+        .read_discussion(reopened_access, "chapter-one".into())
+        .unwrap();
+    let run = reopened_view.runs.last().unwrap();
+    assert_eq!(run.status, DiscussionRunStatus::Interrupted);
+    assert_eq!(
+        run.provider_result.as_ref().unwrap().confirmed_stdin_bytes,
+        "0"
+    );
+    assert_eq!(
+        run.provider_result
+            .as_ref()
+            .unwrap()
+            .delivery
+            .as_ref()
+            .unwrap()
+            .submission,
+        HttpDeliverySubmission::Uncertain
+    );
 }
 
 #[test]
@@ -2829,6 +3044,7 @@ fn unresolved_provider_cleanup_interrupts_and_accepts_partial_stdin_without_prop
             cleanup: ProviderCleanup::Unresolved,
             error: Some("cleanup could not be confirmed".into()),
             effective_identity: None,
+            delivery: None,
         })
         .expect("settle unresolved provider result");
     assert_eq!(settled.run.status, DiscussionRunStatus::Interrupted);
@@ -2921,6 +3137,7 @@ fn tampered_provider_result_is_rejected_by_backup_validation() {
             cleanup: ProviderCleanup::Settled,
             error: None,
             effective_identity: None,
+            delivery: None,
         })
         .unwrap();
     drop(project);
@@ -2979,6 +3196,7 @@ fn completed_live_run_without_provider_result_is_rejected_by_backup_validation()
             cleanup: ProviderCleanup::Settled,
             error: None,
             effective_identity: None,
+            delivery: None,
         })
         .unwrap();
     drop(project);

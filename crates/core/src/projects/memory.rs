@@ -1020,6 +1020,12 @@ fn validate_start_memory(request: &StartMemory) -> CoreResult<()> {
         binding
             .validate()
             .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
+        if binding.is_http() {
+            return Err(CoreError::new(
+                "UnsupportedProviderFeature",
+                "OpenAI-compatible HTTP chapter memory is not qualified yet.",
+            ));
+        }
     }
     Ok(())
 }

@@ -1,8 +1,13 @@
 .assistant-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.model-controls { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .model-trigger { display: flex; align-items: center; gap: 14px; max-width: 220px; }
 .model-trigger > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-trigger-chevron { width: 7px; height: 7px; flex-shrink: 0; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg) translateY(-2px); }
 .model-dialog { width: min(500px, calc(100vw - 48px)); max-height: calc(100vh - 48px); overflow-y: auto; margin: auto; padding: 24px; border: 1px solid #c5ccd6; border-radius: 10px; color: #243142; background: #fff; box-shadow: 0 20px 70px #182b4840; }
 .model-dialog::backdrop { background: #1b2c4752; }
+.settings-dialog { padding: 0; scrollbar-width: thin; scrollbar-color: #b1bfd1 transparent; }
+.settings-dialog > .provider-dialog-heading { position: sticky; top: 0; z-index: 1; padding: 20px 24px; background: #fff; border-bottom: 1px solid #e3e7ec; }
+.settings-content { padding: 0 24px 24px; }
 .provider-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .provider-dialog-heading h2 { margin: 0; font-size: 21px; }
 .provider-note { font-size: 13px; line-height: 1.55; color: #596879; }
@@ -30,6 +35,36 @@
 .provider-connection-status { font-size: 12px; font-weight: 600; color: #596879; }
 .provider-connection.is-ready .provider-connection-status { color: #2d6c45; }
 .provider-connection .provider-note { margin: 8px 0 12px; }
+.model-picker-dialog { width: min(760px, calc(100vw - 48px)); padding: 22px; }
+.model-picker-dialog .provider-dialog-heading { margin-bottom: 18px; }
+.model-picker-dialog .provider-dialog-heading .provider-note { margin: 5px 0 0; }
+.model-picker-layout { display: grid; grid-template-columns: 165px minmax(0, 1fr); min-height: 410px; border: 1px solid #dce2e9; border-radius: 7px; overflow: hidden; }
+.model-picker-rail { display: flex; flex-direction: column; gap: 2px; padding: 14px 10px; background: #f7f9fc; border-right: 1px solid #dce2e9; }
+.model-picker-rail-label { margin: 5px 8px 4px; color: #596879; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+.model-rail-item { width: 100%; padding: 9px 10px; text-align: left; font-size: 13px; }
+.model-rail-item[aria-pressed=true] { color: #164da9; background: #e6eefc; font-weight: 650; }
+.model-picker-main { min-width: 0; padding: 16px; background: #fff; }
+.model-picker-main input[type=search] { width: 100%; }
+.model-picker-summary { margin: 9px 0 0; color: #596879; font-size: 12px; line-height: 1.4; }
+.model-picker-main .provider-error { margin: 12px 0; }
+.model-picker-main .model-options { margin-top: 12px; }
+.model-choice-index { flex-shrink: 0; color: #647184; font-size: 11px; font-weight: 500; align-self: center; }
+.model-options .model-favorite { min-width: 42px; flex-basis: 42px; padding-inline: 6px; color: #245cc3; font-size: 21px; font-weight: 600; }
+.model-options .model-favorite[aria-pressed=true] { color: #164da9; background: #f1f5fb; }
+.model-favorite svg { width: 20px; height: 20px; vertical-align: middle; }
+.traits-trigger { display: inline-flex; align-items: center; gap: 6px; padding-inline: 9px; white-space: nowrap; }
+.traits-trigger small { color: #596879; font-size: 11px; }
+.traits-trigger:disabled { opacity: .7; }
+.model-traits-dialog { width: min(430px, calc(100vw - 48px)); }
+.model-traits-dialog .provider-field { align-items: center; }
+.model-traits-dialog .provider-field select { min-width: 180px; }
+@media (max-width: 620px) {
+  .model-picker-layout { grid-template-columns: 1fr; }
+  .model-picker-rail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-right: 0; border-bottom: 1px solid #dce2e9; }
+  .model-picker-rail-label { grid-column: 1 / -1; }
+  .model-picker-main { padding: 14px; }
+  .model-choice-index { display: none; }
+}
 .persistent-workspace .app-header { height: auto; min-height: 57px; flex-wrap: wrap; gap: 8px 16px; padding-top: 8px; padding-bottom: 8px; }
 .persistent-workspace .app-header .brand { min-width: 0; }
 .persistent-workspace .app-header .trial-label { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -54,6 +54,8 @@ jobs:
         working-directory: apps/desktop
       - run: npm run test:native
         working-directory: apps/desktop
+      - run: npm run test:native-http
+        working-directory: apps/desktop
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:

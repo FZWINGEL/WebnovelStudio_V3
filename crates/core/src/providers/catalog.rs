@@ -6,6 +6,7 @@
 //! in the descriptor prevents the picker from turning a remembered choice into
 //! a claim that the provider is ready.
 
+use super::endpoints::{ENDPOINT_PROVIDER_PREFIX, EndpointProfilesSettings};
 use super::preferences::{ModelKey, ModelSelection, ModelSettings};
 use crate::projects::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,7 @@ pub struct ServiceTier {
 pub enum CatalogOrigin {
     BuiltIn,
     Reference,
+    OpenAiCompatible,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +62,7 @@ pub struct CatalogSnapshot {
 pub enum DispatchResolution {
     LocalMock { detail: String },
     CodexCli { detail: String },
+    OpenAiCompatible { detail: String },
     Blocked { detail: String },
 }
 
@@ -132,6 +135,96 @@ pub fn built_in_catalog() -> CatalogSnapshot {
     CatalogSnapshot {
         schema_version: CATALOG_SCHEMA_VERSION,
         models,
+    }
+}
+
+/// Extend the offline reference catalog with the manually entered and most
+/// recently discovered models for configured compatible endpoints.  Endpoint
+/// entries remain unready until native credential binding and dispatch pass
+/// their readiness gates.
+pub(crate) fn catalog_with_endpoints(
+    endpoints: &EndpointProfilesSettings,
+    settings: &ModelSettings,
+) -> CoreResult<CatalogSnapshot> {
+    endpoints.validate()?;
+    let mut catalog = built_in_catalog();
+    let mut known = catalog
+        .models
+        .iter()
+        .map(|model| model.key.clone())
+        .collect::<std::collections::HashSet<_>>();
+
+    for profile in &endpoints.profiles {
+        for model_id in profile.all_model_ids() {
+            let key = ModelKey::new(profile.id.clone(), model_id.clone());
+            if known.insert(key.clone()) {
+                catalog.models.push(endpoint_model(profile, model_id));
+            }
+        }
+    }
+
+    // A profile can be disabled, omitted from a later settings payload, or
+    // have a model disappear from discovery.  Keep remembered selections as
+    // explicit unavailable tombstones so the picker never silently changes
+    // author intent.
+    let mut remembered = Vec::with_capacity(1 + settings.favorites.len());
+    remembered.push(settings.active.key());
+    remembered.extend(settings.favorites.iter().cloned());
+    for selection in remembered {
+        if !selection.provider_id.starts_with(ENDPOINT_PROVIDER_PREFIX) {
+            continue;
+        }
+        let key = selection.clone();
+        if known.insert(key.clone()) {
+            let profile = endpoints.find(&selection.provider_id);
+            let mut descriptor = ModelDescriptor {
+                key,
+                label: selection.model_id.clone(),
+                provider_label: profile
+                    .map(|profile| profile.label.clone())
+                    .unwrap_or_else(|| "OpenAI-compatible endpoint".to_owned()),
+                reasoning_levels: Vec::new(),
+                service_tiers: Vec::new(),
+                context_window_tokens: None,
+                max_output_tokens: None,
+                origin: CatalogOrigin::OpenAiCompatible,
+                ready: false,
+                status_detail: "The saved model is unavailable; its selection was preserved."
+                    .to_owned(),
+            };
+            if let Some(profile) = profile {
+                if !profile.enabled {
+                    descriptor.status_detail =
+                        "The endpoint is disabled; the saved model selection was preserved."
+                            .to_owned();
+                } else {
+                    descriptor.status_detail = "The model was omitted by the latest discovery result; the saved selection was preserved.".to_owned();
+                }
+            }
+            catalog.models.push(descriptor);
+        }
+    }
+    validate_catalog(&catalog)?;
+    Ok(catalog)
+}
+
+fn endpoint_model(profile: &super::endpoints::EndpointProfile, model_id: &str) -> ModelDescriptor {
+    let status_detail = if !profile.enabled {
+        "The endpoint is disabled. Enable it before dispatch.".to_owned()
+    } else {
+        "The endpoint is configured, but native dispatch is not qualified yet.".to_owned()
+    };
+    ModelDescriptor {
+        key: ModelKey::new(profile.id.clone(), model_id.to_owned()),
+        label: model_id.to_owned(),
+        provider_label: profile.label.clone(),
+        reasoning_levels: Vec::new(),
+        service_tiers: Vec::new(),
+        context_window_tokens: None,
+        max_output_tokens: None,
+        origin: CatalogOrigin::OpenAiCompatible,
+        ready: false,
+        status_detail,
     }
 }
 

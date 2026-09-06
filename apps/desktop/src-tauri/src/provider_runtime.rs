@@ -1,4 +1,5 @@
 //! Session-local readiness and Stop ownership; saved preferences remain in Library.
+use crate::endpoint_commands::credential_available;
 use serde::Serialize;
 #[cfg(windows)]
 use std::collections::HashMap;
@@ -9,6 +10,7 @@ use webnovel_core::projects::{CoreError, CoreResult};
 use webnovel_core::projects::{discussions::RunOwner, memory::MemoryOwner};
 use webnovel_core::providers::{
     catalog::{DispatchResolution, ProviderState},
+    credentials::WindowsCredentialStore,
     preferences::ModelSelection,
 };
 #[cfg(windows)]
@@ -24,6 +26,10 @@ struct RuntimeState {
     #[cfg(windows)]
     stops: HashMap<(String, String, String), StopSignal>,
     detail: Option<String>,
+    http_stops: std::collections::HashMap<
+        (String, String, String),
+        webnovel_core::providers::adapter::CancellationToken,
+    >,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +81,92 @@ fn unavailable() -> CoreError {
 }
 
 impl DesktopProviders {
+    pub fn register_http(
+        &self,
+        owner: &webnovel_core::projects::discussions::RunOwner,
+    ) -> CoreResult<webnovel_core::providers::adapter::CancellationToken> {
+        let mut state = self.lock()?;
+        let key = (
+            owner.project_id.clone(),
+            owner.operation_namespace.clone(),
+            owner.run_id.clone(),
+        );
+        if state.http_stops.contains_key(&key) {
+            return Err(CoreError::new(
+                "RunAlreadyStarted",
+                "This response already has a worker.",
+            ));
+        }
+        let stop = webnovel_core::providers::adapter::CancellationToken::new();
+        state.http_stops.insert(key, stop.clone());
+        Ok(stop)
+    }
+    pub fn release_http(&self, owner: &webnovel_core::projects::discussions::RunOwner) {
+        if let Ok(mut state) = self.lock() {
+            state.http_stops.remove(&(
+                owner.project_id.clone(),
+                owner.operation_namespace.clone(),
+                owner.run_id.clone(),
+            ));
+        }
+    }
+    pub fn view_library(
+        &self,
+        library: &webnovel_core::library::Library,
+    ) -> CoreResult<DesktopProviderState> {
+        self.view_library_with_store(library, &WindowsCredentialStore)
+    }
+
+    fn view_library_with_store(
+        &self,
+        library: &webnovel_core::library::Library,
+        store: &dyn webnovel_core::providers::credentials::CredentialStore,
+    ) -> CoreResult<DesktopProviderState> {
+        let mut view = self.view(library.provider_state()?)?;
+        let endpoints = library.endpoint_profiles()?;
+        for profile in &endpoints.profiles {
+            let available = profile.enabled && credential_available(profile, store);
+            for model in view
+                .state
+                .catalog
+                .models
+                .iter_mut()
+                .filter(|m| m.key.provider_id == profile.id)
+            {
+                let listed = profile.manual_model_ids.contains(&model.key.model_id)
+                    || profile.cached_model_ids.contains(&model.key.model_id);
+                model.ready = available && listed;
+                if model.ready {
+                    model.status_detail =
+                        "API endpoint configured. Sending starts one request to this service."
+                            .into();
+                } else if listed
+                    && profile.enabled
+                    && profile.credential_ref.is_some()
+                    && !available
+                {
+                    model.status_detail =
+                        "The saved API key is unavailable. Re-enter it in Settings before sending."
+                            .into();
+                }
+            }
+            if view.state.settings.active.provider_id == profile.id
+                && view.state.catalog.models.iter().any(|m| {
+                    m.key.model_id == view.state.settings.active.model_id
+                        && m.key.provider_id == profile.id
+                        && m.ready
+                })
+            {
+                view.state.dispatch = DispatchResolution::OpenAiCompatible {
+                    detail: format!(
+                        "Uses the API connection {}. Sending starts one response.",
+                        profile.label
+                    ),
+                };
+            }
+        }
+        Ok(view)
+    }
     fn lock(&self) -> CoreResult<std::sync::MutexGuard<'_, RuntimeState>> {
         self.0.lock().map_err(|_| unavailable())
     }
@@ -190,6 +282,15 @@ impl DesktopProviders {
         )
     }
     pub fn stop(&self, owner: &webnovel_core::projects::discussions::RunOwner) {
+        if let Ok(state) = self.lock()
+            && let Some(stop) = state.http_stops.get(&(
+                owner.project_id.clone(),
+                owner.operation_namespace.clone(),
+                owner.run_id.clone(),
+            ))
+        {
+            stop.cancel();
+        }
         #[cfg(windows)]
         if let Ok(state) = self.lock()
             && let Some(stop) = state.stops.get(&(
@@ -240,6 +341,52 @@ impl DesktopProviders {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use webnovel_core::library::Library;
+    use webnovel_core::providers::credentials::{CredentialStore, CredentialTarget, SecretValue};
+    use webnovel_core::providers::endpoints::EndpointProfileDraft;
+
+    #[derive(Default)]
+    struct SyntheticCredentialStore {
+        values: Mutex<HashMap<CredentialTarget, Vec<u8>>>,
+    }
+
+    impl SyntheticCredentialStore {
+        fn target() -> CredentialTarget {
+            CredentialTarget::parse("WebnovelStudioV3/Profile/00000000-0000-0000-0000-000000000042")
+                .expect("synthetic target is canonical")
+        }
+
+        fn insert(&self, target: CredentialTarget, value: &[u8]) {
+            self.values.lock().unwrap().insert(target, value.to_vec());
+        }
+    }
+
+    impl CredentialStore for SyntheticCredentialStore {
+        fn read(&self, target: &CredentialTarget) -> CoreResult<Option<SecretValue>> {
+            self.values
+                .lock()
+                .unwrap()
+                .get(target)
+                .cloned()
+                .map(SecretValue::new)
+                .transpose()
+        }
+
+        fn write_new(&self, _secret: &[u8]) -> CoreResult<CredentialTarget> {
+            Err(CoreError::new(
+                "TestOnly",
+                "synthetic readiness store does not write credentials",
+            ))
+        }
+
+        fn delete(&self, target: &CredentialTarget) -> CoreResult<()> {
+            self.values.lock().unwrap().remove(target);
+            Ok(())
+        }
+    }
+
     #[test]
     fn requested_traits_are_exact_and_unchecked_runtime_never_enables_codex() {
         let choice = ModelSelection {
@@ -274,5 +421,80 @@ mod tests {
             state.state.dispatch,
             DispatchResolution::Blocked { .. }
         ));
+    }
+
+    #[test]
+    fn endpoint_readiness_requires_a_usable_referenced_credential() {
+        let root = std::env::temp_dir().join(format!(
+            "wns-provider-runtime-readiness-{}",
+            std::process::id()
+        ));
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+        let mut library = Library::open(&root).unwrap();
+        let store = SyntheticCredentialStore::default();
+        let target = SyntheticCredentialStore::target();
+        library
+            .save_endpoint_profiles(
+                "0",
+                vec![EndpointProfileDraft {
+                    id: None,
+                    label: "Synthetic endpoint".into(),
+                    base_url: "https://example.test".into(),
+                    enabled: true,
+                    json_mode: false,
+                    credential_ref: Some(target.as_str().to_owned()),
+                    manual_model_ids: vec!["story-model".into()],
+                }],
+            )
+            .unwrap();
+        let profile = library.endpoint_profiles().unwrap().profiles[0].clone();
+        library
+            .save_model_settings(
+                "0",
+                ModelSelection {
+                    provider_id: profile.id.clone(),
+                    model_id: "story-model".into(),
+                    reasoning: None,
+                    service_tier: None,
+                },
+                vec![],
+            )
+            .unwrap();
+
+        let runtime = DesktopProviders::default();
+        let unavailable = runtime.view_library_with_store(&library, &store).unwrap();
+        let unavailable_model = unavailable
+            .state
+            .catalog
+            .models
+            .iter()
+            .find(|model| model.key.provider_id == profile.id)
+            .unwrap();
+        assert!(!unavailable_model.ready);
+        assert!(unavailable_model.status_detail.contains("API key"));
+        assert!(matches!(
+            unavailable.state.dispatch,
+            DispatchResolution::Blocked { .. }
+        ));
+
+        store.insert(target, b"synthetic-key");
+        let available = runtime.view_library_with_store(&library, &store).unwrap();
+        let available_model = available
+            .state
+            .catalog
+            .models
+            .iter()
+            .find(|model| model.key.provider_id == profile.id)
+            .unwrap();
+        assert!(available_model.ready);
+        assert!(matches!(
+            available.state.dispatch,
+            DispatchResolution::OpenAiCompatible { .. }
+        ));
+
+        drop(library);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -525,7 +525,7 @@ fn schema19_working_export_archive_migrates_to21_without_changing_record_or_byte
     let schema: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 25);
+    assert_eq!(schema, 26);
     let row: (String, String, String, i64, String, i64, String, Option<String>) = connection
         .query_row(
             "SELECT id,project_id,operation_namespace,working_draft,format,format_version,sha256,review_bundle_id

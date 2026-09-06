@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:native": "node scripts/native-smoke.mjs",
+    "test:native-http": "node scripts/native-http-smoke.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build --no-bundle",
     "desktop:package": "node ../../scripts/run-desktop.mjs package",

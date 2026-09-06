@@ -54,6 +54,13 @@ pub const CODEX_HISTORICAL_PROFILE_VERSION: &str = "0.153.3";
 pub const CODEX_INPUT_LIMIT_BYTES: usize = 24 * 1024;
 pub const CODEX_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 pub const CODEX_TOKEN_ACCOUNTING_METHOD: &str = "utf8-byte-count/codex-stdin-application-cap-v1";
+/// Provider-neutral accounting label for the bounded OpenAI-compatible HTTP
+/// transport.  This is a byte cap, not a claim about the provider tokenizer.
+pub const HTTP_TOKEN_ACCOUNTING_METHOD: &str =
+    "utf8-byte-count/openai-compatible-http-application-cap-v1";
+pub const HTTP_PROFILE_VERSION: &str = "openai-chat-completions.v1";
+pub const HTTP_INPUT_LIMIT_BYTES: usize = 2 * 1024 * 1024;
+pub const HTTP_OUTPUT_LIMIT_BYTES: usize = 2 * 1024 * 1024;
 /// Stable envelope identifiers. Version 1 is retained solely for validating
 /// packets persisted before author-room source labels were added. New packets
 /// use version 2 through [`compile_packet`].
@@ -150,6 +157,31 @@ pub struct ProviderBinding {
     /// Omitted for historical records and pure compiler fixtures.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<ProviderRuntimeIdentity>,
+    /// The non-secret, immutable transport contract for an OpenAI-compatible
+    /// endpoint.  The endpoint profile ID is carried in `provider_id` so
+    /// historical packets do not need a second identity field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http: Option<HttpProviderBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HttpProviderBinding {
+    /// The normalized endpoint base URL.  Credentials, query strings, and
+    /// fragments are forbidden; the API key lives in the OS credential store.
+    pub base_url: String,
+    /// The endpoint profile's monotonic configuration revision.
+    pub config_revision: String,
+    /// Whether the worker must use the streaming endpoint.
+    pub stream: bool,
+    pub response_format: HttpResponseFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HttpResponseFormat {
+    Text,
+    JsonObject,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -215,12 +247,16 @@ impl ProviderBinding {
             output_limit_bytes: CODEX_OUTPUT_LIMIT_BYTES.to_string(),
             accounting_method: CODEX_TOKEN_ACCOUNTING_METHOD.to_owned(),
             runtime: None,
+            http: None,
         }
     }
 
     pub fn validate(&self) -> Result<(), String> {
         if self == &Self::codex_luna_historical() {
             return Ok(());
+        }
+        if self.is_http() {
+            return self.validate_http();
         }
         let mut expected = Self::codex_luna();
         expected.runtime = self.runtime.clone();
@@ -238,6 +274,83 @@ impl ProviderBinding {
         Ok(())
     }
 
+    pub fn is_http(&self) -> bool {
+        self.provider_id.starts_with("openai-compatible:")
+    }
+
+    fn validate_http(&self) -> Result<(), String> {
+        if self.profile_version != HTTP_PROFILE_VERSION
+            || self.accounting_method != HTTP_TOKEN_ACCOUNTING_METHOD
+            || self.runtime.is_some()
+        {
+            return Err(
+                "the OpenAI-compatible HTTP profile or runtime identity is invalid".to_owned(),
+            );
+        }
+        let profile_id = self
+            .provider_id
+            .strip_prefix("openai-compatible:")
+            .unwrap_or_default();
+        let profile_uuid = uuid::Uuid::parse_str(profile_id).map_err(|_| {
+            "the OpenAI-compatible provider ID must contain a profile UUID".to_owned()
+        })?;
+        if profile_uuid.to_string() != profile_id {
+            return Err("the OpenAI-compatible provider ID must contain a profile UUID".to_owned());
+        }
+        validate_http_text(&self.model_id, 256, "HTTP model ID")?;
+        validate_http_text(&self.base_http_url()?, 2048, "HTTP endpoint URL")?;
+        let http = self.http.as_ref().ok_or_else(|| {
+            "the OpenAI-compatible binding is missing its HTTP transport contract".to_owned()
+        })?;
+        if http.config_revision.is_empty()
+            || (http.config_revision.len() > 1 && http.config_revision.starts_with('0'))
+            || !http
+                .config_revision
+                .bytes()
+                .all(|byte| byte.is_ascii_digit())
+        {
+            return Err("the HTTP endpoint configuration revision is not canonical".to_owned());
+        }
+        if self.input_limit_bytes.parse::<usize>().ok() != Some(HTTP_INPUT_LIMIT_BYTES)
+            || self.output_limit_bytes.parse::<usize>().ok() != Some(HTTP_OUTPUT_LIMIT_BYTES)
+            || self.reserved_output_bytes != "0"
+            || self.reserved_protocol_bytes != "0"
+        {
+            return Err("the OpenAI-compatible byte allowances are invalid".to_owned());
+        }
+        if self.reasoning.as_deref().is_some_and(|value| {
+            value.is_empty() || value.len() > 64 || value.chars().any(char::is_control)
+        }) || self.service_tier.as_deref().is_some_and(|value| {
+            value.is_empty() || value.len() > 64 || value.chars().any(char::is_control)
+        }) {
+            return Err("the OpenAI-compatible model traits are invalid".to_owned());
+        }
+        Ok(())
+    }
+
+    fn base_http_url(&self) -> Result<String, String> {
+        let http = self.http.as_ref().ok_or_else(|| {
+            "the OpenAI-compatible binding is missing its HTTP transport contract".to_owned()
+        })?;
+        let normalized = crate::providers::openai_compatible::normalize_base_url(&http.base_url)
+            .map_err(|_| "the HTTP endpoint URL is invalid".to_owned())?;
+        if normalized.as_str() != http.base_url
+            || !matches!(normalized.scheme(), "http" | "https")
+            || normalized.host_str().is_none_or(str::is_empty)
+            || !normalized.username().is_empty()
+            || normalized.password().is_some()
+            || normalized.query().is_some()
+            || normalized.fragment().is_some()
+            || http
+                .base_url
+                .chars()
+                .any(|value| value.is_control() || value.is_whitespace())
+        {
+            return Err("the HTTP endpoint URL must be normalized without credentials".to_owned());
+        }
+        Ok(http.base_url.clone())
+    }
+
     pub fn input_limit(&self) -> Result<usize, String> {
         self.validate()?;
         parse_decimal(&self.input_limit_bytes).and_then(|value| {
@@ -250,6 +363,16 @@ impl ProviderBinding {
         parse_decimal(&self.output_limit_bytes).and_then(|value| {
             usize::try_from(value).map_err(|_| "output limit is too large".to_owned())
         })
+    }
+}
+
+fn validate_http_text(value: &str, max_bytes: usize, label: &str) -> Result<(), String> {
+    if value.is_empty() || value.len() > max_bytes || value.chars().any(char::is_control) {
+        Err(format!(
+            "the {label} is empty, too long, or contains control characters"
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -2234,6 +2357,18 @@ fn build_serialized(
 }
 
 fn validate_response_contract(request: &PacketRequest) -> Result<(), PacketError> {
+    if request
+        .provider_binding
+        .as_ref()
+        .is_some_and(ProviderBinding::is_http)
+        && (request.lookup.is_some() || request.frozen.purpose == ContextPurpose::MemoryAnalysis)
+    {
+        return Err(PacketError::InvalidRequest {
+            message:
+                "OpenAI-compatible HTTP is not qualified for story lookup or chapter memory yet."
+                    .to_owned(),
+        });
+    }
     if request.lookup.is_some()
         || request.response_contract.as_deref() == Some(LOOKUP_RESPONSE_CONTRACT)
     {

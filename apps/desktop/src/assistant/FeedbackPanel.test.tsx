@@ -10,6 +10,7 @@ import { DocumentSession } from '../editor/session';
 import { Editor } from '@tiptap/core';
 import { editorExtensions } from '../editor/schema';
 import { captureSelection } from '../editor/selection';
+import type { ProviderBinding } from '../ipc/context';
 import type { DocumentRecord, Head, ProjectAccess, ProjectTransport } from '../ipc/projects';
 import * as providerIpc from '../ipc/providers';
 import { ProviderSettingsProvider, useProviders } from '../providers/ProviderContext';
@@ -213,6 +214,11 @@ describe('persistent FeedbackPanel safeguards', () => {
     const active = blocked ? { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'max', serviceTier: 'priority' } : providerIpc.localModel;
     return { settings: { revision: blocked ? '1' : '0', active, favorites: [] }, dispatch: { kind: blocked ? 'blocked' : 'localMock', detail: '' }, catalog: { models: [{ key: active, label: blocked ? 'GPT-5.6-Luna' : 'Local test model', providerLabel: 'Test catalog', reasoningLevels: [], serviceTiers: [], origin: 'builtIn', ready: !blocked, statusDetail: '', contextWindowTokens: null, maxOutputTokens: null }] } };
   }
+  const httpSelection: providerIpc.ModelSelection = { providerId: 'openai-compatible:test-endpoint', modelId: 'fiction-v1', reasoning: null, serviceTier: null };
+  const httpBinding: ProviderBinding = { ...httpSelection, profileVersion: 'openai-chat-completions.v1', inputLimitBytes: '24576', reservedOutputBytes: '4096', reservedProtocolBytes: '1024', outputLimitBytes: '65536', accountingMethod: 'utf8-byte-count/http-request-v1', http: { baseUrl: 'https://example.test/v1', configRevision: '4', stream: true, responseFormat: 'text' } };
+  function httpProviderState(): providerIpc.ProviderState {
+    return { settings: { revision: '1', active: httpSelection, favorites: [] }, dispatch: { kind: 'openAiCompatible', detail: '' }, catalog: { models: [{ key: httpSelection, label: 'Fiction V1', providerLabel: 'Synthetic endpoint', reasoningLevels: [], serviceTiers: [], origin: 'openAiCompatible', ready: true, statusDetail: '', contextWindowTokens: null, maxOutputTokens: null }] } };
+  }
   function RefreshModel() { const providers = useProviders(); return <button onClick={() => void providers.refresh()}>Reload model choice</button>; }
   async function renderWithProvider(session: DocumentSession) {
     await act(async () => root.render(<ProviderSettingsProvider><RefreshModel /><FeedbackPanel session={session} state={session.state} title="Chapter" documentKind="chapter" selection={null} visible onClose={() => {}} registerSaver={() => {}} /></ProviderSettingsProvider>));
@@ -244,6 +250,52 @@ describe('persistent FeedbackPanel safeguards', () => {
     await waitFor(() => expect(host.querySelector('.scope-controls')?.textContent).toContain('Local test model'));
     expect(host.querySelectorAll('.feedback-note')[1].textContent).toContain('GPT-5.6-Luna');
     expect(host.textContent).toContain('did not report usage'); expect(session.body).toEqual(emptyBody);
+  });
+  it('accepts an HTTP response only when the selected model, packet binding, run binding, and profile match', async () => {
+    const session = await makeSession(); vi.mocked(providerIpc.readProviderState).mockResolvedValue(httpProviderState());
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => {
+      const response = startResult(session, 'http-run', request.operationId);
+      response.packet.options = { ...response.packet.options, modelId: httpBinding.modelId, providerBinding: httpBinding };
+      response.run = { ...response.run, providerBinding: httpBinding, status: 'completed', providerResult: { binding: httpBinding, status: 'completed', confirmedStdinBytes: '0', usage: null, cleanup: 'settled', error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission: 'responseReceived' } } };
+      vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: response.threadId, runs: [response.run], messages: [response.userMessage, { ...response.userMessage, id: 'http-answer', role: 'assistant', content: 'The endpoint returned a response.' }] });
+      return response;
+    });
+    await renderWithProvider(session); await typeInstruction('Discuss the endpoint response.'); await click('Send');
+    await waitFor(() => expect(host.textContent).toContain('The endpoint returned a response.'));
+    expect(vi.mocked(discussions.startDiscussion).mock.calls[0][0].modelSelection).toEqual(httpSelection);
+    expect(host.textContent).not.toContain('unexpectedly returned a live provider binding');
+    expect(host.querySelector('.discussion-error[role="alert"]')).toBeNull();
+  });
+  it.each([
+    ['a packet model mismatch', (binding: ProviderBinding) => ({ packet: { ...binding, modelId: 'other-model' }, run: binding }), 'model settings'],
+    ['a run binding mismatch', (binding: ProviderBinding) => ({ packet: binding, run: { ...binding, modelId: 'other-model' } }), 'model settings'],
+    ['a missing HTTP profile', (binding: ProviderBinding) => ({ packet: { ...binding, http: undefined }, run: { ...binding, http: undefined } }), 'API connection'],
+  ] as const)('rejects an HTTP response with %s', async (_caseName, bindingsFor, expectedError) => {
+    const session = await makeSession(); vi.mocked(providerIpc.readProviderState).mockResolvedValue(httpProviderState());
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => {
+      const response = startResult(session, 'invalid-http-run', request.operationId);
+      const bindings = bindingsFor(httpBinding);
+      response.packet.options = { ...response.packet.options, modelId: bindings.packet.modelId, providerBinding: bindings.packet };
+      response.run = { ...response.run, providerBinding: bindings.run, status: 'completed', providerResult: { binding: bindings.run, status: 'completed', confirmedStdinBytes: '0', usage: null, cleanup: 'settled', error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission: 'responseReceived' } } };
+      return response;
+    });
+    await renderWithProvider(session); await typeInstruction('Discuss the endpoint response.'); await click('Send');
+    await waitFor(() => expect(host.textContent).toContain(`The response did not confirm the ${expectedError}`));
+    expect(host.textContent).not.toContain('unexpectedly returned a live provider binding');
+  });
+  it.each([
+    ['partial', 'failed' as const, 'responseReceived' as const, 'Response headers were received; the saved result may be partial.'],
+    ['uncertain', 'failed' as const, 'uncertain' as const, 'The request may have reached the API, but delivery could not be confirmed. It was not automatically retried.'],
+  ])('labels %s HTTP delivery separately from local cleanup and reports unknown usage', async (_label, status, submission, deliveryLabel) => {
+    const session = await makeSession(); const started = startResult(session, `http-${_label}`);
+    const run = { ...started.run, status, providerBinding: httpBinding, providerResult: { binding: httpBinding, status, confirmedStdinBytes: '0', usage: null, cleanup: 'settled' as const, error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission } } };
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, runs: [run], messages: [started.userMessage, { ...started.userMessage, id: `http-${_label}-answer`, role: 'assistant', content: 'The endpoint response was saved.' }] });
+    await renderPanel(session);
+    expect(host.textContent).toContain('The provider did not report usage for this response.');
+    expect(host.textContent).toContain(deliveryLabel);
+    expect(host.textContent).toContain('The local HTTP request has finished.');
+    expect(host.textContent).toContain('Stopping locally does not confirm that the upstream service stopped processing or charging.');
+    expect(host.textContent).not.toContain('The local provider process has finished.');
   });
   it('keeps an uncertain request bound to its original model after the active choice changes', async () => {
     const session = await makeSession(); vi.mocked(providerIpc.readProviderState).mockResolvedValue(providerState(false));

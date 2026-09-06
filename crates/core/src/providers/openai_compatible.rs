@@ -6,9 +6,12 @@
 //! bounded output; unsupported options are never guessed or substituted.
 
 use super::adapter::{
-    CancellationToken, ChatAdapter, ChatRequest, ChatResponse, MessageRole, ProviderError,
-    ProviderErrorKind, ResponseFormat, StreamEvent, Usage,
+    CancellationToken, ChatAdapter, ChatRequest, ChatResponse, HttpRequestStage, MessageRole,
+    ProviderError, ProviderErrorKind, ResponseFormat, StreamEvent, Usage,
 };
+use super::credentials::SecretValue;
+use super::http_request::prepare_request;
+use crate::context::packet::{CompiledPacket, HttpResponseFormat};
 use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{Client, RequestBuilder, Response};
@@ -27,7 +30,7 @@ pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// accidental debug formatting cannot expose it.
 pub struct OpenAiCompatibleConfig {
     base_url: Url,
-    api_key: Option<String>,
+    api_key: Option<SecretValue>,
     pub max_request_bytes: usize,
     pub max_response_bytes: usize,
     pub max_sse_line_bytes: usize,
@@ -63,7 +66,17 @@ impl OpenAiCompatibleConfig {
         }
         Ok(Self {
             base_url: normalize_base_url(base_url)?,
-            api_key,
+            api_key: api_key
+                .filter(|key| !key.is_empty())
+                .map(|key| {
+                    SecretValue::new(key.into_bytes()).map_err(|_| {
+                        ProviderError::new(
+                            ProviderErrorKind::Configuration,
+                            "API key exceeds the supported size",
+                        )
+                    })
+                })
+                .transpose()?,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
             max_sse_line_bytes: DEFAULT_MAX_SSE_LINE_BYTES,
@@ -115,12 +128,14 @@ pub fn normalize_base_url(input: &str) -> Result<Url, ProviderError> {
         ));
     }
     let path = url.path().trim_end_matches('/');
+    // A bare origin gets the conventional OpenAI route.  Once a caller has
+    // supplied a path, it is authoritative: compatible gateways commonly use
+    // routes such as `/api/v1` or `/api/chat`, and guessing another `/v1`
+    // segment would silently send requests to the wrong endpoint.
     let path = if path.is_empty() {
         "/v1".to_owned()
-    } else if path == "/v1" || path.ends_with("/v1") {
-        path.to_owned()
     } else {
-        format!("{path}/v1")
+        path.to_owned()
     };
     url.set_path(&path);
     Ok(url)
@@ -173,7 +188,11 @@ impl OpenAiCompatibleAdapter {
 
     fn authorized(&self, request: RequestBuilder) -> RequestBuilder {
         match &self.config.api_key {
-            Some(key) if !key.is_empty() => request.header(AUTHORIZATION, format!("Bearer {key}")),
+            Some(key) => {
+                let text = std::str::from_utf8(key.expose_bytes())
+                    .expect("configuration accepts UTF-8 keys only");
+                request.header(AUTHORIZATION, format!("Bearer {text}"))
+            }
             _ => request,
         }
     }
@@ -362,7 +381,7 @@ impl OpenAiCompatibleAdapter {
         &self,
         request: &ChatRequest,
         cancel: &CancellationToken,
-        on_event: &mut dyn FnMut(StreamEvent),
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
     ) -> Result<ChatResponse, ProviderError> {
         Self::check_cancel(cancel)?;
         let body = self.request_body(request, true)?;
@@ -375,6 +394,17 @@ impl OpenAiCompatibleAdapter {
             )
             .await?;
         Self::check_cancel(cancel).map_err(|error| error.with_partial(String::new()))?;
+        self.stream_response_async(response, request.response_format, cancel, on_event)
+            .await
+    }
+
+    async fn stream_response_async(
+        &self,
+        response: Response,
+        response_format: ResponseFormat,
+        cancel: &CancellationToken,
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
+    ) -> Result<ChatResponse, ProviderError> {
         if !response.status().is_success() {
             return Err(self.status_error(&response));
         }
@@ -431,7 +461,7 @@ impl OpenAiCompatibleAdapter {
             )
             .with_partial(parser.text));
         }
-        if request.response_format == ResponseFormat::JsonObject {
+        if response_format == ResponseFormat::JsonObject {
             let parsed: Value = serde_json::from_str(&parser.text).map_err(|_| {
                 ProviderError::new(
                     ProviderErrorKind::InvalidResponse,
@@ -453,6 +483,80 @@ impl OpenAiCompatibleAdapter {
             finish_reason: parser.finish_reason,
             usage: parser.usage.unwrap_or_default(),
         })
+    }
+
+    /// Stream an immutable, already-compiled packet using the exact bytes
+    /// produced by the core HTTP request compiler.  This path is intentionally
+    /// separate from `ChatRequest`: reserializing a packet at dispatch time
+    /// would make its durable body hash unverifiable.
+    pub async fn stream_packet_async(
+        &self,
+        packet: &CompiledPacket,
+        cancel: &CancellationToken,
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
+        on_stage: &mut (dyn FnMut(HttpRequestStage) + Send),
+    ) -> Result<ChatResponse, ProviderError> {
+        Self::check_cancel(cancel)?;
+        let binding = packet.options.provider_binding.as_ref().ok_or_else(|| {
+            ProviderError::new(
+                ProviderErrorKind::Configuration,
+                "immutable packet has no OpenAI-compatible provider binding",
+            )
+        })?;
+        if !binding.is_http() {
+            return Err(ProviderError::new(
+                ProviderErrorKind::Configuration,
+                "immutable packet is not bound to an OpenAI-compatible endpoint",
+            ));
+        }
+        binding.validate().map_err(|detail| {
+            ProviderError::new(
+                ProviderErrorKind::Configuration,
+                format!("immutable HTTP provider binding is invalid: {detail}"),
+            )
+        })?;
+        let http = binding.http.as_ref().ok_or_else(|| {
+            ProviderError::new(
+                ProviderErrorKind::Configuration,
+                "immutable packet is missing its HTTP transport contract",
+            )
+        })?;
+        if http.base_url != self.config.base_url().as_str() {
+            return Err(ProviderError::new(
+                ProviderErrorKind::Configuration,
+                "immutable packet endpoint does not match the configured adapter",
+            ));
+        }
+        let prepared = prepare_request(&packet.messages, &packet.options).map_err(|error| {
+            ProviderError::new(
+                ProviderErrorKind::Configuration,
+                format!("immutable HTTP packet is invalid: {}", error.detail),
+            )
+        })?;
+        if !prepared.stream {
+            return Err(ProviderError::new(
+                ProviderErrorKind::Configuration,
+                "immutable packet is not configured for streaming",
+            ));
+        }
+        let response_format = match http.response_format {
+            HttpResponseFormat::Text => ResponseFormat::PlainText,
+            HttpResponseFormat::JsonObject => ResponseFormat::JsonObject,
+        };
+        Self::check_cancel(cancel)?;
+        on_stage(HttpRequestStage::Submitted);
+        let response = self
+            .send_with_cancel(
+                self.authorized(self.client.post(self.endpoint("chat/completions")))
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(prepared.body),
+                cancel,
+            )
+            .await?;
+        on_stage(HttpRequestStage::ResponseReceived);
+        Self::check_cancel(cancel).map_err(|error| error.with_partial(String::new()))?;
+        self.stream_response_async(response, response_format, cancel, on_event)
+            .await
     }
 
     pub async fn list_models_async(
@@ -516,7 +620,7 @@ impl ChatAdapter for OpenAiCompatibleAdapter {
         &self,
         request: &ChatRequest,
         cancel: &CancellationToken,
-        on_event: &mut dyn FnMut(StreamEvent),
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
     ) -> Result<ChatResponse, ProviderError> {
         self.stream_async(request, cancel, on_event).await
     }
@@ -715,7 +819,7 @@ impl SseParser {
     fn feed(
         &mut self,
         bytes: &[u8],
-        on_event: &mut dyn FnMut(StreamEvent),
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
     ) -> Result<(), ProviderError> {
         if self.done {
             return Ok(());
@@ -754,7 +858,10 @@ impl SseParser {
         }
     }
 
-    fn finish(&mut self, on_event: &mut dyn FnMut(StreamEvent)) -> Result<(), ProviderError> {
+    fn finish(
+        &mut self,
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
+    ) -> Result<(), ProviderError> {
         if self.done {
             return Ok(());
         }
@@ -778,7 +885,10 @@ impl SseParser {
         self.dispatch(on_event)
     }
 
-    fn dispatch(&mut self, on_event: &mut dyn FnMut(StreamEvent)) -> Result<(), ProviderError> {
+    fn dispatch(
+        &mut self,
+        on_event: &mut (dyn FnMut(StreamEvent) + Send),
+    ) -> Result<(), ProviderError> {
         if self.event_data.is_empty() {
             return Ok(());
         }
@@ -840,12 +950,6 @@ impl SseParser {
         })?;
         self.saw_choice = true;
         let finish_reason = validate_finish_reason(choice.get("finish_reason"))?;
-        if let Some(reason) = finish_reason.as_deref() {
-            if let Some(error) = finish_reason_error(Some(reason), &self.text) {
-                return Err(error);
-            }
-            self.finish_reason = Some(reason.to_owned());
-        }
         let delta = choice.get("delta").ok_or_else(|| {
             ProviderError::new(
                 ProviderErrorKind::Protocol,
@@ -917,6 +1021,17 @@ impl SseParser {
                 })?;
                 on_event(StreamEvent::ReasoningDelta(reasoning.to_owned()));
             }
+        }
+        // A provider may put the final content delta and its terminal
+        // finish_reason in the same SSE frame.  Validate and retain that
+        // content before classifying the terminal reason so an incomplete,
+        // refused, or otherwise failed response still exposes all text that
+        // was actually delivered.
+        if let Some(reason) = finish_reason.as_deref() {
+            if let Some(error) = finish_reason_error(Some(reason), &self.text) {
+                return Err(error);
+            }
+            self.finish_reason = Some(reason.to_owned());
         }
         Ok(())
     }

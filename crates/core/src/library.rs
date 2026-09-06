@@ -9,9 +9,14 @@ use crate::projects::{
 };
 use crate::providers::{
     catalog::ProviderState,
+    endpoints::{
+        ENDPOINT_PROFILES_KEY, ENDPOINT_PROFILES_SCHEMA_VERSION, EndpointProfile,
+        EndpointProfileDraft, EndpointProfilesSettings, StoredEndpointProfiles,
+        parse_revision as parse_endpoint_revision, validate_discovered_model_ids,
+    },
     preferences::{
         MODEL_SETTINGS_KEY, MODEL_SETTINGS_SCHEMA_VERSION, ModelKey, ModelSelection, ModelSettings,
-        StoredModelSettings, parse_revision, provider_state as build_provider_state,
+        StoredModelSettings, parse_revision, provider_state_with_endpoints as build_provider_state,
     },
 };
 use crate::v2_import::preview_v2_import;
@@ -114,7 +119,7 @@ impl Library {
         })?;
         let mut connection = Connection::open(root.join("library.sqlite3"))?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 2 {
+        if version > 3 {
             return Err(CoreError::new(
                 "UnsupportedSchema",
                 "This library needs a newer WebnovelStudio.",
@@ -152,6 +157,11 @@ impl Library {
             )?;
             tx.commit().map_err(CoreError::uncertain)?;
         }
+        if version < 3 {
+            let tx = connection.transaction()?;
+            tx.execute_batch("PRAGMA user_version=3;")?;
+            tx.commit().map_err(CoreError::uncertain)?;
+        }
         let namespace = connection.query_row("SELECT namespace FROM identity", [], |r| r.get(0))?;
         std::fs::create_dir_all(root.join("Projects"))?;
         Ok(Self {
@@ -165,7 +175,8 @@ impl Library {
     /// method never probes a provider or reads credentials.
     pub fn provider_state(&self) -> CoreResult<ProviderState> {
         let settings = self.read_model_settings()?;
-        build_provider_state(settings)
+        let endpoints = self.read_endpoint_profiles()?;
+        build_provider_state(settings, &endpoints)
     }
     /// Persist an explicit active model and favorites with a compare-and-swap
     /// revision.  The returned state is read from the committed values, so a
@@ -196,7 +207,8 @@ impl Library {
             active,
             favorites,
         };
-        settings.validate()?;
+        let endpoints = self.read_endpoint_profiles()?;
+        settings.validate_with_endpoints(&endpoints)?;
         let value_json = serde_json::to_string(&settings.stored()).map_err(|error| {
             CoreError::new(
                 "InvalidModelSettings",
@@ -218,8 +230,229 @@ impl Library {
             ],
         )?;
         tx.commit().map_err(CoreError::uncertain)?;
-        build_provider_state(settings)
+        build_provider_state(settings, &endpoints)
     }
+
+    /// Read all nonsecret OpenAI-compatible endpoint profiles.  Omitted
+    /// profiles are never inferred to be deleted; callers can disable a
+    /// profile while preserving selected and favorite model references.
+    pub fn endpoint_profiles(&self) -> CoreResult<EndpointProfilesSettings> {
+        self.read_endpoint_profiles()
+    }
+
+    /// Create or update endpoint profiles under the app-preference CAS
+    /// revision.  Existing profiles omitted by `drafts` are retained so a
+    /// stale picker cannot delete a profile or strand a model selection.
+    pub fn save_endpoint_profiles(
+        &mut self,
+        expected_revision: &str,
+        drafts: Vec<EndpointProfileDraft>,
+    ) -> CoreResult<ProviderState> {
+        let expected = parse_revision(expected_revision)?;
+        let current = self.read_endpoint_profiles()?;
+        if parse_revision(&current.revision)? != expected {
+            return Err(CoreError::new(
+                "PreferenceConflict",
+                "The endpoint settings changed. Read them again before saving.",
+            ));
+        }
+
+        let mut profiles = current.profiles.clone();
+        let mut touched = std::collections::HashSet::new();
+        for draft in &drafts {
+            let normalized = draft.validate()?;
+            let id = match &draft.id {
+                Some(id) => id.clone(),
+                None => format!(
+                    "{}{}",
+                    crate::providers::endpoints::ENDPOINT_PROVIDER_PREFIX,
+                    Uuid::new_v4()
+                ),
+            };
+            if !touched.insert(id.clone()) {
+                return Err(CoreError::new(
+                    "DuplicateEndpointProfile",
+                    "An endpoint profile may appear only once in one save.",
+                ));
+            }
+            if let Some(index) = profiles.iter().position(|profile| profile.id == id) {
+                let existing = &profiles[index];
+                if existing.config_equals(draft, &normalized) {
+                    continue;
+                }
+                let next_config_revision = parse_endpoint_revision(&existing.config_revision)?
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        CoreError::new(
+                            "EndpointRevisionLimit",
+                            "The endpoint configuration revision limit was reached.",
+                        )
+                    })?;
+                let cached_model_ids = if existing.base_url == normalized
+                    && existing.credential_ref == draft.credential_ref
+                {
+                    existing.cached_model_ids.clone()
+                } else {
+                    Vec::new()
+                };
+                profiles[index] = EndpointProfile {
+                    id,
+                    label: draft.label.clone(),
+                    base_url: normalized,
+                    enabled: draft.enabled,
+                    json_mode: draft.json_mode,
+                    config_revision: next_config_revision.to_string(),
+                    credential_ref: draft.credential_ref.clone(),
+                    manual_model_ids: draft.manual_model_ids.clone(),
+                    // A route or credential change makes the old discovery
+                    // evidence unsafe to present as current. Manual model
+                    // IDs remain available, while remembered selections are
+                    // reintroduced by the catalog as unavailable tombstones.
+                    cached_model_ids,
+                };
+            } else if draft.id.is_some() {
+                return Err(CoreError::new(
+                    "UnknownEndpointProfile",
+                    "The endpoint profile does not exist; create it without an ID.",
+                ));
+            } else {
+                profiles.push(EndpointProfile::new(id, draft)?);
+            }
+        }
+
+        let next_revision = expected.checked_add(1).ok_or_else(|| {
+            CoreError::new(
+                "PreferenceRevisionLimit",
+                "The endpoint preference revision limit was reached.",
+            )
+        })?;
+        let settings = EndpointProfilesSettings {
+            revision: next_revision.to_string(),
+            profiles,
+        };
+        settings.validate()?;
+        self.write_endpoint_profiles(expected, &settings)?;
+        self.provider_state()
+    }
+
+    /// Replace only the discovery cache for one profile.  The config revision
+    /// fence prevents a late network response from overwriting a changed URL,
+    /// credential binding, enable flag, or manual model list.
+    pub fn refresh_endpoint_models(
+        &mut self,
+        profile_id: &str,
+        expected_config_revision: &str,
+        model_ids: Vec<String>,
+    ) -> CoreResult<ProviderState> {
+        let expected_config = parse_endpoint_revision(expected_config_revision)?;
+        validate_discovered_model_ids(&model_ids)?;
+        let current = self.read_endpoint_profiles()?;
+        let mut profiles = current.profiles.clone();
+        let profile = profiles
+            .iter_mut()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| {
+                CoreError::new(
+                    "UnknownEndpointProfile",
+                    "The endpoint profile does not exist.",
+                )
+            })?;
+        if parse_endpoint_revision(&profile.config_revision)? != expected_config {
+            return Err(CoreError::new(
+                "EndpointConfigConflict",
+                "The endpoint configuration changed while discovery was running.",
+            ));
+        }
+        profile.cached_model_ids = model_ids;
+        let current_revision = parse_revision(&current.revision)?;
+        let next_revision = current_revision.checked_add(1).ok_or_else(|| {
+            CoreError::new(
+                "PreferenceRevisionLimit",
+                "The endpoint preference revision limit was reached.",
+            )
+        })?;
+        let settings = EndpointProfilesSettings {
+            revision: next_revision.to_string(),
+            profiles,
+        };
+        settings.validate()?;
+        self.write_endpoint_profiles(current_revision, &settings)?;
+        self.provider_state()
+    }
+
+    fn write_endpoint_profiles(
+        &mut self,
+        expected_revision: i64,
+        settings: &EndpointProfilesSettings,
+    ) -> CoreResult<()> {
+        settings.validate()?;
+        let value_json = serde_json::to_string(&settings.stored()).map_err(|error| {
+            CoreError::new(
+                "InvalidEndpointProfiles",
+                &format!("Could not serialize endpoint profiles: {error}"),
+            )
+        })?;
+        let tx = self.connection.transaction()?;
+        let stored_revision: Option<i64> = tx
+            .query_row(
+                "SELECT revision FROM app_preferences WHERE key=?",
+                [ENDPOINT_PROFILES_KEY],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if stored_revision.unwrap_or(0) != expected_revision {
+            return Err(CoreError::new(
+                "PreferenceConflict",
+                "The endpoint settings changed. Read them again before saving.",
+            ));
+        }
+        tx.execute(
+            "INSERT INTO app_preferences(key,schema_version,revision,value_json,updated_at)
+             VALUES(?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+             ON CONFLICT(key) DO UPDATE SET schema_version=excluded.schema_version,
+               revision=excluded.revision,value_json=excluded.value_json,
+               updated_at=excluded.updated_at",
+            params![
+                ENDPOINT_PROFILES_KEY,
+                i64::from(ENDPOINT_PROFILES_SCHEMA_VERSION),
+                parse_revision(&settings.revision)?,
+                value_json,
+            ],
+        )?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(())
+    }
+
+    fn read_endpoint_profiles(&self) -> CoreResult<EndpointProfilesSettings> {
+        let row: Option<(i64, i64, String)> = self
+            .connection
+            .query_row(
+                "SELECT schema_version,revision,value_json FROM app_preferences WHERE key=?",
+                [ENDPOINT_PROFILES_KEY],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((schema_version, revision, value_json)) = row else {
+            return Ok(EndpointProfilesSettings::default());
+        };
+        if schema_version != i64::from(ENDPOINT_PROFILES_SCHEMA_VERSION) || revision < 0 {
+            return Err(CoreError::new(
+                "InvalidEndpointProfiles",
+                "The stored endpoint profiles use an unsupported schema or revision.",
+            ));
+        }
+        let stored: StoredEndpointProfiles =
+            serde_json::from_str(&value_json).map_err(|error| {
+                CoreError::new(
+                    "InvalidEndpointProfiles",
+                    &format!("The stored endpoint profiles are invalid: {error}"),
+                )
+            })?;
+        let settings = EndpointProfilesSettings::from_stored(revision.to_string(), stored);
+        settings.validate()?;
+        Ok(settings)
+    }
+
     fn read_model_settings(&self) -> CoreResult<ModelSettings> {
         let row: Option<(i64, i64, String)> = self
             .connection
@@ -245,7 +478,8 @@ impl Library {
             )
         })?;
         let settings = ModelSettings::from_stored(revision.to_string(), stored);
-        settings.validate()?;
+        let endpoints = self.read_endpoint_profiles()?;
+        settings.validate_with_endpoints(&endpoints)?;
         Ok(settings)
     }
     pub fn list(&self) -> CoreResult<Vec<LibraryEntry>> {

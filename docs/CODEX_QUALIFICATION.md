@@ -15,14 +15,21 @@ recorded as a compatibility finding below.
 Background summary, chapter-memory, and other maintenance calls route to
 GPT-5.6 Luna with xhigh reasoning. Author-facing writing and
 revision should use the persistent V2-style model picker and selected traits.
-The V2 adapters/catalog behavior and configurable OpenAI-compatible endpoint
-adapters remain in-progress work; the HTTP transport has nine local mock-server tests but no native endpoint integration yet. They must use the same packet, receipt, cleanup,
-and failure contracts and must never silently substitute a provider or model.
+V2 CLI adapter/catalog parity remains in progress. The configurable
+OpenAI-compatible adapter now has native endpoint integration, twelve transport
+tests, and native loopback-server qualification. See [ADR 0023](ADR_0023_OPENAI_COMPATIBLE.md)
+and [current evidence](IMPLEMENTATION_STATUS.md#current-provider-checkpoint-codex-compatibility-and-http-development-surface).
+It uses the same packet and explicit Apply ownership, with separate HTTP delivery
+receipts, and never silently substitutes a provider or model.
 
 ## Current 0.153.4 lookup qualification (generations fourteen to sixteen)
 
-See the [current provider checkpoint](IMPLEMENTATION_STATUS.md#current-provider-checkpoint-compatibility-and-http-foundation)
-for the accepted 540-Rust/325-frontend wrapper and native executable identity.
+This lookup ran on the accepted `8edd061` provider source, with a passing
+540-Rust/325-frontend wrapper (`.local/provider-wrapper-accepted.log`). Its native
+executable SHA-256 was
+`50d3cf00bac1ef1957497cedab06e7a6ca900da158349cad3ee6058bd299e080`.
+Later HTTP work and current checks are recorded in the
+[provider checkpoint](IMPLEMENTATION_STATUS.md#current-provider-checkpoint-codex-compatibility-and-http-development-surface).
 The 6 September live lookup used the current application profile,
 GPT-5.6-Luna/xhigh/priority, and one immutable story basis. Invocation 1 searched
 for an old compass promise; invocation 2 read its complete source; invocation 3
@@ -46,8 +53,8 @@ label (`.local/live-lookup-qualification/qualification.json`). Same-data reopen
 passed using the select ID and retained all three contexts plus unchanged prose
 without another model request
 (`.local/live-lookup-reopen-qualification/qualification.json`). The failed record
-is preserved. Cumulative live generations: sixteen. No HTTP provider request
-has been made.
+is preserved. Cumulative live generations: sixteen. Subsequent HTTP qualification
+uses a local mock server; no real HTTP model service has been called.
 
 ## Historical installed identity and discovery (0.153.3)
 

@@ -150,6 +150,17 @@ describe('historical context inspection', () => {
     await render(); expect(host.textContent).toContain('confirms local delivery, not that the model understood every source');
     expect(host.textContent).toContain('not a model token count');
   });
+  it('describes an HTTP response as upstream delivery rather than Codex local delivery', async () => {
+    const providerBinding: context.ProviderBinding = { providerId: 'openai-compatible:test-endpoint', modelId: 'fiction-v1', reasoning: null, serviceTier: null,
+      profileVersion: 'openai-chat-completions.v1', inputLimitBytes: '24576', reservedOutputBytes: '4096', reservedProtocolBytes: '1024', outputLimitBytes: '65536',
+      accountingMethod: 'utf8-byte-count/http-request-v1', http: { baseUrl: 'https://example.test/v1', configRevision: '4', stream: true, responseFormat: 'text' } };
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, options: { ...packet.options, modelId: providerBinding.modelId, providerBinding } });
+    await render('packet', '1', true);
+    expect(host.textContent).toContain('Response headers were received for the prepared request. The saved result may be partial');
+    expect(host.textContent).not.toContain('The complete prepared packet was written to Codex');
+    await render('packet', '2', false);
+    expect(host.textContent).toContain('Prepared sources. Delivery has not been confirmed.');
+  });
   it('shows the exact approved brief separately without retrieving its private origin', async () => {
     vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, safeBrief: { text: 'Mei reads the pause as grief.', textHash: 'hash', originMessageId: 'private-origin' } } });
     await render();

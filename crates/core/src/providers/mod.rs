@@ -14,5 +14,8 @@ pub mod codex_profile;
 pub mod codex_runner;
 #[cfg(windows)]
 pub mod codex_runtime;
+pub mod credentials;
+pub mod endpoints;
+pub mod http_request;
 pub mod openai_compatible;
 pub mod preferences;
