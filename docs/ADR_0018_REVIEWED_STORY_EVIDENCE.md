@@ -1,7 +1,7 @@
 # ADR 0018: Passage-backed author-reviewed story details
 
-Status: implemented and locally native-qualified; hosted CI qualification
-pending. This extends F2 review and provides the evidence foundation for C5.
+Status: CI-qualified development slice. This extends F2 review and provides the
+evidence foundation for C5.
 Full temporal reasoning, knowledge/belief records, rules, threads, and accepted
 summaries remain later work.
 
@@ -109,7 +109,12 @@ on WebView2 `152.0.4191.62`; the final executable SHA-256 is
 `55fcc9784d8d5701f94769670f8edeba8083a3df12721a2ea0a7311fada3c564`, with
 29,740,032 bytes, built `2026-09-06T04:53:59.7150787Z`. The final bundle is
 701.85 KB JavaScript and 34.89 KB CSS with the existing Vite chunk warning.
-Hosted CI qualification remains pending.
+Hosted CI 34012813796 passes all three jobs—Windows contracts, Ubuntu
+contracts, and Windows native—with all 40 checks and no errors. Its report is
+`.local/ci-34012813796/report.json`, dated `2026-09-06T05:08:11.66Z`, on
+WebView2 `151.0.4129.101`; the source checkpoint is
+`a8d73c36a3989e390682cf855f6eea071e58c91b`. Review actions call no model; this
+qualification used the local test model, and no new live generation was run.
 
 1. Pure record validation and canonical hashing; malformed/duplicate/Unicode
    anchors, unknown holders, and identity limits.
