@@ -61,6 +61,23 @@ paid call was needed for this connection-recovery retest.
 Hosted, author-trial and release qualification remain open, and
 this slice does not establish narrative understanding or exhaustive continuity.
 
+The implementation was pushed as `6efb184dd20e147fc02503222d881cb2d380ca7c`.
+[CI 34062589124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34062589124)
+has passed both Windows and Ubuntu contract jobs; its native job was still
+running at this documentation checkpoint. Those completed contract jobs do not
+stand in for the remaining native result.
+
+The author requested test-runtime optimization before further feature work on
+7 September (local time). Measure and shorten the development checks while
+preserving the complete test inventory and native safety gates.
+
+Deferred author-UX slice: combine title and a short creative brief in a
+**Create with AI** path for empty projects/tabs, then hand off to the existing
+Draft/Develop composer. Keep **Start blank** available. This remains planned:
+the current UI still separates project creation, document creation and the
+assistant brief. Reuse the existing proposal/Preview/Apply contracts and require
+explicit Send; creation itself must never start a model call.
+
 ### Historical character knowledge checkpoint — 6 September
 
 Schema 33 adds optional passage-backed character knowledge to chapter review.
@@ -367,7 +384,7 @@ The author's revised direction is implemented as a development slice:
   Schema-30 migration, backup, and reopening regressions pass. Historical
   packet bytes and receipts are not rewritten.
 
-Current evidence: 648 active Rust tests (593 core, 55 desktop), one existing
+Evidence at this historical checkpoint: 648 active Rust tests (593 core, 55 desktop), one existing
 ignored fixture, strict workspace Clippy, formatting, TypeScript, production
 frontend build, and all 376 frontend tests in 29 files pass. The first wrapper
 run exposed a picker focus-return regression after disabling the loading
@@ -501,7 +518,7 @@ The fuzzy search assertion now checks the unique, first-ranked Luna result
 instead of assuming that no other catalog row can match.
 
 No live Claude calls or new authentication probes were made. Cumulative native
-live CLI dispatches remain 20. Hosted endpoints, live Claude behavior, the
+live CLI dispatches at that checkpoint remained 20. Hosted endpoints, live Claude behavior, the
 remaining V2 adapters, and full release qualification remain open. See
 [ADR 0026](ADR_0026_CLAUDE_AUTHOR.md) and
 [Claude qualification](CLAUDE_QUALIFICATION.md).

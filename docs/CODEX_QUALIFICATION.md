@@ -65,7 +65,7 @@ The implementation is complete as a development slice. The earlier provider
 wrapper passed 589 active Rust tests (548 core and 41 desktop), one existing
 ignored fixture, and 350 frontend tests in 27 files, with formatting, strict
 Clippy, TypeScript, and the production build; this is dated provider evidence.
-The current wrapper passes 593 active Rust tests (552 core and 41 desktop), one
+The historical source-title wrapper passed 593 active Rust tests (552 core and 41 desktop), one
 existing ignored fixture, and 353 frontend tests in 27 files. The pre-parser-fix
 dynamic development binary with SHA-256
 `775962e975c7dc5b3f0171ba2d3724212b5921295eae897fd2052af92dcf7539` also
@@ -335,13 +335,13 @@ source-title projection change made no new LLM calls.
 The source-title projection is implemented for new child lookup packets only.
 It carries exact frozen handles, `SourceRef` values, and display names for
 returned search/read sources; absent initial or historical source sets remain
-absent. The strict native set is now 47 checks after frozen-rename/reopen
-coverage. The current local diagnostic passes 46/47 with zero errors, omitting
+absent. That historical strict native set contained 47 checks after frozen-rename/reopen
+coverage. That historical local diagnostic passed 46/47 with zero errors, omitting
 only the known local OS clipboard check, on WebView2 `152.0.4191.62` using
 executable SHA-256
 `a66e07b155d1aedc24588e6d7b388f02bffb5e790c7d9991c5f3640206788cfe`.
 Serialized input and receipts retain the frozen title, and UI rename/reopen
-leaves packet JSON unchanged. The current wrapper passes 593 active Rust tests
+leaves packet JSON unchanged. The historical source-title wrapper passed 593 active Rust tests
 (552 core and 41 desktop), one existing ignored fixture, and 353 frontend tests
 in 27 files, with formatting, strict Clippy, TypeScript, and the production
 build. The strengthened migration checks also pass the focused dynamic-author
