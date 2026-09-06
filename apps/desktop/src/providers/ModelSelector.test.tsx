@@ -40,7 +40,7 @@ describe('unavailable saved traits', () => {
   });
 });
 beforeEach(() => {
-  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); vi.resetAllMocks(); state = initial();
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, isTauri: false }); vi.resetAllMocks(); state = initial();
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.removeAttribute('open'); } });
   vi.mocked(ipc.readProviderState).mockImplementation(async () => structuredClone(state));
@@ -120,13 +120,31 @@ describe('persistent model selection', () => {
   });
   it('edits declared traits beside the persistent selector without selecting a model', async () => {
     state.settings = { revision: '8', active: luna, favorites: [luna] }; state.dispatch.kind = 'blocked'; await render();
-    await click('Edit model traits: Extra high · Fast');
+    expect((host.querySelector('#model-traits-reasoning') as HTMLSelectElement).getAttribute('aria-label')).toBe('Reasoning effort');
+    expect((host.querySelector('#model-traits-service-tier') as HTMLSelectElement).getAttribute('aria-label')).toBe('Service tier');
+    await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label^="Edit model traits"]')?.click());
     expect(host.querySelector('dialog.model-traits-dialog')).not.toBeNull();
     const reasoning = host.querySelector('#traits-reasoning') as HTMLSelectElement;
     await act(async () => { reasoning.value = 'high'; reasoning.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('8', { ...luna, reasoning: 'high' }, [luna]);
     expect(host.querySelector('dialog.model-picker-dialog')).toBeNull();
     await click('Close model traits'); expect(document.activeElement).toBe(button('Edit model traits: High · Fast'));
+  });
+  it('changes the visible reasoning and service-tier controls without opening the model list', async () => {
+    state.settings = { revision: '8', active: luna, favorites: [luna] }; state.dispatch.kind = 'blocked'; await render();
+    const reasoning = host.querySelector('#model-traits-reasoning') as HTMLSelectElement;
+    await act(async () => { reasoning.value = 'high'; reasoning.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('8', { ...luna, reasoning: 'high' }, [luna]);
+    vi.mocked(ipc.saveModelSettings).mockClear();
+    const serviceTier = host.querySelector('#model-traits-service-tier') as HTMLSelectElement;
+    await act(async () => { serviceTier.value = ''; serviceTier.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('9', { ...luna, reasoning: 'high', serviceTier: null }, [luna]);
+  });
+  it('preserves the companion trait and persists provider default as null', async () => {
+    state.settings = { revision: '8', active: luna, favorites: [luna] }; state.dispatch.kind = 'blocked'; await render();
+    const reasoning = host.querySelector('#model-traits-reasoning') as HTMLSelectElement;
+    await act(async () => { reasoning.value = ''; reasoning.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('8', { ...luna, reasoning: null }, [luna]);
   });
   it('reconciles a lost save acknowledgment by reading settings without replaying', async () => {
     await render(); await click('Choose model: Local test model');
@@ -145,7 +163,7 @@ describe('persistent model selection', () => {
   });
   it('edits supported traits in Settings and preserves favorites and the active model', async () => {
     state.settings = { revision: '8', active: luna, favorites: [luna] }; state.dispatch.kind = 'blocked'; await render(); await click('Settings');
-    const selects = host.querySelectorAll('select'); expect(selects).toHaveLength(3); expect(selects[1].value).toBe('priority');
+    const selects = host.querySelectorAll<HTMLSelectElement>('.settings-dialog select'); expect(selects).toHaveLength(3); expect(selects[1].value).toBe('priority');
     expect(selects[0].labels?.[0].textContent).toBe('Reasoning'); expect(selects[1].labels?.[0].textContent).toBe('Response speed');
     await act(async () => { selects[0].value = 'high'; selects[0].dispatchEvent(new Event('change', { bubbles: true })); });
     expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('8', { ...luna, reasoning: 'high' }, [luna]);
@@ -161,6 +179,56 @@ describe('persistent model selection', () => {
     expect(ipc.checkCodexConnection).not.toHaveBeenCalled(); await click('Check Codex connection');
     expect(ipc.checkCodexConnection).toHaveBeenCalledExactlyOnceWith(); expect(state.settings).toEqual(before);
     expect(host.textContent).toContain('Signed in through Codex'); expect(host.querySelector('.provider-connection-status')!.textContent).toBe('Connected');
+  });
+  it('adopts the fresh Codex default when the user explicitly checks from the untouched fallback', async () => {
+    vi.mocked(ipc.checkCodexConnection).mockImplementationOnce(async () => {
+      state = structuredClone(state);
+      state.codexConnection = { ready: true, checked: true, detail: 'Signed in through Codex.' };
+      state.catalog.models.find(model => model.key.providerId === 'codex' && model.key.modelId === 'gpt-5.6-luna')!.ready = true;
+      return structuredClone(state);
+    });
+    await render(); await click('Settings'); await click('Check Codex connection');
+    expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('0', luna, []);
+  });
+  it('checks Codex on native startup and adopts the live default only for untouched settings', async () => {
+    Object.assign(globalThis, { isTauri: true });
+    vi.mocked(ipc.checkCodexConnection).mockImplementationOnce(async () => {
+      state = structuredClone(state);
+      state.codexConnection = { ready: true, checked: true, detail: 'Signed in through Codex.' };
+      const model = state.catalog.models.find(candidate => candidate.key.providerId === 'codex' && candidate.key.modelId === 'gpt-5.6-luna')!;
+      model.ready = true;
+      return structuredClone(state);
+    });
+    vi.mocked(ipc.saveModelSettings).mockImplementationOnce(async (_revision, active, favorites) => {
+      state = { ...state, settings: { revision: '1', active, favorites }, dispatch: { kind: 'codexCli', detail: 'Uses your Codex sign-in.' } };
+      return structuredClone(state);
+    });
+    await render();
+    expect(ipc.checkCodexConnection).toHaveBeenCalledExactlyOnceWith();
+    expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('0', luna, []);
+    expect(host.querySelector('output')!.textContent).toBe('gpt-5.6-luna:codexCli:false');
+  });
+  it('keeps an explicit saved model when native startup finds Codex', async () => {
+    Object.assign(globalThis, { isTauri: true });
+    const explicit: ipc.ModelSelection = { providerId: 'openai-compatible:11111111-1111-1111-1111-111111111111', modelId: 'nova', reasoning: 'low', serviceTier: 'standard' };
+    state.settings = { revision: '4', active: explicit, favorites: [] };
+    state.dispatch = { kind: 'blocked', detail: 'Saved endpoint choice.' };
+    vi.mocked(ipc.checkCodexConnection).mockImplementationOnce(async () => ({ ...structuredClone(state), codexConnection: { ready: true, checked: true, detail: 'Signed in through Codex.' } }));
+    await render();
+    expect(ipc.checkCodexConnection).not.toHaveBeenCalled();
+    expect(ipc.saveModelSettings).not.toHaveBeenCalled();
+    expect(host.querySelector('output')!.textContent).toBe('nova:blocked:false');
+  });
+  it('shows an unavailable status after a failed native probe and keeps the retry action', async () => {
+    Object.assign(globalThis, { isTauri: true });
+    vi.mocked(ipc.checkCodexConnection).mockImplementationOnce(async () => ({
+      ...structuredClone(state),
+      codexConnection: { ready: false, checked: true, detail: 'Codex is not installed or signed in on this computer.' },
+    }));
+    await render(); await click('Settings');
+    expect(host.querySelector('.provider-connection-status')?.textContent).toBe('Unavailable');
+    expect(host.textContent).toContain('Codex is not installed or signed in');
+    expect(button('Check Codex connection')).toBeTruthy();
   });
   it('checks Claude only when explicitly requested and preserves the saved choice', async () => {
     state.catalog.models.push({

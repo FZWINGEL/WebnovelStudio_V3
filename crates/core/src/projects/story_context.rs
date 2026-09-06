@@ -297,17 +297,6 @@ impl OwnedProject {
     fn freeze_story(&mut self, request: FreezeStory) -> CoreResult<FrozenContext> {
         self.check_access(&request.access)?;
         check_id(&request.operation_id)?;
-        if request.policy.audience == Audience::AuthorRoom
-            && matches!(
-                request.purpose,
-                ContextPurpose::Revise | ContextPurpose::Continue
-            )
-        {
-            return Err(CoreError::new(
-                "BoundaryConflict",
-                "Prepare a separate writing request with an approved disclosure boundary.",
-            ));
-        }
         if request.basis != BasisKind::Working {
             return Err(CoreError::new(
                 "BasisUnavailable",
@@ -888,17 +877,6 @@ fn freeze_story_impl(
             "Reviewed and explicit historical requests need their respective authority records.",
         ));
     }
-    if request.policy.audience == Audience::AuthorRoom
-        && matches!(
-            request.purpose,
-            ContextPurpose::Revise | ContextPurpose::Continue
-        )
-    {
-        return Err(CoreError::new(
-            "BoundaryConflict",
-            "Prepare a separate writing request with an approved disclosure boundary.",
-        ));
-    }
     if request.policy.character_id.is_some() || !request.policy.character_grants.is_empty() {
         return Err(CoreError::new(
             "CharacterPolicyUnavailable",
@@ -915,6 +893,18 @@ fn freeze_story_impl(
     }
     let target_document = read_document(tx, &request.expected.document_id)?;
     require_head(&target_document.head, &request.expected)?;
+    if request.policy.audience == Audience::AuthorRoom
+        && matches!(
+            request.purpose,
+            ContextPurpose::Revise | ContextPurpose::Continue
+        )
+        && !(request.purpose == ContextPurpose::Revise && target_document.kind != "chapter")
+    {
+        return Err(CoreError::new(
+            "BoundaryConflict",
+            "Prepare a separate writing request with an approved disclosure boundary.",
+        ));
+    }
     let memory_analysis = request.purpose == ContextPurpose::MemoryAnalysis;
     if memory_analysis && target_document.kind != "chapter" {
         return Err(CoreError::new(

@@ -167,7 +167,7 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     assert.deepEqual(latestPacket(), historyPacket, 'History/source inspection must not prepare another packet');
     checks.push('Native cross-chapter object selection reuses an explicit identity, preserves unknown holders, shows exact saved evidence in chapter order, and opens the original source without another model request');
 
-    await page.locator('.document-sidebar nav button').filter({ hasText: /^The exchange/ }).click();
+    await page.locator('.document-sidebar nav button > span').filter({ hasText: /^The exchange$/ }).click();
     await page.getByRole('heading', { name: 'The exchange', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Story review', exact: true }).click();
     await page.getByRole('button', { name: 'Update reviewed details', exact: true }).click();
@@ -184,12 +184,12 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     assert(db.prepare('SELECT count(*) AS n FROM review_fences').get().n > 0);
     assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), original);
     await back();
-    await page.locator('.document-sidebar nav button').filter({ hasText: /^At the archway/ }).click();
+    await page.locator('.document-sidebar nav button > span').filter({ hasText: /^At the archway$/ }).click();
     await page.getByRole('button', { name: 'Story review', exact: true }).click();
     await page.getByRole('heading', { name: 'Earlier story needs review', exact: true }).waitFor();
     assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Ren left the key beneath the archway.');
     await back();
-    await page.locator('.document-sidebar nav button').filter({ hasText: /^The exchange/ }).click();
+    await page.locator('.document-sidebar nav button > span').filter({ hasText: /^The exchange$/ }).click();
     await page.getByRole('button', { name: 'Story review', exact: true }).click();
     await page.getByRole('button', { name: 'Update reviewed details', exact: true }).click();
     for (const label of ['Sealed letter', 'Silver key']) await page.locator('.review-detail-card').filter({ hasText: label }).getByRole('button', { name: 'Remove', exact: true }).click();
@@ -209,8 +209,9 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     assert.deepEqual(db.prepare('SELECT * FROM context_packets WHERE id=?').get(continuationRow.id), continuationRow);
     await page.screenshot({ path: resolve(output, 'reviewed-evidence-cleared.png') });
     await back();
+    if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
     await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
-    await page.locator('.trial-label').filter({ hasText: 'Reviewed evidence story copy' }).waitFor();
+    await page.locator('.brand strong').filter({ hasText: 'Reviewed evidence story copy' }).waitFor();
     const copiedLibrary = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
     const copyPath = await realpath(copiedLibrary.entries.find(entry => entry.title === 'Reviewed evidence story copy').path);
     const copiedChild = relative(toNamespacedPath(await realpath(data)), toNamespacedPath(copyPath));

@@ -1,4 +1,38 @@
-# W0 editor trial design
+# WebnovelStudio workspace design
+
+## AI writing workspace
+
+The persistent workspace operates as a native desktop writing studio. The
+project title and library navigation sit in the top bar with the active model,
+reasoning effort, Fast/service tier, and Settings. A second row carries
+Chapters, Worldbuilding, Characters, Plot & themes, and Notes. Project file
+actions live under Project options, away from the drafting controls.
+
+Each tab has its own narrow material list. Chapters display their order and use
+one editor with previous/next navigation. Switching tabs uses the existing
+save and detach barrier before replacing the editor. Tab preferences retain
+only project/document identities; prose stays in Rust-owned persistence.
+
+The manuscript is a white reading surface with Georgia prose and Segoe UI
+controls. Quiet slate navigation and blue actions distinguish selection from
+the editable page. The heading names the document and save status. Draft
+chapter, Continue chapter, or Develop material is the primary action, above a
+compact editing toolbar. Empty documents explain how to direct the AI and
+also leave the editor available for direct writing.
+
+The writing assistant sits alongside the manuscript. Generation prepares a
+reviewable proposal; it never applies it automatically. Authors can revise a
+chapter, develop worldbuilding or characters, discuss decisions, and capture
+selected words or paragraphs for feedback. Optional context controls remain
+available without becoming compulsory setup. The assistant's text and scope
+remain attached to the current document when navigating away and returning.
+
+This is an Operate surface: readable prose, clear task choices, recoverable
+edits, and discoverable controls matter more than decorative elements.
+Qualification evidence is recorded in docs/IMPLEMENTATION_STATUS.md; design
+intent is not evidence of native or author acceptance.
+
+## Historical W0 editor trial
 
 This document records the visual surface that is built in `apps/desktop/src/shell/app.css` and `App.tsx`. It describes the current trial; it is not a new product identity exercise. The companion [editor trial brief](docs/EDITOR_TRIAL_BRIEF.md) supplies the short direction brief.
 

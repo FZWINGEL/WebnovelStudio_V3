@@ -109,7 +109,7 @@ fn schema24_upgrade_keeps_exact_historical_codex_packet_and_backup() {
         .unwrap();
     drop(database);
     let reopened = ProjectSession::open(&path).unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     let access = reopened.attach("new-runtime-reader".into()).unwrap();
     let restored = reopened
         .prepared_context(access, packet.receipt.packet_id)
@@ -203,7 +203,7 @@ fn schema27_upgrade_preserves_historical_dynamic_author_packet_without_projectio
     drop(database);
 
     let reopened = ProjectSession::open(&path).expect("upgrade schema27 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     let access = reopened.attach("dynamic-author-reader".into()).unwrap();
     let restored = reopened
         .prepared_context(access, packet.receipt.packet_id.clone())
@@ -326,7 +326,7 @@ fn schema29_upgrade_preserves_legacy_provider_receipt_with_no_reported_model() {
     drop(database);
 
     let reopened = ProjectSession::open(&path).expect("upgrade schema29 provider project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     let reader = reopened.attach("schema29-provider-reader".into()).unwrap();
     let view = reopened
         .read_discussion(reader, document.head.document_id.clone())
@@ -426,7 +426,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .head,
         saved.head
     );
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     let backups: Vec<_> = fs::read_dir(path.join("migrations"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -437,7 +437,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .starts_with("schema14-before-schema30-")
+            .starts_with("schema14-before-schema31-")
     );
     assert_eq!(schema_version(&backups[0]), 14);
 }
@@ -497,7 +497,7 @@ fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
 
     let reopened = ProjectSession::open(&path).unwrap();
     let access = reopened.attach("schema19-reader".into()).unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     assert_eq!(
         serde_json::to_vec(
             &reopened
@@ -642,7 +642,7 @@ fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
     let access = reopened
         .attach("schema19-navigation-reader".into())
         .unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     assert_eq!(
         serde_json::to_vec(
             &reopened
@@ -939,7 +939,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -1004,7 +1004,7 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     let connection =
         Connection::open(path.join("project.sqlite3")).expect("open migrated schema19 database");
     let discussion_tables: i64 = connection
@@ -1115,7 +1115,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     let safe_brief_column: i64 = connection
         .query_row(
@@ -1183,7 +1183,7 @@ fn schema23_lookup_migration_preserves_legacy_composer_draft_and_starts_empty_lo
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema23 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 31);
     let reader = upgraded.attach("schema23-lookup-reader".into()).unwrap();
     let restored = upgraded
         .read_discussion(reader, document.head.document_id.clone())
@@ -1321,7 +1321,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 30);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 31);
     assert_eq!(
         recovered
             .context_source_epoch()
@@ -1409,4 +1409,41 @@ fn recovery_rejects_malformed_persisted_context_pin_without_installing_target() 
         .expect("malformed persisted pin must block recovery");
     assert_eq!(error.code, "InvalidBackup");
     assert!(!target.exists());
+}
+
+#[test]
+fn schema30_reader_floor_migrates_with_noop_step_and_retains_backup() {
+    let temp = TempDir::new("schema30-reader-floor");
+    let path = temp.child("source");
+    let (project, _access, document, saved) = setup_project(&path);
+    drop(project);
+
+    let database = path.join("project.sqlite3");
+    let connection = Connection::open(&database).expect("open current database");
+    connection
+        .pragma_update(None, "user_version", 30_i64)
+        .expect("mark synthetic schema30 database");
+    drop(connection);
+
+    let reopened = ProjectSession::open(&path).expect("schema30 database upgrades");
+    assert_eq!(schema_version(&database), 31);
+    let reader = reopened.attach("schema31-reader-floor".into()).unwrap();
+    let restored = reopened
+        .document(reader, document.head.document_id)
+        .expect("document survives reader-floor migration");
+    assert_eq!(restored.head, saved.head);
+    assert_eq!(restored.body, body("saved before schema migration"));
+
+    let backups = fs::read_dir(path.join("migrations"))
+        .expect("read migration backup directory")
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>();
+    assert_eq!(backups.len(), 1);
+    assert!(
+        backups[0]
+            .file_name()
+            .to_string_lossy()
+            .starts_with("schema30-before-schema31-")
+    );
+    assert_eq!(schema_version(&backups[0].path()), 30);
 }

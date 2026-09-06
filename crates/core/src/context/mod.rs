@@ -24,6 +24,7 @@ pub use contracts::{
     SafeBriefInput, SafeBriefReceipt, SourceDescriptor, SourceKind, SourceRef, StorySnapshot,
     StoryTime,
 };
+pub(crate) use eligibility::author_room_structured_revision_allowed;
 pub use eligibility::{
     EligibilityError, EligibilityErrorCode, EligibilityReceipt, EligibleSource,
     evaluate_eligibility, evaluate_sources,

@@ -602,7 +602,29 @@ describe('persistent FeedbackPanel safeguards', () => {
     await act(async () => root.render(<FeedbackPanel session={noteSession} state={noteSession.state} title="Note" documentKind="note" selection={null} visible onClose={() => {}} registerSaver={() => {}} />));
     await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
     expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement).disabled).toBe(true);
-    expect(host.textContent).toContain('Suggested edits are available for chapters');
+    expect(host.textContent).toContain('Choose Whole document to request a reviewable development draft.');
+  });
+
+  it('activates an explicit assistant action without submitting or replacing the composer text', async () => {
+    const session = await makeSession();
+    await act(async () => root.render(<FeedbackPanel session={session} state={session.state} title="Chapter" documentKind="chapter" selection={null} visible onClose={() => {}} registerSaver={() => {}} assistantAction={{ kind: 'draft', nonce: 1 }} />));
+    await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
+    await typeInstruction('Keep the quiet ending.');
+    await act(async () => root.render(<FeedbackPanel session={session} state={session.state} title="Chapter" documentKind="chapter" selection={null} visible onClose={() => {}} registerSaver={() => {}} assistantAction={{ kind: 'draft', nonce: 2 }} />));
+    await waitFor(() => expect(host.querySelector('#continuation-basis')).not.toBeNull());
+    expect((host.querySelector('#discussion-composer') as HTMLTextAreaElement).value).toBe('Keep the quiet ending.');
+    expect(discussions.startDiscussion).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(host.querySelector('#discussion-composer'));
+  });
+
+  it('activates non-chapter Develop as a reviewable whole-document proposal', async () => {
+    const session = await makeSession('document-b');
+    await act(async () => root.render(<FeedbackPanel session={session} state={session.state} title="World" documentKind="world" selection={null} visible onClose={() => {}} registerSaver={() => {}} assistantAction={{ kind: 'develop', nonce: 1 }} />));
+    await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
+    await waitFor(() => expect(host.textContent).toContain('Whole document'));
+    await typeInstruction('Develop the rules while preserving the existing ideas.');
+    expect((host.querySelector('.quoted-scope blockquote') as HTMLElement).textContent).toBe('A quiet chapter.');
+    expect(discussions.startDiscussion).not.toHaveBeenCalled();
   });
 
   it('keeps Send blocked without a scope and serializes Whole chapter only after the explicit action', async () => {

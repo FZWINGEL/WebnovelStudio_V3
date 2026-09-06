@@ -122,10 +122,11 @@ try {
   await page.getByRole('button',{name:'New project',exact:true}).click();
   await page.getByRole('textbox',{name:'Project title',exact:true}).fill('HTTP adapter qualification');
   await page.getByRole('button',{name:'Create project',exact:true}).click();
-  await page.getByRole('button',{name:'Add your first document',exact:true}).click();
+  await page.getByRole('button',{name:'Create a chapter',exact:true}).click();
   await page.getByLabel('Start with',{exact:true}).selectOption('chapter');
   await page.getByRole('textbox',{name:'Title',exact:true}).fill('The station');
   await page.getByRole('button',{name:'Create',exact:true}).click();
+  assert.equal(await page.getByRole('tab',{name:/^Chapters/}).getAttribute('aria-selected'),'true');
   const manuscript=page.getByRole('textbox',{name:'Manuscript',exact:true});
   await manuscript.fill('Mara held the lantern. The ending stays unchanged.');
   await page.getByRole('status').filter({hasText:/^Saved$/}).waitFor();
@@ -147,7 +148,7 @@ try {
   assert.match(await page.locator('.endpoint-list').innerText(), /3 models/);
   await page.screenshot({path:resolve(evidence,'api-settings.png')});
   await page.getByRole('button',{name:'Close settings',exact:true}).click();
-  await page.getByRole('button',{name:'Choose model: Local test model',exact:true}).click();
+  await page.getByRole('button',{name:/^Choose model:/}).click();
   await page.getByRole('searchbox',{name:'Search models'}).fill('test-editor-v1');
   assert.equal(await page.locator('.model-choice').count(), 1);
   await page.screenshot({path:resolve(evidence,'model-picker.png')});

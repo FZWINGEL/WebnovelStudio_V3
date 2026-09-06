@@ -24,6 +24,7 @@ pub struct DesktopProviders(Arc<Mutex<RuntimeState>>);
 #[derive(Default)]
 struct RuntimeState {
     checking: bool,
+    checked: bool,
     #[cfg(windows)]
     connection: Option<CodexConnection>,
     claude_checking: bool,
@@ -80,6 +81,7 @@ pub fn memory_selection(provider_id: &str) -> ModelSelection {
 #[serde(rename_all = "camelCase")]
 struct ConnectionView {
     ready: bool,
+    checked: bool,
     memory_ready: bool,
     detail: String,
 }
@@ -540,6 +542,7 @@ impl DesktopProviders {
             },
             codex_connection: ConnectionView {
                 ready,
+                checked: runtime.checked,
                 memory_ready,
                 detail,
             },
@@ -557,6 +560,7 @@ impl DesktopProviders {
                 ));
             }
             state.checking = true;
+            state.checked = true;
             #[cfg(windows)]
             {
                 state.connection = None;

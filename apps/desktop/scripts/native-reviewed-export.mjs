@@ -34,6 +34,7 @@ export async function qualifyReviewedExport({ page, data, output, operateSaveDia
     };
   });
   const openPreview = async (format = 'markdown') => {
+    if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
     await page.getByRole('button', { name: 'Export draft', exact: true }).click();
     const initial = page.getByRole('dialog', { name: 'Export draft', exact: true });
     await page.waitForFunction(() => !!document.querySelector('.export-preview') && document.querySelector('.export-actions .primary-button')?.disabled === false);
@@ -94,8 +95,10 @@ export async function qualifyReviewedExport({ page, data, output, operateSaveDia
     await page.evaluate(() => { window.fetch = window.reviewedExportFetch; });
 
     // A duplicate retains verifiable old records but cannot adopt review authority.
+    if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
     await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
-    await page.locator('.trial-label').filter({ hasText: 'Reviewed export story copy' }).waitFor();
+    await page.locator('.brand strong').filter({ hasText: 'Reviewed export story copy' }).waitFor();
+    if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
     await page.getByRole('button', { name: 'Export draft', exact: true }).click();
     await page.getByRole('radio', { name: 'Author-reviewed snapshot', exact: true }).check();
     const copiedDialog = page.getByRole('dialog', { name: 'Export author-reviewed chapter', exact: true });

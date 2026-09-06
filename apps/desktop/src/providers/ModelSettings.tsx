@@ -16,6 +16,7 @@ function SettingsDialog({ onClose }: { onClose(): void }) {
   const model = state?.catalog.models.find(model => sameModel(model.key, active!));
   const codexModel = state?.catalog.models.find(model => model.key.providerId === 'codex' && model.key.modelId === 'gpt-5.6-luna');
   const codexReady = state?.codexConnection?.ready === true;
+  const codexStatus = codexReady ? 'Connected' : busy ? 'Checking…' : state?.codexConnection?.checked ? 'Unavailable' : 'Not checked';
   const claudeModels = state?.catalog.models.filter(model => model.key.providerId === 'claude') ?? [];
   const claudeReady = state?.claudeConnection?.ready === true;
   const activeCodex = active?.providerId === 'codex';
@@ -78,7 +79,7 @@ function SettingsDialog({ onClose }: { onClose(): void }) {
       </> : <p className="provider-note">Story-memory provider state is unavailable. Reload Settings before refreshing story memory.</p>}
     </section>
     {state && codexModel && <section className={`provider-connection ${codexReady ? 'is-ready' : 'is-unavailable'}`} aria-labelledby="codex-connection-title">
-      <div className="provider-connection-heading"><h3 id="codex-connection-title">Codex connection</h3><span className="provider-connection-status">{codexReady ? 'Connected' : 'Not checked'}</span></div>
+      <div className="provider-connection-heading"><h3 id="codex-connection-title">Codex connection</h3><span className="provider-connection-status">{codexStatus}</span></div>
       <p className="provider-note" role="status" aria-live="polite">{state.codexConnection?.detail ?? 'Check this computer for the installed Codex sign-in.'}</p>
       <button type="button" disabled={busy} onClick={() => void checkConnection()}>Check Codex connection</button>
     </section>}

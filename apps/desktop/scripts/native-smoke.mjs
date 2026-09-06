@@ -51,6 +51,12 @@ async function operateSaveDialog(action, destination = '', reviewed = false, exp
     helper.once('exit', code => { clearTimeout(timeout); code === 0 ? accept(output.trim()) : reject(new Error(`Native Save dialog action failed (${code}): ${output}`)); });
   });
 }
+async function openRequestOptions(page) {
+  const options = page.locator('details.request-options').first();
+  if (await options.count() && await options.getAttribute('open') === null) {
+    await options.locator(':scope > summary').click();
+  }
+}
 let browser;
 let observedPage;
 const checks = [];
@@ -78,6 +84,11 @@ try {
   observedPage = page;
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  // Startup now restores the Codex choice. Select the local test model before
+  // any synthetic editor journey so no generation can use a live provider.
+  await page.getByRole('button', { name: /^Choose model:/ }).click();
+  await page.locator('.model-choice').filter({ hasText: 'Local test model' }).click();
+  await page.getByRole('button', { name: 'Choose model: Local test model', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Choose model: Local test model', exact: true }).click();
   await page.getByRole('button', { name: 'Favorite GPT-5.6-Luna', exact: true }).click();
   await page.getByRole('button', { name: 'Unfavorite GPT-5.6-Luna', exact: true }).waitFor();
@@ -94,13 +105,13 @@ try {
   await page.reload();
   await page.getByRole('button', { name: 'Choose model: GPT-5.6-Luna', exact: true }).waitFor();
   const savedProvider = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('provider_state'));
-  assert.equal(savedProvider.dispatch.kind, 'blocked');
+  assert.equal(savedProvider.dispatch.kind, savedProvider.codexConnection.ready ? 'codexCli' : 'blocked');
   assert.deepEqual(savedProvider.settings.active, { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'high', serviceTier: 'priority' });
   assert.deepEqual(savedProvider.settings.favorites, [{ providerId: 'codex', modelId: 'gpt-5.6-luna' }]);
   await page.getByRole('button', { name: 'Choose model: GPT-5.6-Luna', exact: true }).click();
   await page.locator('.model-choice').filter({ hasText: 'Local test model' }).click();
   await page.getByRole('button', { name: 'Choose model: Local test model', exact: true }).waitFor();
-  checks.push('Model choice, favorites and traits survive reload; unavailable Codex remains blocked without substitution');
+  checks.push('Model choice, favorites and traits survive reload; checked Codex connects when available and otherwise remains blocked without substitution');
   await page.getByRole('button', { name: 'Open editor trial', exact: true }).click();
   await page.getByRole('textbox', { name: 'Chapter manuscript' }).waitFor();
   // The diagnostic is intentionally hidden at smaller native window widths.
@@ -482,11 +493,15 @@ try {
     await page.getByRole('button', { name: 'New project', exact: true }).click();
     await page.getByRole('textbox', { name: 'Project title', exact: true }).fill(title);
     await page.getByRole('button', { name: 'Create project', exact: true }).click();
-    await page.getByRole('button', { name: 'Add your first document', exact: true }).click();
+    // A new project opens on its Chapters tab; the empty workspace owns the
+    // first-document action now, while the form still permits any document kind.
+    await page.getByRole('button', { name: 'Create a chapter', exact: true }).click();
     await page.getByLabel('Start with', { exact: true }).selectOption(kind);
     await page.getByRole('textbox', { name: 'Title', exact: true }).fill(documentTitle);
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.getByRole('heading', { name: documentTitle, exact: true }).waitFor();
+    const expectedTab = kind === 'chapter' ? 'Chapters' : kind === 'character' ? 'Characters' : kind === 'world' ? 'Worldbuilding' : kind === 'note' ? 'Notes' : 'Plot & themes';
+    assert.equal(await page.getByRole('tab', { name: new RegExp(`^${expectedTab}`) }).getAttribute('aria-selected'), 'true');
     await fillManuscript(text);
     await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
   }
@@ -495,21 +510,24 @@ try {
   await createWritingProject('Harbour B', 'chapter', 'The empty pier', 'The tide carries a red lantern towards the pier.');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour A Last opened/ }).click();
+  assert.equal(await page.getByRole('tab', { name: /^Characters/ }).getAttribute('aria-selected'), 'true');
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei keeps the brass key. Her voice is quiet.');
   await fillManuscript('Mei keeps the brass key. She has made her choice.');
   // Navigate while debounce is pending: the lifecycle guard must drain it.
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour B Last opened/ }).click();
+  assert.equal(await page.getByRole('tab', { name: /^Chapters/ }).getAttribute('aria-selected'), 'true');
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'The tide carries a red lantern towards the pier.');
   await page.reload();
   await page.getByRole('button', { name: /^Harbour A Last opened/ }).click();
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei keeps the brass key. She has made her choice.');
   await page.screenshot({ path: resolve(output, 'persistent-workspace.png') });
   checks.push('Native library creates character-first and chapter-first projects; typing, detach-after-flush switching and renderer reload retain isolated prose');
+  if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
   await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.trial-label')?.textContent.includes('Harbour A copy') || !!document.querySelector('[role="alert"]'));
+  await page.waitForFunction(() => document.querySelector('.brand strong')?.textContent.includes('Harbour A copy') || !!document.querySelector('[role="alert"]'));
   assert.equal(await page.getByRole('alert').count(), 0, await page.getByRole('alert').allTextContents().then(text => text.join('\n')));
-  await page.locator('.trial-label').filter({ hasText: 'Harbour A copy' }).waitFor();
+  await page.locator('.brand strong').filter({ hasText: 'Harbour A copy' }).waitFor();
   await fillManuscript('Only the independent copy changes.');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   // A click acknowledges the gesture, not asynchronous detach/flush. Kill only
@@ -691,10 +709,11 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Only the independent copy changes.');
   checks.push('Native continuation refuses an unavailable reviewed prefix, requires explicit working-draft fallback, retries one lost preparation acknowledgment with the exact operation/body/IDs and one stored version, previews typed paragraphs without mutating the mounted editor, applies after the unchanged ending, survives visible undo/redo, and retains the new body in history after reload');
   const editorBeforeRename = await page.evaluate(() => { window.editorBeforeRename = document.querySelector('.tiptap').editor; return window.editorBeforeRename.getJSON(); });
+  if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
   await page.getByRole('button', { name: 'Rename', exact: true }).click();
   await page.getByRole('textbox', { name: 'Project title', exact: true }).fill('Harbour C');
   await page.getByRole('button', { name: 'Save title', exact: true }).click();
-  await page.locator('.trial-label').filter({ hasText: /^Harbour C$/ }).waitFor();
+  await page.locator('.brand strong').filter({ hasText: /^Harbour C$/ }).waitFor();
   await page.getByRole('button', { name: 'Rename document', exact: true }).click();
   await page.getByRole('textbox', { name: 'Document title', exact: true }).fill("Mei's voice");
   await page.getByRole('button', { name: 'Save document title', exact: true }).click();
@@ -717,6 +736,7 @@ try {
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
   await page.getByRole('heading', { name: 'Ending to protect', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.querySelector('.tiptap').editor.state.selection.anchor), 7);
+  await openRequestOptions(page);
   await page.locator('.persistent-source-pins>summary').click();
   await page.getByRole('combobox', { name: 'Story source', exact: true }).selectOption({ label: "Mei's voice" });
   await page.getByRole('button', { name: 'Keep source', exact: true }).click();
@@ -756,11 +776,13 @@ try {
   await page.locator('.persistent-feedback article').filter({ hasText: 'This test confirms discussion and context handling' }).waitFor();
   await page.screenshot({ path: resolve(output, 'persistent-discussion.png') });
   checks.push('Native selected discussion retains its exact quote, mock response and context receipt without replacing prose; unsent composer and conversation survive switching and renderer reload');
+  await openRequestOptions(page);
   await page.locator('.persistent-source-pins>summary').click();
   await page.locator('.persistent-source-list li').filter({ hasText: "Mei's voiceThis document" }).waitFor();
   await page.locator('.persistent-source-list li').filter({ hasText: 'Ending to protectThis project' }).waitFor();
   checks.push('Persistent document/project source choices survive native navigation/reload and are marked required in the frozen discussion packet without changing prose');
   const beforeGuidance = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
+  await openRequestOptions(page);
   await page.locator('.persistent-feedback article').filter({ hasText: /^You/ }).filter({ hasText: 'Keep this image, but make its meaning less obvious.' }).getByRole('button', { name: 'Keep as guidance', exact: true }).click();
   await page.getByRole('textbox', { name: 'Direction', exact: true }).fill('Preserve the final lantern image and keep the ending intact.');
   await page.getByRole('combobox', { name: 'Apply to', exact: true }).selectOption('document');
@@ -789,6 +811,7 @@ try {
   await page.locator('.guidance-item p').filter({ hasText: /^Preserve the final lantern image and keep the ending intact\.$/ }).waitFor({ state: 'attached' });
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
   checks.push('Native Keep as guidance stores the confirmed document instruction, supplies its exact version in the next packet, survives reload and never changes manuscript text');
+  await openRequestOptions(page);
   await page.getByRole('button', { name: 'Add guidance', exact: true }).click();
   await page.getByRole('textbox', { name: 'Direction', exact: true }).fill('Keep the promise intact for this attempt.');
   await page.getByRole('combobox', { name: 'Apply to', exact: true }).selectOption('request');
@@ -1027,6 +1050,7 @@ try {
   await page.getByRole('button', { name: 'Bold', exact: true }).click();
   await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
   const exportSource = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
+  if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
   await page.getByRole('button', { name: 'Export draft', exact: true }).click();
   const exportDialog = page.getByRole('dialog', { name: 'Export draft', exact: true });
   await exportDialog.getByRole('button', { name: 'Choose destination…', exact: true }).waitFor();
@@ -1119,11 +1143,11 @@ try {
   await page.getByRole('button', { name: 'Mark this version reviewed', exact: true }).click();
   await page.getByRole('heading', { name: 'Reviewed version is current', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
-  await page.locator('.document-sidebar nav button').filter({ hasText: /^The gate/ }).click();
+  await page.locator('.document-sidebar nav button > span').filter({ hasText: /^The gate$/ }).click();
   await page.getByRole('heading', { name: 'The gate', exact: true }).waitFor();
   await fillManuscript('Mei carried the key away from the gate.');
   await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
-  await page.locator('.document-sidebar nav button').filter({ hasText: /^The return/ }).click();
+  await page.locator('.document-sidebar nav button > span').filter({ hasText: /^The return$/ }).click();
   await page.getByRole('heading', { name: 'The return', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Story review', exact: true }).click();
   await page.getByRole('heading', { name: 'Earlier story needs review', exact: true }).waitFor();

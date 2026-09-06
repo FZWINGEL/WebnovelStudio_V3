@@ -46,6 +46,17 @@ function lookupPacketDelivered(inputDelivered: boolean): boolean {
   return inputDelivered;
 }
 
+/** A shell action selects a writing mode; it never submits a provider request by itself. */
+export type AssistantAction = {
+  kind: 'draft' | 'develop' | 'revise' | 'discuss';
+  nonce: number;
+};
+
+function hasDocumentText(document: ReturnType<typeof snapshotFromEditor>): boolean {
+  return document.body.content.some(block => block.type !== 'sceneBreak'
+    && (block.content ?? []).some(inline => inline.type === 'text' && inline.text.trim().length > 0));
+}
+
 function ResponseDetails({ run }: { run: DiscussionRun }) {
   const result = run.providerResult;
   if (!result) return null;
@@ -73,12 +84,13 @@ function ProposalResponse({ run, content, hasCandidates }: { run: DiscussionRun;
   </>;
 }
 
-export function FeedbackPanel({ session, state, title, documentKind, sources = [], selection, visible, onClose, registerSaver, onPrepareProposal, onApplyProposal }: {
+export function FeedbackPanel({ session, state, title, documentKind, sources = [], selection, visible, onClose, registerSaver, onPrepareProposal, onApplyProposal, assistantAction }: {
   session: DocumentSession; state: SessionState; title: string; documentKind?: string; selection: { scope: Scope; nonce: number } | null; visible: boolean;
   sources?: SourceChoice[];
   onClose: () => void; registerSaver: (save: (() => Promise<void>) | null) => void;
   onPrepareProposal?: (proposal: Proposal, text: string, operationId: string) => Promise<PreparedProposal>;
   onApplyProposal?: (proposal: Proposal, prepared: PreparedProposal) => Promise<void>;
+  assistantAction?: AssistantAction;
 }) {
   const providers = useProviders();
   const model = providers.state?.catalog.models.find(model => sameModel(model.key, providers.state!.settings.active));
@@ -104,6 +116,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   const guidanceChanged = useCallback(() => setGuidanceEpoch(value => value + 1), []);
   const sendingRef = useRef(false);
   const controller = useRef<ComposerSession | null>(null);
+  const lastAssistantAction = useRef<number | null>(null);
   const mounted = useRef(true);
   const owner = useRef(session); owner.current = session;
   const isCurrent = () => mounted.current && owner.current === session;
@@ -121,7 +134,9 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const documentId = state.head.documentId;
   const currentIntent = composerIntent(body);
-  const canSuggestEdits = documentKind === 'chapter' && !!body.scope && ['passage', 'blocks', 'wholeDocument'].includes(body.scope.kind);
+  const canSuggestEdits = !!body.scope && (documentKind === 'chapter'
+    ? ['passage', 'blocks', 'wholeDocument'].includes(body.scope.kind)
+    : ['blocks', 'wholeDocument'].includes(body.scope.kind));
   const save = useRef(async () => {});
   save.current = async () => {
     if (composing.current) await new Promise<void>(resolve => compositionWaiters.current.push(resolve));
@@ -155,6 +170,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   }
   useEffect(() => {
     mounted.current = true;
+    lastAssistantAction.current = null;
     controller.current = null; polling.current = false; sendingRef.current = false;
     setView(null); setProposals([]); setBody(emptyComposer()); setPending(null); setSending(false); setSavingResponse(false); setScopeBusy(false); setScopeStale(false); setGuidanceAdoption(null);
     registerSaver(() => save.current());
@@ -186,6 +202,38 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
     }).catch(reason => { if (!cancelled) setError(detail(reason)); }).finally(() => { if (!cancelled) setScopeBusy(false); });
     return () => { cancelled = true; };
   }, [selection, !!view]);
+  async function wholeDocumentScope(currentController: ComposerSession): Promise<ComposerBody['scope']> {
+    const source = structuredClone(session.body);
+    const hash = await bodyHash(canonicalJson(source));
+    if (!isCurrent() || controller.current !== currentController) return null;
+    if (canonicalJson(source) !== canonicalJson(session.body)) throw new Error('The document changed. Capture the editing scope again.');
+    return captureRevisionScope(source, hash, 'wholeDocument');
+  }
+  async function activateAssistantAction(action: AssistantAction) {
+    const currentController = controller.current;
+    if (!currentController || sendingRef.current || scopeBusy || pending) return;
+    const current = currentController.body;
+    try {
+      if (action.kind === 'discuss') {
+        update({ ...current, intent: 'discuss' });
+      } else if (action.kind === 'draft' && documentKind === 'chapter') {
+        update({ ...current, intent: 'continue', basis: current.basis ?? 'working', scope: null });
+      } else if (action.kind === 'develop' || action.kind === 'revise' || action.kind === 'draft') {
+        const scope = action.kind === 'revise' && current.scope && !scopeStale ? current.scope : await wholeDocumentScope(currentController);
+        if (!scope) return;
+        // The hash can resolve after the author starts typing. Merge the mode
+        // into the latest body so an explicit action never replaces new text.
+        const latest = controller.current?.body ?? current;
+        update({ ...latest, intent: 'proposeEdits', basis: undefined, scope });
+      }
+      composer.current?.focus();
+    } catch (reason) { if (isCurrent()) setError(detail(reason)); }
+  }
+  useEffect(() => {
+    if (!assistantAction || !view || !controller.current || scopeBusy || sendingRef.current || pending || lastAssistantAction.current === assistantAction.nonce) return;
+    lastAssistantAction.current = assistantAction.nonce;
+    void activateAssistantAction(assistantAction);
+  }, [assistantAction?.kind, assistantAction?.nonce, !!view, scopeBusy, !!pending]);
   useEffect(() => {
     let cancelled = false;
     if (!body.scope) { setScopeStale(false); return; }
@@ -216,7 +264,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
     if (!submitted.text.trim() && !pending) return;
     const submittedIntent = composerIntent(submitted);
     if (!checkPending && submittedIntent === 'proposeEdits' && !canSuggestEdits) {
-      setError(documentKind === 'chapter' ? 'Select a passage or choose Whole chapter before requesting suggested edits.' : 'Suggested edits are available for chapters only.');
+      setError(documentKind === 'chapter' ? 'Select a passage or choose Whole chapter before requesting suggested edits.' : 'Choose Whole document before requesting a reviewable development draft.');
       return;
     }
     if (!checkPending && submittedIntent === 'continue' && (documentKind !== 'chapter' || !submitted.basis || submitted.scope)) {
@@ -238,7 +286,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
           request = { access: session.projectAccess, operationId: crypto.randomUUID(), expected: session.state.head, instruction: submitted.text, intent: submittedIntent === 'discuss' ? undefined : submittedIntent, scope: submitted.scope, pinnedDocumentIds: submitted.pinnedDocumentIds,
             modelSelection: selectedModel ? { ...selectedModel } : undefined,
             basis: submittedIntent === 'continue' ? submitted.basis : undefined,
-            safeBrief: submittedIntent !== 'discuss' ? submitted.safeBrief : undefined,
+            safeBrief: submittedIntent !== 'discuss' && documentKind === 'chapter' ? submitted.safeBrief : undefined,
             budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' }, previousRunId: submitted.previousRunId ?? null,
             lookup: submittedIntent === 'discuss' ? submitted.lookup : undefined };
         }
@@ -332,19 +380,22 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
     update({ ...controller.current.body, intent: composerIntent(controller.current.body) === 'continue' ? 'continue' : 'proposeEdits', safeBrief: origin ? { text: origin.content, originMessageId: origin.id, confirmed: false } : controller.current.body.safeBrief ?? { text: '', originMessageId: null, confirmed: false } });
     setBriefFocus(value => value + 1);
   };
+  const draftLabel = documentKind === 'chapter' ? (hasDocumentText(session.body) ? 'Continue chapter' : 'Draft chapter') : `Develop ${title}`;
   return <aside className="feedback persistent-feedback" aria-label="Document discussion" style={visible ? undefined : { display: 'none' }}>
-    <div className="feedback-heading"><h2>Discussion</h2><button onClick={onClose} aria-label="Hide discussion">Hide</button></div>
-    <p className="panel-intro">Talk through {title}. Select text to focus on a passage.</p>
-    <div className="scope-controls"><span>{model?.label ?? 'Model unavailable'}</span><span className="session-tag">{modelReady ? providers.state?.dispatch.kind === 'codexCli' || providers.state?.dispatch.kind === 'claudeCli' ? 'Live AI connected' : providers.state?.dispatch.kind === 'openAiCompatible' ? 'API endpoint configured' : 'No live AI connected' : providers.busy ? 'Checking model…' : 'Not connected'}</span></div>
+    <div className="feedback-heading"><h2>Writing assistant</h2><button onClick={onClose} aria-label="Hide discussion">Hide</button></div>
+    <p className="panel-intro">Draft, revise, or discuss {title}. Select text to focus on a passage.</p>
+    <div className="scope-controls"><span>{model?.label ?? 'Model unavailable'}</span><span className="session-tag">{modelReady ? providers.state?.dispatch.kind === 'codexCli' || providers.state?.dispatch.kind === 'claudeCli' ? 'Live AI connected' : providers.state?.dispatch.kind === 'openAiCompatible' ? 'API endpoint configured' : providers.state?.dispatch.kind === 'localMock' ? 'Local test model · no AI calls' : 'No live AI connected' : providers.busy ? 'Checking model…' : 'Not connected'}</span></div>
     {!modelReady && <p className="discussion-state">{providers.busy ? 'Checking your saved model choice…' : providers.state?.dispatch.detail || 'Check Settings before sending. Your writing and feedback stay saved.'}</p>}
     {view?.workerIssues?.map(issue => <div key={issue.runId} className="discussion-error response-save-notice" role="alert"><p>{issue.detail}</p><button disabled={locked} onClick={() => void checkSavedResponse(issue.runId)}>Retry saving response</button></div>)}
     <div className="feedback-scroll">
       {currentIntent !== 'discuss' && body.safeBrief && <SafeBriefEditor value={body.safeBrief} disabled={locked} focusKey={briefFocus}
         onChange={safeBrief => update({ ...body, safeBrief })} onRemove={() => { update({ ...body, safeBrief: undefined }); briefLauncher.current?.focus(); }} />}
-      <GuidancePanel key={`guidance/${session.projectAccess.projectId}/${documentId}`} session={session} documentId={documentId} adoption={guidanceAdoption} refreshKey={`${guidanceEpoch}/${view?.runs.at(-1)?.id ?? ''}`} onChanged={guidanceChanged} />
-      <SourcePinsPanel key={`sources/${session.projectAccess.projectId}/${documentId}`} session={session} documentId={documentId} sources={sources} adoption={sourceAdoption} restricted={currentIntent !== 'discuss'} disabled={locked} onChanged={guidanceChanged} onPendingChange={setSourcesPending} />
+      <details className="request-options"><summary>Request options</summary>
+        <GuidancePanel key={`guidance/${session.projectAccess.projectId}/${documentId}`} session={session} documentId={documentId} adoption={guidanceAdoption} refreshKey={`${guidanceEpoch}/${view?.runs.at(-1)?.id ?? ''}`} onChanged={guidanceChanged} />
+        <SourcePinsPanel key={`sources/${session.projectAccess.projectId}/${documentId}`} session={session} documentId={documentId} sources={sources} adoption={sourceAdoption} restricted={currentIntent !== 'discuss'} disabled={locked} onChanged={guidanceChanged} onPendingChange={setSourcesPending} />
+      </details>
       {!view && !error && <p role="status">Opening discussion…</p>}
-      {view && !view.messages.length && <div className="feedback-empty"><p>What would you like to improve?</p><span>Ask about pacing, a character’s choices, or an earlier detail. Your discussion is saved with this document.</span></div>}
+       {view && !view.messages.length && <div className="feedback-empty"><p>What would you like to write or improve?</p><span>Draft new material, revise the current document, or ask about pacing, choices, and earlier details. Your discussion is saved with this document.</span></div>}
       {view?.messages.map(item => {
         const run = view.runs.find(run => run.id === item.runId);
         const isProposalOutput = item.role === 'assistant' && (run?.intent === 'proposeEdits' || run?.intent === 'continue');
@@ -362,21 +413,21 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
     </div>
     <form className="feedback-form" onSubmit={event => { event.preventDefault(); void send(); }}>
       {body.previousRunId && <div className="retry-notice"><p>Another attempt at the same feedback. Uses current story sources and retains the original one-use guidance if it is still active. Editing the feedback, selection, or included sources starts a new request.</p><button type="button" className="text-button" disabled={locked} onClick={() => update({ ...body, previousRunId: null })}>Use as a new request</button></div>}
-      {body.scope && <div className="quoted-scope"><div className="scope-title"><strong>{body.scope.kind === 'wholeDocument' ? 'Whole chapter' : body.scope.kind === 'blocks' ? 'Selected paragraphs' : 'Selected passage'}</strong><button type="button" disabled={locked} className="text-button" onClick={() => update({ ...body, intent: 'discuss', scope: null })}>{currentIntent === 'proposeEdits' ? 'Discuss instead' : 'Use whole document'}</button></div><blockquote>{body.scope.quote || <em>Empty chapter</em>}</blockquote>{scopeStale && <p className="stale-notice">The manuscript changed. Capture the editing scope again before sending.</p>}</div>}
+      {body.scope && <div className="quoted-scope"><div className="scope-title"><strong>{body.scope.kind === 'wholeDocument' ? documentKind === 'chapter' ? 'Whole chapter' : 'Whole document' : body.scope.kind === 'blocks' ? 'Selected paragraphs' : 'Selected passage'}</strong><button type="button" disabled={locked} className="text-button" onClick={() => update({ ...body, intent: 'discuss', scope: null })}>{currentIntent === 'proposeEdits' ? 'Discuss instead' : 'Use whole document'}</button></div><blockquote>{body.scope.quote || <em>Empty document</em>}</blockquote>{scopeStale && <p className="stale-notice">The manuscript changed. Capture the editing scope again before sending.</p>}</div>}
       {body.pinnedDocumentIds.length > 0 && <div className="source-pins">{body.pinnedDocumentIds.map(id => <button type="button" key={id} disabled={locked} onClick={() => update({ ...body, pinnedDocumentIds: body.pinnedDocumentIds.filter(pin => pin !== id) })}>{sources.find(source => source.id === id)?.title ?? 'Unavailable source'} · remove</button>)}</div>}
-      <div className="intent-controls" role="group" aria-label="Feedback action"><span className="intent-label">Work with the manuscript</span><button type="button" className={currentIntent === 'discuss' ? 'intent-button active' : 'intent-button'} aria-pressed={currentIntent === 'discuss'} disabled={locked} onClick={() => update({ ...body, intent: 'discuss' })}>Discuss</button><button type="button" className={currentIntent === 'proposeEdits' ? 'intent-button active' : 'intent-button'} aria-pressed={currentIntent === 'proposeEdits'} disabled={locked} onClick={() => update({ ...body, intent: 'proposeEdits' })}>Suggest edits</button>{documentKind === 'chapter' && <button type="button" className={currentIntent === 'continue' ? 'intent-button active' : 'intent-button'} aria-pressed={currentIntent === 'continue'} disabled={locked} onClick={() => update({ ...body, intent: 'continue', basis: body.basis ?? 'working', scope: null })}>Continue chapter</button>}</div>
-      {currentIntent === 'proposeEdits' && documentKind === 'chapter' && <div className="revision-scope-controls" role="group" aria-label="Editing scope">
+      <div className="intent-controls" role="group" aria-label="Feedback action"><span className="intent-label">Writing mode</span><button type="button" className={currentIntent === 'continue' ? 'intent-button active' : 'intent-button'} aria-label={draftLabel} aria-pressed={currentIntent === 'continue'} disabled={locked} onClick={() => void activateAssistantAction({ kind: documentKind === 'chapter' ? 'draft' : 'develop', nonce: Date.now() })}>{draftLabel}</button><button type="button" className={currentIntent === 'proposeEdits' ? 'intent-button active' : 'intent-button'} aria-pressed={currentIntent === 'proposeEdits'} disabled={locked} onClick={() => update({ ...body, intent: 'proposeEdits' })}>Suggest edits</button><button type="button" className={currentIntent === 'discuss' ? 'intent-button active' : 'intent-button'} aria-pressed={currentIntent === 'discuss'} disabled={locked} onClick={() => update({ ...body, intent: 'discuss' })}>Discuss</button></div>
+      {currentIntent === 'proposeEdits' && !!documentKind && <div className="revision-scope-controls" role="group" aria-label="Editing scope">
         <span>Change the editing scope</span>
-        <button type="button" className="secondary-button" disabled={locked || scopeStale || !body.scope?.start || !body.scope.end} aria-pressed={body.scope?.kind === 'blocks'} onClick={() => void chooseRevisionScope('blocks')}>Selected paragraphs</button>
-        <button type="button" className="secondary-button" disabled={locked} aria-pressed={body.scope?.kind === 'wholeDocument'} onClick={() => void chooseRevisionScope('wholeDocument')}>Whole chapter</button>
+        {documentKind === 'chapter' && <button type="button" className="secondary-button" disabled={locked || scopeStale || !body.scope?.start || !body.scope.end} aria-pressed={body.scope?.kind === 'blocks'} onClick={() => void chooseRevisionScope('blocks')}>Selected paragraphs</button>}
+        <button type="button" className="secondary-button" disabled={locked} aria-pressed={body.scope?.kind === 'wholeDocument'} onClick={() => void chooseRevisionScope('wholeDocument')}>{documentKind === 'chapter' ? 'Whole chapter' : 'Whole document'}</button>
         {body.scope?.kind === 'blocks' && <p className="small-copy">The complete selected paragraphs, including their formatting and scene breaks, may change.</p>}
-        {body.scope?.kind === 'wholeDocument' && <p className="small-copy">Every part of this chapter may change. Review the complete suggestion before applying it.</p>}
+        {body.scope?.kind === 'wholeDocument' && <p className="small-copy">Every part of this {documentKind === 'chapter' ? 'chapter' : 'document'} may change. Review the complete suggestion before applying it.</p>}
       </div>}
-      {currentIntent === 'proposeEdits' && !canSuggestEdits && <p className="small-copy proposal-requirement">{documentKind === 'chapter' ? 'Select a passage or choose Whole chapter to request suggested edits.' : 'Suggested edits are available for chapters. Discussion remains available here.'}</p>}
+      {currentIntent === 'proposeEdits' && !canSuggestEdits && <p className="small-copy proposal-requirement">{documentKind === 'chapter' ? 'Select a passage or choose Whole chapter to request suggested edits.' : 'Choose Whole document to request a reviewable development draft.'}</p>}
       {currentIntent === 'continue' && <div className="continuation-basis"><label htmlFor="continuation-basis">Story basis</label><select id="continuation-basis" value={body.basis ?? 'working'} disabled={locked} onChange={event => update({ ...body, basis: event.target.value as 'working' | 'reviewed' })}><option value="working">Working draft</option><option value="reviewed">Reviewed story</option></select><p className="small-copy">{body.basis === 'reviewed' ? 'Uses the reviewed chapters before this one. Every earlier chapter needs a current review.' : 'Uses the current draft, including unreviewed chapters.'} New paragraphs will be added at the end only after you review and apply them.</p></div>}
       {currentIntent !== 'discuss' && <div className="safe-brief-status"><span>{body.safeBrief ? body.safeBrief.confirmed ? 'Writing brief approved' : 'Writing brief needs approval' : 'Writing brief · optional'}</span><button ref={briefLauncher} className="text-button" type="button" disabled={locked} onClick={() => openBrief()}>{body.safeBrief ? 'Edit brief' : 'Add writing brief'}</button></div>}
       {currentIntent === 'discuss' && <label className="lookup-opt-in" htmlFor="discussion-lookup"><input id="discussion-lookup" type="checkbox" aria-label="Look up story details when needed" checked={!!body.lookup} disabled={locked || (!lookupSupported && !body.lookup)} onChange={event => update({ ...body, lookup: event.target.checked ? { ...DEFAULT_LOOKUP_ALLOWANCE } : undefined })} /><span><strong>Look up story details when needed</strong><small>{lookupSupported ? 'Up to 3 model calls. Each call may use additional credits.' : body.lookup ? 'Story lookup currently uses Codex. Turn this off to send one API response.' : 'Story lookups are available through Codex.'}</small></span></label>}
-      <label htmlFor="discussion-composer">{currentIntent === 'continue' ? 'What should happen next?' : currentIntent === 'proposeEdits' ? body.scope?.kind === 'wholeDocument' ? 'Request edits for this chapter' : body.scope?.kind === 'blocks' ? 'Request edits for these paragraphs' : 'Request edits for this passage' : body.scope && body.scope.kind !== 'wholeDocument' ? 'Discuss this passage' : 'Discuss this document'}</label>
+      <label htmlFor="discussion-composer">{currentIntent === 'continue' ? 'What should happen next?' : currentIntent === 'proposeEdits' ? body.scope?.kind === 'wholeDocument' ? `Request edits for this ${documentKind === 'chapter' ? 'chapter' : 'document'}` : body.scope?.kind === 'blocks' ? 'Request edits for these paragraphs' : 'Request edits for this passage' : body.scope && body.scope.kind !== 'wholeDocument' ? 'Discuss this passage' : 'Discuss this document'}</label>
       <textarea id="discussion-composer" ref={composer} value={body.text} disabled={!view || locked} maxLength={16000} placeholder="Make this moment more emotional, but keep the ending…" onChange={event => update({ ...body, text: event.target.value })} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; compositionWaiters.current.splice(0).forEach(resolve => resolve()); }} />
       {error && <div className="discussion-error" role="alert">{error}{!pending && <button type="button" disabled={locked} onClick={() => void checkSavedResponse()}>Check saved discussion</button>}{!view && <button type="button" onClick={() => setReload(value => value + 1)}>Retry loading discussion</button>}{view && !pending && <button type="button" onClick={() => void save.current().then(() => setError('')).catch(reason => setError(detail(reason)))}>Retry saving discussion</button>}</div>}
       <div className="form-actions"><span>{sourcesPending ? 'Check saved sources before sending a new request.' : currentIntent !== 'discuss' ? 'Review a suggestion before applying it.' : 'Discussion never changes the manuscript.'}</span>{pending && !sending ? <button type="button" onClick={() => void send(true)}>Check request</button> : <button className="primary-button" disabled={!modelReady || (!!body.lookup && !lookupSupported) || !view || locked || sourcesPending || scopeStale || !body.text.trim() || view.runs.some(activeRun) || (currentIntent === 'proposeEdits' && !canSuggestEdits) || (currentIntent === 'continue' && (documentKind !== 'chapter' || !body.basis)) || (currentIntent !== 'discuss' && !!body.safeBrief && (!body.safeBrief.confirmed || !validBriefText(body.safeBrief.text)))}>Send</button>}</div>

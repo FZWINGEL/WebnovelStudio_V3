@@ -7,12 +7,14 @@
 This decision records the first live-provider boundary for V3. It connects a
 bounded Codex runner to the existing packet, discussion, and recovery contracts
 without treating a successful native CLI experiment as full provider
-qualification. The Windows desktop can dispatch this bounded path only after
-the author explicitly checks the Codex connection; until that check succeeds,
-Codex remains blocked and the local test model remains available. Because Codex
-updates frequently, compatibility is checked against the installed CLI at
-connection time. V3 does not pin a Codex version or executable hash; observed
-identity is recorded with the request for diagnosis and provenance.
+qualification. The Windows desktop can dispatch this bounded path after an
+explicit connection check. A narrowly guarded read-only startup check is also
+allowed only for a fresh revision-0 app state with the mock choice active or
+an already saved Codex choice; it never generates. Until the check succeeds,
+Codex remains blocked and the local test model remains available. Because
+Codex updates frequently, compatibility is checked against the installed CLI
+at connection time. V3 does not pin a Codex version or executable hash;
+observed identity is recorded with the request for diagnosis and provenance.
 
 ## Decision
 
@@ -97,8 +99,11 @@ records the observed executable identity, and confirms `login status`. The
 resulting session connection is held in native runtime state and is required
 before a live worker can start. The selected model, reasoning, and service
 tier must also match the immutable bounded binding. No credential contents are
-read into application state. Historical 0.153.3 runs remain qualification
-evidence, not a current version requirement.
+read into application state. A permitted startup check has the same read-only
+preflight boundary and, on success, adopts Luna with `xhigh` and `priority`
+only when the writing choice is untouched; an explicit selection is preserved.
+Historical 0.153.3 runs remain qualification evidence, not a current version
+requirement.
 
 ## Owned Stop and terminal outcomes
 

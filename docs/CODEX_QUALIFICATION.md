@@ -102,7 +102,7 @@ were canceled after that failure. The bounded dynamic qualification is recorded
 above; broader native/provider/live and release totals are not claimed here.
 
 HTTP context lookup, wider V2 CLI adapters, broader live-provider support, and
-release qualification remain pending. Cumulative dispatches now total twenty;
+release qualification remain pending. At that checkpoint, cumulative dispatches totalled twenty;
 the bounded result does not qualify broader provider parity or HTTP-live
 support.
 
@@ -373,3 +373,28 @@ provider support is still unqualified. Manual offline writing remains
 independent of this evidence. See [W8 in implementation status](IMPLEMENTATION_STATUS.md#W8--one-qualified-live-provider), [E3 in the first-slice plan](V3_FIRST_SLICE_PLAN.md#5-experiments-that-can-change-the-architecture), and the provider/lifecycle contract in [V3_ARCHITECTURE_REFINED.md](V3_ARCHITECTURE_REFINED.md#11-providers-jobs-and-interruption).
 
 Official references used during qualification: [noninteractive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [sandboxing](https://learn.chatgpt.com/docs/sandboxing), and the [Codex app-server lifecycle](https://learn.chatgpt.com/docs/app-server). Additional exact-tag source links appear above; ignored local source notes are retained in `../.local/codex-contract-research.md`.
+
+## Native AI writing workspace qualification — 6 September 2026, 16:59 UTC
+
+Cumulative live CLI dispatch **21** used the installed Codex 0.153.4 through
+`codex-stdin.author.v1`, with GPT-5.6 Luna, xhigh reasoning, and priority/Fast.
+The version and executable identity are observations for this request, not pins.
+
+A fresh temporary native library automatically detected the existing login
+and selected the untouched Luna default. One explicit author request asked for
+an English chapter opening. It returned a valid 131-word continuation proposal;
+the editor stayed empty before explicit Preview and Apply. The accepted chapter
+and response history reopened without a second generation.
+
+Read-only inspection of the owned synthetic project confirmed schema 31, one
+completed discussion run, one provider result, one Apply decision, 3,443
+confirmed stdin bytes, and settled cleanup. Reported usage was 1,450 input
+and 1,122 output tokens, including 892 reasoning output tokens. These are
+reported usage values, not independently confirmed billing or effective traits.
+
+Native executable SHA-256:
+`5b17bd7e85f13d4f2348bfa83940bfc6b996b7dd05367539f17b312e0046592f`.
+Evidence: ignored `.local/ai-workspace-live-qualification/report.json`,
+`receipt.json`, and `live-chapter.png`. No author manuscript or credential
+contents were inspected. This single draft does not close the wider W8,
+long-novel, or narrative-quality gates.

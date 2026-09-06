@@ -117,6 +117,42 @@ fn working_basis_accepts_current_draft_and_keeps_apply_separate() {
 }
 
 #[test]
+fn author_room_revision_requires_an_author_only_current_document_target() {
+    let mut document = source(
+        PROJECT,
+        "world-document",
+        SourceKind::CurrentDraft,
+        true,
+        None,
+        Vec::new(),
+    );
+    document.disclosure.author_only = true;
+    let mut development = request(
+        snapshot(BasisKind::Working, vec![document]),
+        policy(Audience::AuthorRoom),
+        &["world-document"],
+    );
+    development.purpose = ContextPurpose::Revise;
+    assert!(evaluate_eligibility(&development).is_ok());
+
+    let chapter = source(
+        PROJECT,
+        "chapter",
+        SourceKind::CurrentDraft,
+        true,
+        Some("0"),
+        Vec::new(),
+    );
+    let mut invalid = request(
+        snapshot(BasisKind::Working, vec![chapter]),
+        policy(Audience::AuthorRoom),
+        &["chapter"],
+    );
+    invalid.purpose = ContextPurpose::Revise;
+    assert_eq!(error(&invalid), EligibilityErrorCode::InvalidPolicy);
+}
+
+#[test]
 fn reviewed_basis_accepts_only_a_current_target_and_exact_authority_prefix() {
     let draft = source(
         PROJECT,

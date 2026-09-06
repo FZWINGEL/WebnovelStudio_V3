@@ -55,6 +55,8 @@
 .traits-trigger { display: inline-flex; align-items: center; gap: 6px; padding-inline: 9px; white-space: nowrap; }
 .traits-trigger small { color: #596879; font-size: 11px; }
 .traits-trigger:disabled { opacity: .7; }
+.traits-inline-field { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; color: #596879; font-size: 11px; }
+.traits-inline-field select { min-width: 112px; padding: 6px 7px; color: #243142; background: #fff; border: 1px solid #aab7c5; border-radius: 4px; font-size: 12px; }
 .model-traits-dialog { width: min(430px, calc(100vw - 48px)); }
 .model-traits-dialog .provider-field { align-items: center; }
 .model-traits-dialog .provider-field select { min-width: 180px; }

@@ -7,15 +7,18 @@ qualification pass, while broader provider and live/release gates remain open
 
 The fixed Codex maintenance profile remains useful, but author-facing writing
 must follow the models and traits exposed by the installed native CLI. The
-catalog is therefore discovered explicitly in Settings and carried into each
-author request as immutable, checked metadata.
+catalog is therefore discovered through an explicit Settings check or the
+narrowly guarded read-only startup check, then carried into each author
+request as immutable, checked metadata.
 
 ## Decision
 
-### Explicit connection check owns discovery
+### Explicit checks own discovery
 
 Opening the picker or reading cached provider state never starts a CLI. The
-author must choose **Check Codex connection** in Settings. The check selects
+author may choose **Check Codex connection** in Settings; a read-only startup
+check is allowed only for a fresh revision-0 app state with the mock choice
+active or an already saved Codex choice. The check selects
 the installed native executable, records its observed version and SHA-256, and
 runs version, login-status, and strict compatibility preflights. It then runs
 the bounded interactive app-server exchange:
@@ -30,7 +33,8 @@ discovery must finish cleanly and produce one complete, sanitized catalog;
 protocol errors, duplicate or malformed rows, incomplete pages, and limit
 violations fail the check. A failed or partial refresh leaves the last complete
 cache in place. The observed CLI version and executable hash are provenance
-metadata, never a global version or executable pin.
+metadata, never a global version or executable pin. The check itself never
+starts generation.
 
 ### The app library stores descriptive catalog state
 
@@ -73,11 +77,14 @@ floor because author bindings have a distinct validation profile; it changes
 no project tables. Earlier packet bytes and the fixed maintenance profile are
 preserved.
 
-Summary, story-memory, and other maintenance work continues to use
-GPT-5.6-Luna with `xhigh` reasoning and the `priority` service tier. The
-selected writing model never redirects maintenance work; native state exposes
-a separate `memoryReady` result for that fixed route. Manual editing and the
-OpenAI-compatible HTTP path retain their existing contracts.
+Summary and native Codex story-memory maintenance continue to use GPT-5.6-Luna
+with `xhigh` reasoning and the `priority` service tier. The selected writing
+model never redirects maintenance work; native state exposes a separate
+`memoryReady` result for that fixed route. Configured HTTP Story Memory uses
+Luna with `xhigh` and no service tier. A successful startup check adopts the
+native Luna defaults only when the writing choice is untouched; explicit
+choices remain unchanged. Manual editing and the OpenAI-compatible HTTP path
+retain their existing contracts.
 
 HTTP context lookup and wider V2 CLI adapters remain pending. This decision
 also does not qualify broader live providers, general provider parity,

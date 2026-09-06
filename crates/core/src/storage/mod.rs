@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 30;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 31;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -114,6 +114,13 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         }
         if version < 30 {
             tx.execute_batch(include_str!("030_claude_provider_result.sql"))?;
+        }
+        // Schema 31 changes no tables and exists as a reader floor for
+        // author-room structured document-development packets. Older readers
+        // must reject the project before reopening packets they cannot
+        // validate.
+        if version < 31 {
+            tx.execute_batch("SELECT 1;")?;
         }
         // Schema 30 adds the nullable Claude terminal model claim. NULL keeps
         // historical Codex and HTTP receipts byte-compatible while the reader

@@ -42,14 +42,21 @@ export function ModelSelector() {
   const providers = useProviders();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (!open && !providers.busy && restoreFocus.current) {
+      restoreFocus.current = false;
+      button.current?.focus();
+    }
+  }, [open, providers.busy]);
   const selected = providers.state?.catalog.models.find(model => sameModel(model.key, providers.state!.settings.active));
-  const activeLabel = selected?.label ?? (providers.busy ? 'Loading model…' : 'Model unavailable');
+  const activeLabel = providers.busy ? 'Checking model…' : selected?.label ?? 'Model unavailable';
   return <div className="model-controls">
     <div className="model-selector">
-      <button ref={button} type="button" className="model-trigger" aria-label={`Choose model: ${activeLabel}`} aria-haspopup="dialog" onClick={() => setOpen(true)}>
+      <button ref={button} type="button" className="model-trigger" disabled={providers.busy || !providers.state} aria-label={`Choose model: ${activeLabel}`} aria-haspopup="dialog" onClick={() => setOpen(true)}>
         <span>{activeLabel}</span><span className="model-trigger-chevron" aria-hidden="true" />
       </button>
-      {open && <ModelPicker onClose={() => { setOpen(false); button.current?.focus(); }} />}
+      {open && <ModelPicker onClose={() => { restoreFocus.current = true; setOpen(false); }} />}
     </div>
     <ModelTraits />
   </div>;

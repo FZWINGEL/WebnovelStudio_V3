@@ -4,7 +4,7 @@ use super::*;
 use crate::context::continuation::{
     ContinuationCandidate, validate_continuation_output, validate_continuation_paragraphs,
 };
-use crate::context::{Audience, ContextPurpose};
+use crate::context::{Audience, ContextPurpose, author_room_structured_revision_allowed};
 use crate::documents::{
     STRUCTURED_PROPOSAL_RESPONSE_CONTRACT, ScopeGrant, ScopeKind, ScopeValidationRequest,
     TypedReplacementBlock, typed_replacement_snapshot, validate_append,
@@ -700,12 +700,17 @@ pub(super) fn retain_candidates_at(
     let packet = context_packets::validated_packet_record(db, &run.packet_id)?;
     let (frozen, namespace) =
         story_context::validated_snapshot_record(db, &packet.receipt.snapshot_id)?;
-    if frozen.policy.audience != Audience::RestrictedWriting {
-        return Ok(());
-    }
     let Some(scope) = packet_scope(db, &run.packet_id)? else {
         return Ok(());
     };
+    let author_room_development =
+        author_room_structured_revision_allowed(&frozen.snapshot, &frozen.policy, frozen.purpose);
+    if frozen.policy.audience != Audience::RestrictedWriting
+        && (!author_room_development
+            || !matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument))
+    {
+        return Ok(());
+    }
     let kind = match frozen.purpose {
         ContextPurpose::Revise => match scope.kind {
             ScopeKind::Passage => ProposalKind::Passage,
@@ -859,7 +864,12 @@ fn read(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<Proposa
         ProposalKind::Structured => (ContextPurpose::Revise, scope.kind),
     };
     if frozen.purpose != expected.0
-        || frozen.policy.audience != Audience::RestrictedWriting
+        || (frozen.policy.audience != Audience::RestrictedWriting
+            && !(author_room_structured_revision_allowed(
+                &frozen.snapshot,
+                &frozen.policy,
+                frozen.purpose,
+            ) && kind == ProposalKind::Structured))
         || (kind == ProposalKind::Structured
             && !matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument))
         || scope.kind != expected.1

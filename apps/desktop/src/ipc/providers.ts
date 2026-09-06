@@ -18,7 +18,7 @@ export interface ModelDescriptor {
 export interface ProviderState {
   settings: ModelSettings; catalog: { models: ModelDescriptor[] };
   dispatch: { kind: 'localMock' | 'codexCli' | 'claudeCli' | 'openAiCompatible' | 'blocked'; detail: string };
-  codexConnection?: { ready: boolean; memoryReady?: boolean; detail: string };
+  codexConnection?: { ready: boolean; checked?: boolean; memoryReady?: boolean; detail: string };
   claudeConnection?: { ready: boolean; detail: string };
   /** Native production state always supplies this. Optional keeps isolated
    * picker fixtures compatible while preventing the memory panel from

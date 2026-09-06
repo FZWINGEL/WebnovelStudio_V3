@@ -5,13 +5,64 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Current author projects use schema 30; app-local model preferences and endpoint profiles use library schema 4.
+### AI writing workspace checkpoint — 6 September, 17:00 UTC
 
-C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation now includes frozen source-title projection, with focused protocol, packet, boundary, core, frontend, and local native review evidence. The schema-27 author-binding boundary is preserved; schema 28 adds the frozen source-title reader boundary, schema 29 adds memory HTTP delivery receipts, schema 30 adds Claude reported-model receipts, and library schema 4 is unchanged. The previous provider wrapper checkpoint passes 589 active Rust tests (548 core and 41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files, with formatting, strict Clippy, TypeScript, and the production build; it is dated evidence. C6 checkpoint CI [34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes Windows and Ubuntu contracts, all 47 strict native checks, and the native HTTP fixture with zero live calls. Its wrapper counts are dated at 593 active Rust tests (552 core and 41 desktop), one existing ignored fixture, and 353 frontend tests in 27 files. Current combined checks pass 644 active Rust tests (589 core and 55 desktop), one existing ignored fixture, and 357 frontend tests in 27 files, with formatting, strict workspace Clippy, TypeScript, and the production build. The initial wrapper frontend run found one stale copy assertion; the corrected complete frontend run passes. Review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, truthful delivery status, and frozen title/source identity across renames. The independent Story Memory provider preference and configured HTTP route are implemented development surfaces. C6 remains a development slice: broader live lookup, provider, native, and release qualification remain open. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 strict native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
+The author's revised direction is implemented as a development slice:
+
+- Each project has Chapters, Worldbuilding, Characters, Plot & themes, and
+  Notes tabs. Chapter navigation shares one editor and retains the existing
+  save-before-switch barrier. Each project remembers its tab and last document.
+- Draft/Continue and Develop are primary actions. Worldbuilding and character
+  development use reviewable whole-document proposals and the existing atomic
+  Preview/Apply path. Chapter prose retains its restricted disclosure policy.
+- Native startup checks the installed Codex for an untouched library or a
+  saved Codex selection. A fresh fallback adopts Luna/xhigh/Fast after a
+  successful check. Explicit saved choices remain unchanged. Reasoning effort
+  and service tier are directly selectable beside the model picker.
+- Schema 31 adds the minimum reader fence for author-room development records.
+  Schema-30 migration, backup, and reopening regressions pass. Historical
+  packet bytes and receipts are not rewritten.
+
+Current evidence: 648 active Rust tests (593 core, 55 desktop), one existing
+ignored fixture, strict workspace Clippy, formatting, TypeScript, production
+frontend build, and all 376 frontend tests in 29 files pass. The first wrapper
+run exposed a picker focus-return regression after disabling the loading
+trigger; that implementation was corrected and the entire frontend suite
+rerun successfully. Rust did not change after its successful wrapper checks.
+
+Native WebView2 152.0.4191.66 passes all 46 local regression checks, excluding
+the existing OS clipboard case. A separate temporary-project native flow
+passes fresh Codex detection, chapter Draft/Preview/Apply, world and character
+development, chapter navigation, tab/project isolation, and renderer reopen.
+The compatible-API/Claude picker fixture passes all six grouped checks, six
+synthetic HTTP POSTs, zero live API calls, and credential cleanup. An independent
+visual review accepted the supplied normal and 800×600 CSS-viewport captures;
+physical DPI, assistive technology, installed release, and author acceptance
+remain separate gates.
+
+One real native Codex request (cumulative live CLI dispatch **21**) used
+Luna/xhigh/priority, returned a 131-word chapter proposal, and changed the
+manuscript only after Preview and Apply. Same-data reopen made no new request.
+The database records one completed run, one provider result, one Apply decision,
+3,443 confirmed stdin bytes, and settled cleanup. This is a bounded drafting
+qualification, not broad narrative-quality evidence.
+
+Accepted native executable SHA-256:
+`5b17bd7e85f13d4f2348bfa83940bfc6b996b7dd05367539f17b312e0046592f`.
+Ignored evidence is retained under `.local/ai-workspace-native-regression/`,
+`.local/ai-workspace-qualification/`, `.local/ai-workspace-live-qualification/`,
+and `.local/native-results/http/`. The initial workspace visual/mock capture
+used `83c785a…`; the final binary additionally fixes picker focus return and is
+the one used for the full local native regression and live draft.
+See [ADR 0027](ADR_0027_AI_WRITING_WORKSPACE.md).
+
+The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Current author projects use schema 31; app-local model preferences and endpoint profiles use library schema 4.
+
+C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation now includes frozen source-title projection, with focused protocol, packet, boundary, core, frontend, and local native review evidence. The schema-27 author-binding boundary is preserved; schema 28 adds the frozen source-title reader boundary, schema 29 adds memory HTTP delivery receipts, schema 30 adds Claude reported-model receipts, and library schema 4 is unchanged. The previous provider wrapper checkpoint passes 589 active Rust tests (548 core and 41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files, with formatting, strict Clippy, TypeScript, and the production build; it is dated evidence. C6 checkpoint CI [34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes Windows and Ubuntu contracts, all 47 strict native checks, and the native HTTP fixture with zero live calls. Its wrapper counts are dated at 593 active Rust tests (552 core and 41 desktop), one existing ignored fixture, and 353 frontend tests in 27 files. The prior Claude checkpoint combined checks passed 644 active Rust tests (589 core and 55 desktop), one existing ignored fixture, and 357 frontend tests in 27 files, with formatting, strict workspace Clippy, TypeScript, and the production build. The initial wrapper frontend run found one stale copy assertion; the corrected complete frontend run passes. Review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, truthful delivery status, and frozen title/source identity across renames. The independent Story Memory provider preference and configured HTTP route are implemented development surfaces. C6 remains a development slice: broader live lookup, provider, native, and release qualification remain open. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 strict native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
 
 Settings now compatibility-checks the installed Codex CLI without a fixed
 version or executable hash and records the observed identity with each request.
-An explicit Settings check runs the bounded interactive `initialize`,
+A startup check for a fresh library or saved Codex selection, or an explicit Settings check, runs the bounded interactive `initialize`,
 `initialized`, and paginated `model/list` exchange inside the owned Windows
 process boundary. The sanitized catalog is display-only; the current checked
 connection must authorize the exact selected model and concrete traits before

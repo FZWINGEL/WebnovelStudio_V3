@@ -13,7 +13,9 @@ use super::contracts::{
     StoryTime,
 };
 use super::conversation::{ConversationTurn, validate_conversation};
-use super::eligibility::{EligibilityError, evaluate_sources};
+use super::eligibility::{
+    EligibilityError, author_room_structured_revision_allowed, evaluate_sources,
+};
 use super::guidance::{FrozenGuidance, validate_frozen_guidance};
 use super::lookup::{
     LOOKUP_SOURCE_PROJECTION_SCHEMA, LookupPacketInput, LookupReadRequest, LookupReadResult,
@@ -2686,9 +2688,15 @@ fn validate_response_contract(request: &PacketRequest) -> Result<(), PacketError
         return Ok(());
     }
     if contract == STRUCTURED_PROPOSAL_RESPONSE_CONTRACT {
+        let author_room_development = author_room_structured_revision_allowed(
+            &request.frozen.snapshot,
+            &request.frozen.policy,
+            request.frozen.purpose,
+        );
         if request.provider_binding.is_none()
             || request.frozen.purpose != ContextPurpose::Revise
-            || request.frozen.policy.audience != Audience::RestrictedWriting
+            || (!author_room_development
+                && request.frozen.policy.audience != Audience::RestrictedWriting)
             || request.scope.as_ref().is_none_or(|scope| {
                 !matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument)
             })

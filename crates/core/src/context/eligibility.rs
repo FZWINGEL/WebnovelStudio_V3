@@ -162,6 +162,7 @@ pub fn evaluate_sources(
     }
     if policy.audience == Audience::AuthorRoom
         && matches!(purpose, ContextPurpose::Revise | ContextPurpose::Continue)
+        && !author_room_structured_revision_allowed(snapshot, policy, purpose)
     {
         return Err(EligibilityError::new(
             EligibilityErrorCode::InvalidPolicy,
@@ -313,6 +314,28 @@ pub fn evaluate_sources(
         all_dependency_handles: ordered_handles,
         can_authorize_apply: false,
     })
+}
+
+/// Author-room development is intentionally narrower than ordinary prose
+/// generation. It may revise only the current author-only working document;
+/// restricted chapter writing and continuation continue to use their existing
+/// disclosure boundary.
+pub(crate) fn author_room_structured_revision_allowed(
+    snapshot: &StorySnapshot,
+    policy: &InformationPolicy,
+    purpose: ContextPurpose,
+) -> bool {
+    purpose == ContextPurpose::Revise
+        && snapshot.basis == BasisKind::Working
+        && policy.audience == Audience::AuthorRoom
+        && policy.reader_frontier.is_none()
+        && snapshot.sources.iter().any(|descriptor| {
+            descriptor.source == snapshot.target
+                && descriptor.kind == SourceKind::CurrentDraft
+                && descriptor.current
+                && descriptor.disclosure.author_only
+                && descriptor.disclosure.reader_position.is_none()
+        })
 }
 
 fn validate_snapshot(snapshot: &StorySnapshot) -> Result<(), EligibilityError> {

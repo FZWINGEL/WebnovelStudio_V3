@@ -4,7 +4,7 @@ use std::{fs, path::PathBuf};
 use uuid::Uuid;
 use webnovel_core::context::{
     BasisKind,
-    packet::{MockContextBudget, ProviderBinding},
+    packet::{MockContextBudget, ProviderBinding, serialized_input},
 };
 use webnovel_core::documents::{
     Endpoint, ScopeGrant, ScopeKind, TypedReplacementBlock, TypedReplacementHeadingAttrs,
@@ -12,7 +12,8 @@ use webnovel_core::documents::{
 };
 use webnovel_core::projects::ProjectAccess;
 use webnovel_core::projects::discussions::{
-    DiscussionBegin, DiscussionFinish, DiscussionScopeInput, FeedbackIntent, StartDiscussion,
+    DiscussionBegin, DiscussionFinish, DiscussionScopeInput, FeedbackIntent, ProviderCleanup,
+    ProviderOutcomeStatus, ProviderTerminalReport, StartDiscussion,
 };
 use webnovel_core::projects::proposals::{
     ApplyProposal, PrepareContinuation, PrepareProposal, PrepareStructured, ProposalCandidate,
@@ -548,6 +549,156 @@ fn whole_document_scope_uses_versioned_contract_and_preserves_formatting() {
 }
 
 #[test]
+fn nonchapter_develop_uses_author_room_whole_document_scope_and_retains_candidate() {
+    let fixture = Fixture::new();
+    let note = fixture
+        .project()
+        .create_document(CreateDocument {
+            access: fixture.access.clone(),
+            operation_id: "create-world-note".into(),
+            document_id: "world-note".into(),
+            title: "World rules".into(),
+            kind: "world".into(),
+            body: source_body(),
+        })
+        .unwrap();
+    let scope = whole_scope(&note.body);
+    let started = fixture
+        .project()
+        .start_discussion(StartDiscussion {
+            access: fixture.access.clone(),
+            operation_id: "develop-world-note".into(),
+            expected: note.head.clone(),
+            instruction: "Develop these rules while preserving their existing ideas.".into(),
+            intent: FeedbackIntent::ProposeEdits,
+            basis: None,
+            scope: Some(DiscussionScopeInput {
+                kind: scope.kind,
+                start: None,
+                end: None,
+                quote: scope.quote.clone(),
+                source_body_hash: scope.source_hash.clone(),
+            }),
+            pinned_document_ids: Vec::new(),
+            safe_brief: None,
+            budget: MockContextBudget::new("100000", "1000", "100"),
+            provider_binding: Some(ProviderBinding::codex_luna()),
+            previous_run_id: None,
+            lookup: None,
+        })
+        .unwrap();
+    let frozen = fixture
+        .project()
+        .story_snapshot(
+            fixture.access.clone(),
+            started.packet.receipt.snapshot_id.clone(),
+        )
+        .unwrap();
+    assert_eq!(
+        frozen.policy.audience,
+        webnovel_core::context::Audience::AuthorRoom
+    );
+    assert!(frozen.policy.reader_frontier.is_none());
+    let target_source = frozen
+        .snapshot
+        .sources
+        .iter()
+        .find(|source| source.source.document_id == note.head.document_id)
+        .expect("non-chapter target is present in the frozen source manifest");
+    assert!(target_source.disclosure.author_only);
+    assert_eq!(
+        started.packet.options.provider_binding,
+        Some(ProviderBinding::codex_luna())
+    );
+
+    let dispatch = fixture
+        .project()
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .unwrap();
+    fixture
+        .project()
+        .settle_provider_discussion(ProviderTerminalReport {
+            owner: started.run.owner.clone(),
+            expected_sequence: "0".into(),
+            event_id: "world-provider-complete".into(),
+            assistant_text: structured_output(vec![TypedReplacementBlock::Paragraph {
+                content: vec![TypedReplacementInline::Text {
+                    text: "Developed world rule.".into(),
+                    marks: vec![],
+                }],
+            }]),
+            binding: ProviderBinding::codex_luna(),
+            status: ProviderOutcomeStatus::Completed,
+            confirmed_stdin_bytes: serialized_input(
+                &dispatch.packet.messages,
+                &dispatch.packet.options,
+            )
+            .unwrap()
+            .len()
+            .to_string(),
+            usage: None,
+            cleanup: ProviderCleanup::Settled,
+            error: None,
+            effective_identity: None,
+            reported_model: None,
+            delivery: None,
+        })
+        .unwrap();
+    let proposals = fixture
+        .project()
+        .proposals(fixture.access.clone(), note.head.document_id.clone())
+        .unwrap();
+    assert_eq!(proposals.len(), 1);
+    assert_eq!(proposals[0].kind, ProposalKind::Structured);
+    assert!(proposals[0].current);
+}
+
+#[test]
+fn nonchapter_passage_develop_is_rejected_before_context_compilation() {
+    let fixture = Fixture::new();
+    let note = fixture
+        .project()
+        .create_document(CreateDocument {
+            access: fixture.access.clone(),
+            operation_id: "create-world-passage".into(),
+            document_id: "world-passage".into(),
+            title: "World rules".into(),
+            kind: "world".into(),
+            body: source_body(),
+        })
+        .unwrap();
+    let mut scope = block_scope(&note.body);
+    scope.kind = ScopeKind::Passage;
+    let error = fixture
+        .project()
+        .start_discussion(StartDiscussion {
+            access: fixture.access.clone(),
+            operation_id: "develop-world-passage".into(),
+            expected: note.head.clone(),
+            instruction: "Revise only this phrase.".into(),
+            intent: FeedbackIntent::ProposeEdits,
+            basis: None,
+            scope: Some(DiscussionScopeInput {
+                kind: scope.kind,
+                start: scope.start,
+                end: scope.end,
+                quote: scope.quote,
+                source_body_hash: scope.source_hash,
+            }),
+            pinned_document_ids: Vec::new(),
+            safe_brief: None,
+            budget: MockContextBudget::new("100000", "1000", "100"),
+            provider_binding: Some(ProviderBinding::codex_luna()),
+            previous_run_id: None,
+            lookup: None,
+        })
+        .unwrap_err();
+    assert_eq!(error.code, "InvalidScope");
+}
+
+#[test]
 fn schema22_rebuild_preserves_legacy_candidate_payload_receipt_and_decision() {
     let mut fixture = Fixture::new();
     let passage = fixture.start(
@@ -716,7 +867,7 @@ fn schema22_rebuild_preserves_legacy_candidate_payload_receipt_and_decision() {
     let schema: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 30);
+    assert_eq!(schema, 31);
     let (run_id, ordinal): (String, i64) = migrated
         .query_row(
             "SELECT run_id,ordinal FROM proposals WHERE id=?",

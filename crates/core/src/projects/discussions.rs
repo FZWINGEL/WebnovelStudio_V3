@@ -2604,16 +2604,41 @@ fn discussion_context_policy(
                     "The selected chapter is not available.",
                 ));
             };
-            if kind != "chapter" {
+            if request.intent == FeedbackIntent::Continue && kind != "chapter" {
                 return Err(CoreError::new(
                     "InvalidRequest",
-                    "Writing assistance currently supports chapter documents only.",
+                    "Only chapter documents can continue prose at the end.",
                 ));
             }
-            if position < 0 {
+            if request.intent == FeedbackIntent::ProposeEdits
+                && kind != "chapter"
+                && request.scope.as_ref().is_none_or(|scope| {
+                    !matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument)
+                })
+            {
+                return Err(CoreError::new(
+                    "InvalidScope",
+                    "Document development requires an explicit block or whole-document scope.",
+                ));
+            }
+            if kind == "chapter" && position < 0 {
                 return Err(CoreError::new(
                     "InvalidProject",
                     "The selected chapter has an invalid reader position.",
+                ));
+            }
+            if kind != "chapter" {
+                return Ok((
+                    purpose,
+                    InformationPolicy {
+                        version,
+                        audience: Audience::AuthorRoom,
+                        reader_frontier: None,
+                        character_id: None,
+                        character_grants: Vec::new(),
+                        allow_alternatives: false,
+                        allow_historical: false,
+                    },
                 ));
             }
             Ok((
