@@ -1,10 +1,10 @@
 # ADR 0017: Export an author-reviewed chapter snapshot
 
-Status: implemented and locally native-qualified as a development slice; full
-wrapper/CI qualification is pending. This extends the author-only review
-records in [ADR 0012](ADR_0012_AUTHOR_REVIEW.md) and the existing
-single-document export path. It does not add publication, canon, or continuity
-authority.
+Status: implemented and CI-qualified as a development slice. The local
+wrapper passes, and CI 34010306332 passes both contract jobs and all 38 native checks.
+This extends the author-only review records in [ADR 0012](ADR_0012_AUTHOR_REVIEW.md)
+and the existing single-document export path. It does not add publication,
+canon, or continuity authority.
 
 ## Author outcome
 
@@ -143,8 +143,7 @@ dialog. Root review found the Markdown readback and stale-refusal screens
 readable. It made no new LLM calls. The bundle measured 690.55 KB JavaScript
 and 33.29 KB CSS with the existing Vite chunk warning.
 
-This is local development qualification, not full wrapper or CI qualification.
-The latest confirmed CI remains [34008911179](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34008911179),
-which passed the continuation checkpoint's 36 native checks. Requalification
-of the current schema-20 tree is pending repair of the synthetic schema-18
-continuation-archive fixture's missing schema-20 column drop.
+The local wrapper also passes 435 active Rust tests (411 core and 24 desktop,
+with one existing ignored), 256 frontend tests in 21 files, workspace rustfmt,
+Clippy with `-D warnings`, TypeScript, and Vite. This is local development
+evidence. [CI 34010306332](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34010306332) passes both contract jobs and all 38 strict native checks, including clipboard, with zero errors. The downloaded report is `2026-09-06T04:10:43.182Z` on WebView2 `151.0.4129.101` at checkpoint `a19e7bf7d30746cc02cd2769e6295779a4bcbb4d`. Full provider, author-trial, and release qualification remain separate.
