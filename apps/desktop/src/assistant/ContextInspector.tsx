@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  preparedStoryContext, preparedStoryContextIsCurrent, readStoryContextSource, searchStoryContext, storyContextSnapshot,
+  preparedStoryContext, preparedStoryContextIsCurrent, readStoryContextSource, reviewedEvidenceHistory, searchStoryContext, storyContextSnapshot,
   type CompiledPacket, type FrozenContext, type FrozenNavigationView, type ReviewedEvidenceSet, type SourceDescriptor, type SourceRead, type SourceRef,
 } from '../ipc/context';
 import type { ProjectAccess } from '../ipc/projects';
+import { EvidenceHistoryView } from './EvidenceHistoryView';
 
 function message(reason: unknown): string {
   if (reason && typeof reason === 'object' && 'detail' in reason) return String(reason.detail);
@@ -25,6 +26,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   const [source, setSource] = useState<SourceRead | null>(null);
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState<Awaited<ReturnType<typeof searchStoryContext>> | null>(null);
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof reviewedEvidenceHistory>> | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
@@ -33,7 +35,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   const sourceRequest = useRef(0);
   useEffect(() => {
     let cancelled = false;
-    setError(''); setState(null); setSource(null); setSearch(null); sourceRequest.current += 1;
+    setError(''); setState(null); setSource(null); setSearch(null); setHistory(null); setBusy(false); sourceRequest.current += 1;
     void (async () => {
       try {
         const packet = await preparedStoryContext(access, packetId);
@@ -47,18 +49,19 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   }, [identity, refreshKey, reload]);
   function reportReadFailure(reason: unknown) {
     if (reason && typeof reason === 'object' && 'code' in reason && reason.code === 'ContextPolicyChanged') {
-      setState(null); setSource(null); setSearch(null); sourceRequest.current += 1;
+      setState(null); setSource(null); setSearch(null); setHistory(null); sourceRequest.current += 1;
     }
     setError(message(reason));
   }
   async function read(item: SourceDescriptor) {
     if (!state) return;
     const captured = identity; const request = ++sourceRequest.current;
-    setError(''); setSource(null);
+    setError(''); setSource(null); setBusy(true);
     try {
       const result = await readStoryContextSource(access, state.frozen.snapshot.snapshotId, item.handle);
       if (active.current === captured && sourceRequest.current === request) setSource(result);
     } catch (reason) { if (active.current === captured && sourceRequest.current === request) reportReadFailure(reason); }
+    finally { if (active.current === captured && sourceRequest.current === request) setBusy(false); }
   }
   async function find() {
     if (!state || busy || !query.trim()) return;
@@ -68,9 +71,21 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
       const result = await searchStoryContext({ access, snapshotId: state.frozen.snapshot.snapshotId, query, mode: 'literal', limit: 20 });
       if (active.current === captured && sourceRequest.current === request) setSearch(result);
     } catch (reason) { if (active.current === captured && sourceRequest.current === request) reportReadFailure(reason); }
-    finally { if (active.current === captured) setBusy(false); }
+    finally { if (active.current === captured && sourceRequest.current === request) setBusy(false); }
   }
   const items = state?.frozen.snapshot.sources ?? [];
+  async function findHistory(objectId: string) {
+    if (!state || busy) return;
+    const captured = identity; const request = ++sourceRequest.current;
+    setBusy(true); setError(''); setHistory(null);
+    try {
+      const result = await reviewedEvidenceHistory(access, state.frozen.snapshot.snapshotId, objectId);
+      if (active.current !== captured || sourceRequest.current !== request) return;
+      if (result.snapshotId !== state.frozen.snapshot.snapshotId || result.history.objectId !== objectId) throw new Error('The recorded history did not match this request. Try reading it again.');
+      setHistory(result);
+    } catch (reason) { if (active.current === captured && sourceRequest.current === request) reportReadFailure(reason); }
+    finally { if (active.current === captured && sourceRequest.current === request) setBusy(false); }
+  }
   const supplied = new Set(state?.packet.receipt.sourceHandles ?? []);
   const guidance = state?.frozen.guidance ?? [];
   const suppliedGuidance = new Set(state?.packet.receipt.guidanceHandles ?? []);
@@ -104,6 +119,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   function reviewedRows(used: boolean) {
     return reviewedRecords(used).map(({ set, record, coverage }) => <li key={`${set.bundleId}/${record.id}`} className="context-reviewed-evidence">
       <strong>{record.object.label}</strong>
+      <button className="quiet-button" disabled={busy} onClick={() => void findHistory(record.object.id)} aria-label={`Find recorded history for ${record.object.label}`}>Find recorded history</button>
       <span className="context-detail">{record.holder?.label ?? 'Holder unknown'} · {record.timing === 'atPassage' ? 'Known at this passage' : record.timing === 'earlier' ? 'Known earlier' : 'Timing unknown'} · {record.audience === 'reader' ? 'Reader-visible' : 'Author room only'}</span>
       <blockquote>{record.evidence.quote}</blockquote>
       <span className="context-detail">Author-recorded evidence from {reviewedSourceName(set.sourceHandle)}. {record.timing === 'atPassage' ? 'Known at this passage; later transfers may be missing.' : record.timing === 'earlier' ? 'Known earlier; later transfers may be missing.' : 'Timing is unknown; later transfers may be missing.'}{used && coverage && !coverage.completeRecordSet ? ' Some reviewed details were not included.' : ''}</span>
@@ -213,6 +229,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
         <p className="small-copy">{search.hits.length ? `${search.hits.length}${search.hasMore ? '+' : ''} passages found.` : 'No exact match in the searched sources. This does not establish that an event never happened.'}</p>
         {search.hits.map((hit, index) => <div key={`${hit.passage.handle}/${hit.passage.blockId}/${index}`}><strong>{items.find(item => item.handle === hit.passage.handle)?.displayName}</strong><blockquote>{hit.passage.text}</blockquote></div>)}
       </div>}
+      {history && <EvidenceHistoryView key={`${history.snapshotId}/${history.history.objectId}`} result={history} onClose={() => setHistory(null)} onRead={handle => { const item = items.find(source => source.handle === handle); if (item) void read(item); }} />}
       {source && <section className="context-source" aria-label="Saved story source"><div className="header-actions"><h3>{source.descriptor.displayName}</h3><button onClick={() => setSource(null)}>Close source</button></div><p className="small-copy">Exact source version retained with this request.</p>{source.passages.map(passage => source.body.body.content.find(block => block.attrs.id === passage.blockId)?.type === 'sceneBreak' ? <hr key={passage.blockId} /> : <p key={passage.blockId}>{passage.text || <br />}</p>)}</section>}
     </>}
   </details>;

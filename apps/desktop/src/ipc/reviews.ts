@@ -2,6 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Head, ProjectAccess, Revision } from './projects';
 
 export interface StoryEntityRef { id: string; label: string }
+export interface ReviewedEntityChoice { entity: StoryEntityRef; labelVariants: string[]; firstDocumentId: string; firstDocumentTitle: string }
+export interface ReviewedEntityCatalog { projectId: string; operationNamespace: string; sourceEpoch: string; entities: ReviewedEntityChoice[] }
+export const reviewedEntityCatalog = (access: ProjectAccess): Promise<ReviewedEntityCatalog> => invoke('reviewed_entity_catalog', { access });
 export interface EvidenceAnchor { blockId: string; fromUtf16: number; toUtf16: number; quote: string; quoteHash: string }
 export interface PossessionRecord {
   id: string;

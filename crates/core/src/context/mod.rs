@@ -8,6 +8,7 @@
 pub mod continuation;
 mod contracts;
 mod eligibility;
+pub mod evidence_history;
 pub mod memory;
 pub mod navigation;
 pub mod packet;
@@ -23,6 +24,9 @@ pub use contracts::{
 pub use eligibility::{
     EligibilityError, EligibilityErrorCode, EligibilityReceipt, EligibleSource,
     evaluate_eligibility, evaluate_sources,
+};
+pub use evidence_history::{
+    EvidenceHistory, EvidenceHistoryObservation, EvidenceHistoryUncertainty, query_evidence_history,
 };
 pub use reviewed_evidence::{
     ReviewedEvidenceCoverage, ReviewedEvidenceOmission, ReviewedEvidenceOmissionReason,

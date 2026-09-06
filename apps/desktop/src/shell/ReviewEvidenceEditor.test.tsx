@@ -26,6 +26,7 @@ describe('reviewed evidence editor', () => {
     const objectOptions = [...host.querySelectorAll('select')][0].querySelectorAll('option');
     expect([...objectOptions].map(option => option.value)).toEqual(['__new_object__', 'object-a', 'object-b']);
     expect([...objectOptions].map(option => option.textContent)).toEqual(['New object…', 'Key (1)', 'Key (2)']);
+    await act(async () => { const select = host.querySelector('select')!; select.value = 'object-a'; select.dispatchEvent(new Event('change', { bubbles: true })); });
     await act(async () => { button('Keep detail').click(); });
     await vi.waitFor(() => expect(onChange).toHaveBeenCalledOnce());
     const next = onChange.mock.calls[0][0] as PossessionRecord[];
@@ -91,4 +92,23 @@ describe('reviewed evidence editor', () => {
       expect(onChange).not.toHaveBeenCalled();
     } finally { digest.mockRestore(); }
   });
+});
+
+
+it('offers chapter-labelled project identities without silently selecting or merging one', async () => {
+  const onChange = vi.fn();
+  const projectEntities = [
+    { entity: { id: 'key-one', label: 'Key' }, labelVariants: ['Key'], firstDocumentId: 'chapter-one', firstDocumentTitle: 'The promise' },
+    { entity: { id: 'key-two', label: 'Key' }, labelVariants: ['Key'], firstDocumentId: 'chapter-two', firstDocumentTitle: 'The theft' },
+  ];
+  await act(async () => root.render(<ReviewEvidenceEditor records={[]} projectEntities={projectEntities} captureSelection={() => scope()} onChange={onChange} />));
+  await act(async () => button('Add possession detail').click());
+  const select = host.querySelector('select[aria-label="Object"]') as HTMLSelectElement;
+  expect(select.value).toBe('__new_object__');
+  expect([...select.options].map(option => option.textContent)).toEqual(['New object…', 'Key · The promise', 'Key · The theft']);
+  await act(async () => { select.value = 'key-two'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await act(async () => button('Keep detail').click());
+  await vi.waitFor(() => expect(onChange).toHaveBeenCalledOnce());
+  expect(onChange.mock.calls[0][0][0].object).toEqual({ id: 'key-two', label: 'Key' });
+  expect(onChange.mock.calls[0][0][0].audience).toBe('authorRoom');
 });

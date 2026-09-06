@@ -9,7 +9,7 @@ import * as ipc from '../ipc/reviews';
 import * as history from '../ipc/history';
 import { ReviewPanel } from './ReviewPanel';
 
-vi.mock('../ipc/reviews', () => ({ chapterReviewStatus: vi.fn(), stageAuthorReview: vi.fn(), readReviewedRecordSet: vi.fn(), readReviewStage: vi.fn(), markReady: vi.fn() }));
+vi.mock('../ipc/reviews', () => ({ chapterReviewStatus: vi.fn(), stageAuthorReview: vi.fn(), readReviewedRecordSet: vi.fn(), reviewedEntityCatalog: vi.fn(), readReviewStage: vi.fn(), markReady: vi.fn() }));
 vi.mock('../ipc/history', () => ({ readDocumentRevision: vi.fn(), listDocumentHistory: vi.fn() }));
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 const body = (text: string): WnsDocument => ({ schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'p' }, content: [{ type: 'text', text }] }] } });
@@ -39,6 +39,7 @@ beforeEach(async () => {
     previousBundleId: null, prefix: [], sourceEpoch: '3', policyEpoch: '0', createdAt: '2026-09-06T00:00:00Z' };
   vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'noReview', activeBundleId: null, pendingStageId: null, reason: null, canStage: true });
   vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue(null);
+  vi.mocked(ipc.reviewedEntityCatalog).mockResolvedValue({ projectId: access.projectId, operationNamespace: access.operationNamespace, sourceEpoch: '0', entities: [] });
   vi.mocked(ipc.stageAuthorReview).mockImplementation(async () => structuredClone(staged));
   vi.mocked(ipc.readReviewStage).mockImplementation(async () => structuredClone(staged));
   vi.mocked(ipc.markReady).mockResolvedValue({ id: 'bundle', projectId: 'project', operationNamespace: 'namespace', target: record.head, stageId: 'stage', createdAt: '2026-09-06T00:01:00Z' });

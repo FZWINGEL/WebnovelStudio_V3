@@ -5,6 +5,17 @@ import type { FrozenGuidance } from './guidance';
 import type { DigestCandidate } from './memory';
 import type { PossessionRecord } from './reviews';
 
+export interface EvidenceHistoryObservation extends Pick<PossessionRecord, 'object' | 'holder' | 'timing' | 'audience' | 'evidence'> {
+  recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
+}
+export interface EvidenceHistory {
+  objectId: string; labelVariants: string[]; observations: EvidenceHistoryObservation[];
+  uncertainty: ('disclosureLimited' | 'excludedSources' | 'earlierTiming' | 'unknownTiming' | 'unknownHolder' | 'differingHolders')[];
+  incomplete: boolean;
+}
+export interface ReviewedHistoryResult { snapshotId: string; current: boolean; history: EvidenceHistory }
+export const reviewedEvidenceHistory = (access: ProjectAccess, snapshotId: string, objectId: string): Promise<ReviewedHistoryResult> => invoke('reviewed_evidence_history', { access, snapshotId, objectId });
+
 export type ContextPurpose = 'discuss' | 'revise' | 'continue' | 'plan' | 'storyQuestion' | 'memoryAnalysis';
 export type ContextAudience = 'authorRoom' | 'restrictedWriting';
 export type ContextBasis = 'working' | 'reviewed' | 'explicitHistory';

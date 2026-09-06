@@ -110,7 +110,7 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     await page.getByRole('textbox', { name: 'Title', exact: true }).fill('At the archway');
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.getByRole('heading', { name: 'At the archway', exact: true }).waitFor();
-    await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill('Ren stopped beneath the archway.');
+    await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill('Ren left the key beneath the archway.');
     await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
     await page.getByRole('button', { name: 'Continue chapter', exact: true }).click();
     await page.getByLabel('Story basis', { exact: true }).selectOption('reviewed');
@@ -136,7 +136,36 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     await candidate.getByText('Rejected', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Story review', exact: true }).click();
     await page.getByRole('button', { name: 'Review saved chapter', exact: true }).click();
+    await page.evaluate(() => {
+      const editor = document.querySelector('.tiptap').editor;
+      editor.commands.setTextSelection({ from: 1, to: 1 + 'Ren left the key beneath the archway.'.length });
+    });
+    await page.getByRole('button', { name: 'Add possession detail', exact: true }).click();
+    await page.getByLabel('Object', { exact: true }).selectOption(readerRecord.object.id);
+    assert.equal(await page.getByLabel('Object', { exact: true }).locator('option:checked').innerText(), 'Silver key · The exchange');
+    await page.getByLabel('Timing', { exact: true }).selectOption('atPassage');
+    await page.getByLabel('Explicitly disclosed to the reader', { exact: true }).check();
+    await page.getByRole('button', { name: 'Keep detail', exact: true }).click();
+    await page.getByRole('button', { name: 'Save reviewed details', exact: true }).click();
     await mark(); await back();
+    await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).fill('What do the saved observations establish about the key?');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.locator('.persistent-feedback article').filter({ hasText: 'This test confirms discussion and context handling' }).waitFor();
+    await inspector();
+    await page.locator('.context-inspector > details[open]').getByRole('button', { name: 'Find recorded history for Silver key', exact: true }).first().click();
+    const history = page.getByRole('region', { name: 'Recorded object history', exact: true });
+    await history.waitFor();
+    assert.equal(await history.locator('ol > li').count(), 2);
+    assert.deepEqual(await history.locator('blockquote').allTextContents(), [keyPassage, 'Ren left the key beneath the archway.']);
+    assert((await history.innerText()).includes('Holder unknown'));
+    assert((await history.innerText()).includes('does not establish the current holder'));
+    await history.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: resolve(output, 'evidence-history.png') });
+    const historyPacket = latestPacket();
+    await history.getByRole('button', { name: 'Read The exchange for observation 1', exact: true }).click();
+    await page.getByRole('region', { name: 'Saved story source', exact: true }).waitFor();
+    assert.deepEqual(latestPacket(), historyPacket, 'History/source inspection must not prepare another packet');
+    checks.push('Native cross-chapter object selection reuses an explicit identity, preserves unknown holders, shows exact saved evidence in chapter order, and opens the original source without another model request');
 
     await page.locator('.document-sidebar nav button').filter({ hasText: /^The exchange/ }).click();
     await page.getByRole('heading', { name: 'The exchange', exact: true }).waitFor();
@@ -158,7 +187,7 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     await page.locator('.document-sidebar nav button').filter({ hasText: /^At the archway/ }).click();
     await page.getByRole('button', { name: 'Story review', exact: true }).click();
     await page.getByRole('heading', { name: 'Earlier story needs review', exact: true }).waitFor();
-    assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Ren stopped beneath the archway.');
+    assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Ren left the key beneath the archway.');
     await back();
     await page.locator('.document-sidebar nav button').filter({ hasText: /^The exchange/ }).click();
     await page.getByRole('button', { name: 'Story review', exact: true }).click();

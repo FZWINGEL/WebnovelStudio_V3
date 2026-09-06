@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { bodyHash, canonicalJson } from '../editor/document';
 import type { Scope } from '../editor/selection';
 import type { DocumentSession, SessionState } from '../editor/session';
-import { chapterReviewStatus, markReady, readReviewedRecordSet, readReviewStage, stageAuthorReview, type MarkReady, type PossessionRecord, type ReviewMember, type ReviewStage, type ReviewStatus, type StageAuthorReview } from '../ipc/reviews';
+import { chapterReviewStatus, markReady, readReviewedRecordSet, reviewedEntityCatalog, readReviewStage, stageAuthorReview, type MarkReady, type PossessionRecord, type ReviewedEntityChoice, type ReviewMember, type ReviewStage, type ReviewStatus, type StageAuthorReview } from '../ipc/reviews';
 import { readDocumentRevision } from '../ipc/history';
 import type { ProjectAccess, Revision } from '../ipc/projects';
 import { SavedProse } from './HistoryPanel';
@@ -64,6 +64,8 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   const [draftRecords, setDraftRecords] = useState<PossessionRecord[]>([]);
   const [orphanedRecords, setOrphanedRecords] = useState<PossessionRecord[] | null>(null);
   const [evidenceEditing, setEvidenceEditing] = useState(false);
+  const [projectEntities, setProjectEntities] = useState<ReviewedEntityChoice[]>([]);
+  const [entityError, setEntityError] = useState('');
   const pending = useRef<Pending | null>(null);
   const busy = useRef(false);
   const sequence = useRef(0);
@@ -101,6 +103,18 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       .finally(() => { if (read === sequence.current && owns()) setLoading(false); });
     return () => { ++sequence.current; };
   }, [owner, access.writerLease, visible, state.head.version, state.head.bodyHash, state.editable, working, refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProjectEntities([]); setEntityError('');
+    if (!visible || !state.editable || working) return;
+    void reviewedEntityCatalog(access).then(catalog => {
+      if (cancelled || !owns()) return;
+      if (catalog.projectId !== access.projectId || catalog.operationNamespace !== access.operationNamespace) throw new Error('The object list belongs to another project. Refresh review to read it again.');
+      setProjectEntities(catalog.entities);
+    }).catch(reason => { if (!cancelled && owns()) setEntityError(message(reason)); });
+    return () => { cancelled = true; };
+  }, [owner, access.writerLease, visible, state.editable, state.head.version, working, refresh]);
 
   async function perform(operation: Pending) {
     // Reconciliation rotates only the lease. Every logical payload stays fixed.
@@ -198,6 +212,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       {evidenceEditing && <p className="small-copy" role="status">Finish this reviewed detail with Keep detail or Cancel before saving the review.</p>}
       {error && <p className="history-error" role="alert">{error}</p>}
       {readError && <p className="history-error" role="alert">{readError}</p>}
+      {entityError && <p className="history-error" role="alert">Could not load objects from other chapters. {entityError} Use Refresh review to try again; you can still create a new object.</p>}
       {retry && <button disabled={working || state.phase === 'conflict' || state.phase === 'disposed'} onClick={() => void act('retry')}>Check review save</button>}
       {notice && <p role="status">{notice}</p>}
     </div>
@@ -205,13 +220,13 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       <div className="review-basis"><h3>Saved version {stage.target.version}</h3><p>{stage.prefix.length ? 'Reviewed against these earlier chapters:' : 'This is the first chapter in the reviewed story.'}</p>
         {!!stage.prefix.length && <ul>{stage.prefix.map(member => <li key={member.documentId}><EarlierReview access={access} member={member} /></li>)}</ul>}
       </div>
-      <ReviewEvidenceEditor records={draftRecords} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftRecords} onEditingChange={setEvidenceEditing} />
+      <ReviewEvidenceEditor projectEntities={projectEntities} records={draftRecords} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftRecords} onEditingChange={setEvidenceEditing} />
       <div className="history-preview" aria-label="Chapter under review"><SavedProse body={stage.revision.body} /></div>
       <div className="history-restore">{outdated ? <p role="status">Your writing changed. Prepare a new review of the saved chapter.</p>
         : <p>Confirm that you have reviewed this chapter against the earlier story. You can keep writing afterward.</p>}
         <button className="primary-button" disabled={!state.editable || working || retry || evidenceEditing} onClick={() => void act(needsStage ? 'stage' : 'mark')}>
           {working ? 'Saving review…' : reviewActionLabel}
         </button></div>
-    </> : <div className="review-empty"><p>Your manuscript stays editable. Reviewing chapters is optional.</p>{orphanedRecords !== null ? <><p role="status">{currentRecordsCurrent ? 'Your unsubmitted reviewed details are still here. Prepare the saved chapter again to submit them.' : 'These details belong to an older reviewed version. Reselect or remove any passage before preparing the new review.'}</p><ReviewEvidenceEditor records={orphanedRecords} captureSelection={selectEvidence} onChange={setOrphanedRecords} onEditingChange={setEvidenceEditing} /></> : currentRecords.length ? <ReviewEvidenceEditor records={currentRecords} disabled captureSelection={() => null} onChange={() => {}} /> : <p>No reviewed story details are recorded yet.</p>}</div>}
+    </> : <div className="review-empty"><p>Your manuscript stays editable. Reviewing chapters is optional.</p>{orphanedRecords !== null ? <><p role="status">{currentRecordsCurrent ? 'Your unsubmitted reviewed details are still here. Prepare the saved chapter again to submit them.' : 'These details belong to an older reviewed version. Reselect or remove any passage before preparing the new review.'}</p><ReviewEvidenceEditor projectEntities={projectEntities} records={orphanedRecords} captureSelection={selectEvidence} onChange={setOrphanedRecords} onEditingChange={setEvidenceEditing} /></> : currentRecords.length ? <ReviewEvidenceEditor projectEntities={projectEntities} records={currentRecords} disabled captureSelection={() => null} onChange={() => {}} /> : <p>No reviewed story details are recorded yet.</p>}</div>}
   </aside>;
 }

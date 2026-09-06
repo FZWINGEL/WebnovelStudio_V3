@@ -15,6 +15,7 @@ use uuid::Uuid;
 pub mod context_packets;
 mod conversation_context;
 pub mod discussions;
+pub mod evidence_queries;
 pub mod exports;
 pub mod guidance;
 pub mod history;
@@ -285,6 +286,7 @@ enum Command {
     History(Box<history::HistoryCommand>),
     Proposal(Box<proposals::ProposalCommand>),
     Review(Box<reviewed_story::ReviewCommand>),
+    EvidenceQuery(Box<evidence_queries::EvidenceQueryCommand>),
     Export(Box<exports::ExportCommand>),
     SourcePins(Box<source_pins::SourcePinCommand>),
     Attach(String, Reply<ProjectAccess>),
@@ -430,6 +432,9 @@ impl ProjectSession {
                             Command::History(command) => project.handle_history(*command),
                             Command::Proposal(command) => project.handle_proposal(*command),
                             Command::Review(command) => project.handle_review(*command),
+                            Command::EvidenceQuery(command) => {
+                                project.handle_evidence_query(*command)
+                            }
                             Command::Export(command) => project.handle_export(*command),
                             Command::SourcePins(command) => project.handle_source_pins(*command),
                             Command::Attach(session, reply) => {

@@ -9,7 +9,7 @@ import type { PossessionRecord } from '../ipc/reviews';
 
 vi.mock('../ipc/context', () => ({
   preparedStoryContext: vi.fn(), preparedStoryContextIsCurrent: vi.fn(), storyContextSnapshot: vi.fn(),
-  readStoryContextSource: vi.fn(), searchStoryContext: vi.fn(),
+  readStoryContextSource: vi.fn(), reviewedEvidenceHistory: vi.fn(), searchStoryContext: vi.fn(),
 }));
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 const descriptor = (handle: string, title: string): context.SourceDescriptor => ({ handle, displayName: title, source: { projectId: 'project', documentId: handle, revisionId: handle, bodyHash: 'hash' }, kind: 'currentDraft', current: true, coverage: 'verbatim', disclosure: { readerPosition: '1', visibleToCharacters: [], authorOnly: false, futurePrivate: false }, storyTime: null, dependencies: [] });
@@ -245,5 +245,43 @@ describe('historical context inspection', () => {
     await render('different-packet');
     await act(async () => resolve({ descriptor: first, usedValidatedProjection: false, body: { schemaVersion: 1, body: { type: 'doc', content: [] } }, passages: [{ handle: 'first', source: first.source, blockId: 'block', blockOrder: 0, text: 'Evidence from the old request.' }] }));
     expect(host.textContent).not.toContain('Evidence from the old request.');
+  });
+});
+
+
+describe('recorded object history', () => {
+  const detail = reviewedRecord('evidence', 'reader', 'Key');
+  const setupHistory = () => {
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, reviewedEvidence: [{ projectId: 'project', operationNamespace: 'namespace', bundleId: 'bundle', recordsHash: 'hash', sourceHandle: first.handle, source: first.source, records: [detail] }] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, reviewedEvidence: [{ bundleId: 'bundle', recordsHash: 'hash', projectionHash: 'hash', sourceHandle: first.handle, recordIds: [detail.id], completeRecordSet: true }] } });
+    return { snapshotId: 'snapshot', current: true, history: { objectId: detail.object.id, labelVariants: ['Key'], observations: [{ recordId: detail.id, sourceHandle: first.handle, source: first.source, sourceDisplayName: first.displayName, sourceOrder: 0, ...detail }], uncertainty: [], incomplete: true } } satisfies context.ReviewedHistoryResult;
+  };
+  const historyButton = () => host.querySelector('button[aria-label="Find recorded history for Key"]') as HTMLButtonElement;
+  it('queries the exact object identity and opens its original retained chapter', async () => {
+    const result = setupHistory();
+    vi.mocked(context.reviewedEvidenceHistory).mockResolvedValue(result);
+    vi.mocked(context.readStoryContextSource).mockResolvedValue({ descriptor: first, body: { schemaVersion: 1, body: { type: 'doc', content: [] } }, passages: [], usedValidatedProjection: false });
+    await render(); await act(async () => historyButton().click());
+    expect(context.reviewedEvidenceHistory).toHaveBeenCalledExactlyOnceWith(access, 'snapshot', detail.object.id);
+    const history = host.querySelector('[aria-label="Recorded object history"]')!;
+    expect(history.textContent).toContain('this does not establish the current holder');
+    expect(history.textContent).toContain(detail.evidence.quote);
+    await act(async () => (history.querySelector('button[aria-label^="Read"]') as HTMLButtonElement).click());
+    expect(context.readStoryContextSource).toHaveBeenCalledExactlyOnceWith(access, 'snapshot', 'first');
+  });
+  it('discards late history after a request refresh', async () => {
+    const result = setupHistory(); let resolve!: (value: context.ReviewedHistoryResult) => void;
+    vi.mocked(context.reviewedEvidenceHistory).mockImplementation(() => new Promise(accept => { resolve = accept; }));
+    await render(); await act(async () => historyButton().click());
+    await render('next-packet', '2');
+    await act(async () => resolve(result));
+    expect(host.querySelector('[aria-label="Recorded object history"]')).toBeNull();
+    expect(historyButton().disabled).toBe(false);
+  });
+  it('clears retained evidence when the history read reports revoked permissions', async () => {
+    setupHistory(); vi.mocked(context.reviewedEvidenceHistory).mockRejectedValue({ code: 'ContextPolicyChanged', detail: 'Source permissions changed.' });
+    await render(); await act(async () => historyButton().click());
+    expect(host.querySelector('.context-reviewed-evidence')).toBeNull();
+    expect(host.textContent).toContain('Source permissions changed.');
   });
 });

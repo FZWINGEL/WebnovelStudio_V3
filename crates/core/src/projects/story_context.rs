@@ -674,6 +674,7 @@ pub(super) fn freeze_reviewed_continuation_at(
     let target_ref = source_ref(&target_revision);
     let mut reviewed_members = Vec::with_capacity(prefix.len());
     let mut reviewed_sources = Vec::with_capacity(prefix.len());
+    let mut reviewed_source_refs = Vec::with_capacity(prefix.len());
     let mut reviewed_evidence = Vec::new();
     for item in &prefix {
         let revision = read_revision(tx, &item.revision_id)?;
@@ -699,6 +700,7 @@ pub(super) fn freeze_reviewed_continuation_at(
         }
         let source = source_ref(&revision);
         let source_handle = format!("reviewed-{}", item.bundle_id);
+        reviewed_source_refs.push(source.clone());
         reviewed_members.push(ReviewedBasisMember {
             document_id: item.document_id.clone(),
             bundle_id: item.bundle_id.clone(),
@@ -706,25 +708,6 @@ pub(super) fn freeze_reviewed_continuation_at(
             version: item.head.version.clone(),
             body_hash: item.head.body_hash.clone(),
         });
-        if let Some(record_set) =
-            reviewed_story::current_records_for_source(tx, &request.access, &source)?
-        {
-            let records_hash = record_set.records_hash.ok_or_else(|| {
-                CoreError::new(
-                    "InvalidReviewedRecords",
-                    "A nonempty reviewed evidence set has no canonical hash.",
-                )
-            })?;
-            reviewed_evidence.push(from_storage_parts(
-                record_set.project_id,
-                record_set.operation_namespace,
-                record_set.bundle_id,
-                records_hash,
-                source_handle.clone(),
-                source.clone(),
-                record_set.records,
-            )?);
-        }
         reviewed_sources.push(SourceDescriptor {
             handle: source_handle,
             source,
@@ -741,6 +724,38 @@ pub(super) fn freeze_reviewed_continuation_at(
             story_time: None,
             dependencies: Vec::new(),
         });
+    }
+    let record_sets =
+        reviewed_story::current_records_for_sources(tx, &request.access, &reviewed_source_refs)?;
+    for record_set in record_sets {
+        let source = reviewed_source_refs
+            .iter()
+            .find(|source| {
+                source.document_id == record_set.target.document_id
+                    && source.revision_id == record_set.revision.id
+                    && source.body_hash == record_set.target.body_hash
+            })
+            .ok_or_else(|| {
+                CoreError::new(
+                    "InvalidReviewedRecords",
+                    "The reviewed evidence source could not be matched to its frozen descriptor.",
+                )
+            })?;
+        let records_hash = record_set.records_hash.ok_or_else(|| {
+            CoreError::new(
+                "InvalidReviewedRecords",
+                "A nonempty reviewed evidence set has no canonical hash.",
+            )
+        })?;
+        reviewed_evidence.push(from_storage_parts(
+            record_set.project_id,
+            record_set.operation_namespace,
+            record_set.bundle_id.clone(),
+            records_hash,
+            format!("reviewed-{}", record_set.bundle_id),
+            source.clone(),
+            record_set.records,
+        )?);
     }
     let mut sources = Vec::with_capacity(prefix.len() + 1);
     sources.push(SourceDescriptor {
@@ -1060,32 +1075,52 @@ fn freeze_story_impl(
     if frozen.policy.audience == Audience::AuthorRoom
         && frozen.purpose != ContextPurpose::MemoryAnalysis
     {
-        for source in &frozen.snapshot.sources {
-            if !matches!(
-                source.kind,
-                SourceKind::CurrentDraft | SourceKind::ReviewedAuthority
-            ) {
-                continue;
-            }
-            if let Some(record_set) =
-                reviewed_story::current_records_for_source(tx, &request.access, &source.source)?
-            {
-                let records_hash = record_set.records_hash.ok_or_else(|| {
+        let eligible_sources = frozen
+            .snapshot
+            .sources
+            .iter()
+            .filter(|source| {
+                matches!(
+                    source.kind,
+                    SourceKind::CurrentDraft | SourceKind::ReviewedAuthority
+                )
+            })
+            .collect::<Vec<_>>();
+        let source_refs = eligible_sources
+            .iter()
+            .map(|source| source.source.clone())
+            .collect::<Vec<_>>();
+        let record_sets =
+            reviewed_story::current_records_for_sources(tx, &request.access, &source_refs)?;
+        for record_set in record_sets {
+            let source = eligible_sources
+                .iter()
+                .find(|source| {
+                    source.source.document_id == record_set.target.document_id
+                        && source.source.revision_id == record_set.revision.id
+                        && source.source.body_hash == record_set.target.body_hash
+                })
+                .ok_or_else(|| {
                     CoreError::new(
                         "InvalidReviewedRecords",
-                        "A nonempty reviewed evidence set has no canonical hash.",
+                        "The reviewed evidence source could not be matched to its frozen descriptor.",
                     )
                 })?;
-                frozen.reviewed_evidence.push(from_storage_parts(
-                    record_set.project_id,
-                    record_set.operation_namespace,
-                    record_set.bundle_id,
-                    records_hash,
-                    source.handle.clone(),
-                    source.source.clone(),
-                    record_set.records,
-                )?);
-            }
+            let records_hash = record_set.records_hash.ok_or_else(|| {
+                CoreError::new(
+                    "InvalidReviewedRecords",
+                    "A nonempty reviewed evidence set has no canonical hash.",
+                )
+            })?;
+            frozen.reviewed_evidence.push(from_storage_parts(
+                record_set.project_id,
+                record_set.operation_namespace,
+                record_set.bundle_id,
+                records_hash,
+                source.handle.clone(),
+                source.source.clone(),
+                record_set.records,
+            )?);
         }
     }
     for evidence in &frozen.reviewed_evidence {
