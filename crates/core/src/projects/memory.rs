@@ -1040,11 +1040,13 @@ fn validate_start_memory(request: &StartMemory) -> CoreResult<()> {
                 "Chapter memory only accepts the fixed OpenAI-compatible memory profile.",
             ));
         }
-        if binding.profile_version == crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+        if binding.is_claude()
+            || binding.profile_version
+                == crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
         {
             return Err(CoreError::new(
                 "UnsupportedProviderFeature",
-                "Chapter memory uses the fixed GPT-5.6-Luna Extra high profile.",
+                "Chapter memory uses the fixed maintenance profile and does not accept author CLI bindings.",
             ));
         }
     }

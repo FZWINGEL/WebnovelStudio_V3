@@ -178,6 +178,12 @@ pub async fn start_discussion(
         let existing = saved_request(&project, &request)?;
         #[cfg(windows)]
         let connection = runtime.connection().ok();
+        #[cfg(windows)]
+        let claude_connection = if existing.is_none() && selected.provider_id == "claude" {
+            runtime.claude_connection().ok()
+        } else {
+            None
+        };
         // Native code supplies the trusted binding, never renderer budgets or
         // arbitrary command options. Existing mock payloads stay unchanged.
         request.provider_binding = if let Some(existing) = &existing {
@@ -202,6 +208,26 @@ pub async fn start_discussion(
                     "This Codex connection is currently available on Windows only.",
                 ));
             }
+        } else if selected.provider_id == "claude" {
+            #[cfg(windows)]
+            {
+                let checked = claude_connection.as_ref().ok_or_else(|| {
+                    CoreError::new(
+                        "ProviderUnavailable",
+                        "Check the Claude Code connection in Settings before sending this request.",
+                    )
+                })?;
+                Some(crate::provider_runtime::claude_binding_for_choice(
+                    checked, &selected,
+                )?)
+            }
+            #[cfg(not(windows))]
+            {
+                return Err(CoreError::new(
+                    "ProviderUnavailable",
+                    "This Claude Code connection is currently available on Windows only.",
+                ));
+            }
         } else {
             None
         };
@@ -216,13 +242,13 @@ pub async fn start_discussion(
             check_model_choice(&project, &request, model_selection.as_ref(), &active)?;
             if request.provider_binding.is_some() {
                 #[cfg(windows)]
-                let available = connection.is_some();
+                let available = connection.is_some() || claude_connection.is_some();
                 #[cfg(not(windows))]
                 let available = false;
                 if !available && !has_saved_request(&project, &request)? {
                     return Err(CoreError::new(
                         "ProviderUnavailable",
-                        "Check the Codex connection in Settings before sending this request.",
+                        "Check the selected provider connection in Settings before sending this request.",
                     ));
                 }
             }
@@ -243,26 +269,58 @@ pub async fn start_discussion(
                     let failure_run = dispatch.run.clone();
                     let worker_runtime = runtime.clone();
                     let worker_recovery = recovery.clone();
+                    let is_claude = dispatch
+                        .packet
+                        .options
+                        .provider_binding
+                        .as_ref()
+                        .is_some_and(|binding| binding.provider_id == "claude");
                     if std::thread::Builder::new()
-                        .name("webnovel-codex-response".into())
+                        .name(
+                            if is_claude {
+                                "webnovel-claude-response"
+                            } else {
+                                "webnovel-codex-response"
+                            }
+                            .into(),
+                        )
                         .spawn(move || {
-                            crate::live_discussion::run_live(
-                                project,
-                                worker_recovery,
-                                worker_runtime,
-                                connection,
-                                dispatch,
-                                stop,
-                            )
+                            if is_claude {
+                                crate::claude_live_discussion::run_live(
+                                    project,
+                                    worker_recovery,
+                                    worker_runtime,
+                                    claude_connection,
+                                    dispatch,
+                                    stop,
+                                );
+                            } else {
+                                crate::live_discussion::run_live(
+                                    project,
+                                    worker_recovery,
+                                    worker_runtime,
+                                    connection,
+                                    dispatch,
+                                    stop,
+                                );
+                            }
                         })
                         .is_err()
                     {
                         runtime.release(&failure_run.owner);
-                        crate::live_discussion::worker_unavailable(
-                            &failure_project,
-                            &recovery,
-                            failure_run,
-                        );
+                        if is_claude {
+                            crate::claude_live_discussion::worker_unavailable(
+                                &failure_project,
+                                &recovery,
+                                failure_run,
+                            );
+                        } else {
+                            crate::live_discussion::worker_unavailable(
+                                &failure_project,
+                                &recovery,
+                                failure_run,
+                            );
+                        }
                     }
                 } else {
                     runtime.release(&started.run.owner);

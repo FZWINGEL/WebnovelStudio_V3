@@ -62,6 +62,20 @@ pub async fn save_model_settings(
 }
 
 #[tauri::command]
+pub async fn check_claude_connection(
+    state: State<'_, DesktopLibrary>,
+    runtime: State<'_, DesktopProviders>,
+) -> CoreResult<DesktopProviderState> {
+    let state = state.inner().clone();
+    let runtime = runtime.inner().clone();
+    execute(move || {
+        runtime.check_claude_connection()?;
+        runtime.view_library(&*state.0.lock().map_err(|_| unavailable())?)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn save_story_memory_provider(
     expected_revision: String,
     provider_id: String,

@@ -283,6 +283,18 @@ fn memory_http_profile_cannot_cross_into_author_discussion_packets() {
 }
 
 #[test]
+fn memory_recipe_rejects_claude_author_profile() {
+    let mut request = valid_request("Claude author runs cannot create memory records.");
+    request.provider_binding = Some(ProviderBinding::claude_author_runtime(
+        "claude-sonnet-5",
+        "high",
+        "2.1.220",
+        &"a".repeat(64),
+    ));
+    invalid_request(request);
+}
+
+#[test]
 fn whole_chapter_overflow_is_a_mandatory_error_without_truncation() {
     let text = "A".repeat(800);
     let mut request = valid_request(&text);

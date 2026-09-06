@@ -716,7 +716,7 @@ fn schema22_rebuild_preserves_legacy_candidate_payload_receipt_and_decision() {
     let schema: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 29);
+    assert_eq!(schema, 30);
     let (run_id, ordinal): (String, i64) = migrated
         .query_row(
             "SELECT run_id,ordinal FROM proposals WHERE id=?",

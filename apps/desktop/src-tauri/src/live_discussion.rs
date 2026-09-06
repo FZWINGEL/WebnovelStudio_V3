@@ -264,6 +264,7 @@ pub(super) fn report(run: &DiscussionRun, result: CodexRunResult) -> ProviderTer
         },
         error: error.map(str::to_owned),
         effective_identity: None,
+        reported_model: None,
         delivery: None,
     }
 }

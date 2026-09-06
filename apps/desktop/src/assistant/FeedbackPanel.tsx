@@ -54,7 +54,8 @@ function ResponseDetails({ run }: { run: DiscussionRun }) {
   const usage = result.delivery?.usage;
   return <details className="response-details"><summary>Response details</summary>
     <p className="small-copy">Requested {requested}. {result.effectiveIdentity === null ? 'The provider did not confirm its effective model settings.' : result.effectiveIdentity}</p>
-    <p className="small-copy">{usage ? `Provider-reported usage: ${usage.inputTokens?.toLocaleString() ?? 'unknown'} input tokens; ${usage.outputTokens?.toLocaleString() ?? 'unknown'} output tokens.` : result.usage ? `Provider-reported usage: ${result.usage.inputTokens.toLocaleString()} input tokens and ${result.usage.outputTokens.toLocaleString()} output tokens, including ${result.usage.reasoningOutputTokens.toLocaleString()} reasoning tokens.` : 'The provider did not report usage for this response.'}</p>
+    {result.reportedModel && <p className="small-copy">Provider-reported model: {result.reportedModel}. This is recorded separately from the requested model.</p>}
+    <p className="small-copy">{usage ? `Provider-reported usage: ${usage.inputTokens?.toLocaleString() ?? 'unknown'} input tokens; ${usage.outputTokens?.toLocaleString() ?? 'unknown'} output tokens.` : result.usage ? `Provider-reported usage: ${result.usage.inputTokens.toLocaleString()} input tokens and ${result.usage.outputTokens.toLocaleString()} output tokens, including ${result.usage.reasoningOutputTokens.toLocaleString()} reasoning tokens.` : 'Usage is unavailable for this response.'}</p>
     {result.delivery && <p className="small-copy">{result.delivery.submission === 'responseReceived' ? result.status === 'completed' ? 'The API returned a complete response to the saved request.' : 'Response headers were received; the saved result may be partial.' : result.delivery.submission === 'uncertain' ? 'The request may have reached the API, but delivery could not be confirmed. It was not automatically retried.' : 'The API request was not sent.'}</p>}
     <p className="small-copy">{result.cleanup === 'settled' ? result.delivery ? 'The local HTTP request has finished.' : 'The local provider process has finished.' : 'Local process cleanup could not be confirmed.'} {(result.status === 'stopped' || (result.delivery && result.delivery.submission !== 'notSent' && result.status !== 'completed')) && 'Stopping locally does not confirm that the upstream service stopped processing or charging.'}</p>
   </details>;
@@ -81,7 +82,8 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
 }) {
   const providers = useProviders();
   const model = providers.state?.catalog.models.find(model => sameModel(model.key, providers.state!.settings.active));
-  const lookupSupported = !providers.state?.settings.active.providerId.startsWith('openai-compatible:');
+  const activeProviderId = providers.state?.settings.active.providerId;
+  const lookupSupported = activeProviderId === 'codex' || activeProviderId === 'mock';
   const modelReady = !providers.busy && !!providers.state && providers.state.dispatch.kind !== 'blocked';
   const [view, setView] = useState<DiscussionView | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -333,7 +335,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   return <aside className="feedback persistent-feedback" aria-label="Document discussion" style={visible ? undefined : { display: 'none' }}>
     <div className="feedback-heading"><h2>Discussion</h2><button onClick={onClose} aria-label="Hide discussion">Hide</button></div>
     <p className="panel-intro">Talk through {title}. Select text to focus on a passage.</p>
-    <div className="scope-controls"><span>{model?.label ?? 'Model unavailable'}</span><span className="session-tag">{modelReady ? providers.state?.dispatch.kind === 'codexCli' ? 'Live AI connected' : providers.state?.dispatch.kind === 'openAiCompatible' ? 'API endpoint configured' : 'No live AI connected' : providers.busy ? 'Checking model…' : 'Not connected'}</span></div>
+    <div className="scope-controls"><span>{model?.label ?? 'Model unavailable'}</span><span className="session-tag">{modelReady ? providers.state?.dispatch.kind === 'codexCli' || providers.state?.dispatch.kind === 'claudeCli' ? 'Live AI connected' : providers.state?.dispatch.kind === 'openAiCompatible' ? 'API endpoint configured' : 'No live AI connected' : providers.busy ? 'Checking model…' : 'Not connected'}</span></div>
     {!modelReady && <p className="discussion-state">{providers.busy ? 'Checking your saved model choice…' : providers.state?.dispatch.detail || 'Check Settings before sending. Your writing and feedback stay saved.'}</p>}
     {view?.workerIssues?.map(issue => <div key={issue.runId} className="discussion-error response-save-notice" role="alert"><p>{issue.detail}</p><button disabled={locked} onClick={() => void checkSavedResponse(issue.runId)}>Retry saving response</button></div>)}
     <div className="feedback-scroll">

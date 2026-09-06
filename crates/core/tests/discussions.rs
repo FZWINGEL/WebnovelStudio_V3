@@ -2195,7 +2195,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema29-")
+            .starts_with("schema6-before-schema30-")
     }));
 }
 
@@ -2792,6 +2792,7 @@ fn bounded_provider_completion_persists_binding_usage_and_replays_after_restart(
         cleanup: ProviderCleanup::Settled,
         error: None,
         effective_identity: None,
+        reported_model: None,
         delivery: None,
     };
     let settled = project
@@ -2829,6 +2830,225 @@ fn bounded_provider_completion_persists_binding_usage_and_replays_after_restart(
 }
 
 #[test]
+fn claude_completion_requires_and_persists_the_exact_reported_model() {
+    let temp = TempDir::new("claude-provider-complete");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let binding = ProviderBinding::claude_author_runtime(
+        "claude-sonnet-5",
+        "high",
+        "2.1.220",
+        &"a".repeat(64),
+    );
+    let mut request = start_request(
+        &access,
+        &document,
+        "claude-provider-complete-start",
+        "Answer about the selected chapter.",
+        None,
+        Vec::new(),
+    );
+    request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(request).unwrap();
+    let dispatch = project
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .unwrap();
+    let stdin_bytes = serialized_input(&dispatch.packet.messages, &dispatch.packet.options)
+        .unwrap()
+        .len()
+        .to_string();
+    let settled = project
+        .settle_provider_discussion(ProviderTerminalReport {
+            owner: started.run.owner,
+            expected_sequence: "0".into(),
+            event_id: "claude-provider-terminal-complete".into(),
+            assistant_text: "A complete Claude answer.".into(),
+            binding,
+            status: ProviderOutcomeStatus::Completed,
+            confirmed_stdin_bytes: stdin_bytes,
+            usage: None,
+            cleanup: ProviderCleanup::Settled,
+            error: None,
+            effective_identity: None,
+            reported_model: Some("claude-sonnet-5".into()),
+            delivery: None,
+        })
+        .expect("Claude completion with exact model");
+    assert_eq!(
+        settled.provider_result.reported_model.as_deref(),
+        Some("claude-sonnet-5")
+    );
+    drop(project);
+    let reopened = ProjectSession::open(&path).unwrap();
+    let reopened_access = reopened.attach("claude-provider-reopen".into()).unwrap();
+    let reopened_view = reopened
+        .read_discussion(reopened_access, "chapter-one".into())
+        .unwrap();
+    let run = reopened_view.runs.last().unwrap();
+    assert_eq!(
+        run.provider_result
+            .as_ref()
+            .and_then(|result| result.reported_model.as_deref()),
+        Some("claude-sonnet-5")
+    );
+}
+
+#[test]
+fn claude_completion_rejects_missing_or_mismatched_reported_model() {
+    for (label, reported_model) in [("missing", None), ("mismatched", Some("claude-opus-5"))] {
+        let temp = TempDir::new(&format!("claude-provider-{label}"));
+        let (project, access, document) = setup_project(&temp.child("project"));
+        let binding = ProviderBinding::claude_author_runtime(
+            "claude-sonnet-5",
+            "high",
+            "2.1.220",
+            &"b".repeat(64),
+        );
+        let mut request = start_request(
+            &access,
+            &document,
+            &format!("claude-provider-{label}-start"),
+            "Answer about the selected chapter.",
+            None,
+            Vec::new(),
+        );
+        request.provider_binding = Some(binding.clone());
+        let started = project.start_discussion(request).unwrap();
+        let dispatch = project
+            .begin_discussion_run(DiscussionBegin {
+                owner: started.run.owner.clone(),
+            })
+            .unwrap();
+        let stdin_bytes = serialized_input(&dispatch.packet.messages, &dispatch.packet.options)
+            .unwrap()
+            .len()
+            .to_string();
+        let error = project
+            .settle_provider_discussion(ProviderTerminalReport {
+                owner: started.run.owner,
+                expected_sequence: "0".into(),
+                event_id: format!("claude-provider-terminal-{label}"),
+                assistant_text: "A complete Claude answer.".into(),
+                binding,
+                status: ProviderOutcomeStatus::Completed,
+                confirmed_stdin_bytes: stdin_bytes,
+                usage: None,
+                cleanup: ProviderCleanup::Settled,
+                error: None,
+                effective_identity: None,
+                reported_model: reported_model.map(str::to_owned),
+                delivery: None,
+            })
+            .expect_err("invalid Claude completion identity");
+        assert_eq!(error.code, "InvalidRequest");
+    }
+}
+
+#[test]
+fn failed_claude_result_retains_requested_and_reported_models() {
+    let temp = TempDir::new("claude-provider-failed-model");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let binding = ProviderBinding::claude_author_runtime(
+        "claude-sonnet-5",
+        "high",
+        "2.1.220",
+        &"c".repeat(64),
+    );
+    let mut request = start_request(
+        &access,
+        &document,
+        "claude-provider-failed-model-start",
+        "Answer about the selected chapter.",
+        None,
+        Vec::new(),
+    );
+    request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(request).unwrap();
+    let dispatch = project
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .unwrap();
+    let stdin_bytes = serialized_input(&dispatch.packet.messages, &dispatch.packet.options)
+        .unwrap()
+        .len()
+        .to_string();
+    let settled = project
+        .settle_provider_discussion(ProviderTerminalReport {
+            owner: started.run.owner,
+            expected_sequence: "0".into(),
+            event_id: "claude-provider-terminal-failed-model".into(),
+            assistant_text: "Partial Claude answer.".into(),
+            binding: binding.clone(),
+            status: ProviderOutcomeStatus::Failed,
+            confirmed_stdin_bytes: stdin_bytes,
+            usage: None,
+            cleanup: ProviderCleanup::Settled,
+            error: Some("The CLI reported a different model before failing.".into()),
+            effective_identity: None,
+            reported_model: Some("claude-next-5.1".into()),
+            delivery: None,
+        })
+        .expect("failed Claude result may retain diagnosis identity");
+    assert_eq!(settled.provider_result.binding.model_id, "claude-sonnet-5");
+    assert_eq!(
+        settled.provider_result.reported_model.as_deref(),
+        Some("claude-next-5.1")
+    );
+    drop(project);
+    let reopened = ProjectSession::open(temp.child("project")).unwrap();
+    let reopened_access = reopened
+        .attach("claude-provider-failed-model-reopen".into())
+        .unwrap();
+    let reopened_view = reopened
+        .read_discussion(reopened_access, "chapter-one".into())
+        .unwrap();
+    let reopened_result = reopened_view
+        .runs
+        .last()
+        .and_then(|run| run.provider_result.as_ref())
+        .expect("failed Claude identity remains inspectable after reopen");
+    assert_eq!(reopened_result.binding.model_id, "claude-sonnet-5");
+    assert_eq!(
+        reopened_result.reported_model.as_deref(),
+        Some("claude-next-5.1")
+    );
+}
+
+#[test]
+fn claude_binding_is_allowed_for_scoped_proposals_before_apply() {
+    let temp = TempDir::new("claude-provider-proposal");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let mut request = start_request(
+        &access,
+        &document,
+        "claude-provider-proposal-start",
+        "Make only this passage quieter while preserving the ending.",
+        Some(scope_input(&document)),
+        Vec::new(),
+    );
+    request.intent = FeedbackIntent::ProposeEdits;
+    request.provider_binding = Some(ProviderBinding::claude_author_runtime(
+        "claude-sonnet-5",
+        "high",
+        "2.1.220",
+        &"d".repeat(64),
+    ));
+    let started = project
+        .start_discussion(request)
+        .expect("Claude may prepare a scoped proposal");
+    assert_eq!(started.run.intent, FeedbackIntent::ProposeEdits);
+    assert_eq!(
+        started.packet.options.provider_binding,
+        started.run.provider_binding
+    );
+    let envelope: Value = serde_json::from_str(&started.packet.messages[1].content).unwrap();
+    assert!(envelope.get("scope").is_some_and(|scope| !scope.is_null()));
+}
+
+#[test]
 fn http_provider_completion_persists_delivery_body_and_reopens_without_stdin_claim() {
     let temp = TempDir::new("http-provider-complete");
     let path = temp.child("project");
@@ -2861,6 +3081,7 @@ fn http_provider_completion_persists_delivery_body_and_reopens_without_stdin_cla
         cleanup: ProviderCleanup::Settled,
         error: None,
         effective_identity: None,
+        reported_model: None,
         delivery: Some(http_delivery(
             &dispatch,
             HttpDeliverySubmission::ResponseReceived,
@@ -2938,6 +3159,7 @@ fn http_provider_rejects_tampered_body_and_seals_uncertain_delivery_history() {
             cleanup: ProviderCleanup::Settled,
             error: None,
             effective_identity: None,
+            reported_model: None,
             delivery: Some(tampered),
         })
         .unwrap_err();
@@ -2971,6 +3193,7 @@ fn http_provider_rejects_tampered_body_and_seals_uncertain_delivery_history() {
             cleanup: ProviderCleanup::Unresolved,
             error: Some("The response became unreachable after submission.".into()),
             effective_identity: None,
+            reported_model: None,
             delivery: Some(http_delivery(
                 &uncertain_dispatch,
                 HttpDeliverySubmission::Uncertain,
@@ -3044,6 +3267,7 @@ fn unresolved_provider_cleanup_interrupts_and_accepts_partial_stdin_without_prop
             cleanup: ProviderCleanup::Unresolved,
             error: Some("cleanup could not be confirmed".into()),
             effective_identity: None,
+            reported_model: None,
             delivery: None,
         })
         .expect("settle unresolved provider result");
@@ -3137,6 +3361,7 @@ fn tampered_provider_result_is_rejected_by_backup_validation() {
             cleanup: ProviderCleanup::Settled,
             error: None,
             effective_identity: None,
+            reported_model: None,
             delivery: None,
         })
         .unwrap();
@@ -3196,6 +3421,7 @@ fn completed_live_run_without_provider_result_is_rejected_by_backup_validation()
             cleanup: ProviderCleanup::Settled,
             error: None,
             effective_identity: None,
+            reported_model: None,
             delivery: None,
         })
         .unwrap();

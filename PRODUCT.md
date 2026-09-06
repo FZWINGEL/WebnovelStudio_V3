@@ -20,11 +20,15 @@ configurable OpenAI-compatible endpoint profiles, and the native HTTP worker
 handles their development transport. Story Memory has a separate CAS-backed
 provider preference with fixed Luna/xhigh settings: Codex uses priority, HTTP
 has no service tier, and mock is an explicit offline choice. HTTP context lookup
-is not supported yet; V2 CLI adapter parity, hosted HTTP qualification, and
+Claude author development exposes static Fable 5, Opus 5, and Sonnet 5 rows with
+low/medium/high/xhigh/max effort choices; its unchecked native connection keeps
+sending blocked, and Claude does not provide memory or lookup. HTTP context
+lookup is not supported yet; V2 CLI adapter parity, hosted HTTP qualification, and
 broader live-provider support remain open. See the
 [OpenAI-compatible endpoint ADR](docs/ADR_0023_OPENAI_COMPATIBLE.md) and the
-[dynamic Codex models ADR](docs/ADR_0024_DYNAMIC_CODEX_MODELS.md), and the
-[Story Memory provider ADR](docs/ADR_0025_API_STORY_MEMORY.md).
+[dynamic Codex models ADR](docs/ADR_0024_DYNAMIC_CODEX_MODELS.md), the
+[Story Memory provider ADR](docs/ADR_0025_API_STORY_MEMORY.md), and the
+[Claude author ADR](docs/ADR_0026_CLAUDE_AUTHOR.md).
 
 - **Installed desktop:** a native application window with native menus/dialogs and an installer. Rust owns the core and the web UI runs inside Tauri. An externally opened browser does not satisfy this requirement.
 - **Project management:** creating, opening, finding, renaming, duplicating, archiving, switching, and resuming projects are central flows. Samples are explicitly chosen; a blank project remains useful without a model connection.
@@ -38,18 +42,21 @@ broader live-provider support remain open. See the
 - **Honest context:** the product distinguishes evidence stored in the project, permitted sources available for lookup, the packet actually delivered to a model, and what the model appears to understand (an evaluation question). Context maintenance does not run paid analysis on autosave, automatically write canon, or replace source text with a large rolling summary.
 - **Language and genre:** English is the authoring, UI, and export language. Translated-webnovel, wuxia, and xianxia register or terminology may be optional style support; Chinese authoring is not a product requirement, and no genre's stages, chapter lengths, or schedule are mandatory.
 
-The current project database reader floor is schema 29, and the library model
+The current project database reader floor is schema 30, and the library model
 preferences/endpoint profile schema is 4. Schema 27 adds the reader-floor
 boundary for author-selected Codex bindings; schema 28 adds the frozen
-source-title reader boundary, and schema 29 adds optional memory HTTP delivery
-receipts. Legacy Codex packet bytes and hashes, plus absent legacy delivery
+source-title reader boundary, schema 29 adds optional memory HTTP delivery
+receipts, and schema 30 adds nullable Claude reported-model evidence. Legacy
+Codex packet bytes and hashes, plus absent legacy delivery
 values, remain preserved. The library catalog stores sanitized
 model metadata, defaults, observed CLI identity, and discovery time, without
 credentials. Cached catalog rows do not establish readiness.
 
 ## Current native surface
 
-The native Library/Workspace supports blank projects and optional chapter, character, world, theme, hook, scene, and note documents. It connects rich-text editing to Rust-owned SQLite autosave, flush-before-switch, rename, duplicate, archive, native folder/backup/recovery dialogs, saved versions, and exact Markdown/TXT export previews. Current author projects use schema 29, retaining schema-19 continuation, schema-20 reviewed-export, schema-21 reviewed-evidence, schema-22 structured-suggestion, and schema-23 promise-history records; schema 24 adds bounded lookup invocation and read records, schema 25 adds optional observed provider runtime identity, schema 26 adds optional HTTP delivery receipts for provider results, schema 27 adds the reader-floor boundary for dynamic author Codex bindings, schema 28 adds frozen source-title validation, and schema 29 adds optional memory HTTP delivery receipts without rewriting historical packet bytes. The C6 checkpoint [CI 34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes both contract jobs and all 47 strict native checks; its wrapper counts are dated at 593 active Rust tests (552 core and 41 desktop) and 353 frontend tests in 27 files. The accepted current local wrapper passes 626 active Rust tests (579 core and 47 desktop), one existing ignored fixture, and 355 frontend tests in 27 files. The final Story Memory HTTP native fixture passes six synthetic POSTs with zero live calls and no page errors; hosted/live-provider, author-trial, and release qualification remain open. Non-secret model preferences and endpoint profiles use library schema 4. Recovered projects have independent identities and operation namespaces. Copied history cannot authorize new operations.
+The native Library/Workspace supports blank projects and optional chapter, character, world, theme, hook, scene, and note documents. It connects rich-text editing to Rust-owned SQLite autosave, flush-before-switch, rename, duplicate, archive, native folder/backup/recovery dialogs, saved versions, and exact Markdown/TXT export previews. Current author projects use schema 30, retaining schema-19 continuation, schema-20 reviewed-export, schema-21 reviewed-evidence, schema-22 structured-suggestion, and schema-23 promise-history records; schema 24 adds bounded lookup invocation and read records, schema 25 adds optional observed provider runtime identity, schema 26 adds optional HTTP delivery receipts for provider results, schema 27 adds the reader-floor boundary for dynamic author Codex bindings, schema 28 adds frozen source-title validation, schema 29 adds optional memory HTTP delivery receipts, and schema 30 adds nullable Claude reported-model evidence without rewriting historical packet bytes. The C6 checkpoint [CI 34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes both contract jobs and all 47 strict native checks; its wrapper counts are dated at 593 active Rust tests (552 core and 41 desktop) and 353 frontend tests in 27 files. The accepted current local wrapper passes 626 active Rust tests (579 core and 47 desktop), one existing ignored fixture, and 355 frontend tests in 27 files. The final Story Memory HTTP native fixture passes six synthetic POSTs with zero live calls and no page errors; hosted/live-provider, author-trial, and release qualification remain open. Non-secret model preferences and endpoint profiles use library schema 4. Recovered projects have independent identities and operation namespaces. Copied history cannot authorize new operations.
+
+The Claude author development surface uses the existing discussion ownership and proposal Apply paths for Discuss, Propose edits, and Continue. Each `claude-stdin.author.v1` binding freezes observed CLI identity, the selected static model, and exact effort with 24 KiB stdin and 64 KiB retained output caps; it does not pin a future version or executable hash. Claude has no memory or lookup route. Completed results require an exact requested/reported model match; unknown or mismatched identity fails safely while retaining the raw result, and usage/effective identity remain unknown. Stop, failed local saves, and recovery never replay a Claude request. Native execution and live qualification remain pending; see the [Claude author ADR](docs/ADR_0026_CLAUDE_AUTHOR.md).
 
 The persistent assistant supports whole-document discussion, selected-passage feedback, adopted guidance, saved discussion sources, optional approved writing briefs, reviewable single-line passage suggestions, and explicitly scoped structured paragraph or whole-chapter suggestions. JavaScript prepares editor transactions; Rust validates scope and atomically accepts Apply. Other suggestions become stale after an intervening manuscript change. Manual rebind and atomic batch Apply remain open.
 

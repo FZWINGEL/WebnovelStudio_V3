@@ -362,6 +362,11 @@ pub struct ProviderTerminalReport {
     /// The adapter cannot establish an effective identity in this slice. Keep
     /// this optional so a later qualified adapter can report one explicitly.
     pub effective_identity: Option<String>,
+    /// The model identity claimed by a Claude terminal result.  It is kept
+    /// separate from the requested binding model and is only accepted for
+    /// the bounded Claude profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reported_model: Option<String>,
     /// Present only for OpenAI-compatible HTTP.  Historical Codex reports
     /// omit this field and retain their exact wire shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -383,6 +388,8 @@ pub struct ProviderResult {
     pub cleanup: ProviderCleanup,
     pub error: Option<String>,
     pub effective_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reported_model: Option<String>,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery: Option<ProviderDeliveryReceipt>,
@@ -2114,7 +2121,7 @@ impl OwnedProject {
             .map(serde_json::to_string)
             .transpose()?;
         tx.execute(
-            "INSERT INTO provider_results(run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,delivery_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO provider_results(run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,reported_model,delivery_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 current.id,
                 current.packet_id,
@@ -2130,6 +2137,7 @@ impl OwnedProject {
                 request.cleanup.as_str(),
                 request.error,
                 request.effective_identity,
+                request.reported_model,
                 delivery_json,
             ],
         )?;
@@ -2924,6 +2932,7 @@ type ProviderResultRow = (
     String,
     Option<String>,
     Option<String>,
+    Option<String>,
     String,
     Option<String>,
 );
@@ -2935,7 +2944,7 @@ fn read_provider_result(
 ) -> CoreResult<Option<ProviderResult>> {
     let row: Option<ProviderResultRow> = db
         .query_row(
-            "SELECT run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,created_at,delivery_json FROM provider_results WHERE run_id=?",
+            "SELECT run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,reported_model,created_at,delivery_json FROM provider_results WHERE run_id=?",
             [run_id],
             |row| {
                 Ok((
@@ -2953,6 +2962,7 @@ fn read_provider_result(
                     row.get(11)?,
                     row.get(12)?,
                     row.get(13)?,
+                    row.get(14)?,
                 ))
             },
         )
@@ -2970,6 +2980,7 @@ fn read_provider_result(
         cleanup,
         error,
         effective_identity,
+        reported_model,
         created_at,
         delivery_json,
     )) = row
@@ -3000,6 +3011,7 @@ fn read_provider_result(
         .map(|json| serde_json::from_str(&json))
         .transpose()?;
     let status = ProviderOutcomeStatus::parse(&outcome)?;
+    validate_reported_model(&binding, status, reported_model.as_deref(), true)?;
     let cleanup = ProviderCleanup::parse(&cleanup)?;
     let input_limit = binding
         .input_limit()
@@ -3062,6 +3074,7 @@ fn read_provider_result(
         cleanup,
         error,
         effective_identity,
+        reported_model,
         created_at,
         delivery,
     }))
@@ -3835,6 +3848,60 @@ fn validate_provider_report_shape(request: &ProviderTerminalReport) -> CoreResul
             "The current provider boundary cannot confirm an effective identity.",
         ));
     }
+    validate_reported_model(
+        &request.binding,
+        request.status,
+        request.reported_model.as_deref(),
+        false,
+    )?;
+    Ok(())
+}
+
+/// Claude's stream may claim a terminal model identity.  Keep that claim
+/// separate from the immutable requested binding and accept it only for the
+/// bounded Claude profile.  A completed Claude result must agree exactly;
+/// failed results may retain a bounded, known Claude model for diagnosis.
+fn validate_reported_model(
+    binding: &ProviderBinding,
+    status: ProviderOutcomeStatus,
+    reported_model: Option<&str>,
+    persisted: bool,
+) -> CoreResult<()> {
+    let Some(reported_model) = reported_model else {
+        if binding.is_claude() && status == ProviderOutcomeStatus::Completed {
+            return Err(CoreError::new(
+                if persisted {
+                    "InvalidProject"
+                } else {
+                    "InvalidRequest"
+                },
+                "A completed Claude result must retain its reported model identity.",
+            ));
+        }
+        return Ok(());
+    };
+    if !binding.is_claude()
+        || !crate::providers::claude_profile::valid_reported_model_id(reported_model)
+    {
+        return Err(CoreError::new(
+            if persisted {
+                "InvalidProject"
+            } else {
+                "InvalidRequest"
+            },
+            "Only a bounded Claude result may retain a known reported model identity.",
+        ));
+    }
+    if status == ProviderOutcomeStatus::Completed && reported_model != binding.model_id {
+        return Err(CoreError::new(
+            if persisted {
+                "InvalidProject"
+            } else {
+                "InvalidRequest"
+            },
+            "A completed Claude result reported a different model than the request binding.",
+        ));
+    }
     Ok(())
 }
 
@@ -3937,6 +4004,7 @@ fn provider_result_matches_report(saved: &ProviderResult, report: &ProviderTermi
         && saved.cleanup == report.cleanup
         && saved.error == report.error
         && saved.effective_identity == report.effective_identity
+        && saved.reported_model == report.reported_model
         && saved.delivery == report.delivery
 }
 

@@ -7,6 +7,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use tauri::Manager;
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
+#[cfg(windows)]
+mod claude_live_discussion;
 mod context_commands;
 mod discussion_commands;
 mod discussion_recovery;
@@ -134,6 +136,7 @@ fn main() {
             v2_import_commands::v2_import_preview,
             v2_import_commands::v2_import,
             provider_commands::check_codex_connection,
+            provider_commands::check_claude_connection,
             provider_commands::save_model_settings,
             provider_commands::save_story_memory_provider,
             endpoint_commands::endpoint_settings,

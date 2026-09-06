@@ -5,9 +5,9 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Current author projects use schema 29; app-local model preferences and endpoint profiles use library schema 4.
+The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Current author projects use schema 30; app-local model preferences and endpoint profiles use library schema 4.
 
-C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation now includes frozen source-title projection, with focused protocol, packet, boundary, core, frontend, and local native review evidence. The schema-27 author-binding boundary is preserved; schema 28 adds the frozen source-title reader boundary, schema 29 adds memory HTTP delivery receipts, and library schema 4 is unchanged. The previous provider wrapper checkpoint passes 589 active Rust tests (548 core and 41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files, with formatting, strict Clippy, TypeScript, and the production build; it is dated evidence. C6 checkpoint CI [34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes Windows and Ubuntu contracts, all 47 strict native checks, and the native HTTP fixture with zero live calls. Its wrapper counts are dated at 593 active Rust tests (552 core and 41 desktop), one existing ignored fixture, and 353 frontend tests in 27 files. The accepted current local wrapper passes 626 active Rust tests (579 core and 47 desktop), one existing ignored fixture, and 355 frontend tests in 27 files, with formatting, strict workspace Clippy, TypeScript, the production build, and frontend tests. Review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, truthful delivery status, and frozen title/source identity across renames. The independent Story Memory provider preference and configured HTTP route are implemented development surfaces. C6 remains a development slice: broader live lookup, provider, native, and release qualification remain open. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 strict native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
+C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation now includes frozen source-title projection, with focused protocol, packet, boundary, core, frontend, and local native review evidence. The schema-27 author-binding boundary is preserved; schema 28 adds the frozen source-title reader boundary, schema 29 adds memory HTTP delivery receipts, schema 30 adds Claude reported-model receipts, and library schema 4 is unchanged. The previous provider wrapper checkpoint passes 589 active Rust tests (548 core and 41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files, with formatting, strict Clippy, TypeScript, and the production build; it is dated evidence. C6 checkpoint CI [34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes Windows and Ubuntu contracts, all 47 strict native checks, and the native HTTP fixture with zero live calls. Its wrapper counts are dated at 593 active Rust tests (552 core and 41 desktop), one existing ignored fixture, and 353 frontend tests in 27 files. Current combined checks pass 644 active Rust tests (589 core and 55 desktop), one existing ignored fixture, and 357 frontend tests in 27 files, with formatting, strict workspace Clippy, TypeScript, and the production build. The initial wrapper frontend run found one stale copy assertion; the corrected complete frontend run passes. Review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, truthful delivery status, and frozen title/source identity across renames. The independent Story Memory provider preference and configured HTTP route are implemented development surfaces. C6 remains a development slice: broader live lookup, provider, native, and release qualification remain open. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 strict native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
 
 Settings now compatibility-checks the installed Codex CLI without a fixed
 version or executable hash and records the observed identity with each request.
@@ -39,14 +39,76 @@ runs in an owned Windows process, and saves validated output plus delivery,
   development slice; broader provider and release qualification remains
   pending. See [ADR 0011](ADR_0011_LIVE_CODEX.md), [ADR 0023](ADR_0023_OPENAI_COMPATIBLE.md), [ADR 0024](ADR_0024_DYNAMIC_CODEX_MODELS.md), [ADR 0025](ADR_0025_API_STORY_MEMORY.md), and [qualification](CODEX_QUALIFICATION.md); this is development integration, not full W8 acceptance.
 
-A separate Claude text-only foundation is implemented and synthetic-tested, but is
-not exposed in the model picker or desktop dispatch. Its installed-CLI evidence and
-remaining gates are recorded in [Claude qualification](CLAUDE_QUALIFICATION.md);
-no live Claude support is claimed.
+Claude author integration now connects the static reference catalog, explicit
+Settings check, frozen author binding, contained worker, Stop, and local result
+recovery. Schema 30 adds an optional provider-reported model claim separately
+from the requested model. A completed response requires an exact match;
+failures retain safe unexpected identities without becoming stuck in local
+save retries. Claude maintenance and story lookup remain unsupported. Its
+installed-CLI evidence and remaining gates are recorded in
+[Claude qualification](CLAUDE_QUALIFICATION.md); no live Claude qualification
+is claimed.
 
-### Current provider checkpoint: Codex compatibility and HTTP development surface
+| Provider | Author requests | Story Memory | Current boundary |
+| --- | --- | --- | --- |
+| Local test model | Implemented offline | Explicit offline choice | Synthetic responses |
+| Codex CLI | Checked dynamic model/traits | Fixed Luna/xhigh/priority | Bounded live evidence; broader qualification open |
+| Claude Code CLI | Static Fable/Opus/Sonnet 5 with checked native connection | Unsupported | Integrated development path; no live Claude calls |
+| OpenAI-compatible endpoint | Configured URL/key/model, independent of CLIs | Fixed Luna/xhigh, no tier | Native synthetic qualification; hosted endpoints unqualified |
+| Cursor Agent, OpenCode, Grok Build | Not ported | Unsupported | Remaining V2 CLI adapters |
+| Anthropic/Gemini native HTTP protocols | Not ported | Unsupported | Distinct protocol adapters remain open |
 
-The current C6 checkpoint is `c41a420c4760ef9eadf1ac54534e62d15cebae30`.
+OpenAI, OpenRouter, and local services can use the generic endpoint route when
+they implement its Chat Completions contract; this is not a claim of separate
+provider-specific adapters or hosted qualification. HTTP and Claude reject
+story lookup explicitly; Codex and the local test model support the current
+bounded lookup route. No unavailable selection silently falls back to another
+provider. All summary and maintenance model calls remain fixed to Luna/xhigh;
+changing the author picker never changes the maintenance provider preference.
+
+### Current Claude author integration checkpoint
+
+The Claude author slice implements the static picker, explicit native connection
+check, exact runtime/model/effort binding, contained response worker, and
+schema-30 terminal identity history. It uses the existing discussion, proposal,
+Apply, Stop, and local recovery protocols. The worker independently refuses a
+completed response with missing or mismatched model identity. Safe unknown
+reported IDs remain inspectable on failed results; unsafe values cannot strand
+a local save. An orphaned accepted operation cannot acquire a fresh connection
+and silently submit the old request again.
+
+Current local validation passes formatting, strict workspace Clippy, 644 active
+Rust tests (589 core and 55 desktop), one existing ignored fixture, TypeScript,
+the production build, and 357 frontend tests in 27 files. The wrapper log
+`.local/claude-author-accepted-check.log` contains the passing Rust/build checks
+and an initial frontend failure from one stale usage-copy assertion. After that
+test assertion was corrected, the complete frontend run passes in
+`.local/claude-author-frontend-final.log`; the wrapper was not rerun end to end.
+
+The rebuilt native binary SHA-256 is
+`563f6bfd7ba88c30711ebef7dd50da8423d7147fe4fee24bf1c4fd0aab7eb576`.
+The native HTTP/picker fixture passes six grouped checks and six synthetic
+loopback POSTs, with zero live model calls, zero page errors, and removed test
+credentials. It verifies all three Claude models, five efforts, saved selection,
+unchecked Send blocking, independent HTTP Luna memory, frozen route/key changes,
+scoped Apply, Stop, error history, reopen, and local memory-save retry without a
+POST. Evidence is `.local/native-results/http/qualification.json`, finished at
+`2026-09-06T15:42:18.033Z`; the Claude picker and Settings screenshots were
+inspected. The general local native diagnostic passes 46/47 checks with zero
+errors at `2026-09-06T15:41:48.435Z` on WebView2 `152.0.4191.66`; it omits only
+the documented local OS clipboard case. Tracked CI retains that strict check.
+The fuzzy search assertion now checks the unique, first-ranked Luna result
+instead of assuming that no other catalog row can match.
+
+No live Claude calls or new authentication probes were made. Cumulative native
+live CLI dispatches remain 20. Hosted endpoints, live Claude behavior, the
+remaining V2 adapters, and full release qualification remain open. See
+[ADR 0026](ADR_0026_CLAUDE_AUTHOR.md) and
+[Claude qualification](CLAUDE_QUALIFICATION.md).
+
+### Prior provider checkpoints: Codex compatibility and HTTP development surface
+
+The dated C6 checkpoint is `c41a420c4760ef9eadf1ac54534e62d15cebae30`.
 CI run [34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733)
 passes both Windows and Ubuntu contract jobs. Its native evidence records 47
 strict checks with zero errors on WebView2 `151.0.4129.101` at
@@ -86,8 +148,17 @@ errors, and settled credential cleanup in
 `.local/native-results/http/qualification.json`, finished at
 `2026-09-06T15:08:22.095Z`. Its binary SHA-256 is
 `222641cba94047178941c127e5c2a12e4c7362c29f357209b2d626bca2a2893b`.
-General native coverage remains the earlier 46/47 preliminary build; the new
-commit still needs the strict CI rerun.
+The pushed API-only checkpoint is `fe7a8b3bde93a7bacddf58dd4f6a9235a737a1d0`.
+[CI 34041814151](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34041814151)
+passes Windows and Ubuntu contracts, all 47 strict native checks with zero
+errors, and all six synthetic HTTP POSTs with zero live calls, no page errors,
+and removed test credentials. Downloaded evidence is under
+`.local/ci-34041814151/native-spike-evidence/`: `report.json` is dated
+`2026-09-06T15:32:17.077Z` on WebView2 `151.0.4129.101`, and
+`http/qualification.json` finished at `2026-09-06T15:32:29.547Z` on binary
+SHA-256 `72a25c9c41e3fcde4b72e8f230e659e2d149f8c63413368987fe21be95d1153f`.
+This qualifies the API-only development slice, not hosted endpoint behavior
+or the subsequent Claude integration.
 
 CI run [34033575745](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34033575745)
 passed the native strict 46-check suite and the native HTTP fixture. The overall

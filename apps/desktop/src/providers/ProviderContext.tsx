@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { checkCodexConnection, localModel, readProviderState, saveModelSettings, saveStoryMemoryProvider, type ModelKey, type ModelSelection, type ProviderState } from '../ipc/providers';
+import { checkClaudeConnection, checkCodexConnection, localModel, readProviderState, saveModelSettings, saveStoryMemoryProvider, type ModelKey, type ModelSelection, type ProviderState } from '../ipc/providers';
 
 const isolatedMock: ProviderState = {
   settings: { revision: '0', active: localModel, favorites: [] },
@@ -12,12 +12,13 @@ interface ProviderContextValue {
   state: ProviderState | null; busy: boolean; error: string;
   refresh(): Promise<void>;
   checkConnection(): Promise<boolean>;
+  checkClaudeConnection(): Promise<boolean>;
   save(active: ModelSelection, favorites: ModelKey[]): Promise<boolean>;
   saveStoryMemory(providerId: string): Promise<boolean>;
 }
 // Isolated editor/unit-test surfaces use the existing local mock contract.
 // The production root always mounts ProviderSettingsProvider and loads Rust state.
-const Providers = createContext<ProviderContextValue>({ state: isolatedMock, busy: false, error: '', refresh: async () => {}, checkConnection: async () => false, save: async () => false, saveStoryMemory: async () => false });
+const Providers = createContext<ProviderContextValue>({ state: isolatedMock, busy: false, error: '', refresh: async () => {}, checkConnection: async () => false, checkClaudeConnection: async () => false, save: async () => false, saveStoryMemory: async () => false });
 export const useProviders = () => useContext(Providers);
 function describe(error: unknown): string {
   return error && typeof error === 'object' && 'detail' in error ? String(error.detail) : 'Could not confirm the saved model choice. Check Settings before sending another request.';
@@ -46,6 +47,20 @@ export function ProviderSettingsProvider({ children }: { children: ReactNode }) 
       // state once so a completed native check can still reconcile its status.
       let recovered = current.current;
       try { recovered = await readProviderState(); } catch { /* Keep the last known state. */ }
+      if (mounted.current) { setState(recovered); setError(describe(reason)); }
+      return false;
+    } finally { flight.current = false; if (mounted.current) setBusy(false); }
+  }
+  async function checkClaude() {
+    if (flight.current) return false;
+    flight.current = true; setBusy(true); setError('');
+    try {
+      const value = await checkClaudeConnection();
+      if (!mounted.current) return false;
+      setState(value); return true;
+    } catch (reason) {
+      let recovered = current.current;
+      try { recovered = await readProviderState(); } catch { /* Keep the last known state after a failed explicit probe. */ }
       if (mounted.current) { setState(recovered); setError(describe(reason)); }
       return false;
     } finally { flight.current = false; if (mounted.current) setBusy(false); }
@@ -84,5 +99,5 @@ export function ProviderSettingsProvider({ children }: { children: ReactNode }) 
       return false;
     } finally { flight.current = false; if (mounted.current) setBusy(false); }
   }
-  return <Providers.Provider value={{ state, busy, error, refresh, checkConnection, save, saveStoryMemory }}>{children}</Providers.Provider>;
+  return <Providers.Provider value={{ state, busy, error, refresh, checkConnection, checkClaudeConnection: checkClaude, save, saveStoryMemory }}>{children}</Providers.Provider>;
 }

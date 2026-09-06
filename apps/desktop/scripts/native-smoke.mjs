@@ -82,7 +82,8 @@ try {
   await page.getByRole('button', { name: 'Favorite GPT-5.6-Luna', exact: true }).click();
   await page.getByRole('button', { name: 'Unfavorite GPT-5.6-Luna', exact: true }).waitFor();
   await page.getByRole('searchbox', { name: 'Search models' }).fill('luna');
-  assert.equal(await page.locator('.model-choice').count(), 1);
+  assert.equal(await page.locator('.model-choice').filter({ hasText: 'GPT-5.6-Luna' }).count(), 1);
+  assert.match(await page.locator('.model-choice').first().innerText(), /GPT-5\.6-Luna/);
   await page.getByRole('searchbox', { name: 'Search models' }).press('Enter');
   await page.getByRole('button', { name: 'Choose model: GPT-5.6-Luna', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();

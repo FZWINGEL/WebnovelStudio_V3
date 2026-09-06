@@ -57,6 +57,14 @@ pub const CODEX_HISTORICAL_PROFILE_VERSION: &str = "0.153.3";
 pub const CODEX_INPUT_LIMIT_BYTES: usize = 24 * 1024;
 pub const CODEX_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 pub const CODEX_TOKEN_ACCOUNTING_METHOD: &str = "utf8-byte-count/codex-stdin-application-cap-v1";
+pub const CLAUDE_PROVIDER_ID: &str = "claude";
+pub const CLAUDE_PROFILE_VERSION: &str = crate::providers::claude_profile::CLAUDE_PROFILE_VERSION;
+pub const CLAUDE_INPUT_LIMIT_BYTES: usize =
+    crate::providers::claude_profile::CLAUDE_INPUT_LIMIT_BYTES;
+pub const CLAUDE_OUTPUT_LIMIT_BYTES: usize =
+    crate::providers::claude_profile::CLAUDE_OUTPUT_LIMIT_BYTES;
+pub const CLAUDE_TOKEN_ACCOUNTING_METHOD: &str =
+    crate::providers::claude_profile::CLAUDE_TOKEN_ACCOUNTING_METHOD;
 /// Provider-neutral accounting label for the bounded OpenAI-compatible HTTP
 /// transport.  This is a byte cap, not a claim about the provider tokenizer.
 pub const HTTP_TOKEN_ACCOUNTING_METHOD: &str =
@@ -285,6 +293,46 @@ impl ProviderBinding {
         binding
     }
 
+    /// Create the immutable Claude author binding after native runtime checks
+    /// have resolved the exact model, effort, observed version, and executable
+    /// fingerprint.  Structural validation remains the authority for stored
+    /// packets; native dispatch must still compare the runtime identity.
+    pub fn claude_author_runtime(
+        model_id: &str,
+        effort: &str,
+        cli_version: &str,
+        executable_sha256: &str,
+    ) -> Self {
+        Self {
+            provider_id: CLAUDE_PROVIDER_ID.to_owned(),
+            model_id: model_id.to_owned(),
+            reasoning: Some(effort.to_owned()),
+            service_tier: None,
+            profile_version: CLAUDE_PROFILE_VERSION.to_owned(),
+            input_limit_bytes: CLAUDE_INPUT_LIMIT_BYTES.to_string(),
+            reserved_output_bytes: "0".to_owned(),
+            reserved_protocol_bytes: "0".to_owned(),
+            output_limit_bytes: CLAUDE_OUTPUT_LIMIT_BYTES.to_string(),
+            accounting_method: CLAUDE_TOKEN_ACCOUNTING_METHOD.to_owned(),
+            runtime: Some(ProviderRuntimeIdentity {
+                cli_version: cli_version.to_owned(),
+                executable_sha256: executable_sha256.to_owned(),
+                catalog_sha256: None,
+            }),
+            http: None,
+        }
+    }
+
+    pub fn is_claude(&self) -> bool {
+        self.provider_id == CLAUDE_PROVIDER_ID
+    }
+
+    pub fn is_current_claude_profile(&self) -> bool {
+        self.is_claude()
+            && self.profile_version == CLAUDE_PROFILE_VERSION
+            && self.validate().is_ok()
+    }
+
     fn codex_luna_with_profile(profile_version: &str) -> Self {
         Self {
             provider_id: CODEX_PROVIDER_ID.to_owned(),
@@ -308,6 +356,9 @@ impl ProviderBinding {
         }
         if self.is_http() {
             return self.validate_http();
+        }
+        if self.is_claude() {
+            return self.validate_claude();
         }
         let mut expected = Self::codex_luna();
         expected.runtime = self.runtime.clone();
@@ -357,6 +408,51 @@ impl ProviderBinding {
                 "the Codex application profile, model settings, runtime identity, or byte allowances are invalid"
                     .to_owned(),
             );
+        }
+        Ok(())
+    }
+
+    fn validate_claude(&self) -> Result<(), String> {
+        if self.profile_version != CLAUDE_PROFILE_VERSION
+            || self.provider_id != CLAUDE_PROVIDER_ID
+            || self.service_tier.is_some()
+            || self.http.is_some()
+            || self.input_limit_bytes.parse::<usize>().ok() != Some(CLAUDE_INPUT_LIMIT_BYTES)
+            || self.output_limit_bytes.parse::<usize>().ok() != Some(CLAUDE_OUTPUT_LIMIT_BYTES)
+            || self.reserved_output_bytes != "0"
+            || self.reserved_protocol_bytes != "0"
+            || self.accounting_method != CLAUDE_TOKEN_ACCOUNTING_METHOD
+        {
+            return Err("the Claude application profile or byte allowances are invalid".into());
+        }
+        let Some(runtime) = self.runtime.as_ref() else {
+            return Err("the Claude author profile requires observed runtime identity".into());
+        };
+        if runtime.catalog_sha256.is_some() || !runtime.validate() {
+            return Err("the Claude runtime identity is invalid".into());
+        }
+        let Some(effort) = self.reasoning.as_deref() else {
+            return Err("the Claude author profile requires an exact effort".into());
+        };
+        if !crate::providers::claude_profile::CLAUDE_MODEL_IDS.contains(&self.model_id.as_str())
+            || !crate::providers::claude_profile::CLAUDE_EFFORTS.contains(&effort)
+        {
+            return Err("the Claude model or effort is not in the bounded catalog".into());
+        }
+        let profile = crate::providers::claude_profile::ClaudeLaunchProfile::for_version(
+            &runtime.cli_version,
+            &self.model_id,
+            Some(effort),
+        )
+        .map_err(|_| "the Claude CLI version, model, or effort is invalid".to_owned())?;
+        if profile.cli_version.as_deref() != Some(runtime.cli_version.as_str())
+            || !crate::providers::claude_profile::model_available_for_version(
+                &runtime.cli_version,
+                &self.model_id,
+            )
+            .map_err(|_| "the Claude CLI version is invalid".to_owned())?
+        {
+            return Err("the Claude model is not supported by the observed CLI version".into());
         }
         Ok(())
     }
@@ -2504,6 +2600,20 @@ fn build_serialized(
 }
 
 fn validate_response_contract(request: &PacketRequest) -> Result<(), PacketError> {
+    if request
+        .provider_binding
+        .as_ref()
+        .is_some_and(ProviderBinding::is_claude)
+        && (request.lookup.is_some() || request.frozen.purpose == ContextPurpose::MemoryAnalysis)
+    {
+        return Err(PacketError::InvalidRequest {
+            message: if request.lookup.is_some() {
+                "Claude author requests are not qualified for story lookup.".to_owned()
+            } else {
+                "Claude author requests are not qualified for chapter memory analysis.".to_owned()
+            },
+        });
+    }
     if let Some(binding) = request
         .provider_binding
         .as_ref()

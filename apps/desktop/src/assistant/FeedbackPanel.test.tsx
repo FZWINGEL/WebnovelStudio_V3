@@ -251,6 +251,20 @@ describe('persistent FeedbackPanel safeguards', () => {
     expect(discussions.startDiscussion).not.toHaveBeenCalled(); expect(session.body).toEqual(emptyBody);
     expect((host.querySelector('#discussion-composer') as HTMLTextAreaElement).disabled).toBe(false);
   });
+  it('keeps story lookup unavailable for a connected Claude author choice', async () => {
+    const session = await makeSession();
+    const claude: providerIpc.ModelSelection = { providerId: 'claude', modelId: 'claude-opus-5', reasoning: 'high', serviceTier: null };
+    vi.mocked(providerIpc.readProviderState).mockResolvedValue({
+      settings: { revision: '1', active: claude, favorites: [] },
+      dispatch: { kind: 'claudeCli', detail: 'Claude Code is connected.' },
+      claudeConnection: { ready: true, detail: 'Claude Code is connected.' },
+      catalog: { models: [{ key: claude, label: 'Claude Opus 5', providerLabel: 'Claude Code', reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'], serviceTiers: [], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: true, statusDetail: 'Connected' }] },
+    });
+    await renderWithProvider(session);
+    const lookup = host.querySelector('#discussion-lookup') as HTMLInputElement;
+    expect(lookup.disabled).toBe(true);
+    expect(host.textContent).toContain('Story lookups are available through Codex.');
+  });
   it('sends the connected choice and keeps the saved response identity after model changes', async () => {
     const session = await makeSession(); const connected = providerState(true); connected.dispatch.kind = 'codexCli';
     connected.catalog.models[0].ready = true; vi.mocked(providerIpc.readProviderState).mockResolvedValue(connected);
@@ -268,7 +282,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     vi.mocked(providerIpc.readProviderState).mockResolvedValue(providerState(false)); await click('Reload model choice');
     await waitFor(() => expect(host.querySelector('.scope-controls')?.textContent).toContain('Local test model'));
     expect(host.querySelectorAll('.feedback-note')[1].textContent).toContain('GPT-5.6-Luna');
-    expect(host.textContent).toContain('did not report usage'); expect(session.body).toEqual(emptyBody);
+    expect(host.textContent).toContain('Usage is unavailable for this response.'); expect(session.body).toEqual(emptyBody);
   });
   it('accepts an HTTP response only when the selected model, packet binding, run binding, and profile match', async () => {
     const session = await makeSession(); vi.mocked(providerIpc.readProviderState).mockResolvedValue(httpProviderState());
@@ -310,7 +324,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     const run = { ...started.run, status, providerBinding: httpBinding, providerResult: { binding: httpBinding, status, confirmedStdinBytes: '0', usage: null, cleanup: 'settled' as const, error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission } } };
     vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, runs: [run], messages: [started.userMessage, { ...started.userMessage, id: `http-${_label}-answer`, role: 'assistant', content: 'The endpoint response was saved.' }] });
     await renderPanel(session);
-    expect(host.textContent).toContain('The provider did not report usage for this response.');
+    expect(host.textContent).toContain('Usage is unavailable for this response.');
     expect(host.textContent).toContain(deliveryLabel);
     expect(host.textContent).toContain('The local HTTP request has finished.');
     expect(host.textContent).toContain('Stopping locally does not confirm that the upstream service stopped processing or charging.');

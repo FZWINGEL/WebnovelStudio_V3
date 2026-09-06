@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use webnovel_core::library::Library;
 use webnovel_core::providers::catalog::{CatalogOrigin, DispatchResolution};
+use webnovel_core::providers::claude_profile::{
+    CLAUDE_FABLE_MODEL, CLAUDE_OPUS_MODEL, CLAUDE_SONNET_MODEL,
+};
 use webnovel_core::providers::preferences::{ModelKey, ModelSelection};
 
 struct Fixture(PathBuf);
@@ -55,7 +58,7 @@ fn fresh_state_is_explicit_mock_and_reference_catalog_is_bounded() {
         state.dispatch,
         DispatchResolution::LocalMock { .. }
     ));
-    assert_eq!(state.catalog.models.len(), 8);
+    assert_eq!(state.catalog.models.len(), 11);
     assert!(
         state
             .catalog
@@ -83,6 +86,57 @@ fn fresh_state_is_explicit_mock_and_reference_catalog_is_bounded() {
             .collect::<Vec<_>>()
     );
     assert_eq!(luna.service_tiers[0].id, "priority");
+    let claude = state
+        .catalog
+        .models
+        .iter()
+        .filter(|model| model.key.provider_id == "claude")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        claude
+            .iter()
+            .map(|model| model.key.model_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![CLAUDE_FABLE_MODEL, CLAUDE_OPUS_MODEL, CLAUDE_SONNET_MODEL]
+    );
+    assert!(claude.iter().all(|model| {
+        model.provider_label == "Claude Code"
+            && model.origin == CatalogOrigin::Reference
+            && !model.ready
+            && model.reasoning_levels == ["low", "medium", "high", "xhigh", "max"]
+            && model.default_reasoning.as_deref() == Some("high")
+            && model.service_tiers.is_empty()
+            && model.context_window_tokens.is_none()
+            && model.max_output_tokens.is_none()
+    }));
+}
+
+#[test]
+fn claude_reference_selection_is_preserved_but_blocked_until_native_check() {
+    let fixture = Fixture::new();
+    let mut library = Library::open(fixture.0.join("app")).unwrap();
+    let state = library
+        .save_model_settings(
+            "0",
+            ModelSelection {
+                provider_id: "claude".into(),
+                model_id: CLAUDE_OPUS_MODEL.into(),
+                reasoning: Some("high".into()),
+                service_tier: None,
+            },
+            Vec::new(),
+        )
+        .unwrap();
+    assert!(matches!(state.dispatch, DispatchResolution::Blocked { .. }));
+    assert!(
+        !state
+            .catalog
+            .models
+            .iter()
+            .find(|model| model.key.model_id == CLAUDE_OPUS_MODEL)
+            .unwrap()
+            .ready
+    );
 }
 
 #[test]

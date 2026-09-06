@@ -134,6 +134,7 @@ fn finish_unstarted(
         binding: dispatch.packet.options.provider_binding.expect("claimed HTTP binding"),
         status: ProviderOutcomeStatus::Failed, confirmed_stdin_bytes: "0".into(), usage: None,
         cleanup: ProviderCleanup::Settled, effective_identity: None,
+        reported_model: None,
         error: Some("This saved request was interrupted before dispatch. No API request was sent. You can send a new request to try again.".into()),
         delivery: Some(ProviderDeliveryReceipt {
             body_hash: prepared.body_hash, body_bytes: prepared.body_bytes,
@@ -264,6 +265,7 @@ async fn run_response(
         cleanup: ProviderCleanup::Settled,
         error,
         effective_identity: None,
+        reported_model: None,
         delivery: Some(ProviderDeliveryReceipt {
             body_hash: prepared.body_hash,
             body_bytes: prepared.body_bytes,

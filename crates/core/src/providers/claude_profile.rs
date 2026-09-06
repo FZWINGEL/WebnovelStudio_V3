@@ -36,6 +36,17 @@ pub const CLAUDE_MODEL_IDS: &[&str] = &[CLAUDE_FABLE_MODEL, CLAUDE_OPUS_MODEL, C
 /// than exact CLI effort values and are intentionally excluded.
 pub const CLAUDE_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
+/// Validate a model identity reported by a Claude stream. This is deliberately
+/// a syntax check rather than a catalog check: a failed run may report a newer
+/// or otherwise unknown model while the requested binding remains immutable.
+pub fn valid_reported_model_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':' | b'/')
+        })
+}
+
 /// Empty MCP configuration passed with strict validation so a user or project
 /// MCP file cannot silently add tools to an author request.
 pub const EMPTY_MCP_CONFIG: &str = r#"{"mcpServers":{}}"#;
@@ -206,6 +217,40 @@ fn parse_version_output(value: &str) -> Result<String, ClaudeProfileError> {
     Ok(token.to_owned())
 }
 
+/// Check the static model gates for an observed Claude CLI version.  This is
+/// a capability rule, not an exact-version allowlist: newer valid versions
+/// remain eligible, while a prerelease at a model's minimum is not treated as
+/// equivalent to the stable release.
+pub fn model_available_for_version(
+    version_output: &str,
+    model: &str,
+) -> Result<bool, ClaudeProfileError> {
+    let version = parse_version_output(version_output)?;
+    if !CLAUDE_MODEL_IDS.contains(&model) {
+        return Ok(false);
+    }
+    let numbers = version
+        .split(['-', '+'])
+        .next()
+        .unwrap_or_default()
+        .split('.')
+        .map(str::parse::<u32>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ClaudeProfileError::InvalidVersionOutput)?;
+    let [major, minor, patch] = numbers.as_slice() else {
+        return Err(ClaudeProfileError::InvalidVersionOutput);
+    };
+    let minimum = match model {
+        CLAUDE_FABLE_MODEL => (2, 1, 169),
+        CLAUDE_OPUS_MODEL => (2, 1, 219),
+        CLAUDE_SONNET_MODEL => (0, 0, 0),
+        _ => return Ok(false),
+    };
+    let current = (*major, *minor, *patch);
+    let prerelease = version.split('+').next().unwrap_or_default().contains('-');
+    Ok(current > minimum || (current == minimum && !prerelease))
+}
+
 fn bounded_value(value: &str) -> String {
     value.chars().take(128).collect()
 }
@@ -294,5 +339,15 @@ mod tests {
                 Err(ClaudeProfileError::InvalidVersionOutput)
             ));
         }
+    }
+
+    #[test]
+    fn reported_model_identity_is_bounded_without_requiring_catalog_membership() {
+        assert!(valid_reported_model_id("claude-next-5.1-build/42"));
+        assert!(valid_reported_model_id("vendor:model_v2"));
+        assert!(!valid_reported_model_id(""));
+        assert!(!valid_reported_model_id("claude model"));
+        assert!(!valid_reported_model_id(&"x".repeat(129)));
+        assert!(!valid_reported_model_id("claude\nnext"));
     }
 }

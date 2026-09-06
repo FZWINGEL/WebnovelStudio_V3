@@ -9,6 +9,8 @@ use webnovel_core::context::packet::ProviderBinding;
 use webnovel_core::projects::discussions::RunOwner;
 use webnovel_core::projects::memory::MemoryOwner;
 use webnovel_core::projects::{CoreError, CoreResult};
+#[cfg(windows)]
+use webnovel_core::providers::claude_runtime::ClaudeConnection;
 use webnovel_core::providers::{
     catalog::{DispatchResolution, ProviderState},
     credentials::WindowsCredentialStore,
@@ -24,6 +26,10 @@ struct RuntimeState {
     checking: bool,
     #[cfg(windows)]
     connection: Option<CodexConnection>,
+    claude_checking: bool,
+    #[cfg(windows)]
+    claude_connection: Option<ClaudeConnection>,
+    claude_detail: Option<String>,
     #[cfg(windows)]
     stops: HashMap<(String, String, String), StopSignal>,
     detail: Option<String>,
@@ -42,6 +48,7 @@ pub struct DesktopProviderState {
     #[serde(flatten)]
     state: ProviderState,
     codex_connection: ConnectionView,
+    claude_connection: ClaudeConnectionView,
     story_memory: StoryMemoryView,
 }
 #[derive(Serialize)]
@@ -76,6 +83,12 @@ struct ConnectionView {
     memory_ready: bool,
     detail: String,
 }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeConnectionView {
+    ready: bool,
+    detail: String,
+}
 
 pub fn is_supported_choice(choice: &ModelSelection) -> bool {
     choice.provider_id == "codex"
@@ -92,9 +105,11 @@ pub fn binding_matches_choice(binding: &ProviderBinding, choice: &ModelSelection
 
 pub fn binding_matches_author_choice(binding: &ProviderBinding, choice: &ModelSelection) -> bool {
     binding_matches_choice(binding, choice)
-        || (binding.profile_version
-            == webnovel_core::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
-            && binding_matches_saved_model(binding, choice)
+        || (matches!(
+            binding.profile_version.as_str(),
+            webnovel_core::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+                | webnovel_core::providers::claude_profile::CLAUDE_PROFILE_VERSION
+        ) && binding_matches_saved_model(binding, choice)
             && choice
                 .reasoning
                 .as_ref()
@@ -167,6 +182,54 @@ pub fn connection_matches_binding(connection: &CodexConnection, binding: &Provid
                 },
             )
             .is_ok_and(|expected| expected == *binding))
+}
+
+#[cfg(windows)]
+pub fn claude_binding_for_choice(
+    connection: &ClaudeConnection,
+    choice: &ModelSelection,
+) -> CoreResult<ProviderBinding> {
+    use webnovel_core::providers::claude_profile::ClaudeLaunchProfile;
+    let unavailable = || {
+        CoreError::new(
+            "ProviderUnavailable",
+            "This Claude model or its settings are unavailable. Check the connection in Settings.",
+        )
+    };
+    if choice.provider_id != "claude"
+        || choice.service_tier.is_some()
+        || !connection.permits_model(&choice.model_id)
+    {
+        return Err(unavailable());
+    }
+    let effort = choice.reasoning.as_deref().unwrap_or("high");
+    ClaudeLaunchProfile::for_version(connection.version(), &choice.model_id, Some(effort))
+        .map_err(|_| unavailable())?;
+    let binding = ProviderBinding::claude_author_runtime(
+        &choice.model_id,
+        effort,
+        connection.version(),
+        connection.fingerprint(),
+    );
+    binding.validate().map_err(|_| unavailable())?;
+    Ok(binding)
+}
+
+#[cfg(windows)]
+pub fn claude_connection_matches_binding(
+    connection: &ClaudeConnection,
+    binding: &ProviderBinding,
+) -> bool {
+    claude_binding_for_choice(
+        connection,
+        &ModelSelection {
+            provider_id: binding.provider_id.clone(),
+            model_id: binding.model_id.clone(),
+            reasoning: binding.reasoning.clone(),
+            service_tier: binding.service_tier.clone(),
+        },
+    )
+    .is_ok_and(|expected| expected == *binding)
 }
 fn unavailable() -> CoreError {
     CoreError::new(
@@ -400,8 +463,71 @@ impl DesktopProviders {
         });
         #[cfg(not(windows))]
         let memory_ready = false;
+        #[cfg(windows)]
+        let claude_ready = runtime.claude_connection.is_some();
+        #[cfg(not(windows))]
+        let claude_ready = false;
+        let claude_detail = runtime.claude_detail.clone().unwrap_or_else(|| {
+            "Check the installed Claude Code sign-in to enable this connection.".into()
+        });
+        for model in state
+            .catalog
+            .models
+            .iter_mut()
+            .filter(|model| model.key.provider_id == "claude")
+        {
+            #[cfg(windows)]
+            let supported = runtime
+                .claude_connection
+                .as_ref()
+                .is_some_and(|connection| {
+                    connection.permits_model(&model.key.model_id)
+                        && (model.key != state.settings.active.key()
+                            || claude_binding_for_choice(connection, &state.settings.active)
+                                .is_ok())
+                });
+            #[cfg(not(windows))]
+            let supported = false;
+            model.ready = supported;
+            model.status_detail = if supported {
+                "Available through the checked Claude Code connection. These models and effort choices come from the app's reference catalog.".into()
+            } else if claude_ready {
+                "This model or its selected settings are unavailable in the checked Claude installation.".into()
+            } else {
+                claude_detail.clone()
+            };
+        }
+        if state.settings.active.provider_id == "claude" {
+            #[cfg(windows)]
+            let supported = runtime
+                .claude_connection
+                .as_ref()
+                .is_some_and(|connection| {
+                    claude_binding_for_choice(connection, &state.settings.active).is_ok()
+                });
+            #[cfg(not(windows))]
+            let supported = false;
+            state.dispatch = if supported {
+                DispatchResolution::ClaudeCli {
+                    detail: "Uses your Claude Code sign-in. Sending starts one live response."
+                        .into(),
+                }
+            } else {
+                DispatchResolution::Blocked {
+                    detail: if claude_ready {
+                        "This Claude model or its selected settings are unavailable. Choose supported traits or check the connection again.".into()
+                    } else {
+                        claude_detail.clone()
+                    },
+                }
+            };
+        }
         Ok(DesktopProviderState {
             state,
+            claude_connection: ClaudeConnectionView {
+                ready: claude_ready,
+                detail: claude_detail,
+            },
             story_memory: StoryMemoryView {
                 revision: "0".into(),
                 provider_id: "codex".into(),
@@ -459,6 +585,57 @@ impl DesktopProviders {
                 Some("This Codex connection is currently available on Windows only.".into());
         }
         Ok(())
+    }
+
+    /// An explicit read-only check. No prompt, shell, or paid invocation is used.
+    pub fn check_claude_connection(&self) -> CoreResult<()> {
+        {
+            let mut state = self.lock()?;
+            if state.claude_checking {
+                return Err(CoreError::new(
+                    "ConnectionCheckRunning",
+                    "A Claude connection check is already running.",
+                ));
+            }
+            state.claude_checking = true;
+            #[cfg(windows)]
+            {
+                state.claude_connection = None;
+            }
+        }
+        #[cfg(windows)]
+        {
+            let checked = ClaudeConnection::check_installed();
+            let mut state = self.lock()?;
+            state.claude_checking = false;
+            match checked {
+                Ok(connection) => {
+                    state.claude_connection = Some(connection);
+                    state.claude_detail = Some("Claude Code is signed in and its required command options are available. Model choices use the app's reference catalog.".into());
+                }
+                Err(error) => {
+                    state.claude_detail = Some(error.detail);
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let mut state = self.lock()?;
+            state.claude_checking = false;
+            state.claude_detail =
+                Some("This Claude Code connection is currently available on Windows only.".into());
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn claude_connection(&self) -> CoreResult<ClaudeConnection> {
+        self.lock()?.claude_connection.clone().ok_or_else(|| {
+            CoreError::new(
+                "ProviderUnavailable",
+                "Check the Claude Code connection in Settings before sending.",
+            )
+        })
     }
 
     #[cfg(windows)]
@@ -597,6 +774,75 @@ impl DesktopProviders {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchecked_claude_reference_catalog_cannot_enable_dispatch_or_change_memory() {
+        let choice = ModelSelection {
+            provider_id: "claude".into(),
+            model_id: "claude-sonnet-5".into(),
+            reasoning: Some("high".into()),
+            service_tier: None,
+        };
+        let state = ProviderState {
+            settings: webnovel_core::providers::preferences::ModelSettings {
+                revision: "3".into(),
+                active: choice.clone(),
+                favorites: vec![],
+            },
+            catalog: webnovel_core::providers::catalog::built_in_catalog(),
+            // Even a precomputed resolution cannot bypass the native check.
+            dispatch: DispatchResolution::ClaudeCli {
+                detail: "Untrusted precomputed readiness".into(),
+            },
+        };
+        let state = DesktopProviders::default().view(state).unwrap();
+        assert_eq!(state.state.settings.active, choice);
+        assert!(!state.claude_connection.ready);
+        assert!(matches!(
+            state.state.dispatch,
+            DispatchResolution::Blocked { .. }
+        ));
+        let models: Vec<_> = state
+            .state
+            .catalog
+            .models
+            .iter()
+            .filter(|model| model.key.provider_id == "claude")
+            .collect();
+        assert_eq!(models.len(), 3);
+        assert!(models.iter().all(|model| !model.ready));
+        assert_eq!(state.story_memory.provider_id, "codex");
+        assert_eq!(state.story_memory.model_id, "gpt-5.6-luna");
+        assert_eq!(state.story_memory.reasoning.as_deref(), Some("xhigh"));
+    }
+
+    #[test]
+    fn claude_saved_author_choice_preserves_exact_explicit_model_and_traits() {
+        let binding = ProviderBinding::claude_author_runtime(
+            "claude-sonnet-5",
+            "high",
+            "2.1.220",
+            &"a".repeat(64),
+        );
+        let mut choice = ModelSelection {
+            provider_id: "claude".into(),
+            model_id: "claude-sonnet-5".into(),
+            reasoning: None,
+            service_tier: None,
+        };
+        assert!(binding_matches_author_choice(&binding, &choice));
+        choice.reasoning = Some("high".into());
+        assert!(binding_matches_author_choice(&binding, &choice));
+        choice.reasoning = Some("xhigh".into());
+        assert!(!binding_matches_author_choice(&binding, &choice));
+        choice.reasoning = Some("high".into());
+        choice.service_tier = Some("priority".into());
+        assert!(!binding_matches_author_choice(&binding, &choice));
+        choice.service_tier = None;
+        choice.model_id = "claude-opus-5".into();
+        assert!(!binding_matches_author_choice(&binding, &choice));
+        assert!(!binding_matches_choice(&binding, &choice));
+    }
 
     #[test]
     fn author_defaults_resolve_once_but_explicit_traits_and_legacy_bindings_remain_exact() {

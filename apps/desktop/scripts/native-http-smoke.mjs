@@ -226,6 +226,48 @@ try {
   assert.equal(await page.getByLabel('Maintenance provider',{exact:true}).inputValue(),endpoint.id);
   await page.screenshot({path:resolve(evidence,'memory-settings.png')});
   await page.getByRole('button',{name:'Close settings',exact:true}).click();
+  // Claude's static picker is a read-only synthetic qualification. It must
+  // expose all reference rows and effort choices without probing Claude or
+  // inspecting credentials; an unchecked connection keeps Send disabled.
+  const memoryBeforeClaude = await page.evaluate(async()=>{
+     const state=await window.__TAURI_INTERNALS__.invoke('provider_state');
+     return { providerId:state.storyMemory.providerId, modelId:state.storyMemory.modelId, reasoning:state.storyMemory.reasoning, serviceTier:state.storyMemory.serviceTier, ready:state.storyMemory.ready };
+  });
+  await page.getByRole('button',{name:'Choose model: test-editor-v1',exact:true}).click();
+  await page.getByRole('button',{name:'Claude Code',exact:true}).click();
+  assert.equal(await page.locator('.model-choice').count(),3,'Claude rail must expose the three static reference models');
+  for(const label of ['Claude Fable 5','Claude Opus 5','Claude Sonnet 5']) assert.equal(await page.locator('.model-choice').filter({hasText:label}).count(),1,`Claude rail must show ${label}`);
+  await page.screenshot({path:resolve(evidence,'claude-picker.png')});
+  await page.locator('.model-choice').filter({hasText:'Claude Sonnet 5'}).click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  const claudeEffort=page.locator('#model-reasoning');
+  await claudeEffort.waitFor();
+  assert.deepEqual(await claudeEffort.locator('option').evaluateAll(options=>options.map(option=>option.value).filter(Boolean)),['low','medium','high','xhigh','max']);
+  await claudeEffort.selectOption('xhigh');
+  await page.waitForFunction(async()=>{
+     const state=await window.__TAURI_INTERNALS__.invoke('provider_state');
+     return state.settings.active.providerId==='claude'&&state.settings.active.modelId==='claude-sonnet-5'&&state.settings.active.reasoning==='xhigh';
+  });
+  await page.getByRole('button',{name:'Close settings',exact:true}).click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  assert.equal(await page.locator('#model-reasoning').inputValue(),'xhigh');
+  await page.screenshot({path:resolve(evidence,'claude-settings.png')});
+  const memoryAfterClaude=await page.evaluate(async()=>{
+     const state=await window.__TAURI_INTERNALS__.invoke('provider_state');
+     return { providerId:state.storyMemory.providerId, modelId:state.storyMemory.modelId, reasoning:state.storyMemory.reasoning, serviceTier:state.storyMemory.serviceTier, ready:state.storyMemory.ready };
+  });
+  assert.deepEqual(memoryAfterClaude,memoryBeforeClaude,'Changing the author model must not retarget Story Memory');
+  await page.getByRole('button',{name:'Close settings',exact:true}).click();
+  const claudeComposer=page.getByRole('textbox',{name:'Discuss this document',exact:true});
+  if(!await claudeComposer.isVisible()) await page.getByRole('button',{name:'Discussion',exact:true}).click();
+  await claudeComposer.fill('Synthetic Claude readiness check.');
+  assert.equal(await page.getByRole('button',{name:'Send',exact:true}).isDisabled(),true,'Unchecked Claude connection must keep Send disabled');
+  await page.getByRole('button',{name:'Hide discussion',exact:true}).click();
+  await page.getByRole('button',{name:/^Choose model: Claude Sonnet 5$/}).click();
+  await page.getByRole('searchbox',{name:'Search models'}).fill('test-editor-v1');
+  await page.getByRole('searchbox',{name:'Search models'}).press('Enter');
+  await page.getByRole('button',{name:'Choose model: test-editor-v1',exact:true}).waitFor();
+  metadata.checks.push('Claude rail exposes three static models and five effort choices, saves and reopens an author choice, leaves the independent HTTP Luna memory provider unchanged, and keeps Send disabled until the native connection is checked');
   await page.getByRole('button',{name:'Choose model: test-editor-v1',exact:true}).waitFor();
   const within=relative(await realpath(data),await realpath(path));
   assert(within&&!isAbsolute(within)&&within!=='..'&&!within.startsWith(`..${sep}`),'Memory write fixture must stay inside this synthetic run directory');

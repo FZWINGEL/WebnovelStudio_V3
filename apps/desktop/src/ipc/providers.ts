@@ -17,8 +17,9 @@ export interface ModelDescriptor {
 }
 export interface ProviderState {
   settings: ModelSettings; catalog: { models: ModelDescriptor[] };
-  dispatch: { kind: 'localMock' | 'codexCli' | 'openAiCompatible' | 'blocked'; detail: string };
+  dispatch: { kind: 'localMock' | 'codexCli' | 'claudeCli' | 'openAiCompatible' | 'blocked'; detail: string };
   codexConnection?: { ready: boolean; memoryReady?: boolean; detail: string };
+  claudeConnection?: { ready: boolean; detail: string };
   /** Native production state always supplies this. Optional keeps isolated
    * picker fixtures compatible while preventing the memory panel from
    * inventing a live maintenance target when it is absent. */
@@ -31,6 +32,7 @@ export const storyMemoryModel: ModelSelection = { providerId: 'codex', modelId: 
 export const sameModel = (left: ModelKey, right: ModelKey) => left.providerId === right.providerId && left.modelId === right.modelId;
 export const readProviderState = (): Promise<ProviderState> => invoke('provider_state');
 export const checkCodexConnection = (): Promise<ProviderState> => invoke('check_codex_connection');
+export const checkClaudeConnection = (): Promise<ProviderState> => invoke('check_claude_connection');
 export const saveModelSettings = (expectedRevision: string, active: ModelSelection, favorites: ModelKey[]): Promise<ProviderState> => invoke('save_model_settings', { expectedRevision, active, favorites });
 export const saveStoryMemoryProvider = (expectedRevision: string, providerId: string): Promise<ProviderState> => invoke('save_story_memory_provider', { expectedRevision, providerId });
 

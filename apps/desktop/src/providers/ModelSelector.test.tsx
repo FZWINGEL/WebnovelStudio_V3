@@ -6,7 +6,7 @@ import * as ipc from '../ipc/providers';
 import { ModelSelector } from './ModelSelector';
 import { ModelSettings } from './ModelSettings';
 import { ProviderSettingsProvider, useProviders } from './ProviderContext';
-vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), readEndpointSettings: vi.fn(), checkCodexConnection: vi.fn(), saveModelSettings: vi.fn(), saveStoryMemoryProvider: vi.fn() }));
+vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), readEndpointSettings: vi.fn(), checkCodexConnection: vi.fn(), checkClaudeConnection: vi.fn(), saveModelSettings: vi.fn(), saveStoryMemoryProvider: vi.fn() }));
 const luna: ipc.ModelSelection = { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority' };
 function initial(): ipc.ProviderState {
   return { settings: { revision: '0', active: { ...ipc.localModel }, favorites: [] }, dispatch: { kind: 'localMock', detail: 'No live AI connected' }, codexConnection: { ready: false, detail: 'Check Settings to connect Codex.' }, catalog: { models: [
@@ -46,6 +46,7 @@ beforeEach(() => {
   vi.mocked(ipc.readProviderState).mockImplementation(async () => structuredClone(state));
   vi.mocked(ipc.readEndpointSettings).mockResolvedValue({ revision: '0', profiles: [] });
   vi.mocked(ipc.checkCodexConnection).mockImplementation(async () => structuredClone(state));
+  vi.mocked(ipc.checkClaudeConnection).mockImplementation(async () => structuredClone(state));
   vi.mocked(ipc.saveModelSettings).mockImplementation(async (_revision, active, favorites) => { state = { ...state, settings: { revision: String(Number(state.settings.revision) + 1), active, favorites }, dispatch: { kind: active.providerId === 'mock' ? 'localMock' : 'blocked', detail: '' } }; return structuredClone(state); });
   vi.mocked(ipc.saveStoryMemoryProvider).mockImplementation(async (_revision, providerId) => { state = { ...state, storyMemory: { ...state.storyMemory!, revision: String(Number(state.storyMemory?.revision ?? '0') + 1), providerId, providerLabel: providerId.startsWith('openai-compatible:') ? 'Local API' : providerId === 'mock' ? 'WebnovelStudio' : 'Codex CLI', modelId: providerId === 'mock' ? 'local-editorial-v1' : 'gpt-5.6-luna', reasoning: providerId === 'mock' ? null : 'xhigh', serviceTier: providerId === 'codex' ? 'priority' : null, ready: true, detail: 'Configured' } }; return structuredClone(state); });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
@@ -160,6 +161,23 @@ describe('persistent model selection', () => {
     expect(ipc.checkCodexConnection).not.toHaveBeenCalled(); await click('Check Codex connection');
     expect(ipc.checkCodexConnection).toHaveBeenCalledExactlyOnceWith(); expect(state.settings).toEqual(before);
     expect(host.textContent).toContain('Signed in through Codex'); expect(host.querySelector('.provider-connection-status')!.textContent).toBe('Connected');
+  });
+  it('checks Claude only when explicitly requested and preserves the saved choice', async () => {
+    state.catalog.models.push({
+      key: { providerId: 'claude', modelId: 'claude-opus-5' }, label: 'Claude Opus 5', providerLabel: 'Claude Code',
+      reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'], defaultReasoning: 'high', serviceTiers: [], defaultServiceTier: null,
+      contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: false, statusDetail: 'Check Claude connection.',
+    });
+    state.claudeConnection = { ready: false, detail: 'Check Settings to connect Claude Code.' };
+    const before = structuredClone(state.settings);
+    vi.mocked(ipc.checkClaudeConnection).mockImplementationOnce(async () => {
+      state = { ...state, claudeConnection: { ready: true, detail: 'Claude Code is installed and signed in.' } };
+      return structuredClone(state);
+    });
+    await render(); expect(ipc.checkClaudeConnection).not.toHaveBeenCalled(); await click('Settings');
+    expect(ipc.checkClaudeConnection).not.toHaveBeenCalled(); await click('Check Claude connection');
+    expect(ipc.checkClaudeConnection).toHaveBeenCalledExactlyOnceWith(); expect(state.settings).toEqual(before);
+    expect(host.textContent).toContain('Claude Code is installed and signed in.'); expect(host.querySelector('#claude-connection-title')?.parentElement?.textContent).toContain('Connected');
   });
   it('reconciles a failed Codex check without changing preferences', async () => {
     const before = structuredClone(state.settings);

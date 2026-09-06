@@ -7,13 +7,14 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use webnovel_core::context::lookup::LookupAllowance;
 use webnovel_core::context::memory::mock_navigation_digest;
-use webnovel_core::context::packet::{MockContextBudget, serialized_input};
+use webnovel_core::context::packet::{MockContextBudget, ProviderBinding, serialized_input};
 use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
 use webnovel_core::documents::Endpoint;
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
 use webnovel_core::projects::discussions::SaveDiscussionDraft;
 use webnovel_core::projects::discussions::{
-    FeedbackIntent, ProviderOutcomeStatus, StartDiscussion,
+    DiscussionBegin, FeedbackIntent, ProviderCleanup, ProviderOutcomeStatus,
+    ProviderTerminalReport, StartDiscussion,
 };
 use webnovel_core::projects::memory::{CompleteMemory, StartMemory};
 use webnovel_core::projects::reviewed_story::{MarkReady, ReviewState, StageAuthorReview};
@@ -101,13 +102,14 @@ fn schema24_upgrade_keeps_exact_historical_codex_packet_and_backup() {
     database
         .execute_batch(
             "ALTER TABLE provider_results DROP COLUMN delivery_json;
+             ALTER TABLE provider_results DROP COLUMN reported_model;
              ALTER TABLE memory_results DROP COLUMN delivery_json;
              PRAGMA user_version=24;",
         )
         .unwrap();
     drop(database);
     let reopened = ProjectSession::open(&path).unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
     let access = reopened.attach("new-runtime-reader".into()).unwrap();
     let restored = reopened
         .prepared_context(access, packet.receipt.packet_id)
@@ -194,13 +196,14 @@ fn schema27_upgrade_preserves_historical_dynamic_author_packet_without_projectio
     database
         .execute_batch(
             "ALTER TABLE memory_results DROP COLUMN delivery_json;
+             ALTER TABLE provider_results DROP COLUMN reported_model;
              PRAGMA user_version=27;",
         )
         .unwrap();
     drop(database);
 
     let reopened = ProjectSession::open(&path).expect("upgrade schema27 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
     let access = reopened.attach("dynamic-author-reader".into()).unwrap();
     let restored = reopened
         .prepared_context(access, packet.receipt.packet_id.clone())
@@ -251,6 +254,108 @@ fn schema27_upgrade_preserves_historical_dynamic_author_packet_without_projectio
         .collect::<Vec<_>>();
     assert_eq!(backups.len(), 1);
     assert_eq!(schema_version(&backups[0]), 27);
+}
+
+#[test]
+fn schema29_upgrade_preserves_legacy_provider_receipt_with_no_reported_model() {
+    let temp = TempDir::new("schema29-provider-receipt");
+    let path = temp.child("project");
+    let (project, access, document, saved) = setup_project(&path);
+    let binding = ProviderBinding::codex_luna();
+    let started = project
+        .start_discussion(StartDiscussion {
+            access: access.clone(),
+            operation_id: "schema29-provider-start".into(),
+            expected: saved.head.clone(),
+            instruction: "Explain the saved passage.".into(),
+            intent: FeedbackIntent::Discuss,
+            basis: None,
+            scope: None,
+            pinned_document_ids: Vec::new(),
+            safe_brief: None,
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: Some(binding.clone()),
+            previous_run_id: None,
+            lookup: None,
+        })
+        .expect("start legacy provider discussion");
+    let packet_bytes = serde_json::to_vec(&started.packet).unwrap();
+    let dispatch = project
+        .begin_discussion_run(DiscussionBegin {
+            owner: started.run.owner.clone(),
+        })
+        .expect("begin legacy provider discussion");
+    let stdin_bytes = serialized_input(&dispatch.packet.messages, &dispatch.packet.options)
+        .unwrap()
+        .len()
+        .to_string();
+    project
+        .settle_provider_discussion(ProviderTerminalReport {
+            owner: started.run.owner,
+            expected_sequence: "0".into(),
+            event_id: "schema29-provider-terminal".into(),
+            assistant_text: "A durable legacy answer.".into(),
+            binding,
+            status: ProviderOutcomeStatus::Completed,
+            confirmed_stdin_bytes: stdin_bytes,
+            usage: None,
+            cleanup: ProviderCleanup::Settled,
+            error: None,
+            effective_identity: None,
+            reported_model: None,
+            delivery: None,
+        })
+        .expect("settle legacy provider discussion");
+    drop(project);
+
+    let database = Connection::open(path.join("project.sqlite3")).unwrap();
+    let before_packet: String = database
+        .query_row(
+            "SELECT packet_json FROM context_packets WHERE id=?",
+            [&started.packet.receipt.packet_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(before_packet.as_bytes(), packet_bytes.as_slice());
+    database
+        .execute_batch(
+            "ALTER TABLE provider_results DROP COLUMN reported_model;
+             PRAGMA user_version=29;",
+        )
+        .unwrap();
+    drop(database);
+
+    let reopened = ProjectSession::open(&path).expect("upgrade schema29 provider project");
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
+    let reader = reopened.attach("schema29-provider-reader".into()).unwrap();
+    let view = reopened
+        .read_discussion(reader, document.head.document_id.clone())
+        .unwrap();
+    let result = view
+        .runs
+        .last()
+        .and_then(|run| run.provider_result.as_ref())
+        .expect("legacy provider result remains readable");
+    assert_eq!(result.reported_model, None);
+    assert_eq!(result.assistant_text, "A durable legacy answer.");
+
+    let database = Connection::open(path.join("project.sqlite3")).unwrap();
+    let reported_model: Option<String> = database
+        .query_row(
+            "SELECT reported_model FROM provider_results WHERE terminal_event_id=?",
+            ["schema29-provider-terminal"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(reported_model, None);
+    let after_packet: String = database
+        .query_row(
+            "SELECT packet_json FROM context_packets WHERE id=?",
+            [&started.packet.receipt.packet_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(after_packet.as_bytes(), packet_bytes.as_slice());
 }
 
 #[test]
@@ -321,7 +426,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .head,
         saved.head
     );
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
     let backups: Vec<_> = fs::read_dir(path.join("migrations"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -332,7 +437,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .starts_with("schema14-before-schema29-")
+            .starts_with("schema14-before-schema30-")
     );
     assert_eq!(schema_version(&backups[0]), 14);
 }
@@ -392,7 +497,7 @@ fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
 
     let reopened = ProjectSession::open(&path).unwrap();
     let access = reopened.attach("schema19-reader".into()).unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
     assert_eq!(
         serde_json::to_vec(
             &reopened
@@ -537,7 +642,7 @@ fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
     let access = reopened
         .attach("schema19-navigation-reader".into())
         .unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
     assert_eq!(
         serde_json::to_vec(
             &reopened
@@ -834,7 +939,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -899,7 +1004,7 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
     let connection =
         Connection::open(path.join("project.sqlite3")).expect("open migrated schema19 database");
     let discussion_tables: i64 = connection
@@ -1010,7 +1115,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     let safe_brief_column: i64 = connection
         .query_row(
@@ -1078,7 +1183,7 @@ fn schema23_lookup_migration_preserves_legacy_composer_draft_and_starts_empty_lo
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema23 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 30);
     let reader = upgraded.attach("schema23-lookup-reader".into()).unwrap();
     let restored = upgraded
         .read_discussion(reader, document.head.document_id.clone())
@@ -1216,7 +1321,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 29);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 30);
     assert_eq!(
         recovered
             .context_source_epoch()

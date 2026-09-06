@@ -2,9 +2,7 @@
 //! Connection probes never send a manuscript or start a generation. Account
 //! metadata and raw CLI diagnostics remain inside the bounded probe parser.
 
-use super::claude_profile::{
-    CLAUDE_FABLE_MODEL, CLAUDE_INPUT_LIMIT_BYTES, CLAUDE_OPUS_MODEL, ClaudeLaunchProfile,
-};
+use super::claude_profile::{CLAUDE_FABLE_MODEL, CLAUDE_INPUT_LIMIT_BYTES, ClaudeLaunchProfile};
 use super::claude_runner::ClaudeStream;
 use super::cli::windows_process::{
     self, ChildLimits, ChildOutcome, ChildTermination, CliInvocation, EnvironmentPolicy, StopSignal,
@@ -176,30 +174,7 @@ fn unavailable(code: &str, detail: &str) -> CoreError {
 }
 
 fn model_available_for_version(version: &str, model: &str) -> bool {
-    if !super::claude_profile::CLAUDE_MODEL_IDS.contains(&model) {
-        return false;
-    }
-    let numbers = version
-        .split(['-', '+'])
-        .next()
-        .unwrap_or_default()
-        .split('.')
-        .map(str::parse::<u32>)
-        .collect::<Result<Vec<_>, _>>();
-    let Ok(numbers) = numbers else {
-        return false;
-    };
-    let [major, minor, patch] = numbers.as_slice() else {
-        return false;
-    };
-    let minimum = match model {
-        CLAUDE_FABLE_MODEL => (2, 1, 169),
-        CLAUDE_OPUS_MODEL => (2, 1, 219),
-        _ => (0, 0, 0),
-    };
-    let current = (*major, *minor, *patch);
-    let prerelease = version.split('+').next().unwrap_or_default().contains('-');
-    current > minimum || (current == minimum && !prerelease)
+    super::claude_profile::model_available_for_version(version, model).unwrap_or(false)
 }
 
 fn validate_help(help: &str) -> CoreResult<()> {
@@ -363,6 +338,7 @@ impl Drop for OwnedRun {
 
 #[cfg(test)]
 mod tests {
+    use super::super::claude_profile::CLAUDE_OPUS_MODEL;
     use super::super::cli::windows_process::ChildOutput;
     use super::*;
 

@@ -226,7 +226,8 @@ pub(crate) fn validate_settings_preserving_unavailable_active(
         // remain bounded.  Do not infer permission from user-facing copy or
         // catalog origin: both may legitimately change across refreshes.
         let preserved = find_model(catalog, &settings.active.key()).is_ok_and(|model| {
-            model.key.provider_id == super::catalog::CODEX_PROVIDER_ID
+            (model.key.provider_id == super::catalog::CODEX_PROVIDER_ID
+                || model.key.provider_id == super::catalog::CLAUDE_PROVIDER_ID)
                 && safe_identifier(&settings.active.model_id)
                 && settings
                     .active
@@ -311,6 +312,13 @@ pub(crate) fn provider_state_with_endpoints_and_codex(
         ) {
         DispatchResolution::LocalMock {
             detail: "The deterministic local mock is ready.".to_owned(),
+        }
+    } else if model.key.provider_id == super::catalog::CLAUDE_PROVIDER_ID {
+        DispatchResolution::Blocked {
+            detail: format!(
+                "{} is saved as the active choice, but the Claude Code connection has not been checked.",
+                model.label
+            ),
         }
     } else if let Some(profile) = endpoints.find(&model.key.provider_id) {
         let detail = if profile.enabled {

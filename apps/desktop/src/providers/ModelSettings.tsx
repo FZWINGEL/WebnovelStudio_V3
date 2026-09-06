@@ -10,13 +10,16 @@ export function ModelSettings() {
     {open && <SettingsDialog onClose={() => { setOpen(false); button.current?.focus(); }} />}</>;
 }
 function SettingsDialog({ onClose }: { onClose(): void }) {
-  const { state, busy, error, refresh, checkConnection, save, saveStoryMemory } = useProviders(); const dialog = useRef<HTMLDialogElement>(null);
+  const { state, busy, error, refresh, checkConnection, checkClaudeConnection, save, saveStoryMemory } = useProviders(); const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { const element = dialog.current!; element.showModal(); return () => element.close(); }, []);
   const active = state?.settings.active;
   const model = state?.catalog.models.find(model => sameModel(model.key, active!));
   const codexModel = state?.catalog.models.find(model => model.key.providerId === 'codex' && model.key.modelId === 'gpt-5.6-luna');
   const codexReady = state?.codexConnection?.ready === true;
+  const claudeModels = state?.catalog.models.filter(model => model.key.providerId === 'claude') ?? [];
+  const claudeReady = state?.claudeConnection?.ready === true;
   const activeCodex = active?.providerId === 'codex';
+  const activeClaude = active?.providerId === 'claude';
   const activeCodexLuna = !!active && !!codexModel && sameModel(active, codexModel.key);
   const exactCodexTraits = active?.reasoning === 'xhigh' && active.serviceTier === 'priority';
   const storyMemory = state?.storyMemory;
@@ -52,9 +55,10 @@ function SettingsDialog({ onClose }: { onClose(): void }) {
           <option value="">Provider default</option>{model.serviceTiers.map(tier => <option key={tier.id} value={tier.id}>{tier.label}</option>)}
         </select>
       </div>}
-      {model.origin === 'reference' && <p className="provider-note">These options come from the saved reference catalog. The connection check verifies the supported Codex installation and sign-in; model context and output limits remain unverified.</p>}
+      {model.origin === 'reference' && active.providerId === 'codex' && <p className="provider-note">These options come from the saved reference catalog. The connection check verifies the supported Codex installation and sign-in; model context and output limits remain unverified.</p>}
+      {model.origin === 'reference' && active.providerId === 'claude' && <p className="provider-note">These options come from the saved reference catalog. The connection check verifies the installed Claude Code CLI and sign-in; model context and output limits remain unverified.</p>}
       {model.origin === 'codexDiscovery' && <p className="provider-note">This model was reported by the installed Codex CLI. Its traits are saved from that discovery; the connection check controls whether it can send.</p>}
-      {activeCodex && state.dispatch.kind === 'blocked' && <p className="provider-note">{state.dispatch.detail}</p>}
+      {(activeCodex || activeClaude) && state.dispatch.kind === 'blocked' && <p className="provider-note">{state.dispatch.detail}</p>}
       {activeCodexLuna && codexReady && !exactCodexTraits && model.reasoningLevels.includes('xhigh') && model.serviceTiers.some(tier=>tier.id==='priority') && <button type="button" disabled={busy} onClick={() => void save({ ...active, reasoning: 'xhigh', serviceTier: 'priority' }, state.settings.favorites)}>Use Extra high reasoning + Fast response speed</button>}
       <p className="provider-note">Changes are saved on this computer and apply to new requests. Your current response keeps its original model. You can continue writing without an assistant.</p>
     </> : <p className="provider-note">{busy ? 'Loading model settings…' : 'Model settings could not be loaded.'}</p>}
@@ -77,6 +81,11 @@ function SettingsDialog({ onClose }: { onClose(): void }) {
       <div className="provider-connection-heading"><h3 id="codex-connection-title">Codex connection</h3><span className="provider-connection-status">{codexReady ? 'Connected' : 'Not checked'}</span></div>
       <p className="provider-note" role="status" aria-live="polite">{state.codexConnection?.detail ?? 'Check this computer for the installed Codex sign-in.'}</p>
       <button type="button" disabled={busy} onClick={() => void checkConnection()}>Check Codex connection</button>
+    </section>}
+    {state && claudeModels.length > 0 && <section className={`provider-connection ${claudeReady ? 'is-ready' : 'is-unavailable'}`} aria-labelledby="claude-connection-title">
+      <div className="provider-connection-heading"><h3 id="claude-connection-title">Claude Code connection</h3><span className="provider-connection-status">{claudeReady ? 'Connected' : 'Not checked'}</span></div>
+      <p className="provider-note" role="status" aria-live="polite">{state.claudeConnection?.detail ?? 'Check this computer for the installed Claude Code sign-in.'}</p>
+      <button type="button" disabled={busy} onClick={() => void checkClaudeConnection()}>Check Claude connection</button>
     </section>}
     <EndpointSettings />
     {error && <p role="alert" className="provider-error">{error}</p>}

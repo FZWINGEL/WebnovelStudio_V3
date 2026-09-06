@@ -6,6 +6,7 @@
 //! prevents the picker from turning a remembered choice into a claim that the
 //! provider is ready.
 
+use super::claude_profile::{CLAUDE_FABLE_MODEL, CLAUDE_OPUS_MODEL, CLAUDE_SONNET_MODEL};
 use super::codex_catalog::CodexCatalog;
 use super::endpoints::{ENDPOINT_PROVIDER_PREFIX, EndpointProfilesSettings};
 use super::preferences::{ModelKey, ModelSelection, ModelSettings};
@@ -16,6 +17,7 @@ pub const CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const MOCK_PROVIDER_ID: &str = "mock";
 pub const MOCK_MODEL_ID: &str = "mock-story-context";
 pub const CODEX_PROVIDER_ID: &str = "codex";
+pub const CLAUDE_PROVIDER_ID: &str = "claude";
 pub const CATALOG_REFERENCE: &str =
     "docs/CODEX_QUALIFICATION.md (native 0.153.3 reference; not live discovery)";
 
@@ -68,6 +70,7 @@ pub struct CatalogSnapshot {
 pub enum DispatchResolution {
     LocalMock { detail: String },
     CodexCli { detail: String },
+    ClaudeCli { detail: String },
     OpenAiCompatible { detail: String },
     Blocked { detail: String },
 }
@@ -81,7 +84,7 @@ pub struct ProviderState {
 }
 
 pub fn built_in_catalog() -> CatalogSnapshot {
-    let mut models = Vec::with_capacity(8);
+    let mut models = Vec::with_capacity(11);
     models.push(ModelDescriptor {
         key: ModelKey::new(MOCK_PROVIDER_ID, MOCK_MODEL_ID),
         label: "Local test model".to_owned(),
@@ -138,6 +141,33 @@ pub fn built_in_catalog() -> CatalogSnapshot {
             ready: false,
             status_detail:
                 "Codex CLI is a reference-only catalog entry; live provider support is not qualified."
+                    .to_owned(),
+        });
+    }
+
+    let claude_models = [
+        (CLAUDE_FABLE_MODEL, "Claude Fable 5"),
+        (CLAUDE_OPUS_MODEL, "Claude Opus 5"),
+        (CLAUDE_SONNET_MODEL, "Claude Sonnet 5"),
+    ];
+    for (id, label) in claude_models {
+        models.push(ModelDescriptor {
+            key: ModelKey::new(CLAUDE_PROVIDER_ID, id),
+            label: label.to_owned(),
+            provider_label: "Claude Code".to_owned(),
+            reasoning_levels: ["low", "medium", "high", "xhigh", "max"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            service_tiers: Vec::new(),
+            context_window_tokens: None,
+            max_output_tokens: None,
+            default_reasoning: Some("high".to_owned()),
+            default_service_tier: None,
+            origin: CatalogOrigin::Reference,
+            ready: false,
+            status_detail:
+                "Claude Code is a reference-only catalog entry; check the connection before sending."
                     .to_owned(),
         });
     }

@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 29;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 30;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -112,6 +112,12 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         if version < 29 {
             tx.execute_batch(include_str!("029_memory_provider_delivery.sql"))?;
         }
+        if version < 30 {
+            tx.execute_batch(include_str!("030_claude_provider_result.sql"))?;
+        }
+        // Schema 30 adds the nullable Claude terminal model claim. NULL keeps
+        // historical Codex and HTTP receipts byte-compatible while the reader
+        // floor prevents older applications from reopening Claude receipts.
         // Schema 28 changes no tables: new lookup packets include a versioned
         // source-title projection that older readers cannot validate. Absent
         // projections in historical packets keep their exact serialized bytes.

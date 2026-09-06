@@ -1,8 +1,10 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use webnovel_core::context::lookup::{LookupAllowance, LookupPacketInput};
 use webnovel_core::context::packet::{
-    CONTINUATION_RESPONSE_CONTRACT, CompiledPacket, MockContextBudget, PROPOSAL_RESPONSE_CONTRACT,
-    PacketError, PacketMessage, PacketOptions, PacketRequest, ProviderBinding, compile_packet,
+    CONTINUATION_RESPONSE_CONTRACT, CompiledPacket, LOOKUP_RESPONSE_CONTRACT,
+    MEMORY_RESPONSE_CONTRACT, MockContextBudget, PROPOSAL_RESPONSE_CONTRACT, PacketError,
+    PacketMessage, PacketOptions, PacketRequest, ProviderBinding, compile_packet,
     packet_input_hash, serialized_input,
 };
 use webnovel_core::context::{
@@ -776,6 +778,105 @@ fn codex_runtime_versions_are_recorded_without_a_release_allowlist() {
     forged.profile_version = "0.153.3".into();
     forged.reasoning = Some("max".into());
     assert!(forged.validate().is_err());
+}
+
+#[test]
+fn claude_author_binding_is_exact_versioned_and_round_trips() {
+    for (model, version) in [
+        ("claude-fable-5", "2.1.220"),
+        ("claude-opus-5", "2.1.220"),
+        ("claude-sonnet-5", "2.1.169"),
+    ] {
+        let binding =
+            ProviderBinding::claude_author_runtime(model, "high", version, &"a".repeat(64));
+        assert!(binding.validate().is_ok(), "{model}");
+        assert!(binding.is_current_claude_profile());
+        assert_eq!(binding.service_tier, None);
+        assert!(binding.runtime.as_ref().unwrap().catalog_sha256.is_none());
+        let encoded = serde_json::to_string(&binding).unwrap();
+        assert_eq!(
+            serde_json::from_str::<ProviderBinding>(&encoded).unwrap(),
+            binding
+        );
+    }
+    assert!(
+        ProviderBinding::claude_author_runtime(
+            "claude-fable-5",
+            "high",
+            "2.1.168",
+            &"a".repeat(64),
+        )
+        .validate()
+        .is_err()
+    );
+    assert!(
+        ProviderBinding::claude_author_runtime(
+            "claude-opus-5",
+            "high",
+            "2.1.219-beta",
+            &"a".repeat(64),
+        )
+        .validate()
+        .is_err()
+    );
+    assert!(
+        ProviderBinding::claude_author_runtime(
+            "claude-opus-5",
+            "ultrathink",
+            "2.1.220",
+            &"a".repeat(64),
+        )
+        .validate()
+        .is_err()
+    );
+}
+
+#[test]
+fn claude_binding_is_author_only_and_cannot_enter_memory_or_lookup_packets() {
+    let target_body = body(&[("target-1", "A bounded Claude author packet.")]);
+    let target = source("target", "target-doc", &target_body);
+    let binding = ProviderBinding::claude_author_runtime(
+        "claude-sonnet-5",
+        "high",
+        "2.1.220",
+        &"b".repeat(64),
+    );
+
+    let mut memory = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::MemoryAnalysis,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    memory.provider_binding = Some(binding.clone());
+    memory.response_contract = Some(MEMORY_RESPONSE_CONTRACT.into());
+    assert!(matches!(
+        compile_packet(&memory),
+        Err(PacketError::InvalidRequest { .. })
+    ));
+
+    let mut lookup = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Discuss,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    lookup.provider_binding = Some(binding);
+    lookup.response_contract = Some(LOOKUP_RESPONSE_CONTRACT.into());
+    lookup.lookup = Some(LookupPacketInput {
+        allowance: LookupAllowance::default(),
+        completed_invocations: 0,
+        exchanges: Vec::new(),
+        source_projection: None,
+    });
+    assert!(matches!(
+        compile_packet(&lookup),
+        Err(PacketError::InvalidRequest { .. })
+    ));
 }
 
 #[test]
