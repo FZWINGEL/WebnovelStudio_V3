@@ -46,7 +46,48 @@ identity reuse, history reads, restricted continuation, record-only fencing,
 clearing/reopen, and copied authority. Evidence: `.local/promises-native.log`
 and `.local/native-other-results/report.json`, dated
 `2026-09-06T08:00:51.377Z`, on WebView2 `152.0.4191.62`. The qualified executable SHA-256 is `b615a6c888cd5e48085967f44db582604c07807522920615c7722870f7bc48e1`, built `2026-09-06T07:57:34.418Z`. Native screenshots were
-inspected. Hosted qualification for this schema-23 checkpoint is pending.
+inspected.
+
+The first hosted [CI run 34020879881](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34020879881)
+at production source `12b8dd0c2ce50224de844ab8a557f912708d1bfc` passed Ubuntu
+contracts and all **45 strict native checks**, including clipboard, with zero
+native errors. Its Windows contract job passed Rust and the build, but one
+frontend test clicked the resumed promise form before asynchronous review
+verification finished. Test-only correction `904c0ae` waits for the verified
+review state; all **319 frontend tests** and TypeScript passed locally afterward
+(`.local/promises-frontend-final.log`). The first native report remains in
+`.local/ci-34020879881/report.json`, dated `2026-09-06T08:16:16.267Z`, on
+WebView2 `151.0.4129.101`.
+
+[CI run 34021415774](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34021415774)
+at `904c0ae1d439a3b004b166a3df08c06c65c9bf0c` again passed Ubuntu and all
+**45 strict native checks**, with zero errors. Its native report is
+`.local/ci-34021415774/report.json`, dated `2026-09-06T08:26:51.036Z`, on
+WebView2 `151.0.4129.101`. Windows passed the corrected review test but hit a
+five-second timeout in the existing context-inspector delivery-label test.
+Investigation found no assertion/component failure; the unchanged inspector
+suite and full **319-test** frontend suite passed locally. The failed job was
+rerun without a source or timeout change. **Attempt 2 passed all three jobs**,
+including all **319 frontend tests in 25 files** on Windows. Exact run/source
+metadata and the final Windows log are retained in
+`.local/ci-34021415774/run.json` and
+`.local/ci-34021415774/windows-contracts-attempt2.log`. This qualifies the
+schema-23 development checkpoint; the first failed attempts remain recorded
+above rather than being treated as successful runs.
+
+The same clean production source passed the installed lifecycle in
+[package run 34020898065](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34020898065),
+completed `2026-09-06T08:18:09.8122281Z` on Windows Server 2025 `10.0.26100`
+x64 with WebView2 `151.0.4129.101`. The unsigned `0.1.0` installer SHA-256 is
+`f4fb306a5d5775f0758cab0a78828b627afc2d9e40ce4b84a4237e9b9807d508`.
+Release Library launch, synthetic English writing/reopening, normal close,
+in-place uninstall without deleting author data, and same-version reinstall
+with retained project/document/text all passed, with no errors or forced
+process stop. The retained reinstall screenshot was inspected. This does not
+qualify offline/no-runtime installation, a true upgrade, installed live
+generation or promise editing, or full release acceptance. Exact artifacts
+and the distinction from the later test/docs-only source are in
+[Windows package qualification](WINDOWS_PACKAGE_QUALIFICATION.md).
 
 The twelfth bounded live generation delivered one reviewed promise in a
 Luna/Max/Fast author-room discussion. It quoted the promise and correctly
@@ -152,6 +193,19 @@ Reuse discussion and packet ownership where possible, adding only the missing
 read and invocation receipts. No paid autosave analysis, unlimited research,
 silent source widening, or manuscript writes belong in this step. The design
 is preparation for the next slice, not implemented C6 behavior.
+
+The current provider settlement seals the root run and writes its sole
+`provider_results` row. An intermediate lookup response must therefore use a
+separate invocation receipt while the existing root remains running; it must
+not masquerade as a completed discussion. Opted-in responses need bounded
+buffering until classified, so intermediate protocol JSON does not become an
+assistant message. Final C6 settlement must bind the visible answer to its
+actual invocation packet, and backup validation must verify the complete
+ordered invocation/read chain. Existing one-call rows and v1 packet bytes
+remain unchanged; expanded packets receive new v2 identities. The current
+Codex profile can enforce invocation counts, exact submitted input bytes, and
+retained output bytes. Optional reported usage does not establish a provider
+token or billing ceiling; that remains a distinct qualification requirement.
 
 Broader work remains: C5 relationship, knowledge/belief, rule, and multi-resolution
 digest views; C6 bounded model lookups; arbitrary partial multi-block editing,
@@ -500,8 +554,8 @@ The maintained [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-sli
 | C2 | Before/alongside W4; deterministic multi-resolution packet compilation, mandatory-budget errors, and actual-packet receipts | Implemented and pushed; development smoke covered | Pure compiler and durable receipt tests pass; exact packet/messages/options/hash survive restart; source body/descriptor/projection/eligibility/scope validation, target/instruction/scope/mandatory-pin preservation, full-eligible-when-fitting and whole-block-prefix packing with explicit omissions are implemented. Mock accounting is UTF-8-byte based only; provider tokenization, live AI integration, and release qualification remain open |
 | C3 | Before/alongside W4; scoped author guidance and the context inspector | Partial: guidance persistence, bounded recent exchanges, inspector, transient pins, persistent discussion sources, and approved writing briefs integrated | Chat or direct entry can be saved, edited, and retired as immutable exact versions at Next request, This document, or This project scope. CAS/idempotent guidance receipts, source-epoch invalidation, recovery retention/fencing, exact mandatory AuthorRoom packet binding, one-use consumption after successful persisted start, separate guidance handles in the inspector, and GuidancePanel lost-ack/late-response coverage are covered locally. Recent complete exchanges are frozen and packed with exact message receipts and explicit omissions; stopped/partial, other-document, revoked-policy, and copied historical turns are excluded. Unchanged unsuccessful retries preserve original one-use instructions without consuming newly waiting guidance; request identity, current policy, active versions, restart, and recovered-copy boundaries are tested. Optional approved briefs preserve exact restricted request text without transferring private origin material. Richer conversation selection and broader Apply integration remain open |
 | C4-A | F3; source-bound single-chapter navigation digest without automatic canon | Implemented development slice; local/native/live evidence recorded | Exact full-chapter revision, strict `navigation-digest.v1` UTF-16/evidence checks, separate job/result/view records, stale/revocation/recovery boundaries, native/provider evidence, and no paid autosave/open calls |
-| C4 | F3; derived-view packet integration and richer quality without automatic canon | Open after C4-A | Freeze view identity/dependencies/policy/coverage for future packets; rebuild, late-result, source-change, deletion, restore, and quality evidence |
-| C5 | F3 after F2; thin temporal, relationship, knowledge, and thread views | Partial: C5-A entity reuse, batched current-evidence freeze, and authenticated object history CI-qualified as a development slice; broader quality evaluation pending | Build relationship/knowledge/thread/rule views and multi-resolution digests with source-bound retrieval, disclosure, uncertainty, and historical dependencies; add quality evidence for supported English tasks |
+| C4 | F3; derived-view packet integration and richer quality without automatic canon | Partial: C4-B frozen chapter-view reuse and C4-C chapter-only freshness implemented and CI-qualified; higher-level views and quality evaluation open | Broader contextual/arc digests and measured interpretation quality; chapter-only views retain their exact source, evidence, and disclosure limits |
+| C5 | F3 after F2; thin temporal, relationship, knowledge, and thread views | Partial: entity reuse, batched current-evidence freeze, authenticated object history, and schema-23 promise history implemented; current qualification recorded above | Build relationship/knowledge/rule views with source-bound retrieval, disclosure, uncertainty, and historical dependencies; add quality evidence for supported English tasks |
 | C6 | W8 additional qualification; bounded provider-side read loop | Planned | Stop/budget/duplicate-event/crash boundaries, visible unknown outcomes, and fresh invocation labeling |
 
 The public promise is layered: stored evidence, permitted available sources, the packet actually delivered, and what a model understood are separate states; the last requires evaluation. C1 retains original source and does not make copied historical snapshots authoritative for a new project. Context work does not authorize automatic canon or replacement of source text with a large rolling summary.

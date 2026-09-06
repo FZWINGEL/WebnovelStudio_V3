@@ -1,8 +1,8 @@
 # ADR 0021: Cross-chapter promise history
 
-Status: implemented development slice; local native and one bounded live
-development check are qualified at their documented boundaries. Hosted CI,
-broader live coverage, and author-trial qualification remain pending. This
+Status: implemented development slice. Current contract, native, and bounded
+live evidence is recorded in [implementation status](IMPLEMENTATION_STATUS.md).
+Broader live coverage and author-trial qualification remain pending. This
 extends the reviewed evidence boundary in [ADR 0018](ADR_0018_REVIEWED_STORY_EVIDENCE.md)
 and the authenticated object history in [ADR 0019](ADR_0019_EVIDENCE_HISTORY.md).
 It adds a narrow C5 promise view without creating a second mutable truth
@@ -92,12 +92,18 @@ C6 model lookup loop. Those remain separate designs and qualification gates.
 
 ## Remaining qualification
 
-Deterministic checks and local native development qualification cover the first
-promise-history boundary. Hosted CI, broader live-provider, and author-trial
-gates still need to cover
-exact anchor/hash validation, inheritance and explicit clear, schema-22
-migration compatibility, audience filtering, source and namespace refusal,
-current-versus-historical reads, stable cross-chapter ordering, incomplete
-evidence, packet receipt hashes and omissions, no-model source opening, and
-unchanged possession/legacy records. Author review must verify that no absent
-payoff is presented as proof of cancellation, resolution, or nonexistence.
+Deterministic checks cover exact anchor/hash validation, inheritance and
+explicit clear, migration from schema 22 to 23, audience filtering, source and
+namespace refusal, current-versus-historical reads, stable cross-chapter
+ordering, incomplete evidence, packet hashes and omissions, and unchanged
+possession/legacy records. Native development checks exercise review,
+history/source opening without a model, restricted continuation, lost
+acknowledgments, clearing, and reopening. The bounded live discussion cited
+one old promise without inferring a payoff from missing evidence.
+
+These checks do not establish reliable interpretation across long novels.
+Broader live-provider and author trials must evaluate ambiguous promises,
+conflicting observations, flashbacks, and incomplete extraction. In particular,
+an absent payoff must not be presented as proof of cancellation, resolution,
+or nonexistence. Exact executed checkpoints and their limits remain in
+[implementation status](IMPLEMENTATION_STATUS.md).

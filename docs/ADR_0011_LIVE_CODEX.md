@@ -160,8 +160,11 @@ retry is implied.
 
 ## Qualification evidence
 
-[`CODEX_QUALIFICATION.md`](CODEX_QUALIFICATION.md) records eight bounded native
-dispatches against the installed direct Codex executable at version `0.153.3`:
+The first eight bounded native dispatches against the installed direct Codex
+executable at version `0.153.3` established the boundary below. Subsequent
+chapter-memory, continuation, structured-suggestion, and promise-discussion
+experiments are recorded with their individual limits in
+[`CODEX_QUALIFICATION.md`](CODEX_QUALIFICATION.md):
 
 1. A restricted direct-profile success using managed native execution.
 2. An isolated-home failure showing that an empty auth home cannot be assumed
