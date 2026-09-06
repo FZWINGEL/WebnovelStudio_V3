@@ -54,6 +54,14 @@ remain documented in the [Windows process contract](WINDOWS_PROCESS_CONTRACT.md)
 
 ## Current qualification boundary
 
+Implementation commit `1f7c761c9a292911b9f01a6faa1f91d0425fd434` passes
+[CI 34043206073](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34043206073):
+Windows and Ubuntu contracts, all 47 strict native checks, and the six-check
+HTTP/picker fixture with six synthetic POSTs, zero live calls, and no page
+errors. The final native evidence and binary fingerprint are recorded in
+[implementation status](IMPLEMENTATION_STATUS.md). Further adapter ports are
+deferred; Codex is the primary use case.
+
 The native fixture passed on binary SHA-256
 `563f6bfd7ba88c30711ebef7dd50da8423d7147fe4fee24bf1c4fd0aab7eb576`:
 `.local/native-results/http/qualification.json` finished at

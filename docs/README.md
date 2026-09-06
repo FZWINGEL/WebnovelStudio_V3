@@ -39,7 +39,7 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |
-| 6aa | [Claude author ADR](ADR_0026_CLAUDE_AUTHOR.md) | Integrated native author development surface: static three-model picker, five effort choices, frozen `claude-stdin.author.v1` binding, schema-30 reported-model evidence, and no memory/lookup route; native execution and live qualification remain pending |
+| 6aa | [Claude author ADR](ADR_0026_CLAUDE_AUTHOR.md) | Integrated native author development surface: static three-model picker, five effort choices, frozen `claude-stdin.author.v1` binding, schema-30 reported-model evidence, and no memory/lookup route; native picker and synthetic transport checks pass while live Claude qualification remains open |
 | Reference | [Claude qualification](CLAUDE_QUALIFICATION.md) | Installed/authentication evidence, synthetic foundation history, current author-slice boundaries, and remaining native/live gates |
 | Reference | [Windows process contract](WINDOWS_PROCESS_CONTRACT.md) | Local CLI process ownership, bounded I/O, partial results, and explicit cleanup limits |
 | Reference | [Windows package qualification](WINDOWS_PACKAGE_QUALIFICATION.md) | Stable release data location, offline NSIS configuration, and installed-release evidence gates |

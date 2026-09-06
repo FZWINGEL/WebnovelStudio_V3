@@ -55,8 +55,8 @@ is claimed.
 | Codex CLI | Checked dynamic model/traits | Fixed Luna/xhigh/priority | Bounded live evidence; broader qualification open |
 | Claude Code CLI | Static Fable/Opus/Sonnet 5 with checked native connection | Unsupported | Integrated development path; no live Claude calls |
 | OpenAI-compatible endpoint | Configured URL/key/model, independent of CLIs | Fixed Luna/xhigh, no tier | Native synthetic qualification; hosted endpoints unqualified |
-| Cursor Agent, OpenCode, Grok Build | Not ported | Unsupported | Remaining V2 CLI adapters |
-| Anthropic/Gemini native HTTP protocols | Not ported | Unsupported | Distinct protocol adapters remain open |
+| Cursor Agent, OpenCode, Grok Build | Deferred | Unsupported | Further adapter work paused by the author |
+| Anthropic/Gemini native HTTP protocols | Deferred | Unsupported | Further adapter work paused by the author |
 
 OpenAI, OpenRouter, and local services can use the generic endpoint route when
 they implement its Chat Completions contract; this is not a claim of separate
@@ -65,6 +65,11 @@ story lookup explicitly; Codex and the local test model support the current
 bounded lookup route. No unavailable selection silently falls back to another
 provider. All summary and maintenance model calls remain fixed to Luna/xhigh;
 changing the author picker never changes the maintenance provider preference.
+
+**Adapter scope, 6 September 2026:** the author asked to stop after Claude;
+Codex is the primary use case. Keep the implemented OpenAI-compatible endpoint
+route and finish Claude verification, then defer additional adapter ports.
+This prioritization does not replace an author's saved provider selection.
 
 ### Current Claude author integration checkpoint
 
@@ -105,6 +110,19 @@ live CLI dispatches remain 20. Hosted endpoints, live Claude behavior, the
 remaining V2 adapters, and full release qualification remain open. See
 [ADR 0026](ADR_0026_CLAUDE_AUTHOR.md) and
 [Claude qualification](CLAUDE_QUALIFICATION.md).
+
+The pushed implementation is `1f7c761c9a292911b9f01a6faa1f91d0425fd434`.
+[CI 34043206073](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34043206073)
+passes the complete Windows and Ubuntu contract jobs and the Windows native
+job. The downloaded native artifact records all 47 strict checks with zero
+errors at `2026-09-06T15:59:13.739Z`, on WebView2 `151.0.4129.101`.
+Its HTTP/picker fixture passes all six grouped checks and six synthetic POSTs,
+zero live calls, zero page errors, and removed test credentials, finishing at
+`2026-09-06T15:59:29.719Z`. Evidence is under
+`.local/ci-34043206073/native-spike-evidence/`; the native binary SHA-256 is
+`f8d4f4e493b015183735a9b23a9523f6690c5bcaa5d8f8c0fda98378d07dd54f`.
+The final documentation-only update records this evidence and the author's
+Codex-first scope without changing the qualified implementation.
 
 ### Prior provider checkpoints: Codex compatibility and HTTP development surface
 
@@ -400,9 +418,9 @@ Rust schema-21 persistence, canonical hashing, exact UTF-16 anchor validation, r
 ### Current C6 bounded story lookup slice
 
 The lookup records retain their schema-24 meaning. The current project reader
-floor is schema 29: schema 28 added the frozen source-title projection that must
-be validated by the reader, and schema 29 adds optional memory HTTP delivery
-receipts. Schema-25 runtime identity and schema-26 provider HTTP delivery
+floor is schema 30: schema 28 added the frozen source-title projection that must
+be validated by the reader, schema 29 adds optional memory HTTP delivery
+receipts, and schema 30 adds the optional Claude reported model. Schema-25 runtime identity and schema-26 provider HTTP delivery
 receipts remain compatibility boundaries. Library schema 4 is unchanged, and
 legacy 0.153.3 Max packets remain byte/hash compatible.
 

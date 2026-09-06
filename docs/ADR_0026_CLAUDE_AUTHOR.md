@@ -56,6 +56,12 @@ Story Memory or `story-lookup.v1`.
 
 ## Qualification boundary
 
+The integrated source checkpoint passes Windows/Ubuntu contracts and all strict
+native checks in [CI 34043206073](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34043206073).
+This includes the blocked Claude picker and synthetic HTTP routes; no live
+Claude generation is qualified. The author has deferred further adapter ports
+and selected Codex as the primary use case.
+
 The prior installed evidence is dated logged-out evidence with zero Claude live
 calls. The current native fixture passed on binary SHA-256
 `563f6bfd7ba88c30711ebef7dd50da8423d7147fe4fee24bf1c4fd0aab7eb576`;

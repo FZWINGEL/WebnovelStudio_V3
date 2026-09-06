@@ -2,9 +2,13 @@
 
 A native desktop writing application for English webnovels, built with Rust, Tauri, React, and Tiptap. Create several projects, develop story material in any order, and keep the manuscript at the center of the workspace. Wuxia, xianxia, cultivation, and translated-webnovel register are optional English writing styles.
 
-**In development.** The desktop workspace provides durable offline writing, project management, discussion, passage suggestions, and explicit Apply/Reject. A bounded Codex development connection compatibility-checks the installed CLI at an explicit Settings action; it does not pin a Codex version or executable hash. Author-facing model discovery uses the checked app-server catalog, while cached rows remain display-only. C6 checkpoint CI [34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes the Windows and Ubuntu contract jobs, all 47 strict native checks, and the native HTTP fixture with zero live calls. The accepted local wrapper passes 626 active Rust tests (579 core and 47 desktop), one existing ignored fixture, and 355 frontend tests in 27 files; the C41 CI wrapper counts are dated evidence. The final Story Memory HTTP native fixture passes six synthetic POSTs with zero live calls and no page errors on binary `222641cba94047178941c127e5c2a12e4c7362c29f357209b2d626bca2a2893b`; hosted/live-provider and release qualification remain open. Bounded native dynamic qualification passes Luna/xhigh/priority and Mini/low/no-tier requests; broader provider qualification remains open. The Claude author slice is integrated as a development surface; its synthetic native execution is pending and no live Claude support is claimed. Background summaries use GPT-5.6 Luna with xhigh reasoning. Story Memory has an independent CAS-backed provider choice for fixed Codex, explicit offline mock, or configured OpenAI-compatible HTTP. The V2-style provider rail now carries model search, favorites, keyboard selection, and separate traits for author-facing generation. The deterministic local test model remains available offline.
+**In development.** The native workspace provides durable offline writing, project management, persistent discussion, scoped suggestions, and explicit Apply/Reject. The V2-style model picker includes provider browsing, search, favorites, keyboard selection, and separate traits. Codex checks the installed CLI and discovers models without pinning its version; Claude has an integrated author path with synthetic qualification and no live Claude qualification yet. Configurable OpenAI-compatible endpoints work independently of either CLI. Summaries and Story Memory use GPT-5.6 Luna with xhigh reasoning through their independent provider setting. The local test model remains available offline. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for current tests, native evidence, supported adapters, and remaining release gates.
 
 The Story Context Engine retains original evidence, freezes each request’s permitted sources, and records the exact input sent to the assistant. Generate source-linked chapter memory explicitly, inspect what a discussion received, and keep generated summaries separate from author-reviewed material. Native Codex maintenance routing stays on the fixed Luna/xhigh/priority profile even when the author selects another writing model; configured HTTP Story Memory uses Luna/xhigh without a service tier.
+
+Codex is the primary provider focus. Claude and configurable OpenAI-compatible
+endpoints remain available as development integrations; further adapter ports
+are deferred.
 
 Chapter continuation offers Working/Reviewed story choices, an editable preview, and explicit Apply/Reject. Exports offer working drafts or exact author-reviewed snapshots. Reuse an object or promise across chapters and inspect its passage-backed history. Structured suggestions provide explicit paragraph or whole-chapter scopes with a rich editable preview and protected surrounding blocks. A C6 development slice now adds an opt-in bounded story lookup route for Working, AuthorRoom, and Discuss conversations; its protocol, packet compiler, persistence, and focused UI/native checks are in progress, while the wider native and live-provider qualification remains open. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for the evidence and qualification boundaries. Richer memory, wider edit scopes, broader provider support, author trials, and full release qualification remain open.
 
@@ -40,6 +44,24 @@ Chapter continuation offers Working/Reviewed story choices, an editable preview,
 Guidance is an explicit author choice and never changes manuscript text or establishes canon. Requests retain the exact instruction versions and prior exchanges they used. Restricted chapter-passage edit requests use a reader frontier and exclude author-room private material, future material, current guidance, saved discussion sources, and recent chat. An optional brief is sent as exact `approvedWritingBrief` text only after explicit approval; its origin ID, private chat, pins, and guidance stay local, and editing the text or scope clears approval. C4-A chapter navigation memory and the C4-B/C4-C Working-discussion reuse slices are implemented development surfaces; generated views remain non-authority. The C6 lookup route is an opt-in development implementation with strict application-controlled search/read messages and fresh invocation records; focused/local native evidence exists, while hosted, live-provider, and broader state/restricted-writing qualification remain open. The schema-20 reviewed export and schema-21 reviewed details are CI-qualified development slices; neither promotes prose to canon or publication.
 
 The separately opened **sample editor trial** demonstrates session-only replacement preview, local Apply, and undo. Its sample prose disappears on close. The default Library/Workspace provides durable proposal review and single-author Apply/Reject for the selected-passage W5 development slice; the sample trial remains session-only.
+
+## Connect an OpenAI-compatible API
+
+1. Open **Settings → API connections → Add API connection**. Enter a connection
+   name, the service's **Base URL** (such as `http://localhost:1234/v1`), and its
+   API key if required. Use the base URL, not the full `/chat/completions` URL.
+2. Enter **Model IDs**, one per line, then choose **Save connection**. You can
+   also use **Find models** when the service supports model discovery.
+3. Choose that connection's model in the top-bar model picker. Writing and
+   revision requests now use this endpoint; no Codex installation is required.
+4. To use the endpoint for summaries too, ensure it supports `gpt-5.6-luna`
+   with `xhigh` reasoning and lists that exact model ID. Under **Story memory
+   and summaries**, select the connection as **Maintenance provider**.
+
+Enable **Request JSON mode for suggestions** only when the service supports it.
+The app uses the Chat Completions interface and streaming responses. A service's
+compatibility label does not establish support for every feature; unsupported
+settings fail visibly without switching to another model.
 
 ## Run locally on Windows
 
