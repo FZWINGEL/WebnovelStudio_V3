@@ -184,11 +184,10 @@ impl OwnedProject {
             }
             Err(error) => return Err(packet_error(error)),
         };
-        let json = serde_json::to_string(&packet)?;
         let tx = self
             .db_mut()?
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute("INSERT INTO context_packets(id,project_id,operation_namespace,operation_id,payload_hash,request_json,snapshot_id,session_id,invocation_ordinal,packet_json,packet_hash,input_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", params![packet.receipt.packet_id,request.access.project_id,request.access.operation_namespace,request.operation_id,payload,serde_json::to_string(&request)?,request.snapshot_id,packet.receipt.session_id,parse_version(&packet.receipt.invocation_ordinal)?,json,sha256_hex(json.as_bytes()),packet.receipt.input_hash])?;
+        persist_compiled_packet_at(&tx, &request, &packet)?;
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(PreparationResult::Prepared {
             packet: Box::new(packet),
@@ -210,6 +209,19 @@ impl OwnedProject {
         story_context::load_snapshot(self.db()?, access, &packet.receipt.snapshot_id)?;
         Ok(packet)
     }
+}
+
+/// Internal request owners compose this insert with their job acceptance.
+/// The caller must compile and validate the exact request before persisting it.
+pub(super) fn persist_compiled_packet_at(
+    tx: &Connection,
+    request: &PrepareContext,
+    packet: &CompiledPacket,
+) -> CoreResult<()> {
+    let payload = logical_hash(request)?;
+    let json = serde_json::to_string(packet)?;
+    tx.execute("INSERT INTO context_packets(id,project_id,operation_namespace,operation_id,payload_hash,request_json,snapshot_id,session_id,invocation_ordinal,packet_json,packet_hash,input_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", params![packet.receipt.packet_id,request.access.project_id,request.access.operation_namespace,request.operation_id,payload,serde_json::to_string(request)?,request.snapshot_id,packet.receipt.session_id,parse_version(&packet.receipt.invocation_ordinal)?,json,sha256_hex(json.as_bytes()),packet.receipt.input_hash])?;
+    Ok(())
 }
 
 /// Read and validate a packet from an actor transaction. The packet's immutable

@@ -1,0 +1,451 @@
+//! Explicit story-memory refresh commands.
+//!
+//! Reading memory is safe on project open.  Starting a refresh is always an
+//! author action and captures the selected model into the immutable core job.
+use crate::library_commands::DesktopLibrary;
+use crate::memory_recovery::MemoryRecovery;
+use crate::project_commands::{DesktopProjects, execute};
+use crate::provider_runtime::{DesktopProviders, is_supported_choice};
+use serde::{Deserialize, Serialize};
+use tauri::State;
+use webnovel_core::context::memory::mock_navigation_digest;
+use webnovel_core::context::packet::{MockContextBudget, ProviderBinding};
+use webnovel_core::projects::discussions::{ProviderCleanup, ProviderOutcomeStatus};
+use webnovel_core::projects::memory::{
+    CompleteMemory, MemoryDispatch, MemoryJob, MemoryJobStatus, MemoryOwner, MemoryRead,
+    StartMemory,
+};
+use webnovel_core::projects::{CoreError, CoreResult, Head, ProjectAccess, ProjectSession};
+use webnovel_core::providers::preferences::ModelSelection;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartMemoryRequest {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub expected: Head,
+    pub budget: MockContextBudget,
+    pub model_selection: ModelSelection,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopMemoryRead {
+    #[serde(flatten)]
+    pub read: MemoryRead,
+    pub pending_save: bool,
+    pub pending_job_ids: Vec<String>,
+}
+
+fn model_settings_error() -> CoreError {
+    CoreError::new(
+        "ModelSettingsUnavailable",
+        "Model settings could not be checked. Open Settings before refreshing story memory.",
+    )
+}
+
+#[tauri::command]
+pub async fn read_memory_source(
+    access: ProjectAccess,
+    view_id: String,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<webnovel_core::projects::story_context::SourceRead> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.read_memory_source(access, view_id)).await
+}
+
+#[tauri::command]
+pub async fn read_memory(
+    access: ProjectAccess,
+    document_id: String,
+    state: State<'_, DesktopProjects>,
+    recovery: State<'_, MemoryRecovery>,
+) -> CoreResult<DesktopMemoryRead> {
+    let project = state.project(&access.project_id)?;
+    let recovery = recovery.inner().clone();
+    execute(move || {
+        let pending_job_ids = recovery.pending_job_ids(
+            &access.project_id,
+            &access.operation_namespace,
+            &document_id,
+        );
+        Ok(DesktopMemoryRead {
+            read: project.read_memory(access, document_id)?,
+            pending_save: !pending_job_ids.is_empty(),
+            pending_job_ids,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn retry_memory_save(
+    access: ProjectAccess,
+    job_id: String,
+    state: State<'_, DesktopProjects>,
+    recovery: State<'_, MemoryRecovery>,
+) -> CoreResult<MemoryJob> {
+    let project = state.project(&access.project_id)?;
+    let recovery = recovery.inner().clone();
+    execute(move || {
+        let owner = MemoryOwner {
+            project_id: access.project_id.clone(),
+            operation_namespace: access.operation_namespace.clone(),
+            job_id,
+        };
+        // Recovery writes are still renderer-authorized writes.  The owner
+        // key protects project identity, while this read validates the live
+        // renderer lease before retrying an uncertain local commit.
+        let current = project.read_memory_job(owner.clone())?;
+        project.read_memory(access, current.target.document_id)?;
+        recovery.retry(&project, owner)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn stop_memory(
+    access: ProjectAccess,
+    job_id: String,
+    state: State<'_, DesktopProjects>,
+    runtime: State<'_, DesktopProviders>,
+) -> CoreResult<MemoryJob> {
+    let project = state.project(&access.project_id)?;
+    #[cfg(windows)]
+    let runtime = runtime.inner().clone();
+    #[cfg(not(windows))]
+    let _runtime = runtime;
+    execute(move || {
+        #[cfg(windows)]
+        let owner = MemoryOwner {
+            project_id: access.project_id.clone(),
+            operation_namespace: access.operation_namespace.clone(),
+            job_id: job_id.clone(),
+        };
+        match project.stop_memory(access, job_id) {
+            Ok(job) => {
+                #[cfg(windows)]
+                runtime.stop_memory(&job.owner);
+                Ok(job)
+            }
+            Err(error) => {
+                #[cfg(windows)]
+                if error.code == "UncertainOutcome" {
+                    runtime.stop_memory(&owner);
+                }
+                Err(error)
+            }
+        }
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn start_memory(
+    request: StartMemoryRequest,
+    state: State<'_, DesktopProjects>,
+    recovery: State<'_, MemoryRecovery>,
+    library: State<'_, DesktopLibrary>,
+    runtime: State<'_, DesktopProviders>,
+) -> CoreResult<MemoryJob> {
+    let project = state.project(&request.access.project_id)?;
+    let recovery = recovery.inner().clone();
+    let library = library.inner().clone();
+    #[cfg(windows)]
+    let runtime = runtime.inner().clone();
+    #[cfg(not(windows))]
+    let _runtime = runtime;
+    execute(move || {
+        let selected = request.model_selection.clone();
+        let provider_binding = if is_supported_choice(&selected) {
+            Some(ProviderBinding::codex_luna())
+        } else {
+            None
+        };
+        let existing = project
+            .list_memory(request.access.clone())?
+            .jobs
+            .into_iter()
+            .find(|job| {
+                job.operation_id == request.operation_id
+                && job.owner.operation_namespace == request.access.operation_namespace
+            });
+        #[cfg(windows)]
+        let connection = if provider_binding.is_some() {
+            runtime.connection().ok()
+        } else {
+            None
+        };
+        #[cfg(windows)]
+        if provider_binding.is_some() && existing.is_none() && connection.is_none() {
+            return Err(CoreError::new(
+                "ProviderUnavailable",
+                "Check the Codex connection in Settings before refreshing story memory.",
+            ));
+        }
+        #[cfg(not(windows))]
+        if provider_binding.is_some() && existing.is_none() {
+            return Err(CoreError::new(
+                "ProviderUnavailable",
+                "The Codex memory worker is currently available on Windows only.",
+            ));
+        }
+        let start = StartMemory {
+            access: request.access,
+            operation_id: request.operation_id,
+            expected: request.expected,
+            budget: request.budget,
+            provider_binding,
+        };
+        let started = {
+            let library = library.0.lock().map_err(|_| model_settings_error())?;
+            let active = library.provider_state()?.settings.active;
+            check_model_choice(
+                &selected,
+                &active,
+                existing.is_some(),
+                &start.provider_binding,
+            )?;
+            // Keep preference acceptance and creation of a new immutable job
+            // in one critical section.  Provider work starts only afterward.
+            project.start_memory(start)?
+        };
+        if recovery.claim_pending(&started.owner) {
+            // Replay only reconciles the local claim. It never submits the
+            // request whose dispatch acknowledgment was uncertain.
+            return recovery.retry(&project, started.owner);
+        }
+        if started.status != MemoryJobStatus::Queued {
+            return Ok(started);
+        }
+        if started.provider_binding.is_some() {
+            #[cfg(windows)]
+            {
+                let stop = match runtime.register_memory(&started.owner) {
+                    Ok(stop) => stop,
+                    Err(error) if error.code == "RunAlreadyStarted" => {
+                        return project.read_memory_job(started.owner)
+                    }
+                    Err(error) => {
+                        recovery.worker_not_registered(&project, &started);
+                        return Err(error);
+                    }
+                };
+                let dispatch = match recovery.claim(&project, &started) {
+                    Ok(dispatch) => dispatch,
+                    Err(error) => {
+                        runtime.release_memory(&started.owner);
+                        return Err(error);
+                    }
+                };
+                if !dispatch.newly_dispatched {
+                    // A lost start acknowledgment may observe a running job.
+                    // Core's replay is deliberately not permission to submit
+                    // the packet again.
+                    runtime.release_memory(&started.owner);
+                    return Ok(dispatch.job);
+                }
+                let authoritative = dispatch.job.clone();
+                let failure_project = project.clone();
+                let failure_owner = dispatch.job.owner.clone();
+                let failure_document = dispatch.job.target.document_id.clone();
+                let worker_runtime = runtime.clone();
+                let worker_recovery = recovery.clone();
+                if std::thread::Builder::new()
+                    .name("webnovel-codex-memory".into())
+                    .spawn(move || {
+                        crate::live_memory::run_live(
+                            project,
+                            worker_recovery,
+                            worker_runtime,
+                            connection,
+                            dispatch,
+                            stop,
+                        )
+                    })
+                    .is_err()
+                {
+                    runtime.release_memory(&failure_owner);
+                    crate::live_memory::worker_unavailable(
+                        &failure_project,
+                        &recovery,
+                        failure_owner,
+                        failure_document,
+                        "The memory refresh worker could not start. No new provider request was sent.",
+                    );
+                }
+                return Ok(authoritative);
+            }
+            #[cfg(not(windows))]
+            {
+                let dispatch = recovery.claim(&project, &started)?;
+                if !dispatch.newly_dispatched {
+                    return Ok(dispatch.job);
+                }
+                record_worker_failure(
+                    &project,
+                    &recovery,
+                    &dispatch,
+                    "The Codex memory worker is currently available on Windows only.",
+                );
+                return project.read_memory_job(dispatch.job.owner);
+            }
+        }
+
+        let dispatch = recovery.claim(&project, &started)?;
+        if !dispatch.newly_dispatched {
+            return Ok(dispatch.job);
+        }
+        let authoritative = dispatch.job.clone();
+        let failure_project = project.clone();
+        let failure_dispatch = dispatch.clone();
+        let worker_recovery = recovery.clone();
+        if std::thread::Builder::new()
+            .name("webnovel-local-memory".into())
+            .spawn(move || run_mock(failure_project, worker_recovery, dispatch))
+            .is_err()
+        {
+            record_worker_failure(
+                &project,
+                &recovery,
+                &failure_dispatch,
+                "The local memory worker could not start.",
+            );
+        }
+        Ok(authoritative)
+    })
+    .await
+}
+
+fn check_model_choice(
+    selected: &ModelSelection,
+    active: &ModelSelection,
+    saved_operation: bool,
+    binding: &Option<ProviderBinding>,
+) -> CoreResult<()> {
+    let local = ModelSelection::local_mock();
+    if selected != &local
+        && !(is_supported_choice(selected) && binding == &Some(ProviderBinding::codex_luna()))
+    {
+        return Err(CoreError::new(
+            "ProviderUnavailable",
+            "This model or its selected settings is unavailable. Check Settings before refreshing.",
+        ));
+    }
+    if active == selected || saved_operation {
+        Ok(())
+    } else {
+        Err(CoreError::new(
+            "ModelChoiceChanged",
+            "The selected model changed before this refresh started. Check Settings and try again.",
+        ))
+    }
+}
+
+fn run_mock(project: ProjectSession, recovery: MemoryRecovery, dispatch: MemoryDispatch) {
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    let owner = dispatch.job.owner.clone();
+    let document_id = dispatch.job.target.document_id.clone();
+    let completion = match mock_navigation_digest(&dispatch.source)
+        .and_then(|candidate| serde_json::to_string(&candidate).map_err(CoreError::from))
+    {
+        Ok(raw_output) => CompleteMemory {
+            owner,
+            event_id: format!("{}-local-finish", dispatch.job.id),
+            raw_output,
+            outcome: ProviderOutcomeStatus::Completed,
+            confirmed_stdin_bytes: None,
+            usage: None,
+            cleanup: Some(ProviderCleanup::Settled),
+            error: None,
+            effective_identity: None,
+        },
+        Err(_error) => CompleteMemory {
+            owner,
+            event_id: format!("{}-local-finish", dispatch.job.id),
+            raw_output: String::new(),
+            outcome: ProviderOutcomeStatus::Failed,
+            confirmed_stdin_bytes: None,
+            usage: None,
+            cleanup: Some(ProviderCleanup::Settled),
+            error: Some("The local memory response could not be prepared.".to_owned()),
+            effective_identity: None,
+        },
+    };
+    let _ = recovery.save_or_retain(&project, completion, document_id);
+}
+
+fn record_worker_failure(
+    project: &ProjectSession,
+    recovery: &MemoryRecovery,
+    dispatch: &MemoryDispatch,
+    detail: &'static str,
+) {
+    let completion = CompleteMemory {
+        owner: dispatch.job.owner.clone(),
+        event_id: format!("{}-worker-failure", dispatch.job.id),
+        raw_output: String::new(),
+        outcome: ProviderOutcomeStatus::Failed,
+        confirmed_stdin_bytes: Some("0".to_owned()),
+        usage: None,
+        cleanup: Some(ProviderCleanup::Settled),
+        error: Some(detail.to_owned()),
+        effective_identity: None,
+    };
+    let _ = recovery.save_or_retain(project, completion, dispatch.job.target.document_id.clone());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn codex_luna() -> ModelSelection {
+        ModelSelection {
+            provider_id: "codex".into(),
+            model_id: "gpt-5.6-luna".into(),
+            reasoning: Some("max".into()),
+            service_tier: Some("priority".into()),
+        }
+    }
+
+    #[test]
+    fn changed_model_blocks_new_refresh_but_saved_operation_may_replay() {
+        let local = ModelSelection::local_mock();
+        let codex = codex_luna();
+        let binding = Some(ProviderBinding::codex_luna());
+
+        assert_eq!(
+            check_model_choice(&codex, &local, false, &binding)
+                .expect_err("a fresh request must reject a changed active model")
+                .code,
+            "ModelChoiceChanged"
+        );
+        assert!(
+            check_model_choice(&codex, &local, true, &binding).is_ok(),
+            "an exact saved operation may be replayed after Settings changes"
+        );
+        assert_eq!(
+            check_model_choice(&codex, &local, true, &None)
+                .expect_err("replay may not replace a missing saved binding")
+                .code,
+            "ProviderUnavailable"
+        );
+    }
+
+    #[test]
+    fn unsupported_model_is_rejected_even_when_a_saved_operation_exists() {
+        let local = ModelSelection::local_mock();
+        let unsupported = ModelSelection {
+            provider_id: "claude".into(),
+            model_id: "claude-sonnet".into(),
+            reasoning: None,
+            service_tier: None,
+        };
+        assert_eq!(
+            check_model_choice(&unsupported, &local, true, &None)
+                .expect_err("a saved operation cannot authorize a different provider")
+                .code,
+            "ProviderUnavailable"
+        );
+    }
+}

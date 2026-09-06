@@ -85,12 +85,13 @@ impl FeedbackIntent {
         match purpose {
             ContextPurpose::Discuss => Ok(Self::Discuss),
             ContextPurpose::Revise => Ok(Self::ProposeEdits),
-            ContextPurpose::Continue | ContextPurpose::Plan | ContextPurpose::StoryQuestion => {
-                Err(CoreError::new(
-                    "InvalidContext",
-                    "The discussion snapshot has an unsupported purpose.",
-                ))
-            }
+            ContextPurpose::Continue
+            | ContextPurpose::Plan
+            | ContextPurpose::StoryQuestion
+            | ContextPurpose::MemoryAnalysis => Err(CoreError::new(
+                "InvalidContext",
+                "The discussion snapshot has an unsupported purpose.",
+            )),
         }
     }
 }

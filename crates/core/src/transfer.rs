@@ -597,6 +597,12 @@ fn validate_project_connection_heads(
             format!("The prepared requests are invalid: {error}"),
         )
     })?;
+    crate::projects::memory::validate_memory_storage(connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The story memory is invalid: {error}"),
+        )
+    })?;
     crate::projects::discussions::validate_provider_results(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",

@@ -137,6 +137,29 @@ pub fn evaluate_sources(
 ) -> Result<EligibilityReceipt, EligibilityError> {
     validate_snapshot(snapshot)?;
     validate_policy(policy)?;
+    if purpose == ContextPurpose::MemoryAnalysis
+        && (snapshot.basis != BasisKind::Working
+            || snapshot.sources.len() != 1
+            || snapshot.sources[0].source != snapshot.target
+            || snapshot.sources[0].kind != SourceKind::CurrentDraft
+            || snapshot.sources[0].coverage != super::contracts::CoverageLabel::Verbatim
+            || !snapshot.sources[0].current
+            || !snapshot.sources[0].dependencies.is_empty()
+            || snapshot.sources[0].disclosure.author_only
+            || snapshot.sources[0].disclosure.future_private
+            || snapshot.sources[0].disclosure.reader_position.is_none()
+            || policy.audience != Audience::AuthorRoom
+            || policy.reader_frontier.is_some()
+            || policy.character_id.is_some()
+            || !policy.character_grants.is_empty()
+            || policy.allow_alternatives
+            || policy.allow_historical)
+    {
+        return Err(EligibilityError::new(
+            EligibilityErrorCode::InvalidPolicy,
+            "Chapter memory analysis requires only its exact working chapter and an author-room boundary.",
+        ));
+    }
     if policy.audience == Audience::AuthorRoom
         && matches!(purpose, ContextPurpose::Revise | ContextPurpose::Continue)
     {

@@ -7,6 +7,7 @@
 
 mod contracts;
 mod eligibility;
+pub mod memory;
 pub mod packet;
 
 pub use contracts::{

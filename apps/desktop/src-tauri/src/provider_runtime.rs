@@ -4,6 +4,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use webnovel_core::projects::{CoreError, CoreResult};
+#[cfg(windows)]
+use webnovel_core::projects::{discussions::RunOwner, memory::MemoryOwner};
 use webnovel_core::providers::{
     catalog::{DispatchResolution, ProviderState},
     preferences::ModelSelection,
@@ -129,25 +131,40 @@ impl DesktopProviders {
         self.lock()?.connection.clone().ok_or_else(unavailable)
     }
     #[cfg(windows)]
-    pub fn register(
+    fn register_key(
         &self,
-        owner: &webnovel_core::projects::discussions::RunOwner,
+        key: (String, String, String),
+        detail: &'static str,
     ) -> CoreResult<StopSignal> {
         let mut state = self.lock()?;
-        let key = (
-            owner.project_id.clone(),
-            owner.operation_namespace.clone(),
-            owner.run_id.clone(),
-        );
         if state.stops.contains_key(&key) {
-            return Err(CoreError::new(
-                "RunAlreadyStarted",
-                "This response already has a worker.",
-            ));
+            return Err(CoreError::new("RunAlreadyStarted", detail));
         }
         let stop = StopSignal::new();
         state.stops.insert(key, stop.clone());
         Ok(stop)
+    }
+    #[cfg(windows)]
+    pub fn register(&self, owner: &RunOwner) -> CoreResult<StopSignal> {
+        self.register_key(
+            (
+                owner.project_id.clone(),
+                owner.operation_namespace.clone(),
+                owner.run_id.clone(),
+            ),
+            "This response already has a worker.",
+        )
+    }
+    #[cfg(windows)]
+    pub fn register_memory(&self, owner: &MemoryOwner) -> CoreResult<StopSignal> {
+        self.register_key(
+            (
+                owner.project_id.clone(),
+                owner.operation_namespace.clone(),
+                owner.job_id.clone(),
+            ),
+            "This memory refresh already has a worker.",
+        )
     }
     pub fn stop(&self, owner: &webnovel_core::projects::discussions::RunOwner) {
         #[cfg(windows)]
@@ -164,12 +181,34 @@ impl DesktopProviders {
         let _ = owner;
     }
     #[cfg(windows)]
-    pub fn release(&self, owner: &webnovel_core::projects::discussions::RunOwner) {
+    pub fn stop_memory(&self, owner: &MemoryOwner) {
+        if let Ok(state) = self.lock()
+            && let Some(stop) = state.stops.get(&(
+                owner.project_id.clone(),
+                owner.operation_namespace.clone(),
+                owner.job_id.clone(),
+            ))
+        {
+            stop.request_stop();
+        }
+    }
+    #[cfg(windows)]
+    pub fn release(&self, owner: &RunOwner) {
         if let Ok(mut state) = self.lock() {
             state.stops.remove(&(
                 owner.project_id.clone(),
                 owner.operation_namespace.clone(),
                 owner.run_id.clone(),
+            ));
+        }
+    }
+    #[cfg(windows)]
+    pub fn release_memory(&self, owner: &MemoryOwner) {
+        if let Ok(mut state) = self.lock() {
+            state.stops.remove(&(
+                owner.project_id.clone(),
+                owner.operation_namespace.clone(),
+                owner.job_id.clone(),
             ));
         }
     }

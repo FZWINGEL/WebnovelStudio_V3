@@ -19,6 +19,7 @@ pub mod exports;
 pub mod guidance;
 pub mod history;
 pub mod import;
+pub mod memory;
 pub mod proposals;
 pub mod reviewed_story;
 pub mod source_pins;
@@ -275,6 +276,7 @@ pub struct StorageInfo {
 
 type Reply<T> = mpsc::SyncSender<CoreResult<T>>;
 enum Command {
+    Memory(Box<memory::MemoryCommand>),
     Packet(Box<context_packets::PacketCommand>),
     Context(Box<story_context::ContextCommand>),
     Discussion(Box<discussions::DiscussionCommand>),
@@ -419,6 +421,7 @@ impl ProjectSession {
                     }
                     while let Ok(command) = receiver.recv() {
                         match command {
+                            Command::Memory(command) => project.handle_memory(*command),
                             Command::Packet(command) => project.handle_packet(*command),
                             Command::Context(command) => project.handle_context(*command),
                             Command::Discussion(command) => project.handle_discussion(*command),
@@ -842,6 +845,7 @@ impl OwnedProject {
             needs_reopen: false,
         };
         project.recover_interrupted_discussions()?;
+        project.recover_interrupted_memory()?;
         Ok(project)
     }
     fn attach(&mut self, session: String) -> CoreResult<ProjectAccess> {

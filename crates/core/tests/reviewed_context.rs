@@ -457,7 +457,7 @@ fn reviewed_reader_position_mutation_is_rejected_but_reordered_history_remains_r
 }
 
 #[test]
-fn schema15_missing_reader_position_column_fails_backup_validation() {
+fn current_schema_missing_reader_position_column_fails_backup_validation() {
     let (cleanup, project, access) = setup();
     let document = chapter(&project, &access, "chapter-1", "Working draft.");
     project
@@ -525,9 +525,8 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
 
     let connection = Connection::open(&legacy_database_path).unwrap();
     connection
-        .execute(
-            "ALTER TABLE snapshot_sources DROP COLUMN reader_position",
-            [],
+        .execute_batch(
+            "DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position",
         )
         .unwrap();
     connection.pragma_update(None, "user_version", 14).unwrap();
@@ -565,7 +564,7 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
     let schema: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 15);
+    assert_eq!(schema, 16);
     let retained_json: String = connection
         .query_row(
             "SELECT manifest_json FROM story_snapshots WHERE id=?",

@@ -1,6 +1,6 @@
 # Codex qualification evidence
 
-This document records versioned discovery and eight bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, and two native desktop integration requests. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
+This document records versioned discovery and nine bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, and one native chapter-memory request. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
 
 ## Exact installed identity and discovery
 
@@ -41,7 +41,7 @@ This is requested launch material and catalog metadata; it is not an observation
 
 ## Dispatch ledger
 
-The rows below are generation dispatches. The strict-config and missing-schema checks inside the isolation-profile runs were local preflights and did not send an LLM request. The current profile harness performed one dispatch; the runner harness performed two sequential dispatches with no retry; the native desktop qualification performed two additional dispatches with no retry.
+The rows below are generation dispatches. The strict-config and missing-schema checks inside the isolation-profile runs were local preflights and did not send an LLM request. The current profile harness performed one dispatch; the runner harness performed two sequential dispatches with no retry; native desktop edit qualification performed two additional dispatches. The chapter-memory qualification below made one further dispatch; its same-data verification sent none.
 
 | Dispatch | Configuration and auth boundary | Result | Evidence |
 | --- | --- | --- | --- |
@@ -57,6 +57,14 @@ The rows below are generation dispatches. The strict-config and missing-schema c
 The first, third, current profile, runner, and native desktop requests used the same requested Luna/Max/priority identity, but the upstream JSONL reported no effective model, effort, or service tier. Those values are exact application request values, not independently verified provider traits. The direct profile's materialized catalog and argument hashes, prompt hash, process identity, exit, event observation, and cleanup status are recorded in `generation-metadata.json`; its raw JSONL is retained in `stdout.jsonl`. The runner and native desktop cases retain only typed, sanitized results in `qualification.json`.
 
 The seventh request exposed a compiler gap for live structured edits: its frozen packet had no response-format instruction, so its ordinary prose response correctly yielded zero proposals under the strict JSON retention contract. The current build includes the fixed compiler-owned `proposal-output.v1` revise instruction, leaving the final author request unchanged and requiring the exact JSON keys, one to three candidates, single-line selected-passage replacements, and bounded explanations. The eighth request exercised that contract and retained one structured proposal, which the native flow applied and reloaded successfully. This evidence does not relax the parser or infer candidates from prose.
+
+### Ninth dispatch: native chapter memory
+
+At `2026-09-06T01:02:03.634Z`, the native app used a fresh synthetic English chapter and the explicitly checked GPT-5.6-Luna/Max/priority profile for one **Refresh story memory** request. Executable SHA `abde8c8a1a9be9d90a711398fc146fdbdbae7c24c06d038db8ad140653f4d9b5`, 28,552,704 bytes, built `2026-09-06T01:01:05.5466457Z`. The immutable packet retained the full chapter with no omissions. The result completed with settled cleanup, `3019` confirmed stdin bytes, `1257` reported input tokens, `1931` output tokens, and `1552` reasoning-output tokens. Effective provider identity remains unknown.
+
+The strict `navigation-digest.v1` response retained three items, each with exact validated source quotations, and installed one generated view. It distinguished the key handover, the unfulfilled-on-page promise, and Mei's lack of knowledge about the changed lock. This small inspection does not establish semantic reliability, story-wide coverage, or narrative quality.
+
+The first harness stopped after generation because its Windows temporary-path comparison rejected the saved path. The [initial report](../.local/live-memory-qualification/qualification.json) remains a failed harness record. A [same-data continuation](../.local/live-memory-qualification/continuation.json), completed `2026-09-06T01:03:42.216Z`, validated the result, exact source inspection, unchanged manuscript, and retained memory after reopening. It made zero model requests; the flow's total is one. No renderer errors occurred. Both owned app PIDs were absent after cleanup; the harness did not capture a normal-close exit code. This is a narrow live-memory development qualification, separate from installed-release and complete W8/E3 gates.
 
 ## Authentication, sources, and cleanup limits
 

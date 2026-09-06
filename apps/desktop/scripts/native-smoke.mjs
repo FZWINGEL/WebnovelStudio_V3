@@ -969,6 +969,133 @@ try {
   await page.getByRole('heading', { name: 'Earlier story needs review', exact: true }).waitFor();
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Ren returned to the empty gate.');
   checks.push('Native review binds the earlier reviewed prefix; changing an earlier chapter marks the later review unavailable while preserving later prose across reopen');
+  // C4 uses only the explicit local test model. Observe the real project DB;
+  // dropping an IPC acknowledgment must not create a second memory job.
+  const memoryLibrary = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
+  const memoryProjectPath = await realpath(memoryLibrary.entries.find(entry => entry.title === 'Review story').path);
+  const memoryRelative = relative(toNamespacedPath(await realpath(data)), toNamespacedPath(memoryProjectPath));
+  assert(memoryRelative && !isAbsolute(memoryRelative) && memoryRelative !== '..' && !memoryRelative.startsWith(`..${sep}`), 'Memory fixtures must stay in this synthetic run directory');
+  const memoryDatabase = new DatabaseSync(resolve(memoryProjectPath, 'project.sqlite3'));
+  try {
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_jobs').get().count, 0);
+    await page.getByRole('button', { name: 'Story memory', exact: true }).click();
+    await page.getByRole('heading', { name: 'No story memory yet', exact: true }).waitFor();
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_jobs').get().count, 0);
+    const beforeMemory = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
+    await page.evaluate(() => {
+      window.memoryEditor = document.querySelector('.tiptap').editor;
+      const fetch = window.fetch;
+      window.fetch = async (...args) => {
+        const response = await fetch.apply(window, args);
+        if (String(args[0]).endsWith('/start_memory') && response.headers.get('Tauri-Response') === 'ok') {
+          const committed = await response.clone().json();
+          if (!committed.id || !committed.snapshotId) throw new Error('Expected a real durable memory job');
+          window.fetch = fetch; window.memoryAcknowledgmentDropped = true;
+          return new Response(JSON.stringify({ code: 'UncertainOutcome', detail: 'Synthetic lost memory start acknowledgment after commit' }),
+            { headers: { 'Content-Type': 'application/json', 'Tauri-Response': 'error' } });
+        }
+        return response;
+      };
+    });
+    await page.getByRole('button', { name: 'Refresh story memory', exact: true }).click();
+    await page.getByRole('button', { name: 'Check saved result', exact: true }).click();
+    await page.getByRole('heading', { name: 'Current story memory', exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.memoryAcknowledgmentDropped), true);
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_jobs').get().count, 1);
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_results').get().count, 1);
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_views').get().count, 1);
+    assert.equal(await page.evaluate(() => window.memoryEditor === document.querySelector('.tiptap').editor), true);
+    assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeMemory);
+    const memoryJob = memoryDatabase.prepare('SELECT snapshot_id,packet_id,context_source_epoch FROM memory_jobs').get();
+    const memoryFrozen = JSON.parse(memoryDatabase.prepare('SELECT manifest_json FROM story_snapshots WHERE id=?').get(memoryJob.snapshot_id).manifest_json);
+    assert.equal(memoryFrozen.purpose, 'memoryAnalysis');
+    assert.equal(memoryFrozen.snapshot.sources.length, 1);
+    assert.equal(memoryDatabase.prepare('SELECT context_source_epoch FROM project').get().context_source_epoch, memoryJob.context_source_epoch);
+    await page.getByText('Show source evidence', { exact: true }).click();
+    await page.locator('.memory-evidence blockquote').filter({ hasText: /^Ren returned to the empty gate\.$/ }).waitFor();
+    await page.getByRole('button', { name: 'Inspect source', exact: true }).click();
+    await page.getByLabel('Saved story source', { exact: true }).getByText('Ren returned to the empty gate.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Close source', exact: true }).click();
+    await page.screenshot({ path: resolve(output, 'chapter-memory.png') });
+    await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Story memory');
+    await page.getByRole('button', { name: 'All projects', exact: true }).click();
+    await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+    await page.reload();
+    await page.getByRole('button', { name: /^Review story Last opened/ }).click();
+    await page.getByRole('button', { name: 'Story memory', exact: true }).click();
+    await page.getByRole('heading', { name: 'Current story memory', exact: true }).waitFor();
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_jobs').get().count, 1);
+    await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
+    await fillManuscript('Ren returned to the gate and found a broken chain.');
+    await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+    await page.getByRole('button', { name: 'Story memory', exact: true }).click();
+    await page.getByRole('heading', { name: 'Changed source', exact: true }).waitFor();
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_jobs').get().count, 1);
+    await page.getByText('Show source evidence', { exact: true }).click();
+    await page.locator('.memory-evidence blockquote').filter({ hasText: /^Ren returned to the empty gate\.$/ }).waitFor();
+    await page.screenshot({ path: resolve(output, 'chapter-memory-changed.png') });
+    checks.push('Native explicit chapter memory persists one source-bound result across a lost start acknowledgment and reopen, preserves the editor, does no autosave analysis, and retains changed-source evidence');
+
+    memoryDatabase.exec("CREATE TRIGGER native_memory_terminal_failure BEFORE INSERT ON memory_results BEGIN SELECT RAISE(ABORT,'synthetic memory save fault'); END;");
+    await page.getByRole('button', { name: 'Refresh story memory', exact: true }).click();
+    await page.getByRole('button', { name: 'Check saved result', exact: true }).waitFor();
+    const jobsBeforeMemoryRetry = memoryDatabase.prepare('SELECT count(*) AS count FROM memory_jobs').get().count;
+    await page.getByRole('button', { name: 'All projects', exact: true }).click();
+    await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+    await page.reload();
+    await page.getByRole('button', { name: /^Review story Last opened/ }).click();
+    await page.getByRole('button', { name: 'Story memory', exact: true }).click();
+    await page.getByRole('button', { name: 'Check saved result', exact: true }).waitFor();
+    memoryDatabase.exec('DROP TRIGGER native_memory_terminal_failure;');
+    await page.getByRole('button', { name: 'Check saved result', exact: true }).click();
+    await page.getByRole('heading', { name: 'Current story memory', exact: true }).waitFor();
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_jobs').get().count, jobsBeforeMemoryRetry);
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_results').get().count, 2);
+    assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_views').get().count, 2);
+    assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Ren returned to the gate and found a broken chain.');
+    checks.push('Native memory terminal-save failure remains visible across navigation and renderer reload; explicit local retry installs the retained result without another model job or manuscript change');
+  } finally {
+    memoryDatabase.exec('DROP TRIGGER IF EXISTS native_memory_terminal_failure;');
+    memoryDatabase.close();
+  }
+  const memoryPolicy = await page.evaluate(async path => {
+    const invoke = (command, args) => window.__TAURI_INTERNALS__.invoke(command, args);
+    const opened = await invoke('create_project', { path, title: 'Memory policy fixture', session: 'memory-policy-native' });
+    const chapter = await invoke('create_document', { request: {
+      access: opened.access, operationId: 'memory-policy-chapter', documentId: 'memory-policy-chapter', title: 'A promise', kind: 'chapter',
+      body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'promise' }, content: [{ type: 'text', text: 'Mei promised to return the silver key.' }] }] } },
+    } });
+    const modelSelection = (await invoke('provider_state')).settings.active;
+    const request = { access: opened.access, operationId: 'memory-policy-refresh', expected: chapter.head, modelSelection,
+      budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' } };
+    const job = await invoke('start_memory', { request });
+    let read;
+    const deadline = Date.now() + 10000;
+    do {
+      read = await invoke('read_memory', { access: opened.access, documentId: chapter.head.documentId });
+      if (read.views.length) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } while (Date.now() < deadline);
+    if (!read.views.length) throw new Error('The native memory fixture did not finish');
+    const source = await invoke('read_story_context_source', { access: opened.access, snapshotId: job.snapshotId, handle: job.source.revisionId });
+    await invoke('revoke_story_context', { access: opened.access, expectedPolicy: job.disclosurePolicyVersion });
+    const revoked = await invoke('read_memory', { access: opened.access, documentId: chapter.head.documentId });
+    let blocked;
+    try { await invoke('read_story_context_source', { access: opened.access, snapshotId: job.snapshotId, handle: job.source.revisionId }); }
+    catch (error) { blocked = error; }
+    return { source: source.passages.map(passage => passage.text), revoked, blocked };
+  }, resolve(data, 'memory-policy-project'));
+  assert.deepEqual(memoryPolicy.source, ['Mei promised to return the silver key.']);
+  assert.equal(memoryPolicy.revoked.jobs.length, 1);
+  assert.equal(memoryPolicy.revoked.views.length, 1);
+  assert.equal(memoryPolicy.revoked.views[0].policyAvailable, false);
+  assert.equal(memoryPolicy.revoked.views[0].current, false);
+  assert.equal(memoryPolicy.revoked.views[0].candidate, null);
+  assert.equal(memoryPolicy.revoked.jobs[0].result.rawOutput, null);
+  assert.equal(memoryPolicy.revoked.jobs[0].result.candidate, null);
+  assert.equal(memoryPolicy.blocked?.code, 'ContextPolicyChanged');
+  checks.push('Native memory inspection resolves the exact saved chapter; disclosure revocation hides retained generated text and evidence and blocks further source lookup');
   assert.deepEqual(errors, []);
   await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'This flow uses only the local test model; live-provider qualification is separate. Durable Apply supports single-line passage replacements only', 'Backup/recovery dialog journeys remain separate W3 checks; this flow covers native draft Save/Cancel'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));

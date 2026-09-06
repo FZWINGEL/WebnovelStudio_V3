@@ -24,6 +24,7 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6l | [Bounded Codex ADR](ADR_0011_LIVE_CODEX.md) | Explicit connection, immutable live packet, response format, owned Stop, and durable provider results |
 | 6m | [Author review ADR](ADR_0012_AUTHOR_REVIEW.md) | Development slice for exact staged chapter/revision review, explicit Mark, restart/changed-earlier status, and recovered-copy boundaries; full F2 remains open |
 | 6n | [Reviewed context ADR](ADR_0013_REVIEWED_CONTEXT.md) | Exact earlier authority manifests, working continuation target, historical evidence, and the separate dispatch boundary |
+| 6o | [Chapter memory ADR](ADR_0014_CHAPTER_MEMORY.md) | C4 implementation contract for explicit chapter analysis, exact evidence, generated views, and local result recovery |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |

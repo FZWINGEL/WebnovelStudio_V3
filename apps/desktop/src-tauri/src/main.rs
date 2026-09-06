@@ -15,6 +15,10 @@ mod guidance_commands;
 mod library_commands;
 #[cfg(windows)]
 mod live_discussion;
+#[cfg(windows)]
+mod live_memory;
+mod memory_commands;
+mod memory_recovery;
 mod project_commands;
 mod provider_commands;
 mod provider_runtime;
@@ -52,6 +56,7 @@ fn main() {
     tauri::Builder::default()
         .manage(project_commands::DesktopProjects::default())
         .manage(discussion_recovery::DiscussionRecovery::default())
+        .manage(memory_recovery::MemoryRecovery::default())
         .manage(provider_runtime::DesktopProviders::default())
         .setup(|app| {
             // Installed releases keep their library across rebuilds and upgrades.
@@ -133,6 +138,11 @@ fn main() {
             discussion_commands::prepare_proposal,
             discussion_commands::apply_proposal,
             discussion_commands::reject_proposal,
+            memory_commands::read_memory,
+            memory_commands::read_memory_source,
+            memory_commands::retry_memory_save,
+            memory_commands::start_memory,
+            memory_commands::stop_memory,
             context_commands::context_epochs,
             context_commands::freeze_story_context,
             context_commands::freeze_reviewed_continuation,

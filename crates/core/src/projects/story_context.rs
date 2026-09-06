@@ -820,6 +820,22 @@ pub(super) fn freeze_discussion_story_at(
     freeze_story_impl(tx, request, payload_hash, true, retry_guidance)
 }
 
+/// The first memory recipe reads exactly one saved chapter. Source freezing
+/// never adds discussion, aliases, guidance, or neighboring story material.
+pub(super) fn freeze_memory_story_at(
+    tx: &Connection,
+    request: &FreezeStory,
+    payload_hash: &str,
+) -> CoreResult<FrozenContext> {
+    if request.purpose != ContextPurpose::MemoryAnalysis {
+        return Err(CoreError::new(
+            "InvalidMemoryRequest",
+            "Use the chapter memory analysis recipe.",
+        ));
+    }
+    freeze_story_impl(tx, request, payload_hash, false, None)
+}
+
 fn freeze_story_impl(
     tx: &Connection,
     request: &FreezeStory,
@@ -860,6 +876,13 @@ fn freeze_story_impl(
     }
     let target_document = read_document(tx, &request.expected.document_id)?;
     require_head(&target_document.head, &request.expected)?;
+    let memory_analysis = request.purpose == ContextPurpose::MemoryAnalysis;
+    if memory_analysis && target_document.kind != "chapter" {
+        return Err(CoreError::new(
+            "InvalidMemoryRequest",
+            "Story memory refresh needs a saved chapter.",
+        ));
+    }
     let target = checkpoint_at(tx, &target_document, "context")?;
     let source_ref = |revision: &Revision| SourceRef {
         project_id: request.access.project_id.clone(),
@@ -880,6 +903,9 @@ fn freeze_story_impl(
     };
     let ids = ordered_documents(tx)?;
     for (id, position) in ids {
+        if memory_analysis && id != request.expected.document_id {
+            continue;
+        }
         let document = read_document(tx, &id)?;
         let revision = checkpoint_at(tx, &document, "context")?;
         let chapter = document.kind == "chapter";
@@ -947,7 +973,7 @@ fn freeze_story_impl(
     for source in &snapshot.sources {
         // Author-entered aliases have no reader-disclosure provenance yet.
         // They remain author-room metadata until explicit safe grants exist.
-        if request.policy.audience == Audience::AuthorRoom {
+        if request.policy.audience == Audience::AuthorRoom && !memory_analysis {
             aliases.insert(
                 source.handle.clone(),
                 read_aliases(tx, &source.source.document_id)?,
@@ -960,7 +986,7 @@ fn freeze_story_impl(
         policy: request.policy.clone(),
         purpose: request.purpose,
         aliases,
-        guidance: if request.policy.audience == Audience::AuthorRoom {
+        guidance: if request.policy.audience == Audience::AuthorRoom && !memory_analysis {
             let mut selected = guidance::select_guidance_at(
                 tx,
                 &request.access.project_id,
@@ -1126,6 +1152,16 @@ pub(super) fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContex
     }
     let frozen: FrozenContext =
         serde_json::from_str(json).map_err(|e| CoreError::new("InvalidContext", &e.to_string()))?;
+    if frozen.purpose == ContextPurpose::MemoryAnalysis
+        && (!frozen.aliases.is_empty()
+            || !frozen.guidance.is_empty()
+            || frozen.conversation.is_some())
+    {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "Chapter memory cannot include aliases, guidance, or discussion.",
+        ));
+    }
     validate_conversation(
         frozen.conversation.as_ref(),
         &frozen.snapshot.project_id,

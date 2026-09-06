@@ -46,6 +46,7 @@ pub enum ContextPurpose {
     Continue,
     Plan,
     StoryQuestion,
+    MemoryAnalysis,
 }
 
 /// The authority/provenance class resolved by the project owner. These are

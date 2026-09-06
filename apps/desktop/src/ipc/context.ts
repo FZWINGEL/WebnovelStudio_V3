@@ -3,7 +3,7 @@ import type { WnsDocument } from '../editor/document';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { FrozenGuidance } from './guidance';
 
-export type ContextPurpose = 'discuss' | 'revise' | 'continue' | 'plan' | 'storyQuestion';
+export type ContextPurpose = 'discuss' | 'revise' | 'continue' | 'plan' | 'storyQuestion' | 'memoryAnalysis';
 export type ContextAudience = 'authorRoom' | 'restrictedWriting';
 export type ContextBasis = 'working' | 'reviewed' | 'explicitHistory';
 export type CoverageDetail = 'verbatim' | 'digest' | 'directoryOnly';

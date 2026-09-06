@@ -94,7 +94,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
     assert!(!original_json.contains("reviewedBasis"));
     drop(project);
     let db = Connection::open(path.join("project.sqlite3")).unwrap();
-    db.execute_batch("ALTER TABLE snapshot_sources DROP COLUMN reader_position")
+    db.execute_batch("DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position")
         .unwrap();
     db.pragma_update(None, "user_version", 14).unwrap();
     drop(db);
@@ -117,7 +117,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .head,
         saved.head
     );
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 15);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 16);
     let backups: Vec<_> = fs::read_dir(path.join("migrations"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -128,7 +128,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .starts_with("schema14-before-schema15-")
+            .starts_with("schema14-before-schema16-")
     );
     assert_eq!(schema_version(&backups[0]), 14);
 }
@@ -312,7 +312,7 @@ fn schema_version(path: &Path) -> i64 {
 fn remove_post_schema14_tables(connection: &Connection) {
     connection
         .execute_batch(
-            "ALTER TABLE snapshot_sources DROP COLUMN reader_position;
+            "DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position;
              DROP TRIGGER review_stages_no_update;
              DROP TRIGGER review_stages_no_delete;
              DROP TRIGGER ready_bundles_no_update;
@@ -379,7 +379,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 15);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 16);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -444,9 +444,9 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 15);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 16);
     let connection =
-        Connection::open(path.join("project.sqlite3")).expect("open migrated schema15 database");
+        Connection::open(path.join("project.sqlite3")).expect("open migrated schema16 database");
     let discussion_tables: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='discussion_runs'",
@@ -550,7 +550,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 15);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 16);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     let safe_brief_column: i64 = connection
         .query_row(
@@ -683,7 +683,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 15);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 16);
     assert_eq!(
         recovered
             .context_source_epoch()
