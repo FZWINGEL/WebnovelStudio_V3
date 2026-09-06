@@ -1,6 +1,6 @@
 # ADR 0014: Source-linked chapter navigation memory
 
-Status: C4-A implemented development slice; local, native diagnostic, and one live-provider result verified. Strict CI and broader qualification remain separate. Executed checks and native/provider qualification belong in [implementation status](IMPLEMENTATION_STATUS.md). This is the first generated-memory cut of the [Story Context design](V3_STORY_CONTEXT_SYSTEM.md), not a claim that broader derived-view packet integration, richer memory, or narrative understanding is complete.
+Status: C4-A implemented development slice; local tests, strict native CI, and one live-provider result verified. Broader qualification remains separate. Executed checks and native/provider qualification belong in [implementation status](IMPLEMENTATION_STATUS.md). This is the first generated-memory cut of the [Story Context design](V3_STORY_CONTEXT_SYSTEM.md), not a claim that broader derived-view packet integration, richer memory, or narrative understanding is complete.
 
 ## Author action and permitted input
 
@@ -36,7 +36,7 @@ The worker holds its own `ProjectSession` and exact owner. Changing the visible 
 
 The worker first persists the terminal output, then independently installs a valid completed candidate. Failed local persistence retains the exact terminal event in the desktop process for an explicit save retry. That retry completes or reconciles local writes only; it never starts another model request. If the application itself exits, an unfinished job becomes interrupted on reopen and is not automatically replayed. A result already saved before an interrupted install remains available for local installation. Explicit Archive removes the project session; a same-process reopen may mark the job interrupted while retaining a terminal payload from a failed local write. Local retry then retains that exact terminal as interrupted history and never installs or resumes it, and does not discard it.
 
-Backups validate immutable historical identities and dependencies without substituting today's document versions. Recovery and duplication create independent project namespaces; recovery checks retain the recovered project's original project identity as well as its namespace, while copied jobs cannot dispatch or adopt results on behalf of the original project. Replaying the exact operation is a no-op/refusal and never redispatches the producer.
+Backups validate immutable historical identities and dependencies without substituting today's document versions. Recovery and duplication create independent project identities and namespaces. Copied memory evidence retains its original source project identity and namespace for inspection; copied jobs cannot dispatch or adopt results on behalf of the original project. Replaying the exact operation is a no-op/refusal and never redispatches the producer.
 
 ## Subsequent context use
 
