@@ -6,10 +6,12 @@ import { closeHistory, redo, redoDepth, undo, undoDepth } from '@tiptap/pm/histo
 import { editorExtensions } from '../editor/schema';
 import { bodyHash, canonicalJson, snapshotFromEditor } from '../editor/document';
 import { prepareContinuation } from '../editor/continuation';
+import { confirmPreparation } from '../editor/preparation';
+import { prepareStructuredReplacement, structuredRange, validateStructuredBlocks } from '../editor/structured';
 import { DocumentSession, SessionError, type PreparedEditorChange } from '../editor/session';
 import { saveViewState, type DocumentRecord, type Endpoint, type Revision, type ViewState } from '../ipc/projects';
 import { captureSelection, prepareScopedReplacement, type Scope } from '../editor/selection';
-import { prepareContinuationProposal, prepareProposal, type PrepareContinuation, type PreparedProposal, type Proposal } from '../ipc/proposals';
+import { prepareContinuationProposal, prepareProposal, prepareStructuredProposal, type PrepareContinuation, type PrepareStructured, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { FeedbackPanel } from '../assistant/FeedbackPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { ReviewPanel } from './ReviewPanel';
@@ -36,6 +38,7 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
   const discuss = useRef<() => boolean>(() => false);
   // Keep the exact IDs/body for a preview whose native acknowledgment is lost.
   const continuationPreviews = useRef(new Map<string, PrepareContinuation>());
+  const structuredPreviews = useRef(new Map<string, PrepareStructured>());
   const [editor] = useState(() => new Editor({
     extensions: [...editorExtensions, Extension.create({
       name: 'persistentEditing', priority: 1000,
@@ -56,6 +59,23 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
     },
   }));
   const prepare = async (proposal: Proposal, text: string, operationId: string): Promise<PreparedProposal> => {
+    if (proposal.kind === 'structured') {
+      let request = structuredPreviews.current.get(operationId);
+      try {
+        const blocks: unknown = JSON.parse(text);
+        validateStructuredBlocks(blocks);
+        if (request && (request.proposalId !== proposal.id || canonicalJson(request.blocks) !== canonicalJson(blocks))) throw new Error('This preview request already belongs to different prose or formatting.');
+        if (!request) {
+          // quoteHash authenticates structural tokens in Rust, not plain text.
+          if (await bodyHash(canonicalJson(proposal.sourceBody)) !== proposal.scope.sourceHash || proposal.source.bodyHash !== proposal.scope.sourceHash) throw new Error('The captured source does not match this suggestion.');
+          const source = EditorState.create({ schema: editor.schema, doc: editor.schema.nodeFromJSON(proposal.sourceBody.body) });
+          const tr = prepareStructuredReplacement(source, proposal.scope, blocks);
+          request = { access: session.projectAccess, operationId, proposalId: proposal.id, expectedPreparedVersion: proposal.prepared?.version ?? '0', blocks, body: snapshotFromEditor(tr.doc.toJSON()) };
+          structuredPreviews.current.set(operationId, structuredClone(request));
+        }
+      } catch (error) { throw new SessionError('InvalidProposal', (error as Error).message); }
+      return confirmPreparation(request, await prepareStructuredProposal({ ...structuredClone(request), access: session.projectAccess }));
+    }
     if (proposal.kind === 'continuation') {
       let request = continuationPreviews.current.get(operationId);
       const paragraphs = text.split('\n\n');
@@ -71,15 +91,15 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
           continuationPreviews.current.set(operationId, structuredClone(request));
         } catch (error) { throw new SessionError('InvalidProposal', (error as Error).message); }
       }
-      return prepareContinuationProposal({ ...structuredClone(request), access: session.projectAccess });
+      return confirmPreparation(request, await prepareContinuationProposal({ ...structuredClone(request), access: session.projectAccess }));
     }
     let source: EditorState; let tr;
     try {
       source = EditorState.create({ schema: editor.schema, doc: editor.schema.nodeFromJSON(proposal.sourceBody.body) });
       tr = prepareScopedReplacement(source, proposal.scope, text);
     } catch (error) { throw new SessionError('InvalidProposal', (error as Error).message); }
-    return prepareProposal({ access: session.projectAccess, operationId, proposalId: proposal.id, expectedPreparedVersion: proposal.prepared?.version ?? '0',
-      replacementText: text, body: snapshotFromEditor(tr.doc.toJSON()) });
+    const request = { access: session.projectAccess, operationId, proposalId: proposal.id, expectedPreparedVersion: proposal.prepared?.version ?? '0', replacementText: text, body: snapshotFromEditor(tr.doc.toJSON()) };
+    return confirmPreparation(request, await prepareProposal(request));
   };
   function prepareChange(tr: Transaction): PreparedEditorChange {
       tr.setMeta('durableApply', true);
@@ -97,6 +117,12 @@ export function Writer({ active, sources, onError, onRename }: { active: { recor
   }
   const apply = async (proposal: Proposal, prepared: PreparedProposal): Promise<void> => {
     await session.applyPrepared(proposal, prepared, () => {
+      if (proposal.kind === 'structured') {
+        if (!prepared.blocks) throw new SessionError('InvalidProposal', 'This suggestion has no prepared paragraph content.');
+        const range = structuredRange(editor.state.doc, proposal.scope);
+        const ids = prepared.body.body.content.slice(range.first, range.first + prepared.blocks.length).map(block => block.attrs.id);
+        return prepareChange(prepareStructuredReplacement(editor.state, proposal.scope, prepared.blocks, ids));
+      }
       if (proposal.kind === 'continuation') {
         if (!prepared.paragraphs?.length) throw new SessionError('InvalidProposal', 'This continuation has no prepared paragraphs.');
         const ids = prepared.body.body.content.slice(-prepared.paragraphs.length).map(block => block.attrs.id);

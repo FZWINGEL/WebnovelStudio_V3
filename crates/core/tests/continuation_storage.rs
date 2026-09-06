@@ -315,6 +315,7 @@ fn continuation_candidate_and_prepared_paragraphs_survive_restart_and_backup() {
             vec!["The door opened.", "A cold wind entered."]
         ),
         ProposalContent::Passage(_) => panic!("continuation decoded as passage"),
+        ProposalContent::Structured(_) => panic!("continuation decoded as structured proposal"),
     }
     let prepared = fixture
         .project()

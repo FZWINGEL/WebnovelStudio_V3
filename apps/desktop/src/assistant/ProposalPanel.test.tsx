@@ -27,6 +27,22 @@ function continuationProposal(overrides: Partial<proposalIpc.Proposal> = {}): pr
 function continuationPrepared(text: string): proposalIpc.PreparedProposal {
   return { ...prepared(text), paragraphs: text.split('\n\n') };
 }
+const structuredBlocks: proposalIpc.StructuredBlock[] = [
+  { type: 'paragraph', content: [{ type: 'text', text: 'A revised paragraph.' }] },
+  { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'The turn', marks: [{ type: 'bold' }] }] },
+];
+const structuredSource: WnsDocument = { schemaVersion: 1, body: { type: 'doc', content: [
+  { type: 'paragraph', attrs: { id: 'before' }, content: [{ type: 'text', text: 'Before.' }] },
+  { type: 'paragraph', attrs: { id: 'selected' }, content: [{ type: 'text', text: 'Selected paragraphs.' }] },
+  { type: 'paragraph', attrs: { id: 'after' }, content: [{ type: 'text', text: 'After.' }] },
+] } };
+const structuredScope: ScopeGrant = { kind: 'blocks', start: { blockId: 'selected', utf16Offset: 0 }, end: { blockId: 'selected', utf16Offset: 20 }, quote: 'Selected paragraphs.', sourceHash: head.bodyHash, quoteHash: 'b'.repeat(64), prefix: null, suffix: null };
+function structuredProposal(overrides: Partial<proposalIpc.Proposal> = {}): proposalIpc.Proposal {
+  return proposal({ kind: 'structured', sourceBody: structuredSource, scope: structuredScope, candidate: { title: 'Reshape the beat', blocks: structuredBlocks, explanation: 'Keeps the surrounding chapter intact.' }, ...overrides });
+}
+function structuredPrepared(blocks: proposalIpc.StructuredBlock[] = structuredBlocks): proposalIpc.PreparedProposal {
+  return { ...prepared(''), blocks, body: structuredSource, bodyHash: 'd'.repeat(64) };
+}
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(accept => { resolve = accept; }); return { promise, resolve }; }
 
 let host: HTMLDivElement;
@@ -210,5 +226,53 @@ describe('ProposalPanel review boundary', () => {
     expect(host.textContent).toContain('Replacement wording');
     expect(host.textContent).not.toContain('Append after chapter ending');
     expect((host.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Keep this passage.');
+  });
+
+  it('shows one editable rich preview, retains the explicit block scope, and invalidates after formatting changes', async () => {
+    const prepare = vi.fn(async (_proposal: proposalIpc.Proposal, text: string) => structuredPrepared(JSON.parse(text) as proposalIpc.StructuredBlock[]));
+    await render([structuredProposal()], { onPrepareProposal: prepare });
+    expect(host.textContent).toContain('Before · selected paragraphs');
+    expect(host.textContent).toContain('A revised paragraph.');
+    expect(host.textContent).not.toContain('"type":"paragraph"');
+    expect(host.querySelector('[aria-label="Suggestion formatting"]')).not.toBeNull();
+
+    await click('Preview');
+    await waitFor(() => expect(host.textContent).toContain('Preview ready. Apply only this reviewed wording.'));
+    const apply = Array.from(host.querySelectorAll('button')).find(item => item.textContent === 'Apply') as HTMLButtonElement;
+    expect(apply.disabled).toBe(false);
+
+    const prose = host.querySelector('.structured-suggestion-editor .ProseMirror') as HTMLElement;
+    // jsdom does not implement layout ranges, so mutate the editable rich DOM
+    // as a browser input event would after an author applies bold formatting.
+    prose.firstElementChild!.innerHTML = '<strong>A revised paragraph.</strong>';
+    await act(async () => prose.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' })));
+    await waitFor(() => expect(apply.disabled).toBe(true));
+    expect(host.textContent).toContain('Before · selected paragraphs');
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('The prose or formatting changed after this preview. Preview again before applying.');
+  });
+
+  it('retries a lost structured preparation acknowledgment with the same serialized blocks and operation', async () => {
+    const gate = deferred<proposalIpc.PreparedProposal>();
+    const prepare = vi.fn().mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'The structured preview response was lost.' }).mockReturnValueOnce(gate.promise);
+    await render([structuredProposal()], { onPrepareProposal: prepare });
+    await click('Preview');
+    await waitFor(() => expect(host.textContent).toContain('Check preview'));
+    await click('Check preview');
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(prepare.mock.calls[1][1]).toBe(prepare.mock.calls[0][1]);
+    expect(prepare.mock.calls[1][2]).toBe(prepare.mock.calls[0][2]);
+    expect(JSON.parse(prepare.mock.calls[1][1])).toEqual(structuredBlocks);
+    await act(async () => gate.resolve(structuredPrepared()));
+  });
+
+  it('fails closed when a structured prepared record has no durable blocks', async () => {
+    const apply = vi.fn(async () => {});
+    await render([structuredProposal({ prepared: { ...structuredPrepared(), blocks: undefined } })], { onApplyProposal: apply });
+    const applyButton = Array.from(host.querySelectorAll('button')).find(item => item.textContent === 'Apply') as HTMLButtonElement;
+    expect(host.querySelector('.structured-prose')).toBeNull();
+    expect(applyButton.disabled).toBe(true);
+    await act(async () => applyButton.click());
+    expect(apply).not.toHaveBeenCalled();
   });
 });

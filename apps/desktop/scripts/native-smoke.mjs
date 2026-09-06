@@ -1049,6 +1049,8 @@ try {
   await qualifyReviewedExport({ page, data, output, operateSaveDialog, createWritingProject, checks });
   const { qualifyReviewedEvidence } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-reviewed-evidence.mjs')).href);
   await qualifyReviewedEvidence({ page, data, output, createWritingProject, checks });
+  const { qualifyStructuredSuggestions } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-structured-suggestions.mjs')).href);
+  await qualifyStructuredSuggestions({ page, data, output, createWritingProject, checks });
   await createWritingProject('Review story', 'chapter', 'The gate', 'Mei left the key beside the gate.');
   await page.getByRole('button', { name: 'Story review', exact: true }).click();
   await page.getByRole('button', { name: 'Review saved chapter', exact: true }).click();
@@ -1376,7 +1378,7 @@ try {
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeNavigation);
   checks.push('Native ordinary discussion automatically supplies existing generated memory when full prose exceeds its allowance, exposes exact evidence, preserves the manuscript and historical packet across changes/reload, and excludes stale views without another memory job');
   assert.deepEqual(errors, []);
-  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'This flow uses only the local test model; live-provider qualification is separate. Durable Apply supports scoped passage replacements and append-only continuation; live-provider qualification is separate', 'Backup/recovery dialog journeys remain separate W3 checks; this flow covers native draft Save/Cancel'], dataDirectory: data }, null, 2));
+  await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'This flow uses only the local test model; live-provider qualification is separate. Durable Apply supports scoped passage replacements, explicit complete-block and whole-chapter replacements, and append-only continuation', 'Backup/recovery dialog journeys remain separate W3 checks; this flow covers native draft Save/Cancel'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));
 } catch (error) {
   if (observedPage && !observedPage.isClosed()) {

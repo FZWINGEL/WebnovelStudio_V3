@@ -5,15 +5,55 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage Apply/Reject, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5-A adds partial project-entity reuse, one-pass current-evidence freeze, and authenticated object history; its local native diagnostic passes 40/41 checks, with all 41 strict native checks passing in CI 34014694823. App-local model preferences remain library schema 2.
+The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. The prior C5-A checkpoint adds partial project-entity reuse, one-pass current-evidence freeze, and authenticated object history. App-local model preferences remain library schema 2.
 
 C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, C5/C6, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
 
 The explicit Settings connection check validates the exact supported Codex executable and login availability. A live request freezes GPT-5.6-Luna/Max/Fast and the exact packet, runs in an owned Windows process, and saves validated output plus delivery, usage, cleanup, and outcome evidence. Other models/configurations stay unavailable; the local test model works offline. Application byte caps are not provider token limits. See [ADR 0011](ADR_0011_LIVE_CODEX.md) and [qualification](CODEX_QUALIFICATION.md); this is development integration, not full W8 acceptance.
 
-### Current C5-A evidence history slice
+### Current structured suggestions slice
 
-The current C5-A slice adds one-pass batching of current selected review sets during Working author-room freezes and Restricted reviewed continuation, explicit project-wide entity reuse with first-chapter context, and authenticated object history over a frozen context. It preserves chapter and within-chapter record order, filters restricted records before labels or results, retains unknown holders and incomplete observations, and exposes no inferred current owner. It does not add a schema or paid model call. The local native diagnostic passes 40/41 checks with zero errors, omitting only the known local OS clipboard case. Evidence is `.local/evidence-history-native.log` and `.local/native-other-results/report.json` (`2026-09-06T05:40:09.731Z`, WebView2 `152.0.4191.62`); the executable SHA-256 is `7d59f072b578b2574734ddcc51eae4f28d037215c5439cf7a3c713dd9d8e662c`, 30,142,976 bytes, built `2026-09-06T05:38:17.9965544Z`. [CI 34014694823](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34014694823) passes both contract jobs and all 41 strict native checks with zero errors.
+ADR 0020 adds explicit **Selected paragraphs** and **Whole chapter** scopes with
+typed rich blocks, editor-owned fresh IDs, a single editable rich preview, and
+the existing atomic Apply/Reject protocol. Rust and JavaScript both validate the
+complete prepared snapshot; surrounding blocks, marks, scene breaks, hard
+breaks, and IDs remain protected. Whole-document endpoints are null in both
+wire representations, and changing the prepared scope revokes brief approval.
+Schema 22 preserves legacy schema-21 payloads, receipts, and decisions while
+using unique `(run_id, ordinal)` identities; the minimum reader is now 22. The
+preview acknowledgment helper verifies the exact proposal, version, body hash,
+and typed payload without changing the wire protocol. Preview, preparation,
+Apply/Reject, and inspection make no model call; an explicit suggestion request
+may call the selected provider. Applying a suggestion does not establish
+narrative truth.
+
+The local wrapper passed **467 active Rust tests** (442 core and 25 desktop,
+one existing ignored fixture), **301 frontend tests in 24 files**, formatting,
+Clippy with `-D warnings`, TypeScript, and Vite. Evidence is
+`.local/structured-check.log`. The focused native helper passed both structured
+journeys with no page errors. The full local WebView2 diagnostic passed **42 of
+43 checks** with zero errors, omitting only the known local OS clipboard case;
+evidence is `.local/structured-native.log` and
+`.local/native-other-results/report.json`. The executable SHA-256 is
+`ca114dc73db5470332fd7b797c56380eb5244e303fa3595ca78c782eac685b15`,
+30,628,864 bytes, built `2026-09-06T06:40:00.255Z`. The bundle is 718.66 KB
+JavaScript / 37.16 KB CSS with the existing Vite chunk warning. The bounded
+live structured request also passed with one retained proposal, version,
+decision, and provider result; its evidence is
+`.local/live-structured-qualification/qualification.json` and
+`.local/structured-live.log`. It used the same requested Luna/Max/priority
+profile, with effective provider identity unreported, and brought the total
+live generations to eleven. Hosted CI for this current slice remains pending.
+
+Two native failures found during qualification are retained in
+`.local/structured-native-first-failure.json` and
+`.local/structured-native-second-failure.json`. The fixes canonicalize scope
+acknowledgments before comparison and read the local mock format from the
+exact envelope scope. They do not relax structural or source validation.
+
+### Prior C5-A evidence history slice
+
+The prior C5-A slice adds one-pass batching of current selected review sets during Working author-room freezes and Restricted reviewed continuation, explicit project-wide entity reuse with first-chapter context, and authenticated object history over a frozen context. It preserves chapter and within-chapter record order, filters restricted records before labels or results, retains unknown holders and incomplete observations, and exposes no inferred current owner. It does not add a schema or paid model call. The local native diagnostic passes 40/41 checks with zero errors, omitting only the known local OS clipboard case. Its retained local log is `.local/evidence-history-native.log`; the executable SHA-256 is `7d59f072b578b2574734ddcc51eae4f28d037215c5439cf7a3c713dd9d8e662c`, 30,142,976 bytes, built `2026-09-06T05:38:17.9965544Z`. [CI 34014694823](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34014694823) passes both contract jobs and all 41 strict native checks with zero errors.
 
 The complete local wrapper passed: **459 active Rust tests** (435 core and 24 desktop, one existing ignored fixture), **275 frontend tests in 22 files**, formatting, Clippy, TypeScript, and the production frontend build. Evidence: `.local/evidence-history-check.log`. The native build is recorded in `.local/evidence-history-native-build.log`; the bundle is 706.26 KB JavaScript / 35.37 KB CSS, with the existing Vite chunk warning. No additional live generation was run; the total remains ten.
 
@@ -29,11 +69,22 @@ Rust schema-21 persistence, canonical hashing, exact UTF-16 anchor validation, r
 
 ### Next implementation focus
 
-The remaining work is broader C5 state views: relationship and knowledge/belief changes, unresolved threads, rules, and multi-resolution digests, together with wider edit scopes and broader Apply. Broader C5 and narrative quality evaluation remain open. Generated chapter memory remains an unreviewed navigation aid.
+The next gate is hosted CI for the current suggestion slice, followed by
+release/package qualification. Broader work remains: C5 relationship,
+knowledge/belief, unresolved-thread, rules, and
+multi-resolution digest views; richer arbitrary partial multi-block editing,
+batch Apply, and manual rebinding; broader provider coverage; and author-facing
+narrative-quality trials. Generated chapter memory remains an unreviewed
+navigation aid, and the full V3 goal remains open.
 
-The next author-facing editing package should extend the complete suggestion path to explicit block-range and whole-chapter scopes. `documents/scope.rs` already validates those scope kinds, while `discussions.rs` and the current proposal contract still require passage edits. Preserve legacy passage receipts, add typed replacement blocks with explicit scope, prepare the editor transaction against the exact saved source, and keep durable Apply as one undoable action. Multi-paragraph previews, protected surrounding blocks, scene breaks, stale results, and lost acknowledgments require native coverage. A missing selection must never silently authorize a whole-chapter rewrite.
-
-A separate synthetic measurement in `.local/reviewed-evidence-freeze-benchmark/result-v3.json` reports two samples per size for catalog/history work: catalog lookup is about 3.9 ms at 50 chapters, 10.2–11.1 ms at 100, and 32.6–33.1 ms at 200; history lookup is about 42.1–42.5 ms, 225.7–229.7 ms, and 1,437–1,486.7 ms respectively. The source-bound freeze improvement does not remove the historical snapshot revalidation cost, so these numbers do not establish that a whole request is fast or that large novels are qualified. The next priority is batched immutable snapshot validation before scaling richer history or other C5 views, while preserving policy, namespace, packet-receipt, and bundle-authenticity checks.
+The exact bundle/revision cache follow-up is measured in
+`.local/reviewed-evidence-freeze-benchmark/review-validation-cache-result.json`.
+Across two samples, authenticated history was 5.635/5.672 ms at 50 chapters,
+16.129/15.976 ms at 100, and 65.550/62.221 ms at 200, compared with the prior
+42.469/42.058, 225.729/229.732, and 1,486.716/1,437.192 ms measurements.
+The cache preserves bundle and revision authentication and does not establish
+whole-request latency or large-book readiness. Measure full requests as richer
+C5 views are introduced before choosing further validation optimizations.
 
 ### Prior author-reviewed export checkpoint
 

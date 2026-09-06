@@ -1,3 +1,4 @@
+use rusqlite::Connection;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{fs, path::PathBuf};
@@ -35,6 +36,13 @@ impl Drop for Temp {
 }
 fn body(text: &str) -> Value {
     json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p"},"content":[{"type":"text","text":text}]}]}})
+}
+
+fn hash_text(text: &str) -> String {
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 fn chapter(
     project: &ProjectSession,
@@ -275,6 +283,76 @@ fn review_replacement_changes_catalog_while_history_keeps_exact_frozen_evidence(
             .code,
         "ContextPolicyChanged"
     );
+}
+
+#[test]
+fn historical_evidence_rejects_decodable_tampered_prefix_rows() {
+    let temp = Temp::new();
+    let project = ProjectSession::create(temp.0.join("story"), "Story").unwrap();
+    let access = project.attach("tamper-test".into()).unwrap();
+    let first = chapter(&project, &access, "One", "Mei held the key.");
+    review(
+        &project,
+        &access,
+        &first,
+        vec![record(
+            "r1",
+            "key",
+            "Key",
+            "Mei held the key.",
+            EvidenceAudience::Reader,
+        )],
+    );
+    let second = chapter(&project, &access, "Two", "Ren held the key.");
+    review(
+        &project,
+        &access,
+        &second,
+        vec![record(
+            "r2",
+            "key",
+            "Key",
+            "Ren held the key.",
+            EvidenceAudience::Reader,
+        )],
+    );
+    let target = chapter(&project, &access, "Three", "The key was hidden.");
+    let frozen = project
+        .freeze_reviewed_continuation(FreezeReviewedContinuation {
+            access: access.clone(),
+            operation_id: "freeze-tamper".into(),
+            expected: target.head,
+            policy: policy(&project, &access, Audience::RestrictedWriting, Some("2")),
+        })
+        .unwrap();
+    let tampered_bundle_id = frozen
+        .snapshot
+        .reviewed_basis
+        .as_ref()
+        .expect("reviewed basis")
+        .prefix[1]
+        .bundle_id
+        .clone();
+
+    let database = temp.0.join("story").join("project.sqlite3");
+    let connection = Connection::open(database).unwrap();
+    connection
+        .execute("DROP TRIGGER ready_bundles_no_update", [])
+        .unwrap();
+    let changed = connection
+        .execute(
+            "UPDATE ready_bundles SET prefix_json='[]', prefix_hash=? WHERE id=?",
+            (hash_text("[]"), tampered_bundle_id),
+        )
+        .unwrap();
+    assert_eq!(changed, 1);
+    drop(connection);
+
+    let error = project
+        .reviewed_evidence_history(access, frozen.snapshot.snapshot_id, "key".into())
+        .unwrap_err();
+    assert_eq!(error.code, "InvalidContext");
+    assert!(error.detail.contains("exact source"));
 }
 
 #[test]

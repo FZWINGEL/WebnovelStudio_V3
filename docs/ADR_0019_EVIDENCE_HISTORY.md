@@ -86,11 +86,10 @@ The full local wrapper passes 459 active Rust tests and 275 frontend tests,
 plus formatting, Clippy, TypeScript, and build checks. Evidence is
 `.local/evidence-history-check.log`.
 
-The local native diagnostic passes 40/41 checks with zero errors, omitting only
-the known local OS clipboard case. Evidence is `.local/evidence-history-native.log`
-and `.local/native-other-results/report.json` (`2026-09-06T05:40:09.731Z`,
-WebView2 `152.0.4191.62`). [CI 34014694823](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34014694823) passes both contract jobs and all 41 strict native checks.
-The retained native report is `.local/ci-34014694823/report.json`, dated
+The local native diagnostic for this checkpoint passed 40/41 checks with zero
+errors, omitting only the known local OS clipboard case. Its retained log is
+`.local/evidence-history-native.log`. [CI 34014694823](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34014694823) passes both contract jobs and all 41 strict native checks.
+The retained hosted report is `.local/ci-34014694823/report.json`, dated
 `2026-09-06T05:56:35.15Z`, on WebView2 `151.0.4129.101`, for source
 `284625b6576540939f3dabb065f1e9320d0bb01e`.
 
@@ -100,10 +99,16 @@ Broader author and narrative quality evaluation remain open. The separate measur
 32.6–33.1 ms, while history lookup is about 42.1–42.5, 225.7–229.7, and
 1,437–1,486.7 ms. Source-bound freeze does not remove historical snapshot
 revalidation cost; these fixtures do not establish whole-request speed,
-large-novel readiness, or an exact asymptotic bound. Batch immutable snapshot
-validation is the next priority before scaling richer history or other C5
-views, while preserving policy, namespace, packet-receipt, and bundle-
-authenticity checks.
+large-novel readiness, or an exact asymptotic bound. The follow-up therefore
+introduced a read-local cache of exact immutable bundles and revisions while
+preserving policy, namespace, packet-receipt, and bundle-authenticity checks.
+That cache follow-up measured
+history reads at 5.635/5.672 ms for 50 chapters, 16.129/15.976 ms for 100,
+and 65.550/62.221 ms for 200 across two samples; the prior measurements were
+42.469/42.058, 225.729/229.732, and 1,486.716/1,437.192 ms. The cache keeps
+bundle and revision authentication intact and does not establish whole-request
+latency or large-book readiness. Its evidence is
+`.local/reviewed-evidence-freeze-benchmark/review-validation-cache-result.json`.
 
 This ADR records the implemented contract while qualification continues. It
 does not change the existing save, review, Apply, packet, or model-provider

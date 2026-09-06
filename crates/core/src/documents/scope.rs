@@ -945,13 +945,18 @@ fn token_document(snapshot: &Value) -> Result<TokenDocument, String> {
 
 fn scope_range(document: &TokenDocument, scope: &ScopeGrant) -> Result<TokenRange, String> {
     match scope.kind {
-        ScopeKind::WholeDocument => Ok(TokenRange {
-            start: 0,
-            end: document.tokens.len(),
-            first_block: 0,
-            last_block: document.blocks.len().saturating_sub(1),
-            selected_ids: document.blocks.len(),
-        }),
+        ScopeKind::WholeDocument => {
+            if scope.start.is_some() || scope.end.is_some() {
+                return Err("whole-document scope must not have endpoints".to_owned());
+            }
+            Ok(TokenRange {
+                start: 0,
+                end: document.tokens.len(),
+                first_block: 0,
+                last_block: document.blocks.len().saturating_sub(1),
+                selected_ids: document.blocks.len(),
+            })
+        }
         ScopeKind::Passage => {
             let start = scope
                 .start

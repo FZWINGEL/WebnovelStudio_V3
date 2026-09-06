@@ -90,4 +90,39 @@ describe('unsent discussion persistence', () => {
     restored.update({ ...restored.body, intent: 'discuss', previousRunId: null });
     expect(restored.dirty).toBe(true);
   });
+
+  it('accepts a semantically identical scope acknowledgment with reordered fields', async () => {
+    const scope = { kind: 'blocks' as const, sourceBodyHash: 'source', start: { blockId: 'p', utf16Offset: 0 }, end: { blockId: 'q', utf16Offset: 12 }, quote: 'A complete range.' };
+    const write = vi.fn(async (request: SaveDiscussionDraft): Promise<DiscussionDraft> => ({
+      ...ack(request),
+      // Rust serializes the same scope in kind/start/end/quote/source order.
+      scope: request.scope ? { kind: request.scope.kind, start: request.scope.start, end: request.scope.end, quote: request.scope.quote, sourceBodyHash: request.scope.sourceBodyHash } : null,
+    }));
+    const session = new ComposerSession('document', null, () => access, write);
+    session.update({ text: 'Use the full paragraph range.', scope, pinnedDocumentIds: [] });
+    await expect(session.save()).resolves.toBeUndefined();
+    expect(session.dirty).toBe(false);
+  });
+
+  it.each([
+    ['endpoint', (scope: NonNullable<SaveDiscussionDraft['scope']>) => ({ ...scope, end: { ...scope.end!, utf16Offset: scope.end!.utf16Offset + 1 } })],
+    ['source hash', (scope: NonNullable<SaveDiscussionDraft['scope']>) => ({ ...scope, sourceBodyHash: 'changed-source' })],
+    ['quote', (scope: NonNullable<SaveDiscussionDraft['scope']>) => ({ ...scope, quote: 'Changed quotation.' })],
+  ] as const)('rejects an acknowledgment with a changed %s and retries the exact request', async (_label, mutate) => {
+    const scope = { kind: 'blocks' as const, sourceBodyHash: 'source', start: { blockId: 'p', utf16Offset: 0 }, end: { blockId: 'q', utf16Offset: 12 }, quote: 'A complete range.' };
+    let first = true;
+    const write = vi.fn(async (request: SaveDiscussionDraft): Promise<DiscussionDraft> => {
+      const result = ack(request);
+      if (first) { first = false; return { ...result, scope: mutate(scope) }; }
+      return result;
+    });
+    const session = new ComposerSession('document', null, () => access, write);
+    session.update({ text: 'Use the full paragraph range.', scope, pinnedDocumentIds: [] });
+    await expect(session.save()).rejects.toThrow(/did not match/u);
+    expect(session.dirty).toBe(true);
+    await session.save();
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(write.mock.calls[1][0]).toEqual(write.mock.calls[0][0]);
+    expect(session.dirty).toBe(false);
+  });
 });

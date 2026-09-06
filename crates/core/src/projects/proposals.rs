@@ -6,7 +6,9 @@ use crate::context::continuation::{
 };
 use crate::context::{Audience, ContextPurpose};
 use crate::documents::{
-    ScopeGrant, ScopeKind, ScopeValidationRequest, validate_append, validate_text_replacement,
+    STRUCTURED_PROPOSAL_RESPONSE_CONTRACT, ScopeGrant, ScopeKind, ScopeValidationRequest,
+    TypedReplacementBlock, typed_replacement_snapshot, validate_append,
+    validate_structured_replacement, validate_text_replacement, validate_typed_replacement_blocks,
 };
 use discussions::DiscussionRun;
 
@@ -15,6 +17,17 @@ use discussions::DiscussionRun;
 pub struct ProposalCandidate {
     pub title: String,
     pub replacement_text: String,
+    pub explanation: String,
+}
+
+/// A structured candidate replaces complete blocks selected by an explicit
+/// blocks or whole-document scope. IDs are deliberately absent; the editor
+/// allocates fresh identities while preparing the complete result snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StructuredProposalCandidate {
+    pub title: String,
+    pub blocks: Vec<TypedReplacementBlock>,
     pub explanation: String,
 }
 
@@ -27,6 +40,7 @@ pub enum ProposalKind {
     #[default]
     Passage,
     Continuation,
+    Structured,
 }
 
 impl ProposalKind {
@@ -34,6 +48,7 @@ impl ProposalKind {
         match self {
             Self::Passage => "passage",
             Self::Continuation => "continuation",
+            Self::Structured => "structured",
         }
     }
 
@@ -41,6 +56,7 @@ impl ProposalKind {
         match value {
             "passage" => Ok(Self::Passage),
             "continuation" => Ok(Self::Continuation),
+            "structured" => Ok(Self::Structured),
             _ => Err(CoreError::new(
                 "InvalidProposal",
                 "The suggestion has an unknown durable kind.",
@@ -58,12 +74,20 @@ impl ProposalKind {
 pub enum ProposalContent {
     Passage(ProposalCandidate),
     Continuation(ContinuationCandidate),
+    Structured(StructuredProposalCandidate),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProposalOutput {
     pub suggestions: Vec<ProposalCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StructuredProposalOutput {
+    pub schema_version: String,
+    pub suggestions: Vec<StructuredProposalCandidate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +99,8 @@ pub struct PreparedProposal {
     pub replacement_text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paragraphs: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocks: Option<Vec<TypedReplacementBlock>>,
     pub body: Value,
     pub body_hash: String,
 }
@@ -145,6 +171,18 @@ pub struct PrepareContinuation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrepareStructured {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub proposal_id: String,
+    /// Zero for the first preparation. Editing creates another immutable version.
+    pub expected_prepared_version: String,
+    pub blocks: Vec<TypedReplacementBlock>,
+    pub body: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApplyProposal {
     pub access: ProjectAccess,
     pub operation_id: String,
@@ -179,6 +217,7 @@ pub(super) enum ProposalCommand {
     List(ProjectAccess, String, Reply<Vec<Proposal>>),
     Prepare(PrepareProposal, Reply<PreparedProposal>),
     PrepareContinuation(PrepareContinuation, Reply<PreparedProposal>),
+    PrepareStructured(PrepareStructured, Reply<PreparedProposal>),
     Apply(ApplyProposal, Reply<ApplyAck>),
     Reject(RejectProposal, Reply<ProposalDecision>),
 }
@@ -204,6 +243,11 @@ impl ProjectSession {
             Command::Proposal(Box::new(ProposalCommand::PrepareContinuation(
                 request, reply,
             )))
+        })
+    }
+    pub fn prepare_structured(&self, request: PrepareStructured) -> CoreResult<PreparedProposal> {
+        self.request(|reply| {
+            Command::Proposal(Box::new(ProposalCommand::PrepareStructured(request, reply)))
         })
     }
     pub fn apply_proposal(&self, request: ApplyProposal) -> CoreResult<ApplyAck> {
@@ -234,6 +278,9 @@ impl OwnedProject {
             }
             ProposalCommand::PrepareContinuation(request, reply) => {
                 respond!(reply, self.prepare_continuation(request))
+            }
+            ProposalCommand::PrepareStructured(request, reply) => {
+                respond!(reply, self.prepare_structured(request))
             }
             ProposalCommand::Apply(request, reply) => respond!(reply, self.apply_proposal(request)),
             ProposalCommand::Reject(request, reply) => {
@@ -351,6 +398,81 @@ impl OwnedProject {
         })?;
         let id = new_id();
         let payload_json = serde_json::to_string(&request.paragraphs)?;
+        tx.execute(
+            "INSERT INTO proposal_versions(id,proposal_id,version,replacement_text,body_json,body_hash,payload_json) VALUES(?,?,?,?,?,?,?)",
+            params![
+                id,
+                proposal.id,
+                version,
+                "",
+                validated.canonical_json,
+                validated.hash,
+                payload_json,
+            ],
+        )?;
+        insert_review_receipt(
+            &tx,
+            &request.access,
+            &request.operation_id,
+            "prepare",
+            &payload,
+            &id,
+        )?;
+        let prepared = read_prepared(&tx, &id)?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(prepared)
+    }
+
+    fn prepare_structured(&mut self, request: PrepareStructured) -> CoreResult<PreparedProposal> {
+        self.check_access(&request.access)?;
+        check_id(&request.operation_id)?;
+        let expected = parse_version(&request.expected_prepared_version)?;
+        let payload = logical_hash(&request)?;
+        let tx = self
+            .db_mut()?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(id) = receipt(
+            &tx,
+            &request.access,
+            &request.operation_id,
+            "prepare",
+            &payload,
+        )? {
+            let prepared = read_prepared(&tx, &id)?;
+            tx.commit().map_err(CoreError::uncertain)?;
+            return Ok(prepared);
+        }
+        let proposal = read(&tx, &request.access, &request.proposal_id)?;
+        require_owned_pending(&proposal)?;
+        if proposal.kind != ProposalKind::Structured
+            || !matches!(
+                proposal.scope.kind,
+                ScopeKind::Blocks | ScopeKind::WholeDocument
+            )
+        {
+            return Err(CoreError::new(
+                "InvalidProposal",
+                "A structured suggestion requires an explicit block or whole-document scope.",
+            ));
+        }
+        let current = proposal
+            .prepared
+            .as_ref()
+            .map(|p| parse_version(&p.version))
+            .transpose()?
+            .unwrap_or(0);
+        if expected != current {
+            return Err(CoreError::new(
+                "PreparedVersionConflict",
+                "This suggestion was edited elsewhere. Load the latest prepared wording.",
+            ));
+        }
+        let validated = validate_structured(&proposal, &request.blocks, &request.body)?;
+        let version = current.checked_add(1).ok_or_else(|| {
+            CoreError::new("VersionLimit", "The prepared version limit was reached.")
+        })?;
+        let id = new_id();
+        let payload_json = serde_json::to_string(&request.blocks)?;
         tx.execute(
             "INSERT INTO proposal_versions(id,proposal_id,version,replacement_text,body_json,body_hash,payload_json) VALUES(?,?,?,?,?,?,?)",
             params![
@@ -546,6 +668,28 @@ fn validate_continuation_candidate(candidate: &ContinuationCandidate) -> CoreRes
     validate_continuation_paragraphs(&candidate.paragraphs)
 }
 
+fn validate_structured_candidate(candidate: &StructuredProposalCandidate) -> CoreResult<()> {
+    if candidate.title.trim().is_empty()
+        || candidate.title.len() > 120
+        || candidate.explanation.len() > 4096
+    {
+        return Err(CoreError::new(
+            "InvalidProposal",
+            "A structured suggestion must have a short title and bounded explanation.",
+        ));
+    }
+    validate_typed_replacement_blocks(&candidate.blocks)
+        .map_err(|error| CoreError::new("InvalidProposal", &error))?;
+    if !candidate.blocks.is_empty() {
+        let ids = (0..candidate.blocks.len())
+            .map(|index| format!("candidate-{index}"))
+            .collect::<Vec<_>>();
+        typed_replacement_snapshot(&candidate.blocks, &ids)
+            .map_err(|error| CoreError::new("InvalidProposal", &error))?;
+    }
+    Ok(())
+}
+
 /// Called within the terminal-result transaction. Malformed or unsupported
 /// output remains retained discussion text, with no executable candidates.
 pub(super) fn retain_candidates_at(
@@ -556,20 +700,25 @@ pub(super) fn retain_candidates_at(
     let packet = context_packets::validated_packet_record(db, &run.packet_id)?;
     let (frozen, namespace) =
         story_context::validated_snapshot_record(db, &packet.receipt.snapshot_id)?;
-    let kind = match frozen.purpose {
-        ContextPurpose::Revise => ProposalKind::Passage,
-        ContextPurpose::Continue => ProposalKind::Continuation,
-        _ => return Ok(()),
-    };
     if frozen.policy.audience != Audience::RestrictedWriting {
         return Ok(());
     }
     let Some(scope) = packet_scope(db, &run.packet_id)? else {
         return Ok(());
     };
+    let kind = match frozen.purpose {
+        ContextPurpose::Revise => match scope.kind {
+            ScopeKind::Passage => ProposalKind::Passage,
+            ScopeKind::Blocks | ScopeKind::WholeDocument => ProposalKind::Structured,
+            ScopeKind::Append => return Ok(()),
+        },
+        ContextPurpose::Continue => ProposalKind::Continuation,
+        _ => return Ok(()),
+    };
     let expected_scope = match kind {
         ProposalKind::Passage => ScopeKind::Passage,
         ProposalKind::Continuation => ScopeKind::Append,
+        ProposalKind::Structured => scope.kind,
     };
     if scope.kind != expected_scope
         || namespace != run.owner.operation_namespace
@@ -626,6 +775,33 @@ pub(super) fn retain_candidates_at(
                 ],
             )?;
         }
+        ProposalKind::Structured => {
+            let Ok(output) = serde_json::from_str::<StructuredProposalOutput>(text) else {
+                return Ok(());
+            };
+            if output.schema_version != STRUCTURED_PROPOSAL_RESPONSE_CONTRACT
+                || output.suggestions.is_empty()
+                || output.suggestions.len() > 3
+                || output
+                    .suggestions
+                    .iter()
+                    .any(|candidate| validate_structured_candidate(candidate).is_err())
+            {
+                return Ok(());
+            }
+            for (ordinal, candidate) in output.suggestions.iter().enumerate() {
+                db.execute(
+                    "INSERT INTO proposals(id,run_id,ordinal,candidate_json,kind) VALUES(?,?,?,?,?)",
+                    params![
+                        new_id(),
+                        run.id,
+                        ordinal as i64,
+                        serde_json::to_string(candidate)?,
+                        kind.as_str(),
+                    ],
+                )?;
+            }
+        }
     }
     Ok(())
 }
@@ -680,9 +856,12 @@ fn read(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<Proposa
     let expected = match kind {
         ProposalKind::Passage => (ContextPurpose::Revise, ScopeKind::Passage),
         ProposalKind::Continuation => (ContextPurpose::Continue, ScopeKind::Append),
+        ProposalKind::Structured => (ContextPurpose::Revise, scope.kind),
     };
     if frozen.purpose != expected.0
         || frozen.policy.audience != Audience::RestrictedWriting
+        || (kind == ProposalKind::Structured
+            && !matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument))
         || scope.kind != expected.1
         || frozen.snapshot.project_id != project_id
         || namespace != stored_namespace
@@ -748,6 +927,21 @@ fn read(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<Proposa
             }
             validate_continuation_candidate(&candidate)?;
             ProposalContent::Continuation(candidate)
+        }
+        ProposalKind::Structured => {
+            let candidate: StructuredProposalCandidate = serde_json::from_str(&candidate)?;
+            let output: StructuredProposalOutput = serde_json::from_str(&raw)?;
+            if output.schema_version != STRUCTURED_PROPOSAL_RESPONSE_CONTRACT
+                || output.suggestions.len() > 3
+                || output.suggestions.get(ordinal as usize) != Some(&candidate)
+            {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "The structured suggestion does not match its retained output.",
+                ));
+            }
+            validate_structured_candidate(&candidate)?;
+            ProposalContent::Structured(candidate)
         }
     };
     let historical_copy =
@@ -816,7 +1010,7 @@ fn read_prepared(db: &Connection, id: &str) -> CoreResult<PreparedProposal> {
             "The prepared suggestion failed its fingerprint check.",
         ));
     }
-    let paragraphs = match kind {
+    let (paragraphs, blocks) = match kind {
         ProposalKind::Passage => {
             if payload.is_some() {
                 return Err(CoreError::new(
@@ -824,7 +1018,7 @@ fn read_prepared(db: &Connection, id: &str) -> CoreResult<PreparedProposal> {
                     "A passage preparation cannot contain continuation paragraphs.",
                 ));
             }
-            None
+            (None, None)
         }
         ProposalKind::Continuation => {
             if !text.is_empty() {
@@ -852,7 +1046,36 @@ fn read_prepared(db: &Connection, id: &str) -> CoreResult<PreparedProposal> {
                     "A continuation preparation has noncanonical paragraph JSON.",
                 ));
             }
-            Some(paragraphs)
+            (Some(paragraphs), None)
+        }
+        ProposalKind::Structured => {
+            if !text.is_empty() {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "A structured preparation must not contain passage replacement text.",
+                ));
+            }
+            let raw = payload.ok_or_else(|| {
+                CoreError::new(
+                    "InvalidProposal",
+                    "A structured preparation is missing its block payload.",
+                )
+            })?;
+            let blocks: Vec<TypedReplacementBlock> = serde_json::from_str(&raw).map_err(|_| {
+                CoreError::new(
+                    "InvalidProposal",
+                    "A structured preparation has invalid block JSON.",
+                )
+            })?;
+            validate_typed_replacement_blocks(&blocks)
+                .map_err(|error| CoreError::new("InvalidProposal", &error))?;
+            if serde_json::to_string(&blocks)? != raw {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "A structured preparation has noncanonical block JSON.",
+                ));
+            }
+            (None, Some(blocks))
         }
     };
     Ok(PreparedProposal {
@@ -861,6 +1084,7 @@ fn read_prepared(db: &Connection, id: &str) -> CoreResult<PreparedProposal> {
         version: parse_stored_version(version)?,
         replacement_text: text,
         paragraphs,
+        blocks,
         body: valid.snapshot,
         body_hash: hash,
     })
@@ -939,6 +1163,37 @@ fn validate_continuation(
         .map_err(|error| CoreError::new("InvalidProposal", &error))
 }
 
+fn validate_structured(
+    proposal: &Proposal,
+    blocks: &[TypedReplacementBlock],
+    body: &Value,
+) -> CoreResult<crate::SnapshotReceipt> {
+    if proposal.kind != ProposalKind::Structured
+        || !matches!(
+            proposal.scope.kind,
+            ScopeKind::Blocks | ScopeKind::WholeDocument
+        )
+    {
+        return Err(CoreError::new(
+            "InvalidProposal",
+            "The suggestion does not carry structured replacement authority.",
+        ));
+    }
+    validate_typed_replacement_blocks(blocks)
+        .map_err(|error| CoreError::new("InvalidProposal", &error))?;
+    validate_structured_replacement(
+        &ScopeValidationRequest {
+            source_snapshot: proposal.source_body.clone(),
+            result_snapshot: body.clone(),
+            scope: proposal.scope.clone(),
+        },
+        blocks,
+    )
+    .map_err(|error| CoreError::new("ScopeViolation", &error))?;
+    validate_snapshot_json(&serde_json::to_string(body)?)
+        .map_err(|error| CoreError::new("InvalidProposal", &error))
+}
+
 fn validate_prepared(
     proposal: &Proposal,
     prepared: &PreparedProposal,
@@ -967,6 +1222,21 @@ fn validate_prepared(
                 ));
             }
             validate_continuation(proposal, paragraphs, &prepared.body)
+        }
+        ProposalKind::Structured => {
+            let blocks = prepared.blocks.as_deref().ok_or_else(|| {
+                CoreError::new(
+                    "InvalidProposal",
+                    "A structured preparation has no block payload.",
+                )
+            })?;
+            if !prepared.replacement_text.is_empty() || prepared.paragraphs.is_some() {
+                return Err(CoreError::new(
+                    "InvalidProposal",
+                    "A structured preparation cannot carry passage or continuation text.",
+                ));
+            }
+            validate_structured(proposal, blocks, &prepared.body)
         }
     }
 }

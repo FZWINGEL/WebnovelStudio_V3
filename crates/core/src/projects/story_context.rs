@@ -1533,12 +1533,12 @@ fn validate_pins(
     frozen: &FrozenContext,
     snapshot_namespace: &str,
 ) -> CoreResult<()> {
+    let mut review_validation = reviewed_story::ReviewValidationContext::new(db);
     for evidence in &frozen.reviewed_evidence {
         validate_frozen_evidence_set(evidence, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
         let source = read_source(db, frozen, &evidence.source_handle)?;
         validate_evidence_payload(evidence, &source)?;
-        reviewed_story::validate_reviewed_records(
-            db,
+        review_validation.validate_reviewed_records(
             &frozen.snapshot.project_id,
             snapshot_namespace,
             &evidence.bundle_id,
@@ -1548,8 +1548,7 @@ fn validate_pins(
         )?;
     }
     if let Some(manifest) = frozen.snapshot.reviewed_basis.as_ref() {
-        reviewed_story::validate_reviewed_snapshot_manifest(
-            db,
+        review_validation.validate_reviewed_snapshot_manifest(
             &frozen.snapshot.project_id,
             snapshot_namespace,
             &frozen.policy.version,

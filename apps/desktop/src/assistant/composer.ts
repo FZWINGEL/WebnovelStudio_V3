@@ -1,9 +1,10 @@
 import type { ComposerBody, DiscussionDraft, FeedbackIntent, SaveDiscussionDraft } from '../ipc/discussions';
+import { canonicalJson } from '../editor/document';
 import type { ProjectAccess } from '../ipc/projects';
 
 export const emptyComposer = (): ComposerBody => ({ text: '', scope: null, pinnedDocumentIds: [] });
 export function composerIntent(body: ComposerBody): FeedbackIntent { return body.intent ?? 'discuss'; }
-function key(body: ComposerBody): string { return JSON.stringify({ text: body.text, scope: body.scope, pinnedDocumentIds: body.pinnedDocumentIds, intent: composerIntent(body), basis: body.basis ?? null, previousRunId: body.previousRunId ?? null, safeBrief: body.safeBrief ? { text: body.safeBrief.text, originMessageId: body.safeBrief.originMessageId ?? null, confirmed: body.safeBrief.confirmed } : null }); }
+function key(body: ComposerBody): string { return canonicalJson({ text: body.text, scope: body.scope, pinnedDocumentIds: body.pinnedDocumentIds, intent: composerIntent(body), basis: body.basis ?? null, previousRunId: body.previousRunId ?? null, safeBrief: body.safeBrief ? { text: body.safeBrief.text, originMessageId: body.safeBrief.originMessageId ?? null, confirmed: body.safeBrief.confirmed } : null }); }
 
 /** Immutable retry payloads and save watermarks for the unsent composer only. */
 export class ComposerSession {

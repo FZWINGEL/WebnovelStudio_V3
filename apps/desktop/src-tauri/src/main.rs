@@ -141,6 +141,7 @@ fn main() {
             discussion_commands::proposals,
             discussion_commands::prepare_proposal,
             discussion_commands::prepare_continuation,
+            discussion_commands::prepare_structured,
             discussion_commands::apply_proposal,
             discussion_commands::reject_proposal,
             memory_commands::read_memory,

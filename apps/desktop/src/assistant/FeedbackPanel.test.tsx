@@ -265,8 +265,8 @@ describe('persistent FeedbackPanel safeguards', () => {
       await waitFor(() => expect(host.querySelector('.quoted-scope blockquote')?.textContent).toBe('quiet'));
       expect(host.textContent).toContain('Writing brief needs approval');
       expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Send')!.disabled).toBe(true);
-      await click('Approve this brief'); await click('Use whole document');
-      expect(host.textContent).toContain('Writing brief needs approval');
+      await click('Approve this brief'); await click('Whole chapter');
+      await waitFor(() => expect(host.textContent).toContain('Writing brief needs approval'));
       expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Send')!.disabled).toBe(true);
       expect(discussions.startDiscussion).not.toHaveBeenCalled();
     } finally { editor.destroy(); }
@@ -459,7 +459,47 @@ describe('persistent FeedbackPanel safeguards', () => {
     await act(async () => root.render(<FeedbackPanel session={noteSession} state={noteSession.state} title="Note" documentKind="note" selection={null} visible onClose={() => {}} registerSaver={() => {}} />));
     await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
     expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement).disabled).toBe(true);
-    expect(host.textContent).toContain('Select a passage');
+    expect(host.textContent).toContain('Suggested edits are available for chapters');
+  });
+
+  it('keeps Send blocked without a scope and serializes Whole chapter only after the explicit action', async () => {
+    const session = await makeSession();
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => startResult(session, 'whole-chapter-run', request.operationId));
+    await renderPanel(session);
+    await click('Suggest edits');
+    await typeInstruction('Tighten the chapter arc.');
+    const send = () => Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement;
+    expect(send().disabled).toBe(true);
+    expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Selected paragraphs') as HTMLButtonElement).disabled).toBe(true);
+    expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Whole chapter') as HTMLButtonElement).disabled).toBe(false);
+
+    await click('Whole chapter');
+    await waitFor(() => expect(host.textContent).toContain('Whole chapter'));
+    await waitFor(() => expect(send().disabled).toBe(false));
+    await click('Send');
+    await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledTimes(1));
+    const request = vi.mocked(discussions.startDiscussion).mock.calls[0][0];
+    expect(request.scope).toEqual({ kind: 'wholeDocument', start: null, end: null, quote: 'A quiet chapter.', sourceBodyHash: session.state.head.bodyHash });
+  });
+
+  it('widens a passage to complete Selected paragraphs only when the author chooses that action', async () => {
+    const session = await makeSession();
+    const hash = session.state.head.bodyHash;
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), draft: {
+      documentId: 'document', version: '1', text: 'Tighten this paragraph.', intent: 'proposeEdits',
+      scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 2 }, end: { blockId: 'paragraph-1', utf16Offset: 7 }, quote: 'quiet', sourceBodyHash: hash }, pinnedDocumentIds: [], previousRunId: null, updatedAt: 'now',
+    } });
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => startResult(session, 'blocks-run', request.operationId));
+    await renderPanel(session);
+    await waitFor(() => expect(host.textContent).toContain('Selected passage'));
+    await click('Suggest edits');
+    await click('Selected paragraphs');
+    await waitFor(() => expect(host.textContent).toContain('Selected paragraphs'));
+    await waitFor(() => expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement).disabled).toBe(false));
+    await click('Send');
+    await waitFor(() => expect(discussions.startDiscussion).toHaveBeenCalledTimes(1));
+    const request = vi.mocked(discussions.startDiscussion).mock.calls[0][0];
+    expect(request.scope).toEqual({ kind: 'blocks', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 16 }, quote: 'A quiet chapter.', sourceBodyHash: hash });
   });
 
   it('keeps malformed Suggest edits output out of the author conversation', async () => {

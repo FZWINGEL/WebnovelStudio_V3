@@ -120,6 +120,15 @@ pub async fn prepare_continuation(
 }
 
 #[tauri::command]
+pub async fn prepare_structured(
+    request: PrepareStructured,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<PreparedProposal> {
+    let project = state.project(&request.access.project_id)?;
+    execute(move || project.prepare_structured(request)).await
+}
+
+#[tauri::command]
 pub async fn apply_proposal(
     request: ApplyProposal,
     state: State<'_, DesktopProjects>,
@@ -464,6 +473,11 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
             )
         })
         .unwrap_or_else(|| "Focus: the whole document.\n\n".into());
+    let structured_scope = envelope
+        .get("scope")
+        .and_then(|scope| scope.get("kind"))
+        .and_then(|kind| kind.as_str())
+        .is_some_and(|kind| matches!(kind, "blocks" | "wholeDocument"));
     let chunks = vec![
         "Local test response — no live AI model is connected.\n\n".to_owned(),
         format!("{focus}Your request: {instruction}\n\n"),
@@ -478,6 +492,27 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
         .parse::<usize>()
         .map_err(|_| invalid())?;
     if intent == FeedbackIntent::ProposeEdits {
+        if structured_scope {
+            let output = serde_json::json!({
+                "schemaVersion": "structured-proposal-output.v1",
+                "suggestions": [{
+                    "title": "Mock structured option",
+                    "blocks": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "A clearer local test opening.", "marks": [{"type": "bold"}]}]},
+                        {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "A structured local test beat."}]}
+                    ],
+                    "explanation": "Deterministic local block alternative; no live AI model was called."
+                }]
+            });
+            let encoded = serde_json::to_string(&output).map_err(|_| invalid())?;
+            if encoded.len() > allowance {
+                return Err(CoreError::new(
+                    "OutputBudgetTooSmall",
+                    "The reserved response allowance is too small for the local test response.",
+                ));
+            }
+            return Ok(vec![encoded]);
+        }
         let output = serde_json::json!({
             "suggestions": [
                 {
@@ -521,6 +556,7 @@ mod tests {
     use webnovel_core::context::PacketReceipt;
     use webnovel_core::context::packet::MockContextBudget;
     use webnovel_core::context::packet::{PacketMessage, PacketOptions};
+    use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
     use webnovel_core::projects::CreateDocument;
 
     fn started_project(label: &str) -> (ProjectSession, ProjectAccess, DiscussionStart) {
@@ -566,6 +602,82 @@ mod tests {
         (project, access, started)
     }
 
+    fn started_project_with_scope(
+        label: &str,
+        kind: ScopeKind,
+    ) -> (ProjectSession, ProjectAccess, DiscussionStart) {
+        let path = std::env::temp_dir().join(format!(
+            "wns-desktop-worker-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project = ProjectSession::create(path, "Worker structured test").unwrap();
+        let access = project.attach("test-session".into()).unwrap();
+        let body = serde_json::json!({
+            "schemaVersion": 1,
+            "body": {"type":"doc","content":[
+                {"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"The ending stays."}]},
+                {"type":"paragraph","attrs":{"id":"p2"},"content":[{"type":"text","text":"A protected neighbor."}]}
+            ]}
+        });
+        let document = project
+            .create_document(CreateDocument {
+                access: access.clone(),
+                operation_id: "create".into(),
+                document_id: "chapter".into(),
+                title: "Chapter".into(),
+                kind: "chapter".into(),
+                body: body.clone(),
+            })
+            .unwrap();
+        let captured = capture_scope(
+            &body,
+            ScopeGrant {
+                kind,
+                start: (kind == ScopeKind::Blocks).then_some(Endpoint {
+                    block_id: "p1".into(),
+                    utf16_offset: 0,
+                }),
+                end: (kind == ScopeKind::Blocks).then_some(Endpoint {
+                    block_id: "p1".into(),
+                    utf16_offset: 17,
+                }),
+                source_hash: String::new(),
+                quote: String::new(),
+                quote_hash: String::new(),
+                prefix: None,
+                suffix: None,
+            },
+        )
+        .unwrap();
+        let started = project
+            .start_discussion(StartDiscussion {
+                access: access.clone(),
+                operation_id: "start".into(),
+                expected: document.head.clone(),
+                instruction: "Revise the selected blocks.".into(),
+                intent: FeedbackIntent::ProposeEdits,
+                basis: None,
+                scope: Some(DiscussionScopeInput {
+                    kind: captured.kind,
+                    start: captured.start,
+                    end: captured.end,
+                    quote: captured.quote,
+                    source_body_hash: captured.source_hash,
+                }),
+                pinned_document_ids: Vec::new(),
+                safe_brief: None,
+                previous_run_id: None,
+                budget: MockContextBudget::new("100000", "4096", "1024"),
+                provider_binding: None,
+            })
+            .unwrap();
+        (project, access, started)
+    }
+
     #[test]
     fn mock_continuation_retains_one_append_candidate_without_changing_the_chapter() {
         let (project, access, started) =
@@ -594,6 +706,40 @@ mod tests {
             "The ending stays."
         );
         clean_project(project);
+    }
+
+    #[test]
+    fn mock_structured_scope_output_is_retained_for_blocks_and_whole_document() {
+        for (label, kind) in [
+            ("structured-blocks-worker", ScopeKind::Blocks),
+            ("structured-whole-worker", ScopeKind::WholeDocument),
+        ] {
+            let (project, access, started) = started_project_with_scope(label, kind);
+            let recovery = DiscussionRecovery::default();
+            let dispatch = recovery.claim(&project, &started.run).unwrap();
+            run_mock_with_pause(project.clone(), recovery, dispatch, || {});
+
+            let view = project
+                .read_discussion(access.clone(), "chapter".into())
+                .unwrap();
+            assert_eq!(view.runs[0].status, DiscussionRunStatus::Completed);
+            let candidates = project.proposals(access, "chapter".into()).unwrap();
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0].kind, ProposalKind::Structured);
+            let ProposalContent::Structured(candidate) = &candidates[0].candidate else {
+                panic!("mock structured scope was retained as a legacy proposal");
+            };
+            assert_eq!(candidate.blocks.len(), 2);
+            assert!(matches!(
+                candidate.blocks[0],
+                webnovel_core::documents::TypedReplacementBlock::Paragraph { .. }
+            ));
+            assert!(matches!(
+                candidate.blocks[1],
+                webnovel_core::documents::TypedReplacementBlock::Heading { .. }
+            ));
+            clean_project(project);
+        }
     }
 
     #[test]

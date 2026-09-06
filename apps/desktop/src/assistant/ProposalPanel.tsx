@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { rejectProposal, type PreparedProposal, type Proposal } from '../ipc/proposals';
+import { rejectProposal, type PreparedProposal, type Proposal, type StructuredBlock } from '../ipc/proposals';
 import type { ProjectAccess } from '../ipc/projects';
+import { canonicalJson } from '../editor/document';
+import { StructuredProse, StructuredSuggestionEditor } from './StructuredSuggestionEditor';
 
 export interface ProposalPanelProps {
   access: ProjectAccess;
@@ -50,12 +52,14 @@ function isContinuation(proposal: Proposal): boolean {
 }
 
 function candidateText(proposal: Proposal): string {
+  if (proposal.kind === 'structured') return canonicalJson((proposal.candidate as { blocks: StructuredBlock[] }).blocks);
   return isContinuation(proposal)
     ? (proposal.candidate as { paragraphs: string[] }).paragraphs.join('\n\n')
     : (proposal.candidate as { replacementText: string }).replacementText;
 }
 
 function preparedText(proposal: Proposal, prepared: PreparedProposal): string | null {
+  if (proposal.kind === 'structured') return prepared.blocks ? canonicalJson(prepared.blocks) : null;
   if (isContinuation(proposal)) return prepared.paragraphs ? prepared.paragraphs.join('\n\n') : null;
   return prepared.replacementText;
 }
@@ -251,13 +255,14 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
   const continuationOnly = ordered.every(isContinuation);
   return <section className="proposal-panel" aria-label={continuationOnly ? 'Suggested continuation' : 'Suggested edits'}>
     <div className="proposal-heading"><h3>{continuationOnly ? 'Suggested continuation' : 'Suggested edits'}</h3><span>{ordered.length} {ordered.length === 1 ? 'option' : 'options'}</span></div>
-    <p className="small-copy">{continuationOnly ? 'Review the generated paragraphs after the chapter ending. Edit them, preview them, then apply them when you are ready.' : 'Review each alternative against the captured passage. Preview an alternative, then apply it when you are ready.'}</p>
+    <p className="small-copy">{continuationOnly ? 'Review the generated paragraphs after the chapter ending. Edit them, preview them, then apply them when you are ready.' : 'Review each alternative against its captured scope. Edit it, preview it, then apply it when you are ready.'}</p>
     <div className="proposal-list">
       {ordered.map(proposal => {
         const status = statusOf(proposal);
         const value = exactPrepared(proposal);
         const text = currentReplacement(proposal);
         const continuation = isContinuation(proposal);
+        const structured = proposal.kind === 'structured';
         const attempt = preparing.get(proposal.id);
         const isPreparing = !!attempt;
         const isApplying = applying.has(proposal.id);
@@ -270,11 +275,10 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
         const previewParagraphs = value && continuation && value.paragraphs ? value.paragraphs : [];
         return <article className={`proposal-card proposal-${status.kind} ${continuation ? 'proposal-continuation' : ''}`} key={proposal.id} data-testid={`proposal-${proposal.id}`}>
           <div className="proposal-card-heading"><div><h4>{proposal.candidate.title}</h4><span className="proposal-status">{status.label}</span></div>{status.kind === 'stale' && <span className="proposal-warning">Review only</span>}</div>
-          <span className="preview-label">{continuation ? 'Append after chapter ending' : 'Before'}</span><blockquote className="proposal-before">{proposal.scope.quote}</blockquote>
+          <span className="preview-label">{continuation ? 'Append after chapter ending' : structured ? proposal.scope.kind === 'wholeDocument' ? 'Before · whole chapter' : 'Before · selected paragraphs' : 'Before'}</span><blockquote className="proposal-before">{proposal.scope.quote}</blockquote>
           <p className="proposal-explanation">{proposal.candidate.explanation}</p>
-          <label htmlFor={replacementId}>{continuation ? 'Continuation paragraphs' : 'Replacement wording'}</label>
-          <textarea id={replacementId} value={text} disabled={!canMutate || isPreparing || isApplying || isRejecting} onChange={event => { setReplacement(previous => new Map(previous).set(proposal.id, event.target.value)); clearError(proposal.id); setNotice(proposal.id, ''); }} />
-          {value && (!continuation || value.paragraphs) && <div className="proposal-preview"><span className="preview-label">{continuation ? 'New paragraphs' : 'Preview after'}</span>{continuation ? <div className="continuation-after">{previewParagraphs.map((paragraph, index) => <p key={`${proposal.id}-preview-${index}`}>{paragraph}</p>)}</div> : <blockquote className="after-text">{value.replacementText || <em>Remove the selected passage</em>}</blockquote>}{preparedText(proposal, value) !== text && <p className="stale-notice">{continuation ? 'The paragraphs changed after this preview. Preview them again before applying.' : 'The wording changed after this preview. Preview again before applying.'}</p>}</div>}
+          {structured ? <><span className="suggestion-edit-label">Replacement prose</span><StructuredSuggestionEditor label={`Replacement prose: ${proposal.candidate.title}`} blocks={JSON.parse(text) as StructuredBlock[]} disabled={!canMutate || isPreparing || isApplying || isRejecting} onChange={blocks => { setReplacement(previous => new Map(previous).set(proposal.id, canonicalJson(blocks))); clearError(proposal.id); setNotice(proposal.id, ''); }} />{proposal.scope.kind === 'blocks' && <button type="button" className="text-button remove-suggested-paragraphs" disabled={!canMutate || isPreparing || isApplying || isRejecting} onClick={() => { setReplacement(previous => new Map(previous).set(proposal.id, '[]')); clearError(proposal.id); setNotice(proposal.id, 'Preview this removal before applying it.'); }}>Remove selected paragraphs</button>}</> : <><label htmlFor={replacementId}>{continuation ? 'Continuation paragraphs' : 'Replacement wording'}</label><textarea id={replacementId} value={text} disabled={!canMutate || isPreparing || isApplying || isRejecting} onChange={event => { setReplacement(previous => new Map(previous).set(proposal.id, event.target.value)); clearError(proposal.id); setNotice(proposal.id, ''); }} /></>}
+          {value && (structured ? !!value.blocks : !continuation || value.paragraphs) && <div className="proposal-preview"><span className="preview-label">{continuation ? 'New paragraphs' : 'Preview after'}</span>{structured ? <StructuredProse blocks={value.blocks!} /> : continuation ? <div className="continuation-after">{previewParagraphs.map((paragraph, index) => <p key={`${proposal.id}-preview-${index}`}>{paragraph}</p>)}</div> : <blockquote className="after-text">{value.replacementText || <em>Remove the selected passage</em>}</blockquote>}{preparedText(proposal, value) !== text && <p className="stale-notice">{structured ? 'The prose or formatting changed after this preview. Preview again before applying.' : continuation ? 'The paragraphs changed after this preview. Preview them again before applying.' : 'The wording changed after this preview. Preview again before applying.'}</p>}</div>}
           {error && <p className="proposal-error" role="alert">{error}</p>}
           {notice && <p className="proposal-status-message" role="status">{notice}</p>}
           <div className="proposal-actions">

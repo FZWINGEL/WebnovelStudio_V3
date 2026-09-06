@@ -11,8 +11,8 @@ use super::*;
 use crate::context::continuation::CONTINUATION_RESPONSE_CONTRACT;
 use crate::context::packet::{
     CODEX_INPUT_LIMIT_BYTES, CODEX_OUTPUT_LIMIT_BYTES, CompiledPacket, MockContextBudget,
-    PROPOSAL_RESPONSE_CONTRACT, PacketError, PacketRequest, ProviderBinding, compile_packet,
-    serialized_input,
+    PROPOSAL_RESPONSE_CONTRACT, PacketError, PacketRequest, ProviderBinding,
+    STRUCTURED_PROPOSAL_RESPONSE_CONTRACT, compile_packet, serialized_input,
 };
 use crate::context::{
     Audience, BasisKind, ContextPurpose, InformationPolicy, MAX_SAFE_BRIEF_BYTES,
@@ -822,9 +822,15 @@ impl OwnedProject {
         // old mock packets and old live packets remain contract-free.
         let response_contract = match request.intent {
             FeedbackIntent::Continue => Some(CONTINUATION_RESPONSE_CONTRACT.to_owned()),
-            FeedbackIntent::ProposeEdits if request.provider_binding.is_some() => {
-                Some(PROPOSAL_RESPONSE_CONTRACT.to_owned())
-            }
+            FeedbackIntent::ProposeEdits if request.provider_binding.is_some() => Some(
+                if scope.as_ref().is_some_and(|scope| {
+                    matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument)
+                }) {
+                    STRUCTURED_PROPOSAL_RESPONSE_CONTRACT.to_owned()
+                } else {
+                    PROPOSAL_RESPONSE_CONTRACT.to_owned()
+                },
+            ),
             _ => None,
         };
         let packet = compile_packet(&PacketRequest {
@@ -1847,10 +1853,12 @@ fn validate_safe_brief_start(request: &StartDiscussion) -> CoreResult<()> {
         request.intent,
         FeedbackIntent::ProposeEdits | FeedbackIntent::Continue
     ) || (request.intent == FeedbackIntent::ProposeEdits
-        && request
-            .scope
-            .as_ref()
-            .is_none_or(|scope| scope.kind != ScopeKind::Passage))
+        && request.scope.as_ref().is_none_or(|scope| {
+            !matches!(
+                scope.kind,
+                ScopeKind::Passage | ScopeKind::Blocks | ScopeKind::WholeDocument
+            )
+        }))
     {
         return Err(CoreError::new(
             "InvalidSafeBrief",
@@ -1960,10 +1968,12 @@ fn discussion_context_policy(
         )),
         FeedbackIntent::ProposeEdits | FeedbackIntent::Continue => {
             if request.intent == FeedbackIntent::ProposeEdits
-                && request
-                    .scope
-                    .as_ref()
-                    .is_none_or(|scope| !matches!(scope.kind, ScopeKind::Passage))
+                && request.scope.as_ref().is_none_or(|scope| {
+                    !matches!(
+                        scope.kind,
+                        ScopeKind::Passage | ScopeKind::Blocks | ScopeKind::WholeDocument
+                    )
+                })
             {
                 return Err(CoreError::new(
                     "InvalidScope",
@@ -2125,9 +2135,15 @@ fn insert_packet(
         provider_binding: request.provider_binding.clone(),
         response_contract: match request.intent {
             FeedbackIntent::Continue => Some(CONTINUATION_RESPONSE_CONTRACT.to_owned()),
-            FeedbackIntent::ProposeEdits if packet.options.provider_binding.is_some() => {
-                Some(PROPOSAL_RESPONSE_CONTRACT.to_owned())
-            }
+            FeedbackIntent::ProposeEdits if packet.options.provider_binding.is_some() => Some(
+                if scope.is_some_and(|scope| {
+                    matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument)
+                }) {
+                    STRUCTURED_PROPOSAL_RESPONSE_CONTRACT.to_owned()
+                } else {
+                    PROPOSAL_RESPONSE_CONTRACT.to_owned()
+                },
+            ),
             _ => None,
         },
     };

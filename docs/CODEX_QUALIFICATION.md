@@ -1,6 +1,6 @@
 # Codex qualification evidence
 
-This document records versioned discovery and ten bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, one native chapter-memory request, and one native story-continuation request. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
+This document records versioned discovery and eleven bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, one native chapter-memory request, one native story-continuation request, and one native structured-suggestion request. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
 
 ## Exact installed identity and discovery
 
@@ -41,7 +41,7 @@ This is requested launch material and catalog metadata; it is not an observation
 
 ## Dispatch ledger
 
-The rows below are generation dispatches. The strict-config and missing-schema checks inside the isolation-profile runs were local preflights and did not send an LLM request. The current profile harness performed one dispatch; the runner harness performed two sequential dispatches with no retry; native desktop edit qualification performed two additional dispatches. The chapter-memory qualification below made one further dispatch, and story-continuation qualification made one further dispatch; their same-data verifications sent none.
+The rows below are generation dispatches. The strict-config and missing-schema checks inside the isolation-profile runs were local preflights and did not send an LLM request. The current profile harness performed one dispatch; the runner harness performed two sequential dispatches with no retry; native desktop edit qualification performed two additional dispatches. The chapter-memory qualification below made one further dispatch, story-continuation qualification made one further dispatch, and structured-suggestion qualification made one further dispatch; their same-data verifications sent none.
 
 | Dispatch | Configuration and auth boundary | Result | Evidence |
 | --- | --- | --- | --- |
@@ -72,6 +72,28 @@ The live Working-draft continuation request ran from `2026-09-06T03:19:18.761Z` 
 
 The [initial qualification evidence](../.local/live-continuation-qualification/qualification.json) records one generation. The [reconciliation evidence](../.local/live-continuation-qualification/reconciliation.json) verifies one proposal, one prepared version, one decision, and one provider receipt. This same-data verification, completed `2026-09-06T03:22:39.577Z`, reopened the exact applied body and decision without another model request. The initial post-Apply harness failed on a Windows extended-path comparison; that failed record remains preserved and was not treated as a second live attempt. The reopened screenshot was inspected. This is one bounded live continuation result. [CI 34008911179](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34008911179) subsequently passed Windows/Ubuntu contracts and all 36 native checks on checkpoint `430831fc133dbe37be47fa477d7c3ea3b312e505`; broader provider failure/cleanup coverage and release qualification remain open.
 
+### Eleventh dispatch: native structured suggestion
+
+The bounded structured-suggestion request ran from `2026-09-06T06:42:21.292Z`
+to `2026-09-06T06:42:38.878Z` in the same qualification executable
+(`ca114dc73db5470332fd7b797c56380eb5244e303fa3595ca78c782eac685b15`,
+30,628,864 bytes, built `2026-09-06T06:40:00.255Z`). It requested
+`gpt-5.6-luna` with Max reasoning and the `priority`/Fast service tier; the
+effective provider identity was not reported. The provider completed with
+settled cleanup and zero errors, returning one candidate titled “The promised
+key” with two English paragraphs and an italic “silver key” phrase. Confirmed
+stdin was 3,850 bytes; reported usage was 1,500 input tokens and 506 output
+tokens, including 345 reasoning tokens. The native flow edited and applied the
+rich preview in the same editor, then reopened the exact body and decision;
+the retained records were one proposal, one prepared version, one decision,
+and one provider result. Evidence is
+`.local/live-structured-qualification/qualification.json` and
+`.local/structured-live.log`.
+
+The reopened screenshot was inspected and the literal prompt constraints and
+event facts were preserved. This is a bounded integration result, not a
+narrative-quality evaluation or general provider qualification. The current
+structured suggestion contract is documented in [ADR 0020](ADR_0020_STRUCTURED_SUGGESTIONS.md).
 ## Authentication, sources, and cleanup limits
 
 The successful normal-home run used the native executable's existing managed login without reading, copying, or extracting auth/config/credential values. `--ignore-user-config` still excluded the user config layer and `--ignore-rules` excluded user/project execpolicy rules. The dedicated-home 401 demonstrates that an empty isolated auth home cannot be assumed to carry the managed login. Host authentication therefore remains intentionally unisolated; the app-owned working directory and generated catalog/profile/run artifacts were isolated from manuscript sources.
