@@ -11,7 +11,10 @@ param(
     [string]$InstallerPath,
 
     [Parameter(Mandatory = $false)]
-    [string]$QualificationRoot
+    [string]$QualificationRoot,
+
+    [Parameter(Mandatory = $false)]
+    [string]$OriginalBuildMetadataPath
 )
 
 Set-StrictMode -Version Latest
@@ -37,6 +40,38 @@ function Assert-ContainedPath {
     return $candidateFull
 }
 
+function Read-ExpectedProductVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorkspaceRoot
+    )
+    $packagePath = Join-Path $WorkspaceRoot 'apps/desktop/package.json'
+    if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
+        throw [System.IO.FileNotFoundException]::new("The checked-out frontend package manifest was not found: $packagePath")
+    }
+    try {
+        $package = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
+    } catch {
+        throw [System.InvalidOperationException]::new("The checked-out frontend package manifest is not valid JSON: $packagePath")
+    }
+    $version = [string]$package.version
+    if ([string]::IsNullOrWhiteSpace($version)) {
+        throw [System.InvalidOperationException]::new("The checked-out frontend package manifest has no version: $packagePath")
+    }
+    return $version.Trim()
+}
+
+function Assert-InstalledProductVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+        [Parameter(Mandatory = $true)][string]$InstalledVersion,
+        [Parameter(Mandatory = $true)][string]$ExecutablePath
+    )
+    $acceptedVersions = @($ExpectedVersion)
+    if ($acceptedVersions -notcontains $InstalledVersion) {
+        throw [System.InvalidOperationException]::new(("Installed executable ProductVersion '{0}' does not exactly match checked-out package version '{1}': {2}" -f $InstalledVersion, $ExpectedVersion, $ExecutablePath))
+    }
+}
+
 if (-not [String]::Equals($env:GITHUB_ACTIONS, 'true', [StringComparison]::OrdinalIgnoreCase)) {
     throw [System.InvalidOperationException]::new('This tracked qualification harness requires GITHUB_ACTIONS=true.')
 }
@@ -49,6 +84,22 @@ if ([String]::IsNullOrWhiteSpace($env:GITHUB_WORKSPACE)) {
 
 $RunnerTempRoot = Resolve-FullPath $env:RUNNER_TEMP
 $WorkspaceRoot = Resolve-FullPath $env:GITHUB_WORKSPACE
+$ExpectedProductVersion = Read-ExpectedProductVersion $WorkspaceRoot
+$script:originalBuildMetadata = $null
+if (-not [String]::IsNullOrWhiteSpace($OriginalBuildMetadataPath)) {
+    $OriginalBuildMetadataPath = Assert-ContainedPath $OriginalBuildMetadataPath $RunnerTempRoot 'OriginalBuildMetadataPath'
+    if (-not (Test-Path -LiteralPath $OriginalBuildMetadataPath -PathType Leaf)) {
+        throw [System.IO.FileNotFoundException]::new("OriginalBuildMetadataPath was not found: $OriginalBuildMetadataPath")
+    }
+    try {
+        $script:originalBuildMetadata = Get-Content -LiteralPath $OriginalBuildMetadataPath -Raw | ConvertFrom-Json
+    } catch {
+        throw [System.InvalidOperationException]::new("OriginalBuildMetadataPath is not valid JSON: $OriginalBuildMetadataPath")
+    }
+    if ($null -eq $script:originalBuildMetadata.github -or $null -eq $script:originalBuildMetadata.source -or $null -eq $script:originalBuildMetadata.installer) {
+        throw [System.InvalidOperationException]::new('OriginalBuildMetadataPath must contain github, source, and installer records.')
+    }
+}
 if ([String]::IsNullOrWhiteSpace($QualificationRoot)) {
     $QualificationRoot = Join-Path $RunnerTempRoot 'webnovel-package-qualification'
 }
@@ -102,6 +153,7 @@ $script:result = [ordered]@{
     }
     install = [ordered]@{
         expectedRoot = $InstallRoot
+        expectedVersion = $ExpectedProductVersion
         executable = $null
         productName = $null
         version = $null
@@ -181,31 +233,70 @@ function Write-BuildMetadata {
         throw [System.InvalidOperationException]::new('Could not resolve the checkout commit with git.')
     }
     $dirty = (& git -C $WorkspaceRoot status --porcelain=v1 --untracked-files=all 2>$null | Out-String).Trim()
+    $currentGithub = [ordered]@{
+        repository = $env:GITHUB_REPOSITORY
+        runId = $env:GITHUB_RUN_ID
+        sha = $env:GITHUB_SHA
+        ref = $env:GITHUB_REF
+    }
+    $currentSource = [ordered]@{
+        workspace = $WorkspaceRoot
+        gitSha = $gitSha
+        dirtyStatus = $dirty
+        cargoLockSha256 = Get-FileSha256 (Join-Path $WorkspaceRoot 'Cargo.lock')
+        packageLockSha256 = Get-FileSha256 (Join-Path $WorkspaceRoot 'apps/desktop/package-lock.json')
+        tauriConfigSha256 = Get-FileSha256 (Join-Path $WorkspaceRoot 'apps/desktop/src-tauri/tauri.conf.json')
+    }
+    $currentInstaller = [ordered]@{
+        sourcePath = $InstallerPath
+        stagedPath = $stagedInstallerPath
+        name = $installerFile.Name
+        sha256 = Get-FileSha256 $installerFile.FullName
+        productName = $installerFile.VersionInfo.ProductName
+        productVersion = $installerFile.VersionInfo.ProductVersion
+    }
+    $buildGithub = $currentGithub
+    $buildSource = $currentSource
+    $buildInstaller = $currentInstaller
+    if ($null -ne $script:originalBuildMetadata) {
+        $buildGithub = $script:originalBuildMetadata.github
+        $buildSource = $script:originalBuildMetadata.source
+        $buildInstaller = $script:originalBuildMetadata.installer
+    }
+    $installerBuild = [ordered]@{
+        repository = [string]$buildGithub.repository
+        runId = [string]$buildGithub.runId
+        sha = [string]$buildGithub.sha
+        ref = [string]$buildGithub.ref
+        gitSha = [string]$buildSource.gitSha
+        dirtyStatus = [string]$buildSource.dirtyStatus
+        installerName = [string]$buildInstaller.name
+        installerSha256 = [string]$buildInstaller.sha256
+        productVersion = [string]$buildInstaller.productVersion
+        github = $buildGithub
+        source = $buildSource
+        installer = $buildInstaller
+    }
+    $qualificationSource = [ordered]@{
+        repository = [string]$currentGithub.repository
+        runId = [string]$currentGithub.runId
+        sha = [string]$currentGithub.sha
+        ref = [string]$currentGithub.ref
+        gitSha = [string]$currentSource.gitSha
+        dirtyStatus = [string]$currentSource.dirtyStatus
+        harnessSha256 = Get-FileSha256 (Join-Path $WorkspaceRoot 'scripts/windows-package-qualification.ps1')
+        cargoLockSha256 = [string]$currentSource.cargoLockSha256
+        packageLockSha256 = [string]$currentSource.packageLockSha256
+        tauriConfigSha256 = [string]$currentSource.tauriConfigSha256
+    }
     $metadata = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = if ($null -ne $script:originalBuildMetadata) { 2 } else { 1 }
         capturedAtUtc = [DateTime]::UtcNow.ToString('o')
-        github = [ordered]@{
-            repository = $env:GITHUB_REPOSITORY
-            runId = $env:GITHUB_RUN_ID
-            sha = $env:GITHUB_SHA
-            ref = $env:GITHUB_REF
-        }
-        source = [ordered]@{
-            workspace = $WorkspaceRoot
-            gitSha = $gitSha
-            dirtyStatus = $dirty
-            cargoLockSha256 = Get-FileSha256 (Join-Path $WorkspaceRoot 'Cargo.lock')
-            packageLockSha256 = Get-FileSha256 (Join-Path $WorkspaceRoot 'apps/desktop/package-lock.json')
-            tauriConfigSha256 = Get-FileSha256 (Join-Path $WorkspaceRoot 'apps/desktop/src-tauri/tauri.conf.json')
-        }
-        installer = [ordered]@{
-            sourcePath = $InstallerPath
-            stagedPath = $stagedInstallerPath
-            name = $installerFile.Name
-            sha256 = Get-FileSha256 $installerFile.FullName
-            productName = $installerFile.VersionInfo.ProductName
-            productVersion = $installerFile.VersionInfo.ProductVersion
-        }
+        github = $buildGithub
+        source = $buildSource
+        installer = $buildInstaller
+        installerBuild = $installerBuild
+        qualificationSource = $qualificationSource
         runner = [ordered]@{
             os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture
             webViewRuntime = Get-WebViewRuntimeInfo
@@ -347,9 +438,10 @@ function Find-InstalledExecutable {
     if ($info.ProductName -ne 'WebnovelStudio V3') {
         throw [System.InvalidOperationException]::new(("Unexpected installed executable ProductName '{0}' at {1}; expected WebnovelStudio V3." -f $info.ProductName, $selected.FullName))
     }
-    $script:result.install.executable = $selected.FullName
     $script:result.install.productName = $info.ProductName
     $script:result.install.version = $info.ProductVersion
+    Assert-InstalledProductVersion $ExpectedProductVersion $info.ProductVersion $selected.FullName
+    $script:result.install.executable = $selected.FullName
     Write-Event 'install' ("Found exact installed executable {0} (product {1}, version {2})." -f $selected.FullName, $info.ProductName, $info.ProductVersion)
     return $selected
 }
@@ -908,10 +1000,10 @@ try {
         $script:result.firstLaunch.pid = $app.Id
         Write-Event 'first-launch' ("Started installed app PID {0} with a hidden process window." -f $app.Id)
         $window = Wait-Until { Find-AppWindow $app.Id } 60 'the installed app UIAutomation window'
-        $library = Wait-Until { Find-UiaByName $window 'Library' } 60 'the WebnovelStudio V3 Library label'
+        $library = Wait-Until { Find-UiaByName $window 'Your library' } 60 'the Your library label'
         $script:result.firstLaunch.libraryVisible = $null -ne $library
         Assert-NoEditorTrial $window
-        Write-Event 'first-launch' 'Confirmed the WebnovelStudio V3 Library label through UIAutomation.'
+        Write-Event 'first-launch' 'Confirmed the Your library label through UIAutomation.'
         $shotPath = Join-Path $runRoot 'first-launch.png'
         if (Capture-OwnedWindow $window $shotPath) { $script:result.firstLaunch.screenshot = 'first-launch.png' }
 
@@ -924,7 +1016,7 @@ try {
         if ($null -eq (Set-UiaValue $projectTitleBox $projectTitle)) { throw 'Project title did not expose ValuePattern.' }
         Invoke-Uia (Wait-Until { Find-UiaByName $window 'Create project' } 15 'Create project submit button')
         $script:result.firstLaunch.projectCreated = $true
-        Invoke-Uia (Wait-Until { Find-UiaByName $window 'Add your first document' } 30 'Add your first document button')
+        Invoke-Uia (Wait-Until { Find-UiaByName $window 'Create a chapter' } 30 'Create a chapter button')
         Select-Chapter $window
         $titleBox = Wait-Until { Find-UiaByName $window 'Title' ([System.Windows.Automation.ControlType]::Edit) } 15 'document Title field'
         if ($null -eq (Set-UiaValue $titleBox $documentTitle)) { throw 'Document title did not expose ValuePattern.' }
@@ -953,8 +1045,8 @@ try {
         $window = Wait-Until { Find-AppWindow $app.Id } 30 'the installed app UIAutomation window after closing the editor'
         Wait-Until {
             $currentWindow = Find-AppWindow $app.Id
-            if ($null -ne $currentWindow) { Find-UiaByName $currentWindow 'Library' }
-        } 30 'the Library after closing the editor' | Out-Null
+            if ($null -ne $currentWindow) { Find-UiaByName $currentWindow 'Your library' }
+        } 30 'Your library after closing the editor' | Out-Null
         $window = Find-AppWindow $app.Id
         try {
             $projectButton = Wait-Until {
@@ -997,7 +1089,7 @@ try {
         Install-Silently -Path $installer.FullName -Stage 'same-version-reinstall' -Arguments ("/S /D={0}" -f $InstallRoot) | Out-Null
         $app = Start-QualifiedApp -Path $installed.FullName
         $window = Wait-Until { Find-AppWindow $app.Id } 60 'the reinstalled app UIAutomation window'
-        $library = Wait-Until { Find-UiaByName $window 'Library' } 60 'the Library label after same-version reinstall'
+        $library = Wait-Until { Find-UiaByName $window 'Your library' } 60 'the Your library label after same-version reinstall'
         $script:result.sameVersionReinstall.libraryVisible = $null -ne $library
         Assert-NoEditorTrial $window
         try {

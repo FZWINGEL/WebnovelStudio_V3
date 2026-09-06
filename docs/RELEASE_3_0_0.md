@@ -16,7 +16,7 @@ The implemented development surface includes:
 - GPT-5.6 Luna with xhigh reasoning for summaries and Story Memory maintenance;
 - source-linked story context, reviewed knowledge and promise history, bounded lookup, local SQLite persistence, backup/recovered-project handling, import, and export.
 
-Claude live behavior, hosted HTTP behavior, and broad provider coverage remain qualification boundaries. The candidate does not claim literary-quality validation or that every planned V3 feature is complete.
+Claude live behavior, hosted HTTP behavior, and broad provider coverage remain qualification boundaries. The primary **Create with AI** workflow redesign remains deferred while development tooling is optimized. The candidate does not claim literary-quality validation or that every planned V3 feature is complete.
 
 ## Identity and data boundaries
 
@@ -40,21 +40,27 @@ The Windows packaging command is:
 .\scripts\desktop.ps1 -Command package
 ```
 
-The package command is the source of the NSIS installer evidence. A fresh 3.0.0 package run has not yet been completed for this candidate.
+The package command is the source of the NSIS installer evidence. A fresh package qualification is still pending for this candidate. Hosted run `34066312408` on source `729d6bdfe3f657badac80b114aee0f8a0b6b2970` built a 3.0.0 installer (`362ab1a47bfd8fde0637f13cf30b606bcd7371337455130ce77101e3164114a7`), but stopped before project creation because the harness waited for the stale UIAutomation label `Library` while the current UI exposes `Your library`. It does not establish an installed-lifecycle pass. Metadata and failure evidence are retained under `.local/ci-34066312408`; that workflow uploaded installers only after lifecycle success, so the failed run did not retain its installer artifact.
 
-## Preparation checklist
+## Private candidate preparation
 
 - [x] Synchronize Rust, Tauri, npm, and lock-file versions through the workspace version guard.
 - [x] Preserve the stable application identifier and separate release/debug data locations.
-- [x] Verify the test-optimization baseline: CI run `34064355153` passed on `db3df283`, before the 3.0.0 version change.
+- [x] Pass hosted development CI run `34064355153` on `db3df283`: all 52 native checks plus the HTTP, close, interruption, recovery, and memory jobs.
 - [x] Pass the local 3.0.0 candidate check: 721 Rust tests, 434 frontend tests, six version-guard tests, formatting, strict Clippy, TypeScript, and the production build.
-- [ ] Pass hosted checks on the actual 3.0.0 candidate commit.
-- [ ] Run a fresh 3.0.0 package build and retain the installer, hashes, and package metadata as evidence.
+- [ ] Build and retain a 3.0.0 installer candidate and its metadata; the first build succeeded but did not retain the installer after the harness failure.
+- [ ] Confirm hosted checks for the final candidate commit.
+- [ ] Complete installed package lifecycle qualification after correcting the stale `Library` locator: launch, project creation, chapter creation, close/reopen, and same-version uninstall/reinstall retention.
+
+## Broader distribution and author qualification
+
+These gates are separate from private candidate preparation. Public distribution scope remains undecided, and none of the following is implied by the private candidate status:
+
 - [ ] Qualify offline installation and launch, including the no-WebView2 case.
-- [ ] Qualify close/reopen and a true upgrade while retaining library and project data.
+- [ ] Qualify a true upgrade while retaining library and project data.
 - [ ] Qualify native backup, recovery, export, keyboard and paste behavior, accessible names, high-DPI layout, minimum window size, and long chapters.
 - [ ] Qualify interruption, save failure, helper cleanup, uninstall/reinstall data behavior, and the live provider paths covered by the package checklist.
 
 Use [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for the implementation boundary and open V3 work. Use [WINDOWS_PACKAGE_QUALIFICATION.md](WINDOWS_PACKAGE_QUALIFICATION.md) for the detailed package and native trial procedure. Use [TESTING.md](TESTING.md) for the local verification matrix and [the README](../README.md) for the current user-facing setup.
 
-This preparation record is complete only when the unchecked package and native gates have current evidence. It must not be read as a claim that all roadmap work, live provider behavior, migration coverage, or public release decisions are complete.
+Private candidate preparation is complete only when its version, verification, hosted, installer, and installed-lifecycle items have current evidence. Broader distribution and author qualification remain separate. This record must not be read as a claim that all roadmap work, live provider behavior, migration coverage, or public release decisions are complete.

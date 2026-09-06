@@ -61,6 +61,10 @@ script and workflow changes retain both jobs; manual dispatch remains available.
 A newer push on the same branch cancels an obsolete run. Product-version checks
 run before expensive build setup and during the local check.
 
+The Windows job allows 35 minutes for a cold build and cache upload. The first
+3.0.0 run passed all test and native steps but exceeded the previous 25-minute
+job limit during cache saving. Individual test harness timeouts are unchanged.
+
 The 3.0.0 candidate tests Windows CI with limited Rust debug information
 (`CARGO_PROFILE_DEV_DEBUG=1`, `CARGO_PROFILE_TEST_DEBUG=1`) to reduce dependency
 artifacts and cache work. Assertions and native development features remain
@@ -99,3 +103,32 @@ alongside its frontend chain took **51.32 seconds** with the same passing tests,
 so that experiment was reverted. Cargo checks and the frontend suite remain
 sequential. Use the normal root `target/` cache for routine development; avoid
 creating a separate Cargo target tree for each feature or test invocation.
+
+## Installer harness iteration
+
+Dispatch **Windows package smoke** without inputs for a fresh locked build.
+The workflow retains its installer before exercising the installed lifecycle,
+so a failed harness does not discard a successful build. It also checks that
+the installed executable has the expected product version.
+
+For a harness or documentation change, supply the original completed package
+run ID in the optional `installer_run_id` field. The workflow downloads the
+installer and original metadata, checks the source commit and complete changed
+file list, hashes, clean build source, and version, then runs the current harness
+without Rust setup, dependency installation, or a package rebuild. Changes to
+application code, manifests, dependencies, or build scripts require a fresh
+build. A failed or missing original build and ambiguous/mismatched artifacts
+are refused.
+
+Retest evidence keeps the original `installerBuild` identity separately from
+the current `qualificationSource` commit and harness hash. It never describes
+the current harness checkout as the installer build source. Both paths retain
+the same synthetic install, write, reopen, normal close, and same-version
+uninstall/reinstall checks. Their qualification remains separate from offline
+installation, true upgrades, live providers, and an author trial.
+
+The small Node guard suite runs in the normal local check and both CI jobs:
+
+```powershell
+node --test scripts/check-versions.test.mjs scripts/prepare-package-retest.test.mjs
+```

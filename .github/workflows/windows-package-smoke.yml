@@ -2,9 +2,16 @@ name: Windows package smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      installer_run_id:
+        description: 'Optional completed package run to retest after harness or documentation changes only'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   package-smoke:
@@ -24,15 +31,25 @@ jobs:
           cache-dependency-path: apps/desktop/package-lock.json
 
       - name: Verify product versions before packaging
-        run: node scripts/check-versions.mjs
+        run: node --test scripts/check-versions.test.mjs scripts/prepare-package-retest.test.mjs
+
+      - name: Validate and retrieve the original installer
+        if: inputs.installer_run_id != ''
+        id: retest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTALLER_RUN_ID: ${{ inputs.installer_run_id }}
+        run: node scripts/prepare-package-retest.mjs
 
       - name: Install the pinned Rust toolchain
+        if: inputs.installer_run_id == ''
         shell: pwsh
         run: |
           rustup toolchain install 1.98.1 --profile minimal
           rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1
 
       - name: Cache package Rust dependencies and build artifacts
+        if: inputs.installer_run_id == ''
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: v3-package-release-${{ runner.os }}-x86_64-pc-windows-msvc-rust-1.98.1
@@ -42,25 +59,47 @@ jobs:
           cache-bin: false
 
       - name: Install locked frontend dependencies
+        if: inputs.installer_run_id == ''
         working-directory: apps/desktop
         run: npm ci
 
       - name: Build the locked release NSIS installer
+        if: inputs.installer_run_id == ''
         working-directory: apps/desktop
         run: npm run desktop:package
 
+      - name: Retain the built installer
+        if: inputs.installer_run_id == ''
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: windows-installer
+          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          compression-level: 0
+          if-no-files-found: error
+
       - name: Run the synthetic installed-release lifecycle
         shell: pwsh
+        env:
+          RETEST_INSTALLER: ${{ steps.retest.outputs.installer_path }}
+          RETEST_METADATA: ${{ steps.retest.outputs.original_metadata_path }}
         run: |
           $ErrorActionPreference = 'Stop'
           $qualificationRoot = Join-Path $env:RUNNER_TEMP 'webnovel-package-qualification'
-          $bundleRoot = Join-Path $env:GITHUB_WORKSPACE 'target\x86_64-pc-windows-msvc\release\bundle\nsis'
-          $installers = @(Get-ChildItem -LiteralPath $bundleRoot -Filter '*-setup.exe' -File)
-          if ($installers.Count -ne 1) {
-            throw "Expected exactly one NSIS installer in $bundleRoot; found $($installers.Count)."
+          $installerPath = $env:RETEST_INSTALLER
+          if ([string]::IsNullOrWhiteSpace($installerPath)) {
+            $bundleRoot = Join-Path $env:GITHUB_WORKSPACE 'target\x86_64-pc-windows-msvc\release\bundle\nsis'
+            $installers = @(Get-ChildItem -LiteralPath $bundleRoot -Filter '*-setup.exe' -File)
+            if ($installers.Count -ne 1) {
+              throw "Expected exactly one NSIS installer in $bundleRoot; found $($installers.Count)."
+            }
+            $installerPath = $installers[0].FullName
           }
           $harness = Join-Path $env:GITHUB_WORKSPACE 'scripts\windows-package-qualification.ps1'
-          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $harness -InstallerPath $installers[0].FullName -QualificationRoot $qualificationRoot
+          $harnessArgs = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $harness, '-InstallerPath', $installerPath, '-QualificationRoot', $qualificationRoot)
+          if (-not [string]::IsNullOrWhiteSpace($env:RETEST_METADATA)) {
+            $harnessArgs += @('-OriginalBuildMetadataPath', $env:RETEST_METADATA)
+          }
+          & powershell.exe @harnessArgs
           $harnessExitCode = $LASTEXITCODE
           $resultFiles = @(Get-ChildItem -LiteralPath (Join-Path $qualificationRoot 'output') -Filter 'result.json' -File -Recurse)
           if ($resultFiles.Count -ne 1) {
@@ -85,12 +124,3 @@ jobs:
           path: ${{ runner.temp }}/webnovel-package-qualification/output
           include-hidden-files: true
           if-no-files-found: warn
-
-      - name: Retain the exact tested installer
-        if: success()
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: windows-installer
-          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
-          compression-level: 0
-          if-no-files-found: error

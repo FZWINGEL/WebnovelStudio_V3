@@ -16,13 +16,30 @@ version-guard checks cover agreement, inheritance, lock drift and line endings.
 The candidate's local full check passed all 721 Rust and 434 frontend tests,
 the six version checks, formatting, strict Clippy, TypeScript and production
 build in 85.64 seconds including recompilation in the normal root `target/`.
-Evidence: `.local/release-3.0.0-check.{log,json}`. A fresh hosted candidate and
+Evidence: `.local/release-3.0.0-check.{log,json}`. Final hosted candidate and
 installer qualification are still pending. See [release preparation](RELEASE_3_0_0.md)
 and [changelog](../CHANGELOG.md); neither announces a public release.
 
 The warm candidate check then passed in **43.98 seconds** using the normal
 root `target/` cache (`.local/release-3.0.0-warm-check.{log,json}`). It includes
 the version guard and the complete Rust/frontend matrix.
+
+The follow-up release-tooling full check passed in **39.41 seconds** with
+721 Rust tests, 434 frontend tests and 11 Node tooling checks. Evidence:
+`.local/release-tooling-check.{log,json}`. The package harness now follows the
+current Library/chapter controls, verifies the installed product version,
+retains installers before lifecycle checks, and supports a separately validated
+harness-only retest without rebuilding application code.
+
+Candidate `729d6bd` passed Ubuntu and all Windows test/native steps in
+[CI 34066304241](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34066304241),
+but the overall run was cancelled after exceeding its 25-minute job limit during
+cache saving. It is not a green CI result. The cache finished uploading during
+cleanup: 657,680,598 bytes with limited debug information versus 1,067,977,623
+bytes at the earlier full-debug checkpoint, about 38% smaller. The next run
+must confirm warm behavior; the job now allows 35 minutes for cold setup and
+cache work without changing individual harness limits. Its native evidence is
+retained under `.local/ci-34066304241`.
 
 Workspace cleanup reclaimed **73.94 GiB** of obsolete project build products
 across 23 scratch Cargo trees. Automatic review blocked bulk directory deletion;
