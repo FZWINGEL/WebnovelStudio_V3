@@ -714,6 +714,8 @@ fn packet_and_budget_contracts_keep_cross_boundary_counters_as_strings() {
         source_handles: vec!["target".into()],
         mandatory_source_handles: Vec::new(),
         guidance_handles: Vec::new(),
+        navigation_views: Vec::new(),
+        navigation_omissions: Vec::new(),
         conversation_message_ids: Vec::new(),
         omitted_discussion_turns: 0,
         safe_brief: None,

@@ -3,6 +3,10 @@
 use super::*;
 use crate::context::conversation::{FrozenConversation, validate_conversation};
 use crate::context::guidance::{FrozenGuidance, validate_frozen_guidance};
+use crate::context::navigation::{
+    FrozenNavigationView, MAX_FROZEN_NAVIGATION_VIEWS, NavigationViewRef, navigation_content_hash,
+    validate_frozen_navigation_views, validate_navigation_view_payload,
+};
 use crate::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
     ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind, SourceRef,
@@ -53,6 +57,8 @@ pub struct FrozenContext {
     pub guidance: Vec<FrozenGuidance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<FrozenConversation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub navigation_views: Vec<FrozenNavigationView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -763,6 +769,7 @@ pub(super) fn freeze_reviewed_continuation_at(
         excluded_source_count: 0,
         guidance: Vec::new(),
         conversation: None,
+        navigation_views: Vec::new(),
     };
     let json = serde_json::to_string(&frozen)?;
     tx.execute(
@@ -980,7 +987,7 @@ fn freeze_story_impl(
             );
         }
     }
-    let frozen = FrozenContext {
+    let mut frozen = FrozenContext {
         excluded_source_count: (total - snapshot.sources.len()) as u32,
         snapshot,
         policy: request.policy.clone(),
@@ -1013,13 +1020,22 @@ fn freeze_story_impl(
         } else {
             None
         },
+        navigation_views: Vec::new(),
     };
+    frozen.navigation_views = select_navigation_views_at(tx, &frozen)?;
+    validate_frozen_navigation_views(
+        &frozen.navigation_views,
+        &frozen.snapshot,
+        &frozen.policy,
+        frozen.purpose,
+    )?;
     let json = serde_json::to_string(&frozen)?;
     tx.execute(
         "INSERT INTO story_snapshots(id,project_id,operation_namespace,operation_id,payload_hash,context_source_epoch,disclosure_policy_epoch,manifest_json,manifest_hash) VALUES(?,?,?,?,?,?,?,?,?)",
         params![frozen.snapshot.snapshot_id, request.access.project_id, request.access.operation_namespace, request.operation_id, payload_hash, parse_version(&frozen.snapshot.context_source_epoch)?, parse_version(&frozen.policy.version)?, json, sha256_hex(json.as_bytes())],
     )?;
     insert_snapshot_sources(tx, &frozen)?;
+    insert_snapshot_navigation_views(tx, &frozen)?;
     guidance::pin_guidance_at(tx, &frozen.snapshot.snapshot_id, &frozen.guidance)?;
     Ok(frozen)
 }
@@ -1049,6 +1065,195 @@ fn insert_snapshot_sources(db: &Connection, frozen: &FrozenContext) -> CoreResul
         )?;
     }
     Ok(())
+}
+
+fn insert_snapshot_navigation_views(db: &Connection, frozen: &FrozenContext) -> CoreResult<()> {
+    if frozen.navigation_views.is_empty() {
+        return Ok(());
+    }
+    for view in &frozen.navigation_views {
+        db.execute(
+            "INSERT INTO snapshot_navigation_views(snapshot_id,view_id,content_hash) VALUES(?,?,?)",
+            params![
+                frozen.snapshot.snapshot_id,
+                view.reference.view_id,
+                view.reference.content_hash,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Choose immutable, completed chapter views for a new author-room snapshot.
+/// The view rows are deliberately inspected here instead of mutating their
+/// `installed_current` flag: freezing a packet must never rewrite generated
+/// memory history or advance the source epoch.
+fn select_navigation_views_at(
+    db: &Connection,
+    frozen: &FrozenContext,
+) -> CoreResult<Vec<FrozenNavigationView>> {
+    if frozen.snapshot.basis != BasisKind::Working
+        || frozen.policy.audience != Audience::AuthorRoom
+        || !matches!(
+            frozen.purpose,
+            ContextPurpose::Discuss | ContextPurpose::Plan | ContextPurpose::StoryQuestion
+        )
+    {
+        return Ok(Vec::new());
+    }
+
+    let (current_project, current_namespace): (String, String) = db.query_row(
+        "SELECT id,operation_namespace FROM project WHERE singleton=1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if current_project != frozen.snapshot.project_id {
+        return Ok(Vec::new());
+    }
+
+    let mut selected = Vec::new();
+    for source in &frozen.snapshot.sources {
+        if selected.len() >= MAX_FROZEN_NAVIGATION_VIEWS
+            || source.source.document_id == frozen.snapshot.target.document_id
+            || source.kind != SourceKind::CurrentDraft
+            || source.coverage != CoverageLabel::Verbatim
+            || !source.current
+            || source.disclosure.reader_position.is_none()
+            || source.disclosure.author_only
+            || source.disclosure.future_private
+            || !source.dependencies.is_empty()
+        {
+            continue;
+        }
+        let is_chapter: bool = db.query_row(
+            "SELECT kind='chapter' FROM documents WHERE id=? AND trashed=0",
+            [&source.source.document_id],
+            |row| row.get(0),
+        )?;
+        if !is_chapter {
+            continue;
+        }
+
+        let source_epoch = parse_version(&frozen.snapshot.context_source_epoch)?;
+        let policy_epoch = parse_version(&frozen.policy.version)?;
+        let mut statement = db.prepare(
+            "SELECT v.id FROM memory_views v
+             JOIN memory_jobs j ON j.id=v.job_id
+             JOIN memory_results r ON r.job_id=v.job_id
+             WHERE v.project_id=? AND v.operation_namespace=? AND v.document_id=?
+               AND v.source_revision_id=? AND v.source_body_hash=?
+               AND v.context_source_epoch=? AND v.disclosure_policy_epoch=?
+               AND v.installed_current=1 AND j.status='completed'
+               AND r.outcome='completed' AND r.candidate_json IS NOT NULL
+             ORDER BY v.created_at DESC,v.rowid DESC,v.id DESC",
+        )?;
+        let ids = statement
+            .query_map(
+                params![
+                    &frozen.snapshot.project_id,
+                    &current_namespace,
+                    &source.source.document_id,
+                    &source.source.revision_id,
+                    &source.source.body_hash,
+                    source_epoch,
+                    policy_epoch,
+                ],
+                |row| row.get::<_, String>(0),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        if ids.is_empty() {
+            continue;
+        }
+        // A source in the frozen manifest is already policy-eligible.  Read
+        // the exact original revision once, then validate each candidate
+        // against that retained prose before it can enter the packet.
+        let source_read = read_source(db, frozen, &source.handle)?;
+        for view_id in ids {
+            let Some(view) = read_current_navigation_view(
+                db,
+                frozen,
+                source,
+                &source_read,
+                &current_namespace,
+                &view_id,
+            )?
+            else {
+                continue;
+            };
+            selected.push(view);
+            break;
+        }
+    }
+    Ok(selected)
+}
+
+/// Read one candidate in its immutable job/result/view chain. Invalid or
+/// stale current rows are ignored so an old aid cannot silently become a
+/// current fallback for a new freeze.
+fn read_current_navigation_view(
+    db: &Connection,
+    frozen: &FrozenContext,
+    source: &SourceDescriptor,
+    source_read: &SourceRead,
+    current_namespace: &str,
+    view_id: &str,
+) -> CoreResult<Option<FrozenNavigationView>> {
+    let view = match crate::projects::memory::validate_navigation_view_record(
+        db,
+        view_id,
+        &frozen.snapshot.snapshot_id,
+    ) {
+        Ok(view) => view,
+        Err(_) => return Ok(None),
+    };
+    let Some(candidate) = view.candidate.clone() else {
+        return Ok(None);
+    };
+    if view.project_id != frozen.snapshot.project_id
+        || view.operation_namespace != current_namespace
+        || view.document_id != source.source.document_id
+        || view.source != source.source
+        || view.context_source_epoch != frozen.snapshot.context_source_epoch
+        || view.disclosure_policy_version != frozen.policy.version
+        || !view.current
+        || candidate.source != source.source
+    {
+        return Ok(None);
+    }
+    let dependencies: Vec<SourceRef> = {
+        let mut deps = db.prepare(
+            "SELECT document_id,revision_id,body_hash FROM memory_view_sources
+             WHERE view_id=? ORDER BY document_id,revision_id,body_hash",
+        )?;
+        deps.query_map([view_id], |row| {
+            Ok(SourceRef {
+                project_id: view.project_id.clone(),
+                document_id: row.get(0)?,
+                revision_id: row.get(1)?,
+                body_hash: row.get(2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?
+    };
+    if dependencies != [source.source.clone()] {
+        return Ok(None);
+    }
+    let view = FrozenNavigationView {
+        reference: NavigationViewRef {
+            view_id: view.id,
+            project_id: view.project_id,
+            operation_namespace: view.operation_namespace,
+            content_hash: navigation_content_hash(&candidate)?,
+        },
+        source_context_epoch: view.context_source_epoch,
+        disclosure_policy_version: view.disclosure_policy_version,
+        dependencies,
+        candidate,
+    };
+    if validate_navigation_view_payload(&view, source_read).is_err() {
+        return Ok(None);
+    }
+    Ok(Some(view))
 }
 
 fn epochs(db: &Connection) -> CoreResult<ContextEpochs> {
@@ -1121,6 +1326,7 @@ pub(super) fn validated_snapshot_record(
     id: &str,
 ) -> CoreResult<(FrozenContext, String)> {
     check_id(id)?;
+    navigation_pin_table_available(db)?;
     let row: Option<(String,String,String,String,i64,i64)> = db.query_row("SELECT project_id,operation_namespace,manifest_json,manifest_hash,context_source_epoch,disclosure_policy_epoch FROM story_snapshots WHERE id=?", [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).optional()?;
     let (project, namespace, json, hash, source_epoch, policy_epoch) = row.ok_or_else(|| {
         CoreError::new(
@@ -1185,6 +1391,12 @@ pub(super) fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContex
             "Unclassified aliases cannot enter restricted writing context.",
         ));
     }
+    validate_frozen_navigation_views(
+        &frozen.navigation_views,
+        &frozen.snapshot,
+        &frozen.policy,
+        frozen.purpose,
+    )?;
     validate_frozen_guidance(
         &frozen.guidance,
         &frozen.snapshot.project_id,
@@ -1295,6 +1507,135 @@ fn validate_pins(
                 "A pinned source no longer matches its exact revision or reader position.",
             ));
         }
+    }
+    validate_navigation_pins(db, frozen, snapshot_namespace)?;
+    Ok(())
+}
+
+fn validate_navigation_pins(
+    db: &Connection,
+    frozen: &FrozenContext,
+    snapshot_namespace: &str,
+) -> CoreResult<()> {
+    let table_exists = navigation_pin_table_available(db)?;
+    // Schema-16 manifests decode with an empty default field and remain
+    // readable during migration. A non-empty field always requires schema 17.
+    if !table_exists {
+        if frozen.navigation_views.is_empty() {
+            return Ok(());
+        }
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The frozen navigation view pins are missing.",
+        ));
+    }
+    let count: i64 = db.query_row(
+        "SELECT COUNT(*) FROM snapshot_navigation_views WHERE snapshot_id=?",
+        [&frozen.snapshot.snapshot_id],
+        |row| row.get(0),
+    )?;
+    if count != frozen.navigation_views.len() as i64 {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The frozen navigation view pin set is incomplete or has extras.",
+        ));
+    }
+    for view in &frozen.navigation_views {
+        let stored: Option<String> = db
+            .query_row(
+                "SELECT content_hash FROM snapshot_navigation_views
+                 WHERE snapshot_id=? AND view_id=?",
+                params![frozen.snapshot.snapshot_id, view.reference.view_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if stored.as_deref() != Some(view.reference.content_hash.as_str()) {
+            return Err(CoreError::new(
+                "InvalidContext",
+                "A frozen navigation view pin does not match its content fingerprint.",
+            ));
+        }
+        validate_navigation_view_record(db, frozen, snapshot_namespace, view)?;
+    }
+    Ok(())
+}
+
+/// Schema 17 makes generated-view pins part of the immutable project shape.
+/// Keep the missing-table fallback only for pre-17 legacy readers, which are
+/// migrated before normal project access; a tampered current database must
+/// fail even when every retained manifest has an empty navigation field.
+fn navigation_pin_table_available(db: &Connection) -> CoreResult<bool> {
+    let schema: i64 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let exists: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='snapshot_navigation_views')",
+        [],
+        |row| row.get(0),
+    )?;
+    if schema >= 17 && !exists {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The schema 17 project is missing immutable navigation view pins.",
+        ));
+    }
+    Ok(exists)
+}
+
+/// Authenticate an immutable generated view and its original memory-analysis
+/// snapshot. This intentionally does not compare the view's stored epoch with
+/// today's epoch: a historical frozen packet remains valid after later edits
+/// or disclosure revocation, while `load_snapshot` still enforces the live
+/// request policy before exposing it to callers.
+fn validate_navigation_view_record(
+    db: &Connection,
+    frozen: &FrozenContext,
+    snapshot_namespace: &str,
+    view: &FrozenNavigationView,
+) -> CoreResult<()> {
+    let stored = crate::projects::memory::validate_navigation_view_record(
+        db,
+        &view.reference.view_id,
+        &frozen.snapshot.snapshot_id,
+    )?;
+    let Some(stored_candidate) = stored.candidate.as_ref() else {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "A frozen navigation view has no validated candidate.",
+        ));
+    };
+    if stored.id != view.reference.view_id
+        || stored.project_id != view.reference.project_id
+        || stored.operation_namespace != view.reference.operation_namespace
+        || stored.project_id != frozen.snapshot.project_id
+        || stored.operation_namespace != snapshot_namespace
+        || stored.source != view.candidate.source
+        || stored.context_source_epoch != view.source_context_epoch
+        || stored.disclosure_policy_version != view.disclosure_policy_version
+        || stored_candidate != &view.candidate
+    {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "A frozen navigation view is not bound to its immutable memory record.",
+        ));
+    }
+    let mut deps = db.prepare(
+        "SELECT document_id,revision_id,body_hash FROM memory_view_sources
+         WHERE view_id=? ORDER BY document_id,revision_id,body_hash",
+    )?;
+    let stored_deps = deps
+        .query_map([&view.reference.view_id], |row| {
+            Ok(SourceRef {
+                project_id: stored.project_id.clone(),
+                document_id: row.get(0)?,
+                revision_id: row.get(1)?,
+                body_hash: row.get(2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    if stored_deps != view.dependencies {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "A frozen navigation view does not retain its complete source dependency set.",
+        ));
     }
     Ok(())
 }
@@ -1415,6 +1756,7 @@ fn literal_spans(text: &str, query: &str) -> Vec<(u32, u32)> {
 pub(crate) fn validate_context_storage(db: &Connection) -> CoreResult<()> {
     epochs(db)?;
     let schema: i64 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    navigation_pin_table_available(db)?;
     let has_reader_position: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM pragma_table_info('snapshot_sources') WHERE name='reader_position')",
         [],

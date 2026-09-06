@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 16;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 17;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -84,6 +84,9 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         }
         if version < 16 {
             tx.execute_batch(include_str!("016_memory.sql"))?;
+        }
+        if version < 17 {
+            tx.execute_batch(include_str!("017_navigation_context.sql"))?;
         }
         // Older readers also reject reviewed-basis JSON fields. The project
         // version prevents them from opening newer receipts for writing.

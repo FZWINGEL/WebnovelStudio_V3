@@ -14,6 +14,10 @@ use super::contracts::{
 use super::conversation::{ConversationTurn, validate_conversation};
 use super::eligibility::{EligibilityError, evaluate_sources};
 use super::guidance::{FrozenGuidance, validate_frozen_guidance};
+use super::navigation::{
+    FrozenNavigationView, NavigationOmissionReason, NavigationViewOmission, NavigationViewRef,
+    validate_frozen_navigation_views, validate_navigation_view_payload,
+};
 use crate::documents::{ScopeGrant, ScopeKind, ScopeValidationRequest, validate_scope};
 use crate::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
 use crate::validate_snapshot_json;
@@ -285,7 +289,29 @@ struct ContextEnvelope {
     recent_discussion: Vec<ConversationTurn>,
     #[serde(skip_serializing_if = "is_zero")]
     omitted_discussion_turns: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    derived_views: Option<DerivedViewsEnvelope>,
     omissions: Vec<String>,
+}
+
+/// Generated navigation is deliberately a separate envelope from original
+/// source coverage.  The labels are explicit so a provider cannot confuse an
+/// unreviewed digest with manuscript prose or an accepted summary.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DerivedViewsEnvelope {
+    coverage: &'static str,
+    representation: &'static str,
+    complete_candidate: bool,
+    views: Vec<DerivedView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DerivedView {
+    reference: NavigationViewRef,
+    dependencies: Vec<SourceRef>,
+    candidate: super::memory::DigestCandidate,
 }
 
 #[derive(Debug, Clone)]
@@ -295,10 +321,31 @@ struct SelectedSource {
     passages: Option<Vec<SourcePassage>>,
 }
 
+#[derive(Debug, Clone)]
+struct ValidatedNavigationView {
+    view: FrozenNavigationView,
+    source_handle: String,
+    /// Serialized derived-view payload bytes used to decide whether a digest
+    /// is smaller than the exact original source representation.
+    representation_bytes: usize,
+    original_bytes: usize,
+}
+
 /// Compile a frozen context into stable provider messages.
 pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketError> {
     validate_request_identity(request)?;
     validate_response_contract(request)?;
+    validate_frozen_navigation_views(
+        &request.frozen.navigation_views,
+        &request.frozen.snapshot,
+        &request.frozen.policy,
+        request.frozen.purpose,
+    )
+    .map_err(|error| PacketError::SourceBinding {
+        code: error.code,
+        message: error.detail,
+        handle: None,
+    })?;
     validate_conversation(
         request.frozen.conversation.as_ref(),
         &request.frozen.snapshot.project_id,
@@ -319,18 +366,6 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         message,
         handle: None,
     })?;
-    let available = match request.provider_binding.as_ref() {
-        Some(binding) => binding.input_limit().map_err(|message| {
-            PacketError::Budget(budget_error(
-                BudgetErrorCode::InvalidBudget,
-                0,
-                0,
-                Vec::new(),
-                &message,
-            ))
-        })?,
-        None => available_input_tokens(&request.budget)?,
-    };
     let mut mandatory_handles = mandatory_handles(request)?;
     let manifest_by_handle = manifest_by_handle(&request.frozen)?;
 
@@ -421,6 +456,21 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         }
     }
 
+    let validated_navigation_views = validate_navigation_views(request, &canonical_reads)?;
+
+    let available = match request.provider_binding.as_ref() {
+        Some(binding) => binding.input_limit().map_err(|message| {
+            PacketError::Budget(budget_error(
+                BudgetErrorCode::InvalidBudget,
+                0,
+                0,
+                Vec::new(),
+                &message,
+            ))
+        })?,
+        None => available_input_tokens(&request.budget)?,
+    };
+
     let requested_handles: Vec<String> = canonical_reads
         .iter()
         .map(|read| read.read.descriptor.handle.clone())
@@ -488,6 +538,11 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
     let canonical_by_handle: HashMap<String, CanonicalRead> = canonical_reads
         .into_iter()
         .map(|read| (read.read.descriptor.handle.clone(), read))
+        .collect();
+    let navigation_by_handle: HashMap<String, ValidatedNavigationView> = validated_navigation_views
+        .iter()
+        .cloned()
+        .map(|view| (view.source_handle.clone(), view))
         .collect();
 
     let options = match request.provider_binding.as_ref() {
@@ -599,6 +654,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         Packing {
             method: "fullText",
             conversation_turns: total_turns,
+            navigation_views: &[],
         },
         &options,
     )?;
@@ -610,6 +666,17 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             &full_sources,
             full_omissions,
             "fullText",
+            NavigationReceipt {
+                delivered_views: &[],
+                omissions: navigation_omissions(
+                    &validated_navigation_views,
+                    &[],
+                    full_sources
+                        .iter()
+                        .map(|source| source.read.read.descriptor.handle.as_str())
+                        .collect(),
+                ),
+            },
         );
     }
 
@@ -629,6 +696,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         Packing {
             method: "layeredExcerpt",
             conversation_turns: 0,
+            navigation_views: &[],
         },
         &options,
     )?;
@@ -663,6 +731,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             Packing {
                 method: "layeredExcerpt",
                 conversation_turns: count,
+                navigation_views: &[],
             },
             &options,
         )?;
@@ -681,6 +750,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             Packing {
                 method: "layeredExcerpt",
                 conversation_turns: included_turns,
+                navigation_views: &[],
             },
             &options,
         )?;
@@ -691,18 +761,96 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             &mandatory_sources,
             mandatory_omissions,
             "layeredExcerpt",
+            NavigationReceipt {
+                delivered_views: &[],
+                omissions: navigation_omissions(
+                    &validated_navigation_views,
+                    &[],
+                    mandatory_sources
+                        .iter()
+                        .map(|source| source.read.read.descriptor.handle.as_str())
+                        .collect(),
+                ),
+            },
         );
     }
 
-    // Add complete blocks in stable source/block order.  A block is either
-    // present in full or absent; no target or passage is ever truncated.
+    // First choose complete generated views in stable source order. A view is
+    // useful only when its full representation is smaller than the original
+    // source; it is never clipped or combined with duplicate source prose.
+    let mut delivered_views: Vec<FrozenNavigationView> = Vec::new();
+    let mut view_budget_blocked = false;
+    for handle in &optional_handles {
+        let Some(view) = navigation_by_handle.get(handle.as_str()) else {
+            continue;
+        };
+        if view.representation_bytes >= view.original_bytes {
+            continue;
+        }
+        if view_budget_blocked {
+            continue;
+        }
+        let mut candidate_views = delivered_views.clone();
+        candidate_views.push(view.view.clone());
+        let block_handles = optional_handles_without_views(
+            &optional_handles,
+            &candidate_views,
+            &navigation_by_handle,
+        );
+        let mut candidate_omissions = optional_omissions(
+            &block_handles,
+            &canonical_by_handle,
+            &HashMap::new(),
+            &directory_omissions,
+        );
+        candidate_omissions.extend(navigation_source_omissions(
+            &candidate_views,
+            &navigation_by_handle,
+        ));
+        let packet = build_serialized(
+            request,
+            &target_handle,
+            &target,
+            &mandatory_sources,
+            &candidate_omissions,
+            Packing {
+                method: "layeredExcerpt",
+                conversation_turns: included_turns,
+                navigation_views: &candidate_views,
+            },
+            &options,
+        )?;
+        if packet.input_tokens <= available {
+            delivered_views = candidate_views;
+        } else {
+            // Stable-prefix pressure: later views cannot displace an earlier
+            // view that did not fit at the same source priority.
+            view_budget_blocked = true;
+        }
+    }
+
+    // Add complete blocks in stable source/block order. A block is either
+    // present in full or absent; no target or passage is ever truncated. A
+    // source represented by a delivered view is removed from this fallback
+    // pass, so a digest and original prose can never be duplicated.
+    let optional_block_handles =
+        optional_handles_without_views(&optional_handles, &delivered_views, &navigation_by_handle);
     let mut selected = mandatory_sources;
     let mut selected_by_handle: HashMap<String, usize> = HashMap::new();
-    let mut omissions = mandatory_omissions;
+    let mut omissions = optional_omissions(
+        &optional_block_handles,
+        &canonical_by_handle,
+        &selected_by_handle,
+        &directory_omissions,
+    );
+    omissions.extend(navigation_source_omissions(
+        &delivered_views,
+        &navigation_by_handle,
+    ));
     // Borrow each source while trying its prefix. Materializing one cloned
     // source per block can multiply a valid large chapter into gigabytes,
     // even when the request budget will admit none of its blocks.
-    'sources: for handle in &optional_handles {
+    'sources: for handle in &optional_block_handles {
         let read = canonical_by_handle
             .get(handle.as_str())
             .expect("validated read");
@@ -711,8 +859,6 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             // We stop at the first block that does not fit, so a larger budget can
             // only extend this useful prefix and never replace earlier evidence with
             // a later, smaller block.
-            // Replace the previous partial source, keeping the source order
-            // stable while adding one complete block at a time.
             let mut replaced: Vec<SelectedSource> = selected
                 .iter()
                 .filter(|source| source.read.read.descriptor.handle != handle.as_str())
@@ -725,12 +871,16 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             });
             let mut candidate_counts = selected_by_handle.clone();
             candidate_counts.insert(handle.clone(), next_count);
-            let candidate_omissions = optional_omissions(
-                &optional_handles,
+            let mut candidate_omissions = optional_omissions(
+                &optional_block_handles,
                 &canonical_by_handle,
                 &candidate_counts,
                 &directory_omissions,
             );
+            candidate_omissions.extend(navigation_source_omissions(
+                &delivered_views,
+                &navigation_by_handle,
+            ));
             let packet = build_serialized(
                 request,
                 &target_handle,
@@ -740,6 +890,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
                 Packing {
                     method: "layeredExcerpt",
                     conversation_turns: included_turns,
+                    navigation_views: &delivered_views,
                 },
                 &options,
             )?;
@@ -753,8 +904,10 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         }
     }
 
-    // A source with no selected block remains an honest omission.  Partial
-    // sources no longer appear in omissions and have exactly one representation.
+    // A source with no selected block remains an honest omission. Partial
+    // sources no longer appear as budget omissions; delivered views retain a
+    // separate original-source omission so the receipt explains the
+    // representation change.
     let packet = build_serialized(
         request,
         &target_handle,
@@ -764,6 +917,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         Packing {
             method: "layeredExcerpt",
             conversation_turns: included_turns,
+            navigation_views: &delivered_views,
         },
         &options,
     )?;
@@ -774,6 +928,18 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         &selected,
         omissions,
         "layeredExcerpt",
+        NavigationReceipt {
+            delivered_views: &delivered_views,
+            omissions: navigation_omissions(
+                &validated_navigation_views,
+                &delivered_views,
+                selected
+                    .iter()
+                    .filter(|source| source.passages.is_none())
+                    .map(|source| source.read.read.descriptor.handle.as_str())
+                    .collect(),
+            ),
+        },
     )
 }
 
@@ -784,6 +950,7 @@ fn finish_packet(
     sources: &[SelectedSource],
     omissions: Vec<String>,
     method: &str,
+    navigation: NavigationReceipt<'_>,
 ) -> Result<CompiledPacket, PacketError> {
     let source_handles: Vec<String> = sources
         .iter()
@@ -823,6 +990,12 @@ fn finish_packet(
         }),
         coverage,
         omissions,
+        navigation_views: navigation
+            .delivered_views
+            .iter()
+            .map(|view| view.reference.clone())
+            .collect(),
+        navigation_omissions: navigation.omissions,
         input_hash: sha256_hex(packet.serialized.as_bytes()),
         input_tokens: packet.input_tokens.to_string(),
         token_accounting_method: options.token_accounting_method.clone(),
@@ -835,6 +1008,120 @@ fn finish_packet(
     })
 }
 
+/// Validate every frozen view against the exact resolved source before any
+/// budget branch is attempted. A generated candidate is never accepted merely
+/// because its durable reference appears in the frozen context.
+fn validate_navigation_views(
+    request: &PacketRequest,
+    reads: &[CanonicalRead],
+) -> Result<Vec<ValidatedNavigationView>, PacketError> {
+    let mut validated = Vec::with_capacity(request.frozen.navigation_views.len());
+    for view in &request.frozen.navigation_views {
+        let source = reads
+            .iter()
+            .find(|read| read.read.descriptor.source == view.candidate.source)
+            .ok_or_else(|| {
+                source_binding(
+                    "NavigationSourceReadMissing",
+                    "Every frozen navigation view must have its exact original source read.",
+                    Some(view.reference.view_id.clone()),
+                )
+            })?;
+        validate_navigation_view_payload(view, &source.read).map_err(|error| {
+            PacketError::SourceBinding {
+                code: error.code,
+                message: error.detail,
+                handle: Some(view.reference.view_id.clone()),
+            }
+        })?;
+        let derived = DerivedView {
+            reference: view.reference.clone(),
+            dependencies: view.dependencies.clone(),
+            candidate: view.candidate.clone(),
+        };
+        let representation_bytes =
+            serde_json::to_vec(&derived).map_err(|error| PacketError::InvalidRequest {
+                message: format!("failed to serialize frozen navigation view: {error}"),
+            })?;
+        let original_bytes =
+            serde_json::to_vec(&source.body).map_err(|error| PacketError::InvalidRequest {
+                message: format!("failed to serialize original source body: {error}"),
+            })?;
+        validated.push(ValidatedNavigationView {
+            view: view.clone(),
+            source_handle: source.read.descriptor.handle.clone(),
+            representation_bytes: representation_bytes.len(),
+            original_bytes: original_bytes.len(),
+        });
+    }
+    Ok(validated)
+}
+
+fn optional_handles_without_views(
+    optional_handles: &[String],
+    delivered_views: &[FrozenNavigationView],
+    navigation_by_handle: &HashMap<String, ValidatedNavigationView>,
+) -> Vec<String> {
+    let delivered_ids: HashSet<&str> = delivered_views
+        .iter()
+        .map(|view| view.reference.view_id.as_str())
+        .collect();
+    optional_handles
+        .iter()
+        .filter(|handle| {
+            navigation_by_handle
+                .get(handle.as_str())
+                .is_none_or(|view| !delivered_ids.contains(view.view.reference.view_id.as_str()))
+        })
+        .cloned()
+        .collect()
+}
+
+fn navigation_source_omissions(
+    delivered_views: &[FrozenNavigationView],
+    navigation_by_handle: &HashMap<String, ValidatedNavigationView>,
+) -> Vec<String> {
+    delivered_views
+        .iter()
+        .filter_map(|view| {
+            navigation_by_handle
+                .values()
+                .find(|validated| validated.view.reference.view_id == view.reference.view_id)
+                .map(|validated| {
+                    omission(
+                        &validated.source_handle,
+                        "navigation view delivered;original source omitted",
+                    )
+                })
+        })
+        .collect()
+}
+
+fn navigation_omissions(
+    views: &[ValidatedNavigationView],
+    delivered_views: &[FrozenNavigationView],
+    full_text_handles: HashSet<&str>,
+) -> Vec<NavigationViewOmission> {
+    let delivered_ids: HashSet<&str> = delivered_views
+        .iter()
+        .map(|view| view.reference.view_id.as_str())
+        .collect();
+    views
+        .iter()
+        .filter(|view| !delivered_ids.contains(view.view.reference.view_id.as_str()))
+        .map(|view| NavigationViewOmission {
+            view_id: view.view.reference.view_id.clone(),
+            reason: if full_text_handles.contains(view.source_handle.as_str()) {
+                NavigationOmissionReason::OriginalTextIncluded
+            } else if view.representation_bytes >= view.original_bytes {
+                NavigationOmissionReason::NotSmaller
+            } else {
+                NavigationOmissionReason::Budget
+            },
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 struct SerializedPacket {
     messages: Vec<PacketMessage>,
@@ -845,10 +1132,16 @@ struct SerializedPacket {
     omitted_discussion_turns: u32,
 }
 
+struct NavigationReceipt<'a> {
+    delivered_views: &'a [FrozenNavigationView],
+    omissions: Vec<NavigationViewOmission>,
+}
+
 #[derive(Clone, Copy)]
 struct Packing<'a> {
     method: &'a str,
     conversation_turns: usize,
+    navigation_views: &'a [FrozenNavigationView],
 }
 
 fn is_zero(value: &u32) -> bool {
@@ -918,6 +1211,20 @@ fn build_serialized(
         author_guidance: request.frozen.guidance.clone(),
         recent_discussion,
         omitted_discussion_turns,
+        derived_views: (!packing.navigation_views.is_empty()).then(|| DerivedViewsEnvelope {
+            coverage: "unreviewedGenerated",
+            representation: "digest",
+            complete_candidate: true,
+            views: packing
+                .navigation_views
+                .iter()
+                .map(|view| DerivedView {
+                    reference: view.reference.clone(),
+                    dependencies: view.dependencies.clone(),
+                    candidate: view.candidate.clone(),
+                })
+                .collect(),
+        }),
         omissions: omissions.to_vec(),
     };
     let system_content =

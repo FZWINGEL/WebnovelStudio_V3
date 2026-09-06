@@ -1057,6 +1057,8 @@ mod tests {
                 source_handles: vec!["source".into()],
                 mandatory_source_handles: Vec::new(),
                 guidance_handles: Vec::new(),
+                navigation_views: Vec::new(),
+                navigation_omissions: Vec::new(),
                 conversation_message_ids: Vec::new(),
                 omitted_discussion_turns: 0,
                 safe_brief: None,

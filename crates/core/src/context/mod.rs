@@ -8,6 +8,7 @@
 mod contracts;
 mod eligibility;
 pub mod memory;
+pub mod navigation;
 pub mod packet;
 
 pub use contracts::{

@@ -94,7 +94,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
     assert!(!original_json.contains("reviewedBasis"));
     drop(project);
     let db = Connection::open(path.join("project.sqlite3")).unwrap();
-    db.execute_batch("DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position")
+    db.execute_batch("DROP TABLE snapshot_navigation_views; DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position")
         .unwrap();
     db.pragma_update(None, "user_version", 14).unwrap();
     drop(db);
@@ -117,7 +117,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .head,
         saved.head
     );
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 16);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
     let backups: Vec<_> = fs::read_dir(path.join("migrations"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -128,9 +128,112 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .starts_with("schema14-before-schema16-")
+            .starts_with("schema14-before-schema17-")
     );
     assert_eq!(schema_version(&backups[0]), 14);
+}
+
+#[test]
+fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
+    let temp = TempDir::new("schema16-navigation");
+    let path = temp.child("legacy");
+    let (project, access, _, saved) = setup_project(&path);
+    let current = project
+        .document(access.clone(), saved.head.document_id.clone())
+        .unwrap();
+    let snapshot_id = freeze_one_snapshot(&project, &access, &current);
+    let frozen = project
+        .story_snapshot(access.clone(), snapshot_id.clone())
+        .unwrap();
+    assert!(frozen.navigation_views.is_empty());
+    let frozen_bytes = serde_json::to_vec(&frozen).unwrap();
+    assert!(!String::from_utf8_lossy(&frozen_bytes).contains("navigationViews"));
+    let packet = match project
+        .prepare_context(PrepareContext {
+            access: access.clone(),
+            operation_id: "schema16-packet".into(),
+            snapshot_id: snapshot_id.clone(),
+            instruction: "What promise was made?".into(),
+            mandatory_handles: Vec::new(),
+            transient_mandatory_handles: None,
+            safe_brief: None,
+            scope: None,
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
+            response_contract: None,
+        })
+        .unwrap()
+    {
+        PreparationResult::Prepared { packet, .. } => *packet,
+        _ => panic!("legacy packet must fit"),
+    };
+    let packet_bytes = serde_json::to_vec(&packet).unwrap();
+    assert!(!String::from_utf8_lossy(&packet_bytes).contains("navigationViews"));
+    assert!(!String::from_utf8_lossy(&packet_bytes).contains("navigationOmissions"));
+    drop(project);
+    let db = Connection::open(path.join("project.sqlite3")).unwrap();
+    let request_before: String = db
+        .query_row(
+            "SELECT request_json FROM context_packets WHERE id=?",
+            [&packet.receipt.packet_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TABLE snapshot_navigation_views; PRAGMA user_version=16;")
+        .unwrap();
+    drop(db);
+
+    let reopened = ProjectSession::open(&path).unwrap();
+    let access = reopened.attach("schema17-reader".into()).unwrap();
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
+    assert_eq!(
+        serde_json::to_vec(
+            &reopened
+                .story_snapshot(access.clone(), snapshot_id)
+                .unwrap()
+        )
+        .unwrap(),
+        frozen_bytes
+    );
+    assert_eq!(
+        serde_json::to_vec(
+            &reopened
+                .prepared_context(access.clone(), packet.receipt.packet_id.clone())
+                .unwrap()
+        )
+        .unwrap(),
+        packet_bytes
+    );
+    assert_eq!(
+        reopened
+            .document(access, saved.head.document_id.clone())
+            .unwrap()
+            .head,
+        saved.head
+    );
+    let db = Connection::open(path.join("project.sqlite3")).unwrap();
+    let request_after: String = db
+        .query_row(
+            "SELECT request_json FROM context_packets WHERE id=?",
+            [&packet.receipt.packet_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(request_before, request_after);
+    let pins: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM snapshot_navigation_views",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(pins, 0);
+    let backups: Vec<_> = fs::read_dir(path.join("migrations"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(backups.len(), 1);
+    assert_eq!(schema_version(&backups[0]), 16);
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -312,7 +415,7 @@ fn schema_version(path: &Path) -> i64 {
 fn remove_post_schema14_tables(connection: &Connection) {
     connection
         .execute_batch(
-            "DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position;
+            "DROP TABLE snapshot_navigation_views; DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position;
              DROP TRIGGER review_stages_no_update;
              DROP TRIGGER review_stages_no_delete;
              DROP TRIGGER ready_bundles_no_update;
@@ -379,7 +482,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 16);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -444,9 +547,9 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 16);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
     let connection =
-        Connection::open(path.join("project.sqlite3")).expect("open migrated schema16 database");
+        Connection::open(path.join("project.sqlite3")).expect("open migrated schema17 database");
     let discussion_tables: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='discussion_runs'",
@@ -550,7 +653,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 16);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 17);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     let safe_brief_column: i64 = connection
         .query_row(
@@ -683,7 +786,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 16);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 17);
     assert_eq!(
         recovered
             .context_source_epoch()

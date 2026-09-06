@@ -241,6 +241,14 @@ pub struct PacketReceipt {
     pub safe_brief: Option<SafeBriefReceipt>,
     pub coverage: Vec<CoverageEntry>,
     pub omissions: Vec<String>,
+    /// Frozen generated navigation views delivered in a separate derived-view
+    /// envelope. Original source handles above remain original-text coverage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub navigation_views: Vec<crate::context::navigation::NavigationViewRef>,
+    /// Available frozen views that were not delivered, with an explicit reason
+    /// kept separate from original-source omissions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub navigation_omissions: Vec<crate::context::navigation::NavigationViewOmission>,
     pub input_hash: String,
     pub input_tokens: String,
     pub token_accounting_method: String,

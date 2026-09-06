@@ -15,6 +15,14 @@ const descriptor = (handle: string, title: string): context.SourceDescriptor => 
 const first = descriptor('first', 'The promise'); const second = descriptor('second', 'The separation');
 const packet: context.CompiledPacket = { messages: [], options: { modelId: 'mock-story-context', maxOutputTokens: '100', tokenAccountingMethod: 'mock' }, receipt: { packetId: 'packet', sessionId: 'context', snapshotId: 'snapshot', invocationOrdinal: '0', sourceHandles: ['first'], coverage: [{ handle: 'first', label: 'fullText', detail: 'verbatim' }], omissions: ['handle:second;reason:optional source omitted by input budget;blocks:2'], inputHash: 'hash', inputTokens: '100', tokenAccountingMethod: 'mock' } };
 const frozen: context.FrozenContext = { snapshot: { snapshotId: 'snapshot', projectId: 'project', basis: 'working', target: first.source, contextSourceEpoch: '1', orderingEpoch: '1', disclosurePolicyVersion: '0', sources: [first, second] }, policy: { version: '0', audience: 'authorRoom', readerFrontier: null, characterId: null, characterGrants: [], allowAlternatives: false, allowHistorical: false }, purpose: 'discuss', aliases: {}, excludedSourceCount: 0 };
+const navigation: context.FrozenNavigationView = {
+  reference: { viewId: 'memory-view', projectId: 'project', operationNamespace: 'namespace', contentHash: 'digest-hash' },
+  sourceContextEpoch: '1', disclosurePolicyVersion: '0', dependencies: [second.source],
+  candidate: { schemaVersion: 'navigation-digest.v1', source: second.source, items: [{
+    text: 'Ren promised to return the key.', uncertainty: 'No later transfer was established.',
+    evidence: [{ blockId: 'old-block', fromUtf16: 0, toUtf16: 28, quote: 'Ren promised to return it.' }],
+  }] },
+};
 let host: HTMLDivElement; let root: Root;
 async function render(packetId = 'packet', refreshKey = '1', delivered = true) {
   await act(async () => root.render(<ContextInspector access={access} packetId={packetId} delivered={delivered} refreshKey={refreshKey} />));
@@ -29,6 +37,86 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('historical context inspection', () => {
+  it('separates delivered summaries from original text and opens the exact frozen evidence', async () => {
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, navigationViews: [navigation] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, navigationViews: [navigation.reference] } });
+    vi.mocked(context.readStoryContextSource).mockResolvedValue({ descriptor: second, usedValidatedProjection: false, body: { schemaVersion: 1, body: { type: 'doc', content: [] } }, passages: [{ handle: second.handle, source: second.source, blockId: 'old-block', blockOrder: 0, text: 'Exact evidence from the saved chapter.' }] });
+    await render();
+    expect(host.textContent).toContain('Used · 1 source · 1 generated summary');
+    expect(host.textContent).toContain('Available · 2 sources · 1 generated summary');
+    expect(host.textContent).toContain('The separation: a generated summary was supplied. The original text was not included.');
+    expect(host.querySelector('.context-navigation')?.textContent).toContain('Unreviewed chapter memory');
+    expect(host.querySelector('.context-navigation')?.textContent).toContain('Uncertainty: No later transfer was established.');
+    expect(host.querySelector('.context-navigation blockquote')?.textContent).toBe('Ren promised to return it.');
+    const button = host.querySelector('.context-navigation button') as HTMLButtonElement;
+    await act(async () => button.click());
+    expect(context.readStoryContextSource).toHaveBeenCalledWith(access, 'snapshot', 'second');
+    expect(host.querySelector('[aria-label="Saved story source"]')?.textContent).toContain('Exact evidence from the saved chapter.');
+    vi.mocked(context.preparedStoryContextIsCurrent).mockResolvedValue(false);
+    await render('packet', 'changed');
+    expect(host.textContent).toContain('Needs refresh');
+    expect(host.querySelector('.context-navigation')?.textContent).toContain('Ren promised to return the key.');
+  });
+  it.each([
+    ['originalTextIncluded', 'the original text was included instead'],
+    ['budget', 'it did not fit within the request budget'],
+    ['notSmaller', 'it would not reduce the size of the supplied context'],
+  ] as const)('reports an available but undelivered summary: %s', async (reason, explanation) => {
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, navigationViews: [navigation] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, navigationOmissions: [{ viewId: navigation.reference.viewId, reason }] } });
+    await render('packet', '1', false);
+    expect(host.textContent).toContain('Prepared · 1 source · 0 generated summaries');
+    expect(host.querySelector('.context-inspector details[open] .context-navigation')).toBeNull();
+    expect(host.textContent).toContain(`The separation summary: ${explanation}.`);
+    expect(host.textContent).toContain('Delivery has not been confirmed');
+  });
+  it('never reads a current chapter as a fallback for a missing exact dependency', async () => {
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, navigationViews: [{ ...navigation, dependencies: [{ ...second.source, revisionId: 'older-revision' }] }] });
+    await render();
+    const button = host.querySelector('.context-navigation button') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    await act(async () => button.click());
+    expect(context.readStoryContextSource).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Source unavailable');
+  });
+  it('clears generated text and discards a late evidence failure after project replacement', async () => {
+    let reject!: (reason: unknown) => void;
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, navigationViews: [navigation] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, navigationViews: [navigation.reference] } });
+    vi.mocked(context.readStoryContextSource).mockReturnValue(new Promise((_resolve, fail) => { reject = fail; }));
+    await render();
+    await act(async () => (host.querySelector('.context-navigation button') as HTMLButtonElement).click());
+    vi.mocked(context.preparedStoryContext).mockRejectedValue({ detail: 'This request belongs to a different project.' });
+    await act(async () => root.render(<ContextInspector access={{ ...access, projectId: 'other-project', operationNamespace: 'other-namespace' }} packetId="packet" delivered refreshKey="1" />));
+    await act(async () => reject({ detail: 'Old source error including old private text.' }));
+    expect(host.textContent).not.toContain('Ren promised');
+    expect(host.textContent).not.toContain('Old source error');
+    expect(host.textContent).toContain('This request belongs to a different project.');
+  });
+  it.each(['evidence', 'search'])('clears the entire frozen context if policy is revoked during %s', async action => {
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, navigationViews: [navigation] });
+    const failure = { code: 'ContextPolicyChanged', detail: 'Source permissions changed.' };
+    vi.mocked(context.readStoryContextSource).mockRejectedValue(failure);
+    vi.mocked(context.searchStoryContext).mockRejectedValue(failure);
+    await render();
+    expect(host.textContent).toContain('Ren promised to return the key.');
+    if (action === 'evidence') {
+      await act(async () => (host.querySelector('.context-navigation button') as HTMLButtonElement).click());
+      expect(context.readStoryContextSource).toHaveBeenCalledOnce();
+    } else {
+      const input = host.querySelector('.context-search input') as HTMLInputElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'key');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await act(async () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+      expect(context.searchStoryContext).toHaveBeenCalledOnce();
+    }
+    expect(host.textContent).toContain('Source permissions changed.');
+    expect(host.textContent).not.toContain('Ren promised');
+    expect(host.textContent).not.toContain('The promise');
+    expect(host.querySelector('.context-search')).toBeNull();
+  });
   it('distinguishes author-reviewed earlier prose from the unfinished target without claiming delivery', async () => {
     const reviewedEarlier = { ...second, kind: 'reviewedAuthority' as const };
     vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen,

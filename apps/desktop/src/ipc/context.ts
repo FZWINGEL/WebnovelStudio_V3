@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { WnsDocument } from '../editor/document';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { FrozenGuidance } from './guidance';
+import type { DigestCandidate } from './memory';
 
 export type ContextPurpose = 'discuss' | 'revise' | 'continue' | 'plan' | 'storyQuestion' | 'memoryAnalysis';
 export type ContextAudience = 'authorRoom' | 'restrictedWriting';
@@ -43,7 +44,14 @@ export interface FrozenContext {
   aliases: Record<string, string[]>; excludedSourceCount: number;
   guidance?: FrozenGuidance[];
   conversation?: FrozenConversation;
+  navigationViews?: FrozenNavigationView[];
 }
+export interface NavigationViewRef { viewId: string; projectId: string; operationNamespace: string; contentHash: string }
+export interface FrozenNavigationView {
+  reference: NavigationViewRef; sourceContextEpoch: string; disclosurePolicyVersion: string;
+  dependencies: SourceRef[]; candidate: DigestCandidate;
+}
+export interface NavigationViewOmission { viewId: string; reason: 'originalTextIncluded' | 'budget' | 'notSmaller' }
 export interface ConversationMessage { id: string; content: string; scope: ScopeGrant | null }
 export interface ConversationTurn { runId: string; packetId: string; sourceSnapshotId: string; policyVersion: string; user: ConversationMessage; assistant: ConversationMessage }
 export interface FrozenConversation { projectId: string; operationNamespace: string; documentId: string; threadId: string; turns: ConversationTurn[]; omittedTurns: number }
@@ -62,6 +70,8 @@ export interface PacketReceipt {
   packetId: string; sessionId: string; snapshotId: string; invocationOrdinal: string;
   sourceHandles: string[]; mandatorySourceHandles?: string[]; coverage: Array<{ handle: string; label: string; detail: CoverageDetail }>;
   guidanceHandles?: string[];
+  navigationViews?: NavigationViewRef[];
+  navigationOmissions?: NavigationViewOmission[];
   safeBrief?: { text: string; textHash: string; originMessageId: string | null };
   conversationMessageIds?: string[];
   omittedDiscussionTurns?: number;

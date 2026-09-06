@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::context::memory::{DigestCandidate, MAX_RAW_BYTES, validate_navigation_digest};
+use crate::context::navigation::navigation_content_hash;
 use crate::context::packet::{
     CompiledPacket, MEMORY_RESPONSE_CONTRACT, MockContextBudget, PacketError, PacketRequest,
     ProviderBinding, compile_packet, serialized_input,
@@ -815,6 +816,11 @@ impl OwnedProject {
                 )
             })
             .and_then(|candidate| serde_json::to_string(candidate).map_err(CoreError::from))?;
+        // The immutable frozen packet derives its view fingerprint from this
+        // canonical candidate.  Compute it at installation time as a bounded
+        // integrity check without adding mutable state to the view row.
+        let candidate: DigestCandidate = serde_json::from_str(&candidate_json)?;
+        navigation_content_hash(&candidate)?;
         let (frozen, namespace) =
             story_context::validated_snapshot_record(&tx, &current.snapshot_id)?;
         if namespace != owner.operation_namespace || frozen.snapshot.project_id != owner.project_id
@@ -1706,6 +1712,75 @@ fn read_memory_view(db: &Connection, job_id: &str, reveal: bool) -> CoreResult<O
         historical: false,
         created_at,
     }))
+}
+
+/// Validate one generated view through its owning immutable memory job.  The
+/// caller supplies the enclosing story snapshot so a malformed database
+/// cannot make a frozen navigation view validate itself recursively.
+pub(super) fn validate_navigation_view_record(
+    db: &Connection,
+    view_id: &str,
+    enclosing_snapshot_id: &str,
+) -> CoreResult<MemoryView> {
+    check_id(view_id)?;
+    let job_id: Option<String> = db
+        .query_row(
+            "SELECT job_id FROM memory_views WHERE id=?",
+            [view_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let job_id = job_id.ok_or_else(|| {
+        CoreError::new(
+            "InvalidMemoryStorage",
+            "The frozen navigation view refers to a missing generated view.",
+        )
+    })?;
+    let row = read_memory_job_row(db, &job_id)?;
+    if row.snapshot_id == enclosing_snapshot_id {
+        return Err(CoreError::new(
+            "InvalidMemoryStorage",
+            "A generated navigation view recursively refers to its enclosing snapshot.",
+        ));
+    }
+    // Close the recursion boundary before the general memory validator asks
+    // the context owner to validate this snapshot's immutable pins.
+    let (snapshot_project, snapshot_namespace, snapshot_json, snapshot_hash): (
+        String,
+        String,
+        String,
+        String,
+    ) = db.query_row(
+        "SELECT project_id,operation_namespace,manifest_json,manifest_hash
+         FROM story_snapshots WHERE id=?",
+        [&row.snapshot_id],
+        |query| Ok((query.get(0)?, query.get(1)?, query.get(2)?, query.get(3)?)),
+    )?;
+    let snapshot = crate::projects::story_context::decode_snapshot(&snapshot_json, &snapshot_hash)?;
+    if snapshot_project != row.project_id
+        || snapshot_namespace != row.operation_namespace
+        || snapshot.purpose != ContextPurpose::MemoryAnalysis
+        || !snapshot.navigation_views.is_empty()
+    {
+        return Err(CoreError::new(
+            "InvalidMemoryStorage",
+            "A generated navigation view needs a closed MemoryAnalysis snapshot.",
+        ));
+    }
+    validate_memory_job_record(db, &row)?;
+    let view = read_memory_view(db, &job_id, true)?.ok_or_else(|| {
+        CoreError::new(
+            "InvalidMemoryStorage",
+            "The generated navigation view could not be read after validation.",
+        )
+    })?;
+    if view.id != view_id {
+        return Err(CoreError::new(
+            "InvalidMemoryStorage",
+            "The generated navigation view identity does not match its memory job.",
+        ));
+    }
+    Ok(view)
 }
 
 fn resolve_view_current(db: &Connection, mut view: MemoryView) -> CoreResult<MemoryView> {

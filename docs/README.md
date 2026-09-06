@@ -1,6 +1,6 @@
 # V3 documentation index
 
-Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The native development app has persistent writing, project management, discussion, exact context inspection, adopted guidance, saved sources, optional approved writing briefs, selected-passage Apply/Reject, history, export previews, bounded Codex integration, author-only exact chapter review, the F2-B core freeze of reviewed earlier chapters plus a current working target, and schema-8 V2 import. Continuation UI/live dispatch, ready export, typed reviewed-story authority, richer memory, broader providers, and full release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
+Start with the product requirements and [implementation status](IMPLEMENTATION_STATUS.md). The native development app has persistent writing, project management, discussion, exact context inspection, adopted guidance, saved sources, optional approved writing briefs, selected-passage Apply/Reject, history, export previews, bounded Codex integration, author-only exact chapter review, the F2-B core freeze of reviewed earlier chapters plus a current working target, explicit chapter memory with automatic reuse of current generated views in working discussions, and schema-8 V2 import. Continuation UI/live dispatch, ready export, typed reviewed-story authority, richer memory, broader providers, and full release qualification remain open. Design documents describe the target; source and executed checks establish current behavior.
 
 | Read | Document | Responsibility |
 | --- | --- | --- |
@@ -25,6 +25,7 @@ Start with the product requirements and [implementation status](IMPLEMENTATION_S
 | 6m | [Author review ADR](ADR_0012_AUTHOR_REVIEW.md) | Development slice for exact staged chapter/revision review, explicit Mark, restart/changed-earlier status, and recovered-copy boundaries; full F2 remains open |
 | 6n | [Reviewed context ADR](ADR_0013_REVIEWED_CONTEXT.md) | Exact earlier authority manifests, working continuation target, historical evidence, and the separate dispatch boundary |
 | 6o | [Chapter memory ADR](ADR_0014_CHAPTER_MEMORY.md) | C4 implementation contract for explicit chapter analysis, exact evidence, generated views, and local result recovery |
+| 6p | [Navigation context ADR](ADR_0015_NAVIGATION_CONTEXT.md) | C4-B frozen generated-view identities, automatic discussion packing, exact evidence, historical retention, and coverage inspection |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |

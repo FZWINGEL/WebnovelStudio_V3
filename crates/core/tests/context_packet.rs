@@ -114,6 +114,7 @@ fn frozen(
         excluded_source_count: 0,
         guidance: Vec::new(),
         conversation: None,
+        navigation_views: Vec::new(),
     })
 }
 

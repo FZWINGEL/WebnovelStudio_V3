@@ -1096,6 +1096,93 @@ try {
   assert.equal(memoryPolicy.revoked.jobs[0].result.candidate, null);
   assert.equal(memoryPolicy.blocked?.code, 'ContextPolicyChanged');
   checks.push('Native memory inspection resolves the exact saved chapter; disclosure revocation hides retained generated text and evidence and blocks further source lookup');
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  const navigationFixture = await page.evaluate(async () => {
+    const invoke = (command, args) => window.__TAURI_INTERNALS__.invoke(command, args);
+    const opened = await invoke('library_create', { operationId: 'navigation-native-project', title: 'Remembered story', session: 'navigation-native' });
+    const create = (id, title, text) => invoke('create_document', { request: {
+      access: opened.access, operationId: `create-${id}`, documentId: id, title, kind: 'chapter',
+      body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id }, content: [{ type: 'text', text }] }] } },
+    } });
+    const target = await create('navigation-target', 'The return', 'Mei waited for Ren to explain what happened to the silver key.');
+    const old = await create('navigation-old', 'The old promise', 'Ren promised to return the silver key. '.repeat(3000));
+    await create('navigation-middle', 'The long journey', 'The road wound through the valley. '.repeat(3600));
+    const modelSelection = (await invoke('provider_state')).settings.active;
+    const job = await invoke('start_memory', { request: { access: opened.access, operationId: 'navigation-memory', expected: old.head,
+      modelSelection, budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' } } });
+    const deadline = Date.now() + 15000;
+    let read;
+    do {
+      read = await invoke('read_memory', { access: opened.access, documentId: old.head.documentId });
+      if (read.views.length) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } while (Date.now() < deadline);
+    if (!read.views.length) throw new Error(`Navigation memory fixture failed: ${JSON.stringify(read.jobs)}`);
+    return { target, view: read.views[0], projectId: opened.project.projectId, jobId: job.id };
+  });
+  await page.reload();
+  await page.getByRole('button', { name: /^Remembered story Last opened/ }).click();
+  await page.getByRole('heading', { name: 'The return', exact: true }).waitFor();
+  const beforeNavigation = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
+  await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).fill('What was the old promise about the silver key?');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('.persistent-feedback article').filter({ hasText: 'This test confirms discussion and context handling' }).waitFor();
+  if (await page.locator('.context-inspector').getAttribute('open') === null) await page.locator('.context-inspector>summary').click();
+  await page.locator('.context-inspector > details[open] > summary').filter({ hasText: /Used .*1 generated summary/ }).waitFor();
+  const navigationRow = page.locator('.context-inspector > details[open] .context-navigation').first();
+  await navigationRow.locator('details > summary').first().click();
+  await navigationRow.getByText('Unreviewed chapter memory.', { exact: false }).waitFor();
+  await navigationRow.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'navigation-context.png') });
+  await navigationRow.getByText('Evidence for this summary', { exact: true }).click();
+  await navigationRow.locator('blockquote').filter({ hasText: 'Ren promised to return the silver key.' }).waitFor();
+  await navigationRow.getByRole('button', { name: 'Open original evidence · The old promise', exact: true }).click();
+  const originalNavigationText = await page.getByRole('region', { name: 'Saved story source' }).innerText();
+  assert(originalNavigationText.includes('Ren promised to return the silver key.'));
+  assert(originalNavigationText.length > 100000, 'Inspection must read the full retained source, not just the digest quote');
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeNavigation);
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  const navigationRetention = await page.evaluate(async fixture => {
+    const invoke = (command, args) => window.__TAURI_INTERNALS__.invoke(command, args);
+    const entry = (await invoke('library_snapshot')).entries.find(item => item.projectId === fixture.projectId);
+    const opened = await invoke('open_project', { path: entry.path, session: 'navigation-retention' });
+    const discussion = await invoke('read_discussion', { access: opened.access, documentId: fixture.target.head.documentId });
+    const run = discussion.runs[0];
+    const packet = await invoke('prepared_story_context', { access: opened.access, packetId: run.packetId });
+    const frozen = await invoke('story_context_snapshot', { access: opened.access, snapshotId: packet.receipt.snapshotId });
+    const old = opened.documents.find(item => item.head.documentId === fixture.view.documentId);
+    await invoke('save_snapshot', { request: { access: opened.access, operationId: 'change-navigation-source', expected: old.head, localGeneration: '1', cause: 'typing',
+      body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'navigation-old' }, content: [{ type: 'text', text: 'The key was returned.' }] }] } } } });
+    const historical = await invoke('prepared_story_context', { access: opened.access, packetId: run.packetId });
+    const current = await invoke('prepared_story_context_is_current', { access: opened.access, packetId: run.packetId });
+    const fresh = await invoke('freeze_story_context', { request: { access: opened.access, operationId: 'navigation-after-change', expected: fixture.target.head, basis: 'working', purpose: 'discuss', policy: frozen.policy } });
+    let projectMemoryJobs = 0;
+    for (const document of opened.documents) {
+      const read = await invoke('read_memory', { access: opened.access, documentId: document.head.documentId });
+      projectMemoryJobs += read.jobs.length;
+    }
+    return { packet, frozen, historical, current, freshViews: fresh.navigationViews ?? [], projectMemoryJobs };
+  }, navigationFixture);
+  assert.equal(navigationRetention.packet.receipt.navigationViews.length, 1);
+  assert.equal(navigationRetention.packet.receipt.navigationViews[0].viewId, navigationFixture.view.id);
+  assert.equal(navigationRetention.frozen.navigationViews[0].candidate.source.revisionId, navigationFixture.view.source.revisionId);
+  const navigationEnvelope = JSON.parse(navigationRetention.packet.messages[1].content);
+  assert.equal(navigationEnvelope.derivedViews.views.length, 1);
+  assert.equal(navigationEnvelope.derivedViews.coverage, 'unreviewedGenerated');
+  assert.equal(navigationEnvelope.derivedViews.representation, 'digest');
+  assert.deepEqual(navigationRetention.historical, navigationRetention.packet);
+  assert.equal(navigationRetention.current, false);
+  assert.deepEqual(navigationRetention.freshViews, []);
+  assert.equal(navigationRetention.projectMemoryJobs, 1);
+  await page.reload();
+  await page.getByRole('button', { name: /^Remembered story Last opened/ }).click();
+  if (await page.locator('.context-inspector').getAttribute('open') === null) await page.locator('.context-inspector>summary').click();
+  await page.locator('.context-inspector .stale-notice').filter({ hasText: 'Needs refresh' }).waitFor();
+  await page.locator('.context-inspector > details[open] .context-navigation').waitFor();
+  assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeNavigation);
+  checks.push('Native ordinary discussion automatically supplies existing generated memory when full prose exceeds its allowance, exposes exact evidence, preserves the manuscript and historical packet across changes/reload, and excludes stale views without another memory job');
   assert.deepEqual(errors, []);
   await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'This flow uses only the local test model; live-provider qualification is separate. Durable Apply supports single-line passage replacements only', 'Backup/recovery dialog journeys remain separate W3 checks; this flow covers native draft Save/Cancel'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));
