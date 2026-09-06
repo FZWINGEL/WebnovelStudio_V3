@@ -312,6 +312,10 @@ CREATE TRIGGER proposal_versions_immutable_update BEFORE UPDATE ON proposal_vers
 CREATE TRIGGER proposal_versions_immutable_delete BEFORE DELETE ON proposal_versions BEGIN SELECT RAISE(ABORT,'Immutable prepared proposal'); END;
 CREATE TRIGGER proposal_decisions_immutable_update BEFORE UPDATE ON proposal_decisions BEGIN SELECT RAISE(ABORT,'Immutable author decision'); END;
 CREATE TRIGGER proposal_decisions_immutable_delete BEFORE DELETE ON proposal_decisions BEGIN SELECT RAISE(ABORT,'Immutable author decision'); END;
+ALTER TABLE review_stages DROP COLUMN promises_json;
+ALTER TABLE review_stages DROP COLUMN promises_hash;
+ALTER TABLE ready_bundles DROP COLUMN promises_json;
+ALTER TABLE ready_bundles DROP COLUMN promises_hash;
 PRAGMA user_version=21;
 PRAGMA foreign_keys=ON;
 "#,
@@ -705,7 +709,7 @@ fn schema22_rebuild_preserves_legacy_candidate_payload_receipt_and_decision() {
     let schema: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 22);
+    assert_eq!(schema, 23);
     let (run_id, ordinal): (String, i64) = migrated
         .query_row(
             "SELECT run_id,ordinal FROM proposals WHERE id=?",

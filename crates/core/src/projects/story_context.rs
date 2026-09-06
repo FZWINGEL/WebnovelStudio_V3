@@ -11,6 +11,10 @@ use crate::context::reviewed_evidence::{
     ReviewedEvidenceSet, from_storage_parts, validate_evidence_payload,
     validate_frozen_evidence_set,
 };
+use crate::context::reviewed_promises::{
+    ReviewedPromiseSet, from_storage_parts as promise_from_storage_parts,
+    validate_frozen_promise_set, validate_promise_payload,
+};
 use crate::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
     ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind, SourceRef,
@@ -67,6 +71,10 @@ pub struct FrozenContext {
     /// Empty legacy snapshots omit this field and retain their original JSON.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_evidence: Vec<ReviewedEvidenceSet>,
+    /// Complete author-reviewed promise sets selected from immutable bundles.
+    /// Empty legacy snapshots omit this field and retain their original JSON.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_promises: Vec<ReviewedPromiseSet>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -676,6 +684,7 @@ pub(super) fn freeze_reviewed_continuation_at(
     let mut reviewed_sources = Vec::with_capacity(prefix.len());
     let mut reviewed_source_refs = Vec::with_capacity(prefix.len());
     let mut reviewed_evidence = Vec::new();
+    let mut reviewed_promises = Vec::new();
     for item in &prefix {
         let revision = read_revision(tx, &item.revision_id)?;
         if revision.head != item.head {
@@ -741,21 +750,43 @@ pub(super) fn freeze_reviewed_continuation_at(
                     "The reviewed evidence source could not be matched to its frozen descriptor.",
                 )
             })?;
-        let records_hash = record_set.records_hash.ok_or_else(|| {
-            CoreError::new(
-                "InvalidReviewedRecords",
-                "A nonempty reviewed evidence set has no canonical hash.",
-            )
-        })?;
-        reviewed_evidence.push(from_storage_parts(
-            record_set.project_id,
-            record_set.operation_namespace,
-            record_set.bundle_id.clone(),
-            records_hash,
-            format!("reviewed-{}", record_set.bundle_id),
-            source.clone(),
-            record_set.records,
-        )?);
+        let source_handle = format!("reviewed-{}", record_set.bundle_id);
+        if !record_set.records.is_empty() {
+            let records_hash = record_set.records_hash.ok_or_else(|| {
+                CoreError::new(
+                    "InvalidReviewedRecords",
+                    "A nonempty reviewed evidence set has no canonical hash.",
+                )
+            })?;
+            reviewed_evidence.push(from_storage_parts(
+                record_set.project_id.clone(),
+                record_set.operation_namespace.clone(),
+                record_set.bundle_id.clone(),
+                records_hash,
+                source_handle.clone(),
+                source.clone(),
+                record_set.records.clone(),
+            )?);
+        }
+        if let Some(promises) = record_set.promises
+            && !promises.is_empty()
+        {
+            let promises_hash = record_set.promises_hash.ok_or_else(|| {
+                CoreError::new(
+                    "InvalidReviewedPromises",
+                    "A nonempty reviewed promise set has no canonical hash.",
+                )
+            })?;
+            reviewed_promises.push(promise_from_storage_parts(
+                record_set.project_id,
+                record_set.operation_namespace,
+                record_set.bundle_id,
+                promises_hash,
+                source_handle,
+                source.clone(),
+                promises,
+            )?);
+        }
     }
     let mut sources = Vec::with_capacity(prefix.len() + 1);
     sources.push(SourceDescriptor {
@@ -815,9 +846,13 @@ pub(super) fn freeze_reviewed_continuation_at(
         conversation: None,
         navigation_views: Vec::new(),
         reviewed_evidence,
+        reviewed_promises,
     };
     for evidence in &frozen.reviewed_evidence {
         validate_frozen_evidence_set(evidence, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
+    for promises in &frozen.reviewed_promises {
+        validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
     let json = serde_json::to_string(&frozen)?;
     tx.execute(
@@ -1070,6 +1105,7 @@ fn freeze_story_impl(
         },
         navigation_views: Vec::new(),
         reviewed_evidence: Vec::new(),
+        reviewed_promises: Vec::new(),
     };
     frozen.navigation_views = select_navigation_views_at(tx, &frozen)?;
     if frozen.policy.audience == Audience::AuthorRoom
@@ -1106,25 +1142,50 @@ fn freeze_story_impl(
                         "The reviewed evidence source could not be matched to its frozen descriptor.",
                     )
                 })?;
-            let records_hash = record_set.records_hash.ok_or_else(|| {
-                CoreError::new(
-                    "InvalidReviewedRecords",
-                    "A nonempty reviewed evidence set has no canonical hash.",
-                )
-            })?;
-            frozen.reviewed_evidence.push(from_storage_parts(
-                record_set.project_id,
-                record_set.operation_namespace,
-                record_set.bundle_id,
-                records_hash,
-                source.handle.clone(),
-                source.source.clone(),
-                record_set.records,
-            )?);
+            let source_handle = source.handle.clone();
+            if !record_set.records.is_empty() {
+                let records_hash = record_set.records_hash.ok_or_else(|| {
+                    CoreError::new(
+                        "InvalidReviewedRecords",
+                        "A nonempty reviewed evidence set has no canonical hash.",
+                    )
+                })?;
+                frozen.reviewed_evidence.push(from_storage_parts(
+                    record_set.project_id.clone(),
+                    record_set.operation_namespace.clone(),
+                    record_set.bundle_id.clone(),
+                    records_hash,
+                    source_handle.clone(),
+                    source.source.clone(),
+                    record_set.records.clone(),
+                )?);
+            }
+            if let Some(promises) = record_set.promises
+                && !promises.is_empty()
+            {
+                let promises_hash = record_set.promises_hash.ok_or_else(|| {
+                    CoreError::new(
+                        "InvalidReviewedPromises",
+                        "A nonempty reviewed promise set has no canonical hash.",
+                    )
+                })?;
+                frozen.reviewed_promises.push(promise_from_storage_parts(
+                    record_set.project_id,
+                    record_set.operation_namespace,
+                    record_set.bundle_id,
+                    promises_hash,
+                    source_handle,
+                    source.source.clone(),
+                    promises,
+                )?);
+            }
         }
     }
     for evidence in &frozen.reviewed_evidence {
         validate_frozen_evidence_set(evidence, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
+    for promises in &frozen.reviewed_promises {
+        validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
     validate_frozen_navigation_views(
         &frozen.navigation_views,
@@ -1500,6 +1561,9 @@ pub(super) fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContex
         &frozen.policy,
         frozen.purpose,
     )?;
+    for promises in &frozen.reviewed_promises {
+        validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
     validate_frozen_guidance(
         &frozen.guidance,
         &frozen.snapshot.project_id,
@@ -1545,6 +1609,19 @@ fn validate_pins(
             &evidence.source,
             &evidence.records_hash,
             &evidence.records,
+        )?;
+    }
+    for promises in &frozen.reviewed_promises {
+        validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+        let source = read_source(db, frozen, &promises.source_handle)?;
+        validate_promise_payload(promises, &source)?;
+        review_validation.validate_reviewed_promises(
+            &frozen.snapshot.project_id,
+            snapshot_namespace,
+            &promises.bundle_id,
+            &promises.source,
+            &promises.records_hash,
+            &promises.records,
         )?;
     }
     if let Some(manifest) = frozen.snapshot.reviewed_basis.as_ref() {

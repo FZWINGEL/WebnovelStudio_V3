@@ -166,6 +166,7 @@ fn working_frozen(
         conversation: None,
         navigation_views: Vec::new(),
         reviewed_evidence: evidence,
+        reviewed_promises: Vec::new(),
     }
 }
 
@@ -205,6 +206,7 @@ fn restricted_frozen(
         conversation: None,
         navigation_views: Vec::new(),
         reviewed_evidence: evidence,
+        reviewed_promises: Vec::new(),
     }
 }
 

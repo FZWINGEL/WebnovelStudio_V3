@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  preparedStoryContext, preparedStoryContextIsCurrent, readStoryContextSource, reviewedEvidenceHistory, searchStoryContext, storyContextSnapshot,
+  preparedStoryContext, preparedStoryContextIsCurrent, readStoryContextSource, reviewedEvidenceHistory, reviewedPromiseHistory, searchStoryContext, storyContextSnapshot,
   type CompiledPacket, type FrozenContext, type FrozenNavigationView, type ReviewedEvidenceSet, type SourceDescriptor, type SourceRead, type SourceRef,
 } from '../ipc/context';
 import type { ProjectAccess } from '../ipc/projects';
 import { EvidenceHistoryView } from './EvidenceHistoryView';
+import { PromiseHistoryView } from './PromiseHistoryView';
+import { permittedPromiseRows, PromiseContextRows } from './PromiseContextRows';
 
 function message(reason: unknown): string {
   if (reason && typeof reason === 'object' && 'detail' in reason) return String(reason.detail);
@@ -27,6 +29,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState<Awaited<ReturnType<typeof searchStoryContext>> | null>(null);
   const [history, setHistory] = useState<Awaited<ReturnType<typeof reviewedEvidenceHistory>> | null>(null);
+  const [promiseHistory, setPromiseHistory] = useState<Awaited<ReturnType<typeof reviewedPromiseHistory>> | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
@@ -35,7 +38,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   const sourceRequest = useRef(0);
   useEffect(() => {
     let cancelled = false;
-    setError(''); setState(null); setSource(null); setSearch(null); setHistory(null); setBusy(false); sourceRequest.current += 1;
+    setError(''); setState(null); setSource(null); setSearch(null); setHistory(null); setPromiseHistory(null); setBusy(false); sourceRequest.current += 1;
     void (async () => {
       try {
         const packet = await preparedStoryContext(access, packetId);
@@ -49,7 +52,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   }, [identity, refreshKey, reload]);
   function reportReadFailure(reason: unknown) {
     if (reason && typeof reason === 'object' && 'code' in reason && reason.code === 'ContextPolicyChanged') {
-      setState(null); setSource(null); setSearch(null); setHistory(null); sourceRequest.current += 1;
+      setState(null); setSource(null); setSearch(null); setHistory(null); setPromiseHistory(null); setBusy(false); sourceRequest.current += 1;
     }
     setError(message(reason));
   }
@@ -86,6 +89,18 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
     } catch (reason) { if (active.current === captured && sourceRequest.current === request) reportReadFailure(reason); }
     finally { if (active.current === captured && sourceRequest.current === request) setBusy(false); }
   }
+  async function findPromiseHistory(promiseId: string) {
+    if (!state || busy) return;
+    const captured = identity; const request = ++sourceRequest.current;
+    setBusy(true); setError(''); setPromiseHistory(null);
+    try {
+      const result = await reviewedPromiseHistory(access, state.frozen.snapshot.snapshotId, promiseId);
+      if (active.current !== captured || sourceRequest.current !== request) return;
+      if (result.snapshotId !== state.frozen.snapshot.snapshotId || result.history.promiseId !== promiseId) throw new Error('The promise history did not match this request. Try reading it again.');
+      setPromiseHistory(result);
+    } catch (reason) { if (active.current === captured && sourceRequest.current === request) reportReadFailure(reason); }
+    finally { if (active.current === captured && sourceRequest.current === request) setBusy(false); }
+  }
   const supplied = new Set(state?.packet.receipt.sourceHandles ?? []);
   const guidance = state?.frozen.guidance ?? [];
   const suppliedGuidance = new Set(state?.packet.receipt.guidanceHandles ?? []);
@@ -102,6 +117,15 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   const reviewedEvidenceCoverage = state?.packet.receipt.reviewedEvidence ?? [];
   const reviewedEvidenceOmissions = state?.packet.receipt.reviewedEvidenceOmissions ?? [];
   const restrictedAudience = state?.frozen.policy.audience === 'restrictedWriting';
+  const reviewedPromises = state?.frozen.reviewedPromises ?? [];
+  const promiseCoverage = state?.packet.receipt.reviewedPromises ?? [];
+  const promiseOmissions = state?.packet.receipt.reviewedPromiseOmissions ?? [];
+  const suppliedPromises = permittedPromiseRows(reviewedPromises, promiseCoverage, restrictedAudience, true);
+  const availablePromises = permittedPromiseRows(reviewedPromises, promiseCoverage, restrictedAudience, false);
+  const readHandle = (handle: string) => { const item = items.find(source => source.handle === handle); if (item) void read(item); };
+  function promiseRows(used: boolean) {
+    return <PromiseContextRows key={`${identity}/${used}`} rows={used ? suppliedPromises : availablePromises} sources={items} used={used} busy={busy} onRead={readHandle} onHistory={id => void findPromiseHistory(id)} />;
+  }
   function permittedReviewedRecord(record: ReviewedEvidenceSet['records'][number]): boolean {
     return !restrictedAudience || record.audience === 'reader';
   }
@@ -212,12 +236,13 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
       <p className="small-copy">{delivered ? state.packet.options.providerBinding ? 'The complete prepared packet was written to Codex for this response. This confirms local delivery, not that the model understood every source.' : 'Sources supplied for this response.' : 'Prepared sources. Delivery has not been confirmed.'} Opening a source reads its saved version.</p>
       {state.packet.options.providerBinding && <p className="small-copy">This packet uses {Number(state.packet.receipt.inputTokens).toLocaleString()} bytes of the app’s {Number(state.packet.options.providerBinding.inputLimitBytes).toLocaleString()}-byte input allowance. This is not a model token count or context-window limit. The full prepared input is preserved; mandatory text is never shortened to fit.</p>}
       {state.packet.receipt.safeBrief && <section className="context-safe-brief" aria-label="Approved writing brief"><strong>Author-approved writing brief</strong><p>{state.packet.receipt.safeBrief.text}</p><p className="small-copy">Exact directions shared for this edit request. The originating discussion was not added as context.</p></section>}
-      <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} {supplied.size === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${suppliedNavigation.length} generated ${suppliedNavigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedRecords(true).length ? ` · ${reviewedRecords(true).length} reviewed ${reviewedRecords(true).length === 1 ? 'detail' : 'details'}` : ''}{guidance.length > 0 ? ` · ${suppliedGuidance.size} ${suppliedGuidance.size === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${suppliedTurns.length} earlier ${suppliedTurns.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}{reviewedProvenanceRows(true)}{reviewedRows(true)}{navigationRows(true)}{guidanceRows(true)}{conversationRows(true)}</ul></details>
-      <details><summary>Available · {items.length} {items.length === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${navigation.length} generated ${navigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedEvidence.length ? ` · ${reviewedRecords(false).length} reviewed ${reviewedRecords(false).length === 1 ? 'detail' : 'details'}` : ''}{guidance.length > 0 ? ` · ${guidance.length} ${guidance.length === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${conversation.length} earlier ${conversation.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><p className="small-copy">Permitted for this request. Availability does not mean the model read every source.</p><ul>{items.map(row)}{reviewedProvenanceRows(false)}{reviewedRows(false)}{navigationRows(false)}{guidanceRows(false)}{conversationRows(false)}</ul></details>
+      <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} {supplied.size === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${suppliedNavigation.length} generated ${suppliedNavigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedRecords(true).length ? ` · ${reviewedRecords(true).length} reviewed ${reviewedRecords(true).length === 1 ? 'detail' : 'details'}` : ''}{suppliedPromises.length ? ` · ${suppliedPromises.length} promise ${suppliedPromises.length === 1 ? 'detail' : 'details'}` : ''}{guidance.length > 0 ? ` · ${suppliedGuidance.size} ${suppliedGuidance.size === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${suppliedTurns.length} earlier ${suppliedTurns.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}{reviewedProvenanceRows(true)}{reviewedRows(true)}{promiseRows(true)}{navigationRows(true)}{guidanceRows(true)}{conversationRows(true)}</ul></details>
+      <details><summary>Available · {items.length} {items.length === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${navigation.length} generated ${navigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedEvidence.length ? ` · ${reviewedRecords(false).length} reviewed ${reviewedRecords(false).length === 1 ? 'detail' : 'details'}` : ''}{availablePromises.length ? ` · ${availablePromises.length} promise ${availablePromises.length === 1 ? 'detail' : 'details'}` : ''}{guidance.length > 0 ? ` · ${guidance.length} ${guidance.length === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${conversation.length} earlier ${conversation.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><p className="small-copy">Permitted for this request. Availability does not mean the model read every source.</p><ul>{items.map(row)}{reviewedProvenanceRows(false)}{reviewedRows(false)}{promiseRows(false)}{navigationRows(false)}{guidanceRows(false)}{conversationRows(false)}</ul></details>
       <details><summary>Not included</summary>
         {state.packet.receipt.omissions.length ? <ul>{state.packet.receipt.omissions.map((text, i) => <li key={i}>{omission(text)}</li>)}</ul> : <p className="small-copy">All permitted sources fit this request.</p>}
         {navigationOmissions.length > 0 && <ul>{navigationOmissions.map(item => <li key={item.viewId}>{navigationOmission(item.viewId, item.reason)}</li>)}</ul>}
         {reviewedEvidenceOmissions.length > 0 && <ul>{reviewedEvidenceOmissions.map((item, index) => <li key={`${item.sourceHandle}/${item.bundleId}/${item.reason}/${index}`}>{reviewedOmission(item)}</li>)}</ul>}
+        {promiseOmissions.length > 0 && <ul>{promiseOmissions.map((item, index) => <li key={`promise/${item.sourceHandle}/${item.bundleId}/${item.reason}/${index}`}>{item.count} promise {item.count === 1 ? 'detail was' : 'details were'} withheld from {reviewedSourceName(item.sourceHandle)} by {item.reason === 'disclosure' ? 'the reader disclosure policy' : 'the request budget'}.</li>)}</ul>}
         {state.frozen.excludedSourceCount > 0 && <p className="small-copy">{state.frozen.excludedSourceCount} sources excluded by the request’s information boundary.</p>}
         {omittedTurns > 0 && <p className="small-copy">{omittedTurns} earlier complete {omittedTurns === 1 ? 'exchange was' : 'exchanges were'} not included. The full discussion remains saved.</p>}
       </details>
@@ -230,6 +255,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
         {search.hits.map((hit, index) => <div key={`${hit.passage.handle}/${hit.passage.blockId}/${index}`}><strong>{items.find(item => item.handle === hit.passage.handle)?.displayName}</strong><blockquote>{hit.passage.text}</blockquote></div>)}
       </div>}
       {history && <EvidenceHistoryView key={`${history.snapshotId}/${history.history.objectId}`} result={history} onClose={() => setHistory(null)} onRead={handle => { const item = items.find(source => source.handle === handle); if (item) void read(item); }} />}
+      {promiseHistory && <PromiseHistoryView key={`${promiseHistory.snapshotId}/${promiseHistory.history.promiseId}`} result={promiseHistory} onClose={() => setPromiseHistory(null)} onRead={readHandle} />}
       {source && <section className="context-source" aria-label="Saved story source"><div className="header-actions"><h3>{source.descriptor.displayName}</h3><button onClick={() => setSource(null)}>Close source</button></div><p className="small-copy">Exact source version retained with this request.</p>{source.passages.map(passage => source.body.body.content.find(block => block.attrs.id === passage.blockId)?.type === 'sceneBreak' ? <hr key={passage.blockId} /> : <p key={passage.blockId}>{passage.text || <br />}</p>)}</section>}
     </>}
   </details>;

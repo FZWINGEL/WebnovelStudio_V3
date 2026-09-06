@@ -1051,6 +1051,8 @@ try {
   await qualifyReviewedEvidence({ page, data, output, createWritingProject, checks });
   const { qualifyStructuredSuggestions } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-structured-suggestions.mjs')).href);
   await qualifyStructuredSuggestions({ page, data, output, createWritingProject, checks });
+  const { runPromiseHistoryFlow } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-promise-history.mjs')).href);
+  await runPromiseHistoryFlow({ page, data, output, createWritingProject, checks });
   await createWritingProject('Review story', 'chapter', 'The gate', 'Mei left the key beside the gate.');
   await page.getByRole('button', { name: 'Story review', exact: true }).click();
   await page.getByRole('button', { name: 'Review saved chapter', exact: true }).click();

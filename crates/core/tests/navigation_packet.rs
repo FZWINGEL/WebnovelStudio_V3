@@ -180,6 +180,7 @@ fn frozen(
         conversation: None,
         navigation_views,
         reviewed_evidence: Vec::new(),
+        reviewed_promises: Vec::new(),
     }
 }
 

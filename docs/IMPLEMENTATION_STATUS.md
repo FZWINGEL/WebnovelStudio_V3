@@ -5,13 +5,77 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. The prior C5-A checkpoint adds partial project-entity reuse, one-pass current-evidence freeze, and authenticated object history. App-local model preferences remain library schema 2.
+The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. App-local model preferences remain library schema 2.
 
 C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, C5/C6, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
 
 The explicit Settings connection check validates the exact supported Codex executable and login availability. A live request freezes GPT-5.6-Luna/Max/Fast and the exact packet, runs in an owned Windows process, and saves validated output plus delivery, usage, cleanup, and outcome evidence. Other models/configurations stay unavailable; the local test model works offline. Application byte caps are not provider token limits. See [ADR 0011](ADR_0011_LIVE_CODEX.md) and [qualification](CODEX_QUALIFICATION.md); this is development integration, not full W8 acceptance.
 
-### Current structured suggestions slice
+### Current C5 promise history slice
+
+[ADR 0021](ADR_0021_PROMISE_HISTORY.md) adds optional, exact passage-backed
+promise observations to schema-23 review stages and ReadyBundles. Authors can
+reuse one opaque promise identity across chapters, record setup, payoff,
+cancellation, or uncertainty, and inspect an authenticated history in chapter
+order. Each observation retains its quotation, source revision, short note,
+timing, and author-room or reader-disclosed audience. History always reports
+incomplete evidence; a missing payoff is never proof of resolution or absence.
+
+Omitted promise fields inherit the full previous set after source validation.
+An explicit empty array clears the set through a new immutable review; storage
+uses a nullable empty pair while operation receipts preserve the explicit
+request. Possession fields and legacy hashes remain unchanged. Promise-only
+review changes advance the context epoch and fence dependent later reviews
+without editing their prose. Copied and recovered projects retain historical
+records with independent namespaces and no copied review authority.
+
+Working author-room discussion packets and restricted reviewed continuation
+share exact promise authentication. Restricted delivery removes author-room
+record identities, labels, and notes before history or packet projection.
+Source prose has its own information policy: making a record private does not
+hide prose already permitted by the reviewed chapter. Available evidence and
+records actually delivered remain separate in the context inspector.
+
+The complete local wrapper passed **485 active Rust tests** (460 core and 25
+desktop; one existing ignored crash-child fixture), **319 frontend tests in 25
+files**, formatting, strict Clippy, TypeScript, and the production frontend
+build. Evidence: `.local/promises-check.log`. The local native diagnostic passes
+**44/45 checks** with zero errors, omitting only the previously documented local
+OS clipboard case. It covers exact lost-acknowledgment retry, cross-chapter
+identity reuse, history reads, restricted continuation, record-only fencing,
+clearing/reopen, and copied authority. Evidence: `.local/promises-native.log`
+and `.local/native-other-results/report.json`, dated
+`2026-09-06T08:00:51.377Z`, on WebView2 `152.0.4191.62`. The qualified executable SHA-256 is `b615a6c888cd5e48085967f44db582604c07807522920615c7722870f7bc48e1`, built `2026-09-06T07:57:34.418Z`. Native screenshots were
+inspected. Hosted qualification for this schema-23 checkpoint is pending.
+
+The twelfth bounded live generation delivered one reviewed promise in a
+Luna/Max/Fast author-room discussion. It quoted the promise and correctly
+distinguished missing payoff evidence from proof that it never happened.
+Prose stayed unchanged; no proposal or decision was created, and the completed
+discussion survived reopening. The response could not name its chapter because
+the packet supplied source identifiers and positions without its title.
+The corrected packet-v2 format now supplies frozen Author Room source names,
+including a promise chapter name when its full body is omitted. Restricted
+packets omit these labels. Stored v1 packets keep their exact original
+serialization, selection, and receipts; both versions retain the same validation
+checks and unknown versions are refused. Regression tests cover old packet
+budget selection, exact bytes and hashes, restart/backup, unknown versions,
+and missing or stray title fields. Original live evidence is
+retained in `.local/live-promise-initial-qualification/qualification.json`.
+
+The thirteenth generation was one fresh explicit request against the corrected
+packet. It named **The key and the promise**, quoted the promise, and correctly
+kept missing payoff evidence distinct from proof of non-occurrence. It
+completed with 4,333 confirmed stdin bytes and reported 1,917 input tokens,
+426 output tokens, and 344 reasoning tokens. Effective model settings remained
+unknown. It created no proposal/decision, preserved prose, and survived
+reopening without another call. Evidence:
+`.local/live-promise-named-qualification/qualification.json` and
+`.local/promises-live-named.log`. The total is now thirteen live generations.
+These are bounded integration/evidence-answer results, not a narrative-quality
+or general provider qualification.
+
+### Prior structured suggestions slice
 
 ADR 0020 adds explicit **Selected paragraphs** and **Whole chapter** scopes with
 typed rich blocks, editor-owned fresh IDs, a single editable rich preview, and
@@ -20,7 +84,7 @@ complete prepared snapshot; surrounding blocks, marks, scene breaks, hard
 breaks, and IDs remain protected. Whole-document endpoints are null in both
 wire representations, and changing the prepared scope revokes brief approval.
 Schema 22 preserves legacy schema-21 payloads, receipts, and decisions while
-using unique `(run_id, ordinal)` identities; the minimum reader is now 22. The
+using unique `(run_id, ordinal)` identities; that checkpoint required reader 22. The current schema-23 promise slice raises the reader floor to 23. The
 preview acknowledgment helper verifies the exact proposal, version, body hash,
 and typed payload without changing the wire protocol. Preview, preparation,
 Apply/Reject, and inspection make no model call; an explicit suggestion request
@@ -71,15 +135,12 @@ Rust schema-21 persistence, canonical hashing, exact UTF-16 anchor validation, r
 
 ### Next implementation focus
 
-The current source checkpoint passes hosted contract/native CI and the narrow
-installed-package lifecycle. The next C5 slice is passage-backed promise
-history in author-room discussions: reuse an opaque promise identity across
-chapters and retrieve its recorded setup, payoff, cancellation, or uncertainty
-with exact source references. It will extend immutable review records and
-frozen evidence, preserving historical order and explicit incomplete-coverage
-labels. No missing payoff may be treated as proof that one never occurred.
-Restricted knowledge/belief delivery requires its own later disclosure contract.
-This slice is planned, not implemented.
+The next context step is C6's bounded read-only lookup protocol, beginning with
+an experiment that qualifies the selected provider's typed lookup responses,
+frozen evidence reads, and shared invocation/usage allowance. Unsupported
+providers retain the deterministic packet route. It must not introduce paid
+autosave analysis, unlimited research, silent source widening, or manuscript
+writes. Knowledge and belief views still need a separate disclosure contract.
 
 Broader work remains: C5 relationship, knowledge/belief, rule, and multi-resolution
 digest views; C6 bounded model lookups; arbitrary partial multi-block editing,

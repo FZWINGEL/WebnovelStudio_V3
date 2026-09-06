@@ -24,6 +24,11 @@ use super::reviewed_evidence::{
     ReviewedEvidenceSet, eligible_records, record_id, records_hash, validate_evidence_payload,
     validate_frozen_evidence_set,
 };
+use super::reviewed_promises::{
+    ReviewedPromiseCoverage, ReviewedPromiseOmission, ReviewedPromiseOmissionReason,
+    ReviewedPromiseSet, eligible_records as eligible_promise_records,
+    records_hash as promise_records_hash, validate_frozen_promise_set, validate_promise_payload,
+};
 use crate::documents::{ScopeGrant, ScopeKind, ScopeValidationRequest, validate_scope};
 use crate::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
 use crate::validate_snapshot_json;
@@ -46,6 +51,31 @@ pub const CODEX_PROFILE_VERSION: &str = "0.153.3";
 pub const CODEX_INPUT_LIMIT_BYTES: usize = 24 * 1024;
 pub const CODEX_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 pub const CODEX_TOKEN_ACCOUNTING_METHOD: &str = "utf8-byte-count/codex-stdin-application-cap-v1";
+/// Stable envelope identifiers. Version 1 is retained solely for validating
+/// packets persisted before author-room source labels were added. New packets
+/// use version 2 through [`compile_packet`].
+pub(crate) const CONTEXT_PACKET_SCHEMA_V1: &str = "webnovelstudio.context.packet.v1";
+pub(crate) const CONTEXT_PACKET_SCHEMA_V2: &str = "webnovelstudio.context.packet.v2";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PacketSchemaVersion {
+    V1,
+    V2,
+}
+
+impl PacketSchemaVersion {
+    fn envelope_schema(self) -> &'static str {
+        match self {
+            Self::V1 => CONTEXT_PACKET_SCHEMA_V1,
+            Self::V2 => CONTEXT_PACKET_SCHEMA_V2,
+        }
+    }
+
+    fn includes_author_room_labels(self, audience: Audience) -> bool {
+        self == Self::V2 && audience == Audience::AuthorRoom
+    }
+}
+
 /// Frozen response contract used only for live, scoped proposal requests.
 /// The value is versioned so a future response shape can coexist with old
 /// packets without changing their historical input hash.
@@ -265,6 +295,11 @@ struct PacketPassage {
 struct PacketSource {
     handle: String,
     source: SourceRef,
+    /// Chapter/source titles are useful in an author-room discussion, but
+    /// remain omitted from restricted writing packets so a private title
+    /// cannot become an unintended disclosure channel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
     mandatory: bool,
     kind: SourceKind,
     coverage: CoverageLabel,
@@ -303,6 +338,8 @@ struct ContextEnvelope {
     derived_views: Option<DerivedViewsEnvelope>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reviewed_evidence: Option<ReviewedEvidenceEnvelope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reviewed_promises: Option<ReviewedPromiseEnvelope>,
     omissions: Vec<String>,
 }
 
@@ -358,6 +395,42 @@ struct PackedReviewedEvidence {
     projection_hash: String,
 }
 
+/// Promise observations use a separate envelope so a model cannot confuse a
+/// narrative thread with possession evidence. A partial set retains its
+/// complete bundle identity and reports coverage through the receipt.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewedPromiseEnvelope {
+    coverage: &'static str,
+    complete_record_set: bool,
+    sets: Vec<ReviewedPromisePacketSet>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewedPromisePacketSet {
+    project_id: String,
+    operation_namespace: String,
+    bundle_id: String,
+    records_hash: String,
+    projection_hash: String,
+    source_handle: String,
+    source: SourceRef,
+    /// The frozen chapter title is an author-room navigation aid.  It is
+    /// deliberately absent from restricted packets, including when the
+    /// original chapter body is omitted by layered packing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_display_name: Option<String>,
+    records: Vec<crate::projects::story_records::PromiseRecord>,
+}
+
+#[derive(Debug, Clone)]
+struct PackedReviewedPromises {
+    set: ReviewedPromiseSet,
+    records: Vec<crate::projects::story_records::PromiseRecord>,
+    projection_hash: String,
+}
+
 #[derive(Debug, Clone)]
 struct SelectedSource {
     read: CanonicalRead,
@@ -377,6 +450,22 @@ struct ValidatedNavigationView {
 
 /// Compile a frozen context into stable provider messages.
 pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketError> {
+    compile_packet_with_schema(request, PacketSchemaVersion::V2)
+}
+
+/// Recompile a historical packet using the original v1 envelope shape. This
+/// is crate-visible so persistence validation can reproduce stored bytes;
+/// callers creating new packets must use [`compile_packet`].
+pub(crate) fn compile_packet_legacy(
+    request: &PacketRequest,
+) -> Result<CompiledPacket, PacketError> {
+    compile_packet_with_schema(request, PacketSchemaVersion::V1)
+}
+
+fn compile_packet_with_schema(
+    request: &PacketRequest,
+    schema: PacketSchemaVersion,
+) -> Result<CompiledPacket, PacketError> {
     validate_request_identity(request)?;
     validate_response_contract(request)?;
     validate_frozen_navigation_views(
@@ -502,6 +591,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
 
     let validated_navigation_views = validate_navigation_views(request, &canonical_reads)?;
     let validated_reviewed_evidence = validate_reviewed_evidence(request, &canonical_reads)?;
+    let validated_reviewed_promises = validate_reviewed_promises(request, &canonical_reads)?;
 
     let available = match request.provider_binding.as_ref() {
         Some(binding) => binding.input_limit().map_err(|message| {
@@ -692,6 +782,8 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         .map_or(0, |c| c.turns.len());
     let full_evidence_omissions =
         reviewed_evidence_omissions(&validated_reviewed_evidence, &validated_reviewed_evidence);
+    let full_promise_omissions =
+        reviewed_promise_omissions(&validated_reviewed_promises, &validated_reviewed_promises);
     let full_packet = build_serialized(
         request,
         &target_handle,
@@ -699,10 +791,12 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         &full_sources,
         &full_omissions,
         Packing {
+            schema,
             method: "fullText",
             conversation_turns: total_turns,
             navigation_views: &[],
             reviewed_evidence: &validated_reviewed_evidence,
+            reviewed_promises: &validated_reviewed_promises,
         },
         &options,
     )?;
@@ -730,6 +824,10 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
                     delivered: &validated_reviewed_evidence,
                     omissions: &full_evidence_omissions,
                 },
+                promises: ReviewedPromiseReceipt {
+                    delivered: &validated_reviewed_promises,
+                    omissions: &full_promise_omissions,
+                },
             },
         );
     }
@@ -748,10 +846,12 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         &mandatory_sources,
         &mandatory_omissions,
         Packing {
+            schema,
             method: "layeredExcerpt",
             conversation_turns: 0,
             navigation_views: &[],
             reviewed_evidence: &[],
+            reviewed_promises: &[],
         },
         &options,
     )?;
@@ -784,10 +884,12 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             &mandatory_sources,
             &mandatory_omissions,
             Packing {
+                schema,
                 method: "layeredExcerpt",
                 conversation_turns: count,
                 navigation_views: &[],
                 reviewed_evidence: &[],
+                reviewed_promises: &[],
             },
             &options,
         )?;
@@ -798,6 +900,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
     }
     if included_turns != total_turns {
         let evidence_omissions = reviewed_evidence_omissions(&validated_reviewed_evidence, &[]);
+        let promise_omissions = reviewed_promise_omissions(&validated_reviewed_promises, &[]);
         let packet = build_serialized(
             request,
             &target_handle,
@@ -805,10 +908,12 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             &mandatory_sources,
             &mandatory_omissions,
             Packing {
+                schema,
                 method: "layeredExcerpt",
                 conversation_turns: included_turns,
                 navigation_views: &[],
                 reviewed_evidence: &[],
+                reviewed_promises: &[],
             },
             &options,
         )?;
@@ -834,6 +939,10 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
                 evidence: ReviewedEvidenceReceipt {
                     delivered: &[],
                     omissions: &evidence_omissions,
+                },
+                promises: ReviewedPromiseReceipt {
+                    delivered: &[],
+                    omissions: &promise_omissions,
                 },
             },
         );
@@ -878,10 +987,12 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             &mandatory_sources,
             &candidate_omissions,
             Packing {
+                schema,
                 method: "layeredExcerpt",
                 conversation_turns: included_turns,
                 navigation_views: &candidate_views,
                 reviewed_evidence: &[],
+                reviewed_promises: &[],
             },
             &options,
         )?;
@@ -934,10 +1045,12 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
                     &directory_omissions,
                 ),
                 Packing {
+                    schema,
                     method: "layeredExcerpt",
                     conversation_turns: included_turns,
                     navigation_views: &delivered_views,
                     reviewed_evidence: &candidate_evidence,
+                    reviewed_promises: &[],
                 },
                 &options,
             )?;
@@ -951,6 +1064,67 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
     }
     let reviewed_evidence_omissions =
         reviewed_evidence_omissions(&validated_reviewed_evidence, &delivered_reviewed_evidence);
+
+    // Promise observations are packed after possession evidence, but retain a
+    // distinct envelope and receipt.  Each candidate is a prefix of the
+    // authenticated, policy-eligible order; a rejected candidate stops the
+    // promise stream so later observations cannot displace earlier ones.
+    let mut delivered_reviewed_promises: Vec<PackedReviewedPromises> = Vec::new();
+    let mut promise_budget_blocked = false;
+    for promises in &validated_reviewed_promises {
+        if promise_budget_blocked {
+            break;
+        }
+        for record in &promises.records {
+            let mut candidate_promises = delivered_reviewed_promises.clone();
+            if let Some(existing) = candidate_promises.iter_mut().find(|item| {
+                item.set.source_handle == promises.set.source_handle
+                    && item.set.bundle_id == promises.set.bundle_id
+                    && item.set.records_hash == promises.set.records_hash
+            }) {
+                existing.records.push(record.clone());
+            } else {
+                candidate_promises.push(PackedReviewedPromises {
+                    set: promises.set.clone(),
+                    records: vec![record.clone()],
+                    projection_hash: promises.projection_hash.clone(),
+                });
+            }
+            let packet = build_serialized(
+                request,
+                &target_handle,
+                &target,
+                &mandatory_sources,
+                &optional_omissions(
+                    &optional_handles_without_views(
+                        &optional_handles,
+                        &delivered_views,
+                        &navigation_by_handle,
+                    ),
+                    &canonical_by_handle,
+                    &HashMap::new(),
+                    &directory_omissions,
+                ),
+                Packing {
+                    schema,
+                    method: "layeredExcerpt",
+                    conversation_turns: included_turns,
+                    navigation_views: &delivered_views,
+                    reviewed_evidence: &delivered_reviewed_evidence,
+                    reviewed_promises: &candidate_promises,
+                },
+                &options,
+            )?;
+            if packet.input_tokens <= available {
+                delivered_reviewed_promises = candidate_promises;
+            } else {
+                promise_budget_blocked = true;
+                break;
+            }
+        }
+    }
+    let reviewed_promise_omissions =
+        reviewed_promise_omissions(&validated_reviewed_promises, &delivered_reviewed_promises);
 
     // Add complete blocks in stable source/block order. A block is either
     // present in full or absent; no target or passage is ever truncated. A
@@ -1011,10 +1185,12 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
                 &replaced,
                 &candidate_omissions,
                 Packing {
+                    schema,
                     method: "layeredExcerpt",
                     conversation_turns: included_turns,
                     navigation_views: &delivered_views,
                     reviewed_evidence: &delivered_reviewed_evidence,
+                    reviewed_promises: &delivered_reviewed_promises,
                 },
                 &options,
             )?;
@@ -1039,10 +1215,12 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
         &selected,
         &omissions,
         Packing {
+            schema,
             method: "layeredExcerpt",
             conversation_turns: included_turns,
             navigation_views: &delivered_views,
             reviewed_evidence: &delivered_reviewed_evidence,
+            reviewed_promises: &delivered_reviewed_promises,
         },
         &options,
     )?;
@@ -1069,6 +1247,10 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
             evidence: ReviewedEvidenceReceipt {
                 delivered: &delivered_reviewed_evidence,
                 omissions: &reviewed_evidence_omissions,
+            },
+            promises: ReviewedPromiseReceipt {
+                delivered: &delivered_reviewed_promises,
+                omissions: &reviewed_promise_omissions,
             },
         },
     )
@@ -1147,6 +1329,24 @@ fn finish_packet(
             })
             .collect(),
         reviewed_evidence_omissions: receipts.evidence.omissions.to_vec(),
+        reviewed_promises: receipts
+            .promises
+            .delivered
+            .iter()
+            .map(|item| ReviewedPromiseCoverage {
+                source_handle: item.set.source_handle.clone(),
+                bundle_id: item.set.bundle_id.clone(),
+                records_hash: item.set.records_hash.clone(),
+                projection_hash: item.projection_hash.clone(),
+                complete_record_set: item.records.len() == item.set.records.len(),
+                record_ids: item
+                    .records
+                    .iter()
+                    .map(|record| record.id.clone())
+                    .collect(),
+            })
+            .collect(),
+        reviewed_promise_omissions: receipts.promises.omissions.to_vec(),
         input_hash: sha256_hex(packet.serialized.as_bytes()),
         input_tokens: packet.input_tokens.to_string(),
         token_accounting_method: options.token_accounting_method.clone(),
@@ -1266,6 +1466,62 @@ fn validate_reviewed_evidence(
     Ok(validated)
 }
 
+/// Validate every frozen promise set and resolve its exact source read before
+/// any budget branch.  The complete set remains authenticated; restricted
+/// writing receives only its reader-approved projection.
+fn validate_reviewed_promises(
+    request: &PacketRequest,
+    reads: &[CanonicalRead],
+) -> Result<Vec<PackedReviewedPromises>, PacketError> {
+    let mut validated = Vec::with_capacity(request.frozen.reviewed_promises.len());
+    for set in &request.frozen.reviewed_promises {
+        validate_frozen_promise_set(
+            set,
+            &request.frozen.snapshot,
+            &request.frozen.policy,
+            request.frozen.purpose,
+        )
+        .map_err(|error| PacketError::SourceBinding {
+            code: error.code,
+            message: error.detail,
+            handle: Some(set.source_handle.clone()),
+        })?;
+        let source = reads
+            .iter()
+            .find(|read| read.read.descriptor.handle == set.source_handle)
+            .ok_or_else(|| {
+                source_binding(
+                    "ReviewedPromiseSourceReadMissing",
+                    "Every frozen reviewed promise set needs its exact source read.",
+                    Some(set.source_handle.clone()),
+                )
+            })?;
+        validate_promise_payload(set, &source.read).map_err(|error| {
+            PacketError::SourceBinding {
+                code: error.code,
+                message: error.detail,
+                handle: Some(set.source_handle.clone()),
+            }
+        })?;
+        let records = eligible_promise_records(&set.records, request.frozen.policy.audience)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let projection_hash =
+            promise_records_hash(&records).map_err(|error| PacketError::SourceBinding {
+                code: error.code,
+                message: error.detail,
+                handle: Some(set.source_handle.clone()),
+            })?;
+        validated.push(PackedReviewedPromises {
+            set: set.clone(),
+            records,
+            projection_hash,
+        });
+    }
+    Ok(validated)
+}
+
 fn reviewed_evidence_omissions(
     all: &[PackedReviewedEvidence],
     delivered: &[PackedReviewedEvidence],
@@ -1299,6 +1555,51 @@ fn reviewed_evidence_omissions(
         ] {
             if count != 0 {
                 omissions.push(ReviewedEvidenceOmission {
+                    source_handle: set.set.source_handle.clone(),
+                    bundle_id: set.set.bundle_id.clone(),
+                    records_hash: set.set.records_hash.clone(),
+                    reason,
+                    count,
+                });
+            }
+        }
+    }
+    omissions
+}
+
+fn reviewed_promise_omissions(
+    all: &[PackedReviewedPromises],
+    delivered: &[PackedReviewedPromises],
+) -> Vec<ReviewedPromiseOmission> {
+    let mut omissions = Vec::new();
+    for set in all {
+        let delivered_ids: HashSet<&str> = delivered
+            .iter()
+            .filter(|item| {
+                item.set.source_handle == set.set.source_handle
+                    && item.set.bundle_id == set.set.bundle_id
+                    && item.set.records_hash == set.set.records_hash
+            })
+            .flat_map(|item| item.records.iter().map(|record| record.id.as_str()))
+            .collect();
+        let mut budget_count = 0;
+        let mut disclosure_count = 0;
+        for record in &set.set.records {
+            if delivered_ids.contains(record.id.as_str()) {
+                continue;
+            }
+            if set.records.iter().any(|item| item.id == record.id) {
+                budget_count += 1;
+            } else {
+                disclosure_count += 1;
+            }
+        }
+        for (reason, count) in [
+            (ReviewedPromiseOmissionReason::Budget, budget_count),
+            (ReviewedPromiseOmissionReason::Disclosure, disclosure_count),
+        ] {
+            if count != 0 {
+                omissions.push(ReviewedPromiseOmission {
                     source_handle: set.set.source_handle.clone(),
                     bundle_id: set.set.bundle_id.clone(),
                     records_hash: set.set.records_hash.clone(),
@@ -1393,10 +1694,12 @@ struct NavigationReceipt<'a> {
 
 #[derive(Clone, Copy)]
 struct Packing<'a> {
+    schema: PacketSchemaVersion,
     method: &'a str,
     conversation_turns: usize,
     navigation_views: &'a [FrozenNavigationView],
     reviewed_evidence: &'a [PackedReviewedEvidence],
+    reviewed_promises: &'a [PackedReviewedPromises],
 }
 
 struct ReviewedEvidenceReceipt<'a> {
@@ -1404,9 +1707,15 @@ struct ReviewedEvidenceReceipt<'a> {
     omissions: &'a [ReviewedEvidenceOmission],
 }
 
+struct ReviewedPromiseReceipt<'a> {
+    delivered: &'a [PackedReviewedPromises],
+    omissions: &'a [ReviewedPromiseOmission],
+}
+
 struct PacketReceipts<'a> {
     navigation: NavigationReceipt<'a>,
     evidence: ReviewedEvidenceReceipt<'a>,
+    promises: ReviewedPromiseReceipt<'a>,
 }
 
 fn is_zero(value: &u32) -> bool {
@@ -1422,9 +1731,13 @@ fn build_serialized(
     packing: Packing<'_>,
     options: &PacketOptions,
 ) -> Result<SerializedPacket, PacketError> {
+    let include_display_names = packing
+        .schema
+        .includes_author_room_labels(request.frozen.policy.audience);
     let target_source = PacketSource {
         handle: target_handle.to_owned(),
         source: target.read.descriptor.source.clone(),
+        display_name: include_display_names.then(|| target.read.descriptor.display_name.clone()),
         mandatory: true,
         kind: target.read.descriptor.kind,
         coverage: target.read.descriptor.coverage,
@@ -1438,7 +1751,7 @@ fn build_serialized(
     let source_payloads = sources
         .iter()
         .filter(|source| source.read.read.descriptor.handle != target_handle)
-        .map(packet_source)
+        .map(|source| packet_source(source, include_display_names))
         .collect::<Vec<_>>();
     let recent_discussion: Vec<_> =
         request
@@ -1462,7 +1775,7 @@ fn build_serialized(
         .flat_map(|turn| [turn.user.id.clone(), turn.assistant.id.clone()])
         .collect();
     let envelope = ContextEnvelope {
-        schema: "webnovelstudio.context.packet.v1",
+        schema: packing.schema.envelope_schema(),
         snapshot_id: request.frozen.snapshot.snapshot_id.clone(),
         purpose: request.frozen.purpose,
         audience: request.frozen.policy.audience,
@@ -1510,6 +1823,44 @@ fn build_serialized(
                         source_handle: evidence.set.source_handle.clone(),
                         source: evidence.set.source.clone(),
                         records: evidence.records.clone(),
+                    })
+                    .collect(),
+            }
+        }),
+        reviewed_promises: (!packing.reviewed_promises.is_empty()).then(|| {
+            let complete_record_set = packing
+                .reviewed_promises
+                .iter()
+                .all(|promises| promises.records.len() == promises.set.records.len());
+            ReviewedPromiseEnvelope {
+                coverage: "reviewedAccepted",
+                complete_record_set,
+                sets: packing
+                    .reviewed_promises
+                    .iter()
+                    .map(|promises| ReviewedPromisePacketSet {
+                        project_id: promises.set.project_id.clone(),
+                        operation_namespace: promises.set.operation_namespace.clone(),
+                        bundle_id: promises.set.bundle_id.clone(),
+                        records_hash: promises.set.records_hash.clone(),
+                        projection_hash: promises.projection_hash.clone(),
+                        source_handle: promises.set.source_handle.clone(),
+                        source: promises.set.source.clone(),
+                        source_display_name: include_display_names
+                            .then(|| {
+                                request
+                                    .frozen
+                                    .snapshot
+                                    .sources
+                                    .iter()
+                                    .find(|descriptor| {
+                                        descriptor.handle == promises.set.source_handle
+                                            && descriptor.source == promises.set.source
+                                    })
+                                    .map(|descriptor| descriptor.display_name.clone())
+                            })
+                            .flatten(),
+                        records: promises.records.clone(),
                     })
                     .collect(),
             }
@@ -1666,10 +2017,12 @@ pub fn packet_input_hash(
     Ok(sha256_hex(serialized_input(messages, options)?.as_bytes()))
 }
 
-fn packet_source(source: &SelectedSource) -> PacketSource {
+fn packet_source(source: &SelectedSource, include_display_name: bool) -> PacketSource {
     PacketSource {
         handle: source.read.read.descriptor.handle.clone(),
         source: source.read.read.descriptor.source.clone(),
+        display_name: include_display_name
+            .then(|| source.read.read.descriptor.display_name.clone()),
         mandatory: source.mandatory,
         kind: source.read.read.descriptor.kind,
         coverage: source.read.read.descriptor.coverage,

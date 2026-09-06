@@ -1266,6 +1266,8 @@ mod tests {
                 navigation_omissions: Vec::new(),
                 reviewed_evidence: Vec::new(),
                 reviewed_evidence_omissions: Vec::new(),
+                reviewed_promises: Vec::new(),
+                reviewed_promise_omissions: Vec::new(),
                 conversation_message_ids: Vec::new(),
                 omitted_discussion_turns: 0,
                 safe_brief: None,

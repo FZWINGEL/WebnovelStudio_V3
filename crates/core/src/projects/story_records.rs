@@ -15,6 +15,7 @@ pub const MAX_RECORDS: usize = 64;
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 pub const MAX_LABEL_BYTES: usize = 160;
 pub const MAX_QUOTE_BYTES: usize = 4096;
+pub const MAX_PROMISE_NOTE_BYTES: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -56,6 +57,30 @@ pub struct PossessionRecord {
     pub object: StoryEntityRef,
     pub holder: Option<StoryEntityRef>,
     pub timing: PossessionTiming,
+    pub audience: EvidenceAudience,
+    pub evidence: EvidenceAnchor,
+}
+
+/// Explicit author-entered promise observations. A phase is an observation at
+/// the cited passage; it is never interpreted as a current truth or inferred
+/// transfer/state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PromisePhase {
+    Setup,
+    Payoff,
+    Cancelled,
+    Unclear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PromiseRecord {
+    pub id: String,
+    pub promise: StoryEntityRef,
+    pub phase: PromisePhase,
+    pub timing: PossessionTiming,
+    pub note: String,
     pub audience: EvidenceAudience,
     pub evidence: EvidenceAnchor,
 }
@@ -267,4 +292,86 @@ pub fn canonical_records_json(records: &[PossessionRecord]) -> CoreResult<Option
         )));
     }
     Ok(Some(encoded))
+}
+
+fn validate_promise_note(note: &str) -> CoreResult<()> {
+    if note.trim().is_empty()
+        || note.len() > MAX_PROMISE_NOTE_BYTES
+        || note.chars().any(char::is_control)
+    {
+        return Err(invalid(format!(
+            "Promise notes must be nonblank, at most {MAX_PROMISE_NOTE_BYTES} UTF-8 bytes, and contain no control characters."
+        )));
+    }
+    Ok(())
+}
+
+/// Validate and fingerprint a complete ordered promise observation set.
+/// Promise hashes are deliberately independent from possession hashes so old
+/// evidence rows and their receipts remain byte-compatible.
+pub fn validate_promises(
+    promises: &[PromiseRecord],
+    revision: &Revision,
+) -> CoreResult<Option<String>> {
+    if promises.is_empty() {
+        return Ok(None);
+    }
+    if promises.len() > MAX_RECORDS {
+        return Err(invalid(format!(
+            "A reviewed promise set may contain at most {MAX_RECORDS} records."
+        )));
+    }
+    let encoded_revision = serde_json::to_string(&revision.body)?;
+    let receipt = validate_snapshot_json(&encoded_revision)
+        .map_err(|error| invalid(format!("The reviewed revision is invalid: {error}")))?;
+    if receipt.snapshot != revision.body || receipt.hash != revision.head.body_hash {
+        return Err(invalid(
+            "The reviewed revision body is not canonical or its hash does not match.",
+        ));
+    }
+    let mut ids = HashSet::with_capacity(promises.len());
+    for promise in promises {
+        valid_id(&promise.id, "Reviewed promise ID")?;
+        if !ids.insert(&promise.id) {
+            return Err(invalid("Reviewed promise IDs must be unique."));
+        }
+        validate_entity(&promise.promise, "Promise")?;
+        validate_promise_note(&promise.note)?;
+        validate_anchor(&promise.evidence, revision)?;
+    }
+    let encoded = serde_json::to_vec(promises)?;
+    if encoded.len() > MAX_RECORD_BYTES {
+        return Err(invalid(format!(
+            "The reviewed promise set exceeds {MAX_RECORD_BYTES} canonical UTF-8 bytes."
+        )));
+    }
+    Ok(Some(crate::sha256_hex(&encoded)))
+}
+
+/// Return canonical persistence JSON for a promise set. Empty sets use the
+/// legacy null representation, matching possession evidence inheritance.
+pub fn canonical_promises_json(promises: &[PromiseRecord]) -> CoreResult<Option<String>> {
+    if promises.is_empty() {
+        return Ok(None);
+    }
+    let encoded = serde_json::to_string(promises)?;
+    if encoded.len() > MAX_RECORD_BYTES {
+        return Err(invalid(format!(
+            "The reviewed promise set exceeds {MAX_RECORD_BYTES} canonical UTF-8 bytes."
+        )));
+    }
+    Ok(Some(encoded))
+}
+
+/// Compatibility aliases for context/storage callers that name the set
+/// after its record type.
+pub fn validate_promise_records(
+    promises: &[PromiseRecord],
+    revision: &Revision,
+) -> CoreResult<Option<String>> {
+    validate_promises(promises, revision)
+}
+
+pub fn canonical_promise_json(promises: &[PromiseRecord]) -> CoreResult<Option<String>> {
+    canonical_promises_json(promises)
 }

@@ -3,8 +3,9 @@
 use super::*;
 use crate::context::BudgetError;
 use crate::context::packet::{
-    CompiledPacket, MOCK_MODEL_ID, MOCK_TOKEN_ACCOUNTING_METHOD, MockContextBudget, PacketError,
-    PacketRequest, ProviderBinding, compile_packet, packet_input_hash, serialized_input,
+    CONTEXT_PACKET_SCHEMA_V1, CONTEXT_PACKET_SCHEMA_V2, CompiledPacket, MOCK_MODEL_ID,
+    MOCK_TOKEN_ACCOUNTING_METHOD, MockContextBudget, PacketError, PacketRequest, ProviderBinding,
+    compile_packet, compile_packet_legacy, packet_input_hash, serialized_input,
 };
 use crate::documents::ScopeGrant;
 
@@ -335,6 +336,32 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
             "The exact request input does not match its receipt.",
         ));
     }
+    let envelope_schema = packet
+        .messages
+        .get(1)
+        .and_then(|message| serde_json::from_str::<serde_json::Value>(&message.content).ok())
+        .and_then(|envelope| {
+            envelope
+                .get("schema")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .ok_or_else(|| {
+            CoreError::new(
+                "InvalidContextPacket",
+                "The context envelope is missing its schema identifier.",
+            )
+        })?;
+    let compile = match envelope_schema.as_str() {
+        CONTEXT_PACKET_SCHEMA_V1 => compile_packet_legacy,
+        CONTEXT_PACKET_SCHEMA_V2 => compile_packet,
+        _ => {
+            return Err(CoreError::new(
+                "InvalidContextPacket",
+                "The context envelope schema is unknown.",
+            ));
+        }
+    };
     // Validate retained history without granting present-day access. Revoked
     // packets must remain backup-able; request-facing reads separately enforce
     // current project ownership and policy through load_snapshot.
@@ -354,7 +381,7 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
         .iter()
         .map(|source| story_context::read_source(db, &frozen, &source.handle))
         .collect::<CoreResult<Vec<_>>>()?;
-    let mut expected = compile_packet(&PacketRequest {
+    let mut expected = compile(&PacketRequest {
         packet_id: receipt.packet_id.clone(),
         session_id: receipt.session_id.clone(),
         invocation_ordinal: receipt.invocation_ordinal.clone(),

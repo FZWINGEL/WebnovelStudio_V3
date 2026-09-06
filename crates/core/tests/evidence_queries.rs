@@ -101,6 +101,7 @@ fn review(
             operation_id: Uuid::new_v4().to_string(),
             expected: document.head.clone(),
             records: Some(records),
+            promises: None,
         })
         .unwrap();
     project

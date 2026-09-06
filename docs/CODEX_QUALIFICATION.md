@@ -1,6 +1,6 @@
 # Codex qualification evidence
 
-This document records versioned discovery and eleven bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, one native chapter-memory request, one native story-continuation request, and one native structured-suggestion request. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
+This document records versioned discovery and thirteen bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, one native chapter-memory request, one native story-continuation request, one native structured-suggestion request, and two native promise-context discussions. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
 
 ## Exact installed identity and discovery
 
@@ -41,7 +41,7 @@ This is requested launch material and catalog metadata; it is not an observation
 
 ## Dispatch ledger
 
-The rows below are generation dispatches. The strict-config and missing-schema checks inside the isolation-profile runs were local preflights and did not send an LLM request. The current profile harness performed one dispatch; the runner harness performed two sequential dispatches with no retry; native desktop edit qualification performed two additional dispatches. The chapter-memory qualification below made one further dispatch, story-continuation qualification made one further dispatch, and structured-suggestion qualification made one further dispatch; their same-data verifications sent none.
+The rows below are generation dispatches. The strict-config and missing-schema checks inside the isolation-profile runs were local preflights and did not send an LLM request. The current profile harness performed one dispatch; the runner harness performed two sequential dispatches with no retry; native desktop edit qualification performed two additional dispatches. The chapter-memory qualification below made one further dispatch, story-continuation qualification made one further dispatch, structured-suggestion qualification made one further dispatch, and promise-context qualification made two fresh discussion dispatches; their same-data verifications sent none.
 
 | Dispatch | Configuration and auth boundary | Result | Evidence |
 | --- | --- | --- | --- |
@@ -94,6 +94,63 @@ The reopened screenshot was inspected and the literal prompt constraints and
 event facts were preserved. This is a bounded integration result, not a
 narrative-quality evaluation or general provider qualification. The current
 structured suggestion contract is documented in [ADR 0020](ADR_0020_STRUCTURED_SUGGESTIONS.md).
+## Native promise-context discussion (twelfth generation)
+
+On 6 September 2026, one explicit native Author Room discussion used requested
+GPT-5.6-Luna, Max reasoning, and priority service tier after the native Settings
+connection check. The synthetic project had an earlier exact reviewed promise
+and a later working chapter. Recording the promise, preparing review, opening
+history, and reopening the project made no model call.
+
+The exact packet delivered the reviewed setup observation and its original
+passage. The completed response quoted the promise and correctly stated that
+missing payoff evidence did not prove the key was never returned. It could not
+name the earlier chapter because the packet lacked chapter titles. This is an
+observed input gap, not a successful chapter-citation result. The subsequent
+Author Room source-label correction is qualified separately.
+
+The run completed between `2026-09-06T07:41:57.372Z` and
+`2026-09-06T07:42:17.237Z`. Provider-reported usage was 1,887 input tokens and
+580 output tokens, including 501 reasoning tokens. The provider reported
+settled cleanup and no error; effective model settings remained unknown.
+Exactly one discussion run and provider result were retained, with zero
+proposals or decisions. Prose remained unchanged and the discussion survived
+reopening. This checks delivery and one evidence answer, not general retrieval,
+understanding, narrative quality, or provider reliability.
+
+Evidence is retained in
+`.local/live-promise-initial-qualification/qualification.json` and its native
+screenshots. The executable SHA-256 was
+`4ca9c84ef040b328e68f6d2866e89d66e2eca710c7612bbfa566bca2c53365bc`.
+
+## Named promise evidence (thirteenth generation)
+
+One fresh synthetic native discussion verified the packet-v2 correction on
+6 September 2026, from `2026-09-06T07:58:34.038Z` to
+`2026-09-06T07:58:51.353Z`. The requested profile remained
+GPT-5.6-Luna/Max/priority. This was a new explicit generation in a separate
+project, not a replay of the earlier saved response.
+
+The exact 4,333-byte delivered input contained frozen Author Room chapter
+names, the reviewed promise, and its exact original evidence. The response
+named **The key and the promise**, quoted Ren's promise, and distinguished
+missing payoff evidence from proof of non-occurrence. One completed discussion
+run and one provider result were retained, with no proposal or decision and
+unchanged prose. Reopening retained the discussion without another call.
+
+Provider-reported usage was 1,917 input tokens and 426 output tokens, including
+344 reasoning tokens. Cleanup was settled; the result had no error. Effective
+model settings remained unknown. The local input-byte allowance is separate
+from these reported token counts. This qualifies one named evidence answer,
+not general narrative understanding or writing quality.
+
+Evidence is `.local/live-promise-named-qualification/qualification.json`, its
+native screenshots, and `.local/promises-live-named.log`. Executable SHA-256 was
+`b615a6c888cd5e48085967f44db582604c07807522920615c7722870f7bc48e1`, built
+`2026-09-06T07:57:34.418Z`. The packet-v2 labels are Author Room-only;
+restricted title exclusion has deterministic and native development evidence,
+not a live restricted-generation claim from these two discussions.
+
 ## Authentication, sources, and cleanup limits
 
 The successful normal-home run used the native executable's existing managed login without reading, copying, or extracting auth/config/credential values. `--ignore-user-config` still excluded the user config layer and `--ignore-rules` excluded user/project execpolicy rules. The dedicated-home 401 demonstrates that an empty isolated auth home cannot be assumed to carry the managed login. Host authentication therefore remains intentionally unisolated; the app-owned working directory and generated catalog/profile/run artifacts were isolated from manuscript sources.

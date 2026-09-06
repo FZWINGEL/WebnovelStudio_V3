@@ -1,7 +1,7 @@
 # WebnovelStudio V3 — Story Context Engine
 
 **Design extension · 5 September 2026**
-**Status:** adopted design. C0–C2 and parts of C3 are implemented: exact evidence/retrieval, frozen packets, adopted guidance, recent complete exchanges, linked retry guidance, saved discussion sources, and optional approved writing briefs. C4-A adds explicit single-chapter navigation memory with retained evidence and source inspection; C4-B supplies eligible current views to working author-room discussions when full prose does not fit, using immutable generated-view references, separate coverage, and exact source inspection. Selected-passage and structured Apply/Reject, history restore, draft export, bounded Codex assistance, author-only chapter review, schema-19 continuation, schema-21 reviewed evidence, and C5-A evidence history are integrated into the native development app at documented development boundaries. The F2-B core freezes exact earlier reviewed versions plus a current working target, with immutable historical reader positions. C3 relevance selection, higher-level C4 digests, broader C5–C6, typed accepted story records, narrative evaluation, and full provider/native/release qualification remain open. Exact current test and hosted evidence is maintained in [implementation status](IMPLEMENTATION_STATUS.md).
+**Status:** adopted design. C0–C2 and parts of C3 are implemented: exact evidence/retrieval, frozen packets, adopted guidance, recent complete exchanges, linked retry guidance, saved discussion sources, and optional approved writing briefs. C4-A adds explicit single-chapter navigation memory with retained evidence and source inspection; C4-B supplies eligible current views to working author-room discussions when full prose does not fit, using immutable generated-view references, separate coverage, and exact source inspection. Selected-passage and structured Apply/Reject, history restore, draft export, bounded Codex assistance, author-only chapter review, schema-19 continuation, schema-21 reviewed evidence, schema-23 promise history, and C5-A evidence history are integrated into the native development app at documented development boundaries. Promise history has local native development and one bounded Luna discussion evidence recorded in [implementation status](IMPLEMENTATION_STATUS.md); hosted CI, broader live coverage, and author-trial qualification remain open. The F2-B core freezes exact earlier reviewed versions plus a current working target, with immutable historical reader positions. C3 relevance selection, higher-level C4 digests, broader C5–C6, typed accepted story records, narrative evaluation, and full provider/native/release qualification remain open. Exact current test and hosted evidence is maintained in [implementation status](IMPLEMENTATION_STATUS.md).
 **Extends:** `V3_ARCHITECTURE_REFINED.md`, especially §§9–11. Replaces the minimal context compiler in §10 with the design below.
 **Companion:** `V3_STORY_CONTEXT_FIRST_SLICE.md`.
 
@@ -162,7 +162,27 @@ Do not turn all prose into triples. A readable statement, typed record kind, ent
 
 An open promise does not expire after a fixed chapter count. A character's last known injury or an accepted magic-system constraint can remain important long after its last mention. Retrieval must not use recency as the only priority.
 
+The implemented schema-23 promise-history slice records explicit setup,
+payoff, cancellation, or unclear observations against opaque promise
+identities. Authors can reuse an identity across reviewed chapters and inspect
+authenticated history with exact source anchors and deliberately incomplete
+evidence wording. Restricted writing filters author-room promise record
+identity, label, note, and evidence before delivery. That record filter does
+not hide source prose that is independently eligible under the request's
+source policy, and a promise record never grants character knowledge or
+disclosure permission. Inheritance, explicit clearing, current-versus-
+historical reads, namespace refusal, and qualification remain governed by
+[ADR 0021](ADR_0021_PROMISE_HISTORY.md) and the implementation status record.
+
 The 2026 *Narrative World Model* paper is particularly relevant to narrative decomposition, query-conditioned evidence retrieval, and separating events from knowledge and revelation. Its generation evaluation is future work, and its limitations qualify the interpretation of typing and benchmark results. This proposal borrows the problem decomposition, not a claim that importing that system would improve complete novels. [S5]
+
+Schema 23 extends this reviewed-record layer with promise observations and
+cross-chapter history. Promise identities are explicit and opaque; history
+returns exact anchors and deliberately incomplete evidence. Restricted writing
+filters author-room promise record metadata and evidence before delivery, while
+source prose continues to follow its independent source policy. The packet v2
+envelope adds frozen `displayName` values for supplied original sources and
+promise-set sources in AuthorRoom context. Restricted packets omit those names.
 
 ### 3.4 Task working context: depth
 
@@ -477,6 +497,14 @@ The useful additions/extensions are:
 | `context_sessions` | Existing root job, snapshot, task, narration policy, authorization envelope, current invocation ordinal. No separate workflow scheduler. |
 | `context_packets` | Session and invocation ordinal, exact messages/options, source manifest, omissions, budget estimate/method, hashes. Immutable once submitted. |
 | `context_reads` | Session, local read operation ID, arguments hash, returned source handles and exact result, truncation. Duplicate operations return the same result. |
+
+The current packet envelope is `webnovelstudio.context.packet.v2`. Its frozen
+source names are presentation metadata: `PacketSource.displayName` is included
+for supplied original sources and targets, and reviewed promise sets carry
+`sourceDisplayName` even when the source body is omitted. Restricted writing
+does not receive these names. Existing v1 packets remain readable through the
+v1 serializer and validation path, preserving their original budget selection
+and serialized bytes; unknown envelope versions are refused.
 
 Use uniqueness for `(session_id, invocation_ordinal)`, `(session_id, local_read_operation_id)`, and the generated-view recipe/source-basis key where reuse is intended. A repeated read ID with a different payload is an error. A new analysis run using the same basis can be retained as a distinct candidate; do not silently replace an author-reviewed summary.
 

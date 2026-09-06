@@ -12,7 +12,9 @@ pub mod evidence_history;
 pub mod memory;
 pub mod navigation;
 pub mod packet;
+pub mod promise_history;
 pub mod reviewed_evidence;
+pub mod reviewed_promises;
 
 pub use contracts::{
     Audience, BasisKind, BudgetError, BudgetErrorCode, CharacterGrant, ContextPurpose,
@@ -28,9 +30,16 @@ pub use eligibility::{
 pub use evidence_history::{
     EvidenceHistory, EvidenceHistoryObservation, EvidenceHistoryUncertainty, query_evidence_history,
 };
+pub use promise_history::{
+    PromiseHistory, PromiseHistoryObservation, PromiseHistoryUncertainty, query_promise_history,
+};
 pub use reviewed_evidence::{
     ReviewedEvidenceCoverage, ReviewedEvidenceOmission, ReviewedEvidenceOmissionReason,
     ReviewedEvidenceSet, eligible_records,
+};
+pub use reviewed_promises::{
+    ReviewedPromiseCoverage, ReviewedPromiseOmission, ReviewedPromiseOmissionReason,
+    ReviewedPromiseSet,
 };
 pub mod conversation;
 pub mod guidance;

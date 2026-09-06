@@ -103,6 +103,7 @@ fn mark_ready(
             operation_id: format!("stage-{operation}"),
             expected: document.head.clone(),
             records: None,
+            promises: None,
         })
         .unwrap();
     project
@@ -173,6 +174,10 @@ fn make_schema19_archive(
              ALTER TABLE review_stages DROP COLUMN records_hash;
              ALTER TABLE ready_bundles DROP COLUMN records_json;
              ALTER TABLE ready_bundles DROP COLUMN records_hash;
+             ALTER TABLE review_stages DROP COLUMN promises_json;
+             ALTER TABLE review_stages DROP COLUMN promises_hash;
+             ALTER TABLE ready_bundles DROP COLUMN promises_json;
+             ALTER TABLE ready_bundles DROP COLUMN promises_hash;
              PRAGMA user_version=19;",
         )
         .unwrap();
@@ -516,7 +521,7 @@ fn schema19_working_export_archive_migrates_to21_without_changing_record_or_byte
     let schema: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 22);
+    assert_eq!(schema, 23);
     let row: (String, String, String, i64, String, i64, String, Option<String>) = connection
         .query_row(
             "SELECT id,project_id,operation_namespace,working_draft,format,format_version,sha256,review_bundle_id

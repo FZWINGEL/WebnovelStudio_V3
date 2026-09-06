@@ -286,6 +286,7 @@ fn mark_ready(project: &ProjectSession, access: &ProjectAccess, chapter: &Head, 
             operation_id: format!("stage-{prefix}"),
             expected: chapter.clone(),
             records: None,
+            promises: None,
         })
         .unwrap();
     project

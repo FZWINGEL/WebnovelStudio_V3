@@ -1,7 +1,9 @@
 //! Explicit author review. The core owns source validation and activation.
 use crate::project_commands::{DesktopProjects, execute};
 use tauri::State;
-use webnovel_core::projects::evidence_queries::{ReviewedEntityCatalog, ReviewedHistoryResult};
+use webnovel_core::projects::evidence_queries::{
+    ReviewedEntityCatalog, ReviewedHistoryResult, ReviewedPromiseHistoryResult,
+};
 use webnovel_core::projects::reviewed_story::{
     MarkReady, ReadyBundle, ReviewStage, ReviewStatus, ReviewedRecordSet, StageAuthorReview,
 };
@@ -25,6 +27,26 @@ pub async fn reviewed_evidence_history(
 ) -> CoreResult<ReviewedHistoryResult> {
     let project = state.project(&access.project_id)?;
     execute(move || project.reviewed_evidence_history(access, snapshot_id, object_id)).await
+}
+
+#[tauri::command]
+pub async fn reviewed_promise_catalog(
+    access: ProjectAccess,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<ReviewedEntityCatalog> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.reviewed_promise_catalog(access)).await
+}
+
+#[tauri::command]
+pub async fn reviewed_promise_history(
+    access: ProjectAccess,
+    snapshot_id: String,
+    promise_id: String,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<ReviewedPromiseHistoryResult> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.reviewed_promise_history(access, snapshot_id, promise_id)).await
 }
 
 #[tauri::command]

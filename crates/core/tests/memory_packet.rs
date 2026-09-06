@@ -105,6 +105,7 @@ fn frozen(descriptors: Vec<SourceDescriptor>) -> FrozenContext {
         conversation: None,
         navigation_views: Vec::new(),
         reviewed_evidence: Vec::new(),
+        reviewed_promises: Vec::new(),
     }
 }
 

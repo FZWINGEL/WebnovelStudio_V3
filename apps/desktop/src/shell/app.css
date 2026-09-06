@@ -384,3 +384,5 @@ input::placeholder { color: #637083; }
 .context-evidence-history li { margin: 16px 0; }
 .context-evidence-history li p { margin: 6px 0; }
 .context-evidence-history blockquote { margin: 8px 0; font-family: Georgia, serif; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.review-detail-tabs { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.review-detail-tabs button[aria-pressed="true"] { background: #e7efff; color: var(--accent); }

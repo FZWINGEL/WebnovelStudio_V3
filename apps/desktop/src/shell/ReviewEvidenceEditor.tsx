@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Scope } from '../editor/selection';
 import type { EvidenceAnchor, PossessionRecord, ReviewedEntityChoice, StoryEntityRef } from '../ipc/reviews';
 
+import { evidenceQuoteHash, reviewAnchor } from './reviewEvidence';
+
 type Timing = PossessionRecord['timing'];
 type Audience = PossessionRecord['audience'];
 
@@ -66,18 +68,9 @@ export function ReviewEvidenceEditor({ records, projectEntities = [], disabled, 
   }, [entities, projectEntities]);
   const byId = (id: string | null): StoryEntityRef | null => id ? entities.find(entity => entity.id === id) ?? null : null;
 
-  async function hashQuote(quote: string): Promise<string> {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(quote));
-    return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-  }
-  function anchor(scope: Scope): EvidenceAnchor | null {
-    if (scope.start.blockId !== scope.end.blockId) return null;
-    if (!scope.quote.trim()) return null;
-    return { blockId: scope.start.blockId, fromUtf16: scope.start.utf16Offset, toUtf16: scope.end.utf16Offset, quote: scope.quote, quoteHash: '' };
-  }
   function begin(scope: Scope | null, record: PossessionRecord | null = null) {
     if (disabled) return;
-    const next = scope ? anchor(scope) : record?.evidence ?? null;
+    const next = scope ? reviewAnchor(scope) : record?.evidence ?? null;
     if (!next) { setError('Select a non-empty passage within one paragraph before adding reviewed detail.'); return; }
     const objectId = record?.object.id ?? '__new_object__';
     setError('');
@@ -92,7 +85,7 @@ export function ReviewEvidenceEditor({ records, projectEntities = [], disabled, 
       const holder = form.holderId === '__new_holder__' ? { id: crypto.randomUUID(), label: form.holderLabel.trim() } : byId(form.holderId);
       if (form.holderId && !holder) { setError('This holder is no longer available. Choose it again or select Unknown holder.'); return; }
       if (form.holderId === '__new_holder__' && !holder?.label) { setError('Name the holder or choose Unknown holder.'); return; }
-      const evidence = { ...form.evidence, quoteHash: await hashQuote(form.evidence.quote) };
+      const evidence = { ...form.evidence, quoteHash: await evidenceQuoteHash(form.evidence.quote) };
       if (saveEpoch.current !== token || disabled) return;
       const record: PossessionRecord = { id: form.id ?? crypto.randomUUID(), object, holder, timing: form.timing, audience: form.audience, evidence };
       onChange(form.id ? records.map(item => item.id === form.id ? record : item) : [...records, record]);
@@ -105,7 +98,7 @@ export function ReviewEvidenceEditor({ records, projectEntities = [], disabled, 
     if (!form || disabled) return;
     saveEpoch.current += 1;
     const scope = captureSelection();
-    const next = scope ? anchor(scope) : null;
+    const next = scope ? reviewAnchor(scope) : null;
     if (!next) { setError('Select a non-empty passage within one paragraph before replacing the evidence.'); return; }
     updateForm({ ...form, evidence: next }); setError('');
   }

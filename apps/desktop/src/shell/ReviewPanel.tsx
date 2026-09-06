@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { bodyHash, canonicalJson } from '../editor/document';
 import type { Scope } from '../editor/selection';
 import type { DocumentSession, SessionState } from '../editor/session';
-import { chapterReviewStatus, markReady, readReviewedRecordSet, reviewedEntityCatalog, readReviewStage, stageAuthorReview, type MarkReady, type PossessionRecord, type ReviewedEntityChoice, type ReviewMember, type ReviewStage, type ReviewStatus, type StageAuthorReview } from '../ipc/reviews';
+import { chapterReviewStatus, markReady, readReviewedRecordSet, reviewedEntityCatalog, reviewedPromiseCatalog, readReviewStage, stageAuthorReview, type MarkReady, type PossessionRecord, type PromiseRecord, type ReviewedEntityChoice, type ReviewMember, type ReviewStage, type ReviewStatus, type StageAuthorReview } from '../ipc/reviews';
 import { readDocumentRevision } from '../ipc/history';
 import type { ProjectAccess, Revision } from '../ipc/projects';
 import { SavedProse } from './HistoryPanel';
 import { ReviewEvidenceEditor } from './ReviewEvidenceEditor';
+import { ReviewPromiseEditor } from './ReviewPromiseEditor';
 
 type Pending = { kind: 'stage'; request: StageAuthorReview } | { kind: 'mark'; request: MarkReady; reviewed: ReviewStage };
 const labels: Record<ReviewStatus['state'], string> = {
@@ -66,6 +67,12 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   const [evidenceEditing, setEvidenceEditing] = useState(false);
   const [projectEntities, setProjectEntities] = useState<ReviewedEntityChoice[]>([]);
   const [entityError, setEntityError] = useState('');
+  const [currentPromises, setCurrentPromises] = useState<PromiseRecord[]>([]);
+  const [draftPromises, setDraftPromises] = useState<PromiseRecord[]>([]);
+  const [orphanedPromises, setOrphanedPromises] = useState<PromiseRecord[] | null>(null);
+  const [projectPromises, setProjectPromises] = useState<ReviewedEntityChoice[]>([]);
+  const [promiseError, setPromiseError] = useState('');
+  const [detailKind, setDetailKind] = useState<'possessions' | 'promises'>('possessions');
   const pending = useRef<Pending | null>(null);
   const busy = useRef(false);
   const sequence = useRef(0);
@@ -77,7 +84,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   const liveVisible = useRef(visible); liveVisible.current = visible;
   const owns = () => liveOwner.current === owner;
 
-  useEffect(() => { setStage(null); setCurrentRecords([]); setCurrentRecordsCurrent(true); setDraftRecords([]); setOrphanedRecords(null); setEvidenceEditing(false); setNotice(''); setError(''); setReadError(''); setRetry(false); pending.current = null; }, [owner]);
+  useEffect(() => { setStage(null); setCurrentPromises([]); setDraftPromises([]); setOrphanedPromises(null); setDetailKind('possessions'); setCurrentRecords([]); setCurrentRecordsCurrent(true); setDraftRecords([]); setOrphanedRecords(null); setEvidenceEditing(false); setNotice(''); setError(''); setReadError(''); setRetry(false); pending.current = null; }, [owner]);
   useEffect(() => { if (visible) heading.current?.focus(); }, [visible]);
   useEffect(() => {
     if (visible && !working && focusAfterSave.current) { focusAfterSave.current = false; heading.current?.focus(); }
@@ -85,19 +92,21 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   useEffect(() => {
     const read = ++sequence.current;
     if (!visible || !state.editable || working) return;
-    setLoading(true);
+    setLoading(true); setStatus(null);
     void chapterReviewStatus(access, state.head.documentId).then(async result => {
       if (read !== sequence.current || !owns() || !liveVisible.current) return;
       if (result.documentId !== state.head.documentId || canonicalJson(result.head) !== canonicalJson(state.head)) throw new Error('The review status belongs to a different saved version. Refresh to read it again.');
       let records: PossessionRecord[] = [];
+      let promises: PromiseRecord[] = [];
       let bundleCurrent = true;
       if (result.activeBundleId) {
         const bundle = await readReviewedRecordSet(access, state.head.documentId);
         if (read !== sequence.current || !owns() || !liveVisible.current) return;
         if (bundle && (bundle.projectId !== access.projectId || bundle.operationNamespace !== access.operationNamespace || bundle.target.documentId !== state.head.documentId)) throw new Error('The reviewed details belong to a different chapter. Refresh to read them again.');
-        records = bundle?.records ?? []; bundleCurrent = bundle?.current ?? true;
+        records = bundle?.records ?? []; promises = bundle?.promises ?? []; bundleCurrent = bundle?.current ?? true;
       }
       if (read !== sequence.current || !owns() || !liveVisible.current) return;
+      setCurrentPromises(promises); setOrphanedPromises(previous => previous ?? (!bundleCurrent && promises.length ? structuredClone(promises) : null));
       setCurrentRecords(records); setCurrentRecordsCurrent(bundleCurrent); setOrphanedRecords(previous => previous ?? (!bundleCurrent && records.length ? structuredClone(records) : null)); setStatus(result); setReadError('');
     }).catch(reason => { if (read === sequence.current && owns() && liveVisible.current) setReadError(message(reason)); })
       .finally(() => { if (read === sequence.current && owns()) setLoading(false); });
@@ -116,6 +125,18 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
     return () => { cancelled = true; };
   }, [owner, access.writerLease, visible, state.editable, state.head.version, working, refresh]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setProjectPromises([]); setPromiseError('');
+    if (!visible || !state.editable || working) return;
+    void Promise.resolve().then(() => reviewedPromiseCatalog(access)).then(catalog => {
+      if (cancelled || !owns()) return;
+      if (catalog.projectId !== access.projectId || catalog.operationNamespace !== access.operationNamespace) throw new Error('The promise list belongs to another project. Refresh review to read it again.');
+      setProjectPromises(catalog.entities);
+    }).catch(reason => { if (!cancelled && owns()) setPromiseError(message(reason)); });
+    return () => { cancelled = true; };
+  }, [owner, access.writerLease, visible, state.editable, state.head.version, working, refresh]);
+
   async function perform(operation: Pending) {
     // Reconciliation rotates only the lease. Every logical payload stays fixed.
     const currentAccess = session.projectAccess;
@@ -126,7 +147,8 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
         || canonicalJson(result.revision.head) !== canonicalJson(result.target)
         || await bodyHash(canonicalJson(result.revision.body)) !== result.target.bodyHash) throw new Error('The saved review did not match the selected writing. Check the review save.');
       if (operation.request.records !== undefined && canonicalJson(result.records ?? []) !== canonicalJson(operation.request.records)) throw new Error('The saved reviewed details did not match the requested complete set. Check the review save.');
-      if (owns()) { setStage(result); setOrphanedRecords(null); setDraftRecords(structuredClone(result.records ?? [])); setNotice('Read this saved version, then confirm your review.'); }
+      if (operation.request.promises !== undefined && canonicalJson(result.promises ?? []) !== canonicalJson(operation.request.promises)) throw new Error('The saved promises did not match the requested complete set. Check the review save.');
+      if (owns()) { setStage(result); setOrphanedPromises(null); setDraftPromises(structuredClone(result.promises ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(result.records ?? [])); setNotice('Read this saved version, then confirm your review.'); }
     } else {
       const result = await markReady({ ...operation.request, access: currentAccess });
       if (result.projectId !== currentAccess.projectId || result.operationNamespace !== currentAccess.operationNamespace
@@ -145,7 +167,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       if (saved.id !== stageId || saved.projectId !== currentAccess.projectId || saved.operationNamespace !== currentAccess.operationNamespace
         || saved.target.documentId !== state.head.documentId || canonicalJson(saved.revision.head) !== canonicalJson(saved.target)
         || await bodyHash(canonicalJson(saved.revision.body)) !== saved.target.bodyHash) throw new Error('The saved review did not match this chapter. Refresh its review status.');
-      if (owns()) { setStage(saved); setOrphanedRecords(null); setDraftRecords(structuredClone(saved.records ?? [])); setNotice('Your saved review is open. Read it before confirming.'); focusAfterSave.current = true; }
+      if (owns()) { setStage(saved); setOrphanedPromises(null); setDraftPromises(structuredClone(saved.promises ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(saved.records ?? [])); setNotice('Your saved review is open. Read it before confirming.'); focusAfterSave.current = true; }
     } catch (reason) { if (owns()) setError(message(reason)); }
     finally { busy.current = false; if (owns()) setWorking(false); }
   }
@@ -160,6 +182,8 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
           const request: StageAuthorReview = { access: session.projectAccess, operationId: crypto.randomUUID(), expected: session.state.head };
           if (stage && (outdated || canonicalJson(draftRecords) !== canonicalJson(stage.records ?? []))) request.records = structuredClone(draftRecords);
           else if (!stage && orphanedRecords !== null) request.records = structuredClone(orphanedRecords);
+          if (stage && (outdated || canonicalJson(draftPromises) !== canonicalJson(stage.promises ?? []))) request.promises = structuredClone(draftPromises);
+          else if (!stage && orphanedPromises !== null) request.promises = structuredClone(orphanedPromises);
           pending.current = { kind: 'stage', request };
         } else if (kind === 'mark') {
           if (!stage) return;
@@ -169,7 +193,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
           try { await perform(pending.current); }
           catch (reason) {
             if (reason && typeof reason === 'object' && 'code' in reason
-              && ['ReviewStageStale', 'ReviewBasisUnavailable', 'ReviewStageNotFound', 'ReviewLimitExceeded', 'InvalidReviewedRecords', 'OperationIdReusedWithDifferentPayload'].includes(String(reason.code))) {
+              && ['ReviewStageStale', 'ReviewBasisUnavailable', 'ReviewStageNotFound', 'ReviewLimitExceeded', 'InvalidReviewedRecords', 'InvalidReviewedPromises', 'OperationIdReusedWithDifferentPayload'].includes(String(reason.code))) {
               reviewRejection = reason;
             } else { throw reason; }
           }
@@ -185,6 +209,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
         setRetry(keep); if (!keep) {
           const changedDraft = pending.current?.kind === 'stage' && !!stage && canonicalJson(draftRecords) !== canonicalJson(stage.records ?? []);
           if (changedDraft) setOrphanedRecords(structuredClone(draftRecords));
+          if (pending.current?.kind === 'stage' && stage && canonicalJson(draftPromises) !== canonicalJson(stage.promises ?? [])) setOrphanedPromises(structuredClone(draftPromises));
           pending.current = null;
           if (reason && typeof reason === 'object' && 'code' in reason
             && ['ReviewStageStale', 'ReviewBasisUnavailable', 'VersionConflict'].includes(String(reason.code))) {
@@ -196,7 +221,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   }
   if (!visible) return null;
   const outdated = !!stage && (state.dirty || canonicalJson(stage.target) !== canonicalJson(state.head));
-  const recordsChanged = !!stage && canonicalJson(draftRecords) !== canonicalJson(stage.records ?? []);
+  const recordsChanged = !!stage && (canonicalJson(draftRecords) !== canonicalJson(stage.records ?? []) || canonicalJson(draftPromises) !== canonicalJson(stage.promises ?? []));
   const needsStage = !stage || outdated || recordsChanged;
   const reviewActionLabel = !stage ? (status?.state === 'ready' ? 'Update reviewed details' : 'Review saved chapter')
     : outdated ? 'Review latest saved chapter' : recordsChanged ? 'Save reviewed details' : 'Mark this version reviewed';
@@ -207,26 +232,35 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       {status && <><h3>{labels[status.state]}</h3>{status.reason && <p>{status.reason}</p>}</>}
       {loading && <p role="status">Reading review status…</p>}
       <div className="history-list-actions"><button disabled={!state.editable || working || loading || evidenceEditing} onClick={() => setRefresh(value => value + 1)}>Refresh review</button>
-        {!stage && status?.pendingStageId && !retry && <button disabled={!state.editable || working || evidenceEditing} onClick={() => void resume()}>Resume saved review</button>}
-        {!stage && status?.canStage && <button className="primary-button" disabled={!state.editable || working || retry || evidenceEditing} onClick={() => void act('stage')}>{reviewActionLabel}</button>}</div>
-      {evidenceEditing && <p className="small-copy" role="status">Finish this reviewed detail with Keep detail or Cancel before saving the review.</p>}
+        {!stage && status?.pendingStageId && !retry && <button disabled={!state.editable || working || loading || evidenceEditing} onClick={() => void resume()}>Resume saved review</button>}
+        {!stage && status?.canStage && <button className="primary-button" disabled={!state.editable || working || loading || retry || evidenceEditing} onClick={() => void act('stage')}>{reviewActionLabel}</button>}</div>
+      {evidenceEditing && <p className="small-copy" role="status">Finish this reviewed detail before saving the review.</p>}
       {error && <p className="history-error" role="alert">{error}</p>}
       {readError && <p className="history-error" role="alert">{readError}</p>}
       {entityError && <p className="history-error" role="alert">Could not load objects from other chapters. {entityError} Use Refresh review to try again; you can still create a new object.</p>}
+      {promiseError && <p className="history-error" role="alert">Could not load promises from other chapters. {promiseError} Use Refresh review to try again; you can still create a new promise.</p>}
       {retry && <button disabled={working || state.phase === 'conflict' || state.phase === 'disposed'} onClick={() => void act('retry')}>Check review save</button>}
       {notice && <p role="status">{notice}</p>}
+    </div>
+    <div className="review-detail-tabs" role="group" aria-label="Reviewed detail type">
+      <button aria-pressed={detailKind === 'possessions'} disabled={evidenceEditing || working} onClick={() => setDetailKind('possessions')}>Possessions ({(stage ? draftRecords : orphanedRecords ?? currentRecords).length})</button>
+      <button aria-pressed={detailKind === 'promises'} disabled={evidenceEditing || working} onClick={() => setDetailKind('promises')}>Promises ({(stage ? draftPromises : orphanedPromises ?? currentPromises).length})</button>
     </div>
     {stage ? <>
       <div className="review-basis"><h3>Saved version {stage.target.version}</h3><p>{stage.prefix.length ? 'Reviewed against these earlier chapters:' : 'This is the first chapter in the reviewed story.'}</p>
         {!!stage.prefix.length && <ul>{stage.prefix.map(member => <li key={member.documentId}><EarlierReview access={access} member={member} /></li>)}</ul>}
       </div>
-      <ReviewEvidenceEditor projectEntities={projectEntities} records={draftRecords} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftRecords} onEditingChange={setEvidenceEditing} />
+      {detailKind === 'possessions' ? <ReviewEvidenceEditor projectEntities={projectEntities} records={draftRecords} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftRecords} onEditingChange={setEvidenceEditing} />
+        : <ReviewPromiseEditor projectPromises={projectPromises} records={draftPromises} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftPromises} onEditingChange={setEvidenceEditing} />}
       <div className="history-preview" aria-label="Chapter under review"><SavedProse body={stage.revision.body} /></div>
       <div className="history-restore">{outdated ? <p role="status">Your writing changed. Prepare a new review of the saved chapter.</p>
         : <p>Confirm that you have reviewed this chapter against the earlier story. You can keep writing afterward.</p>}
         <button className="primary-button" disabled={!state.editable || working || retry || evidenceEditing} onClick={() => void act(needsStage ? 'stage' : 'mark')}>
           {working ? 'Saving review…' : reviewActionLabel}
         </button></div>
-    </> : <div className="review-empty"><p>Your manuscript stays editable. Reviewing chapters is optional.</p>{orphanedRecords !== null ? <><p role="status">{currentRecordsCurrent ? 'Your unsubmitted reviewed details are still here. Prepare the saved chapter again to submit them.' : 'These details belong to an older reviewed version. Reselect or remove any passage before preparing the new review.'}</p><ReviewEvidenceEditor projectEntities={projectEntities} records={orphanedRecords} captureSelection={selectEvidence} onChange={setOrphanedRecords} onEditingChange={setEvidenceEditing} /></> : currentRecords.length ? <ReviewEvidenceEditor projectEntities={projectEntities} records={currentRecords} disabled captureSelection={() => null} onChange={() => {}} /> : <p>No reviewed story details are recorded yet.</p>}</div>}
+    </> : <div className="review-empty"><p>Your manuscript stays editable. Reviewing chapters is optional.</p>{detailKind === 'promises' ? <>
+      {orphanedPromises !== null && <p role="status">These promise details are retained. Reselect or remove outdated passages before preparing the saved chapter again.</p>}
+      <ReviewPromiseEditor projectPromises={projectPromises} records={orphanedPromises ?? currentPromises} disabled={orphanedPromises === null || !state.editable || working || retry} captureSelection={selectEvidence} onChange={setOrphanedPromises} onEditingChange={setEvidenceEditing} />
+    </> : <>{orphanedRecords !== null ? <><p role="status">{currentRecordsCurrent ? 'Your unsubmitted reviewed details are still here. Prepare the saved chapter again to submit them.' : 'These details belong to an older reviewed version. Reselect or remove any passage before preparing the new review.'}</p><ReviewEvidenceEditor projectEntities={projectEntities} records={orphanedRecords} captureSelection={selectEvidence} onChange={setOrphanedRecords} onEditingChange={setEvidenceEditing} /></> : currentRecords.length ? <ReviewEvidenceEditor projectEntities={projectEntities} records={currentRecords} disabled captureSelection={() => null} onChange={() => {}} /> : <p>No reviewed story details are recorded yet.</p>}</>}</div>}
   </aside>;
 }

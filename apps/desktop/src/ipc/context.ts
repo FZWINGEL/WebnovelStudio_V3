@@ -3,7 +3,7 @@ import type { WnsDocument } from '../editor/document';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { FrozenGuidance } from './guidance';
 import type { DigestCandidate } from './memory';
-import type { PossessionRecord } from './reviews';
+import type { PossessionRecord, PromiseRecord } from './reviews';
 
 export interface EvidenceHistoryObservation extends Pick<PossessionRecord, 'object' | 'holder' | 'timing' | 'audience' | 'evidence'> {
   recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
@@ -15,6 +15,16 @@ export interface EvidenceHistory {
 }
 export interface ReviewedHistoryResult { snapshotId: string; current: boolean; history: EvidenceHistory }
 export const reviewedEvidenceHistory = (access: ProjectAccess, snapshotId: string, objectId: string): Promise<ReviewedHistoryResult> => invoke('reviewed_evidence_history', { access, snapshotId, objectId });
+export interface PromiseHistoryObservation extends Pick<PromiseRecord, 'promise' | 'phase' | 'timing' | 'note' | 'audience' | 'evidence'> {
+  recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
+}
+export interface PromiseHistory {
+  promiseId: string; labelVariants: string[]; observations: PromiseHistoryObservation[];
+  uncertainty: ('disclosureLimited' | 'excludedSources' | 'earlierTiming' | 'unknownTiming' | 'unclearObservation' | 'conflictingOutcomes')[];
+  incomplete: boolean; hasRecordedPayoff: boolean;
+}
+export interface ReviewedPromiseHistoryResult { snapshotId: string; current: boolean; history: PromiseHistory }
+export const reviewedPromiseHistory = (access: ProjectAccess, snapshotId: string, promiseId: string): Promise<ReviewedPromiseHistoryResult> => invoke('reviewed_promise_history', { access, snapshotId, promiseId });
 
 export type ContextPurpose = 'discuss' | 'revise' | 'continue' | 'plan' | 'storyQuestion' | 'memoryAnalysis';
 export type ContextAudience = 'authorRoom' | 'restrictedWriting';
@@ -58,6 +68,7 @@ export interface FrozenContext {
   conversation?: FrozenConversation;
   navigationViews?: FrozenNavigationView[];
   reviewedEvidence?: ReviewedEvidenceSet[];
+  reviewedPromises?: ReviewedPromiseSet[];
 }
 export interface ReviewedEvidenceSet {
   projectId: string; operationNamespace: string; bundleId: string; recordsHash: string;
@@ -67,6 +78,7 @@ export interface ReviewedEvidenceCoverage {
   sourceHandle: string; bundleId: string; recordsHash: string; projectionHash: string;
   completeRecordSet: boolean; recordIds: string[];
 }
+export interface ReviewedPromiseSet extends Omit<ReviewedEvidenceSet, 'records'> { records: PromiseRecord[] }
 export interface ReviewedEvidenceOmission {
   sourceHandle: string; bundleId: string; recordsHash: string; reason: 'budget' | 'disclosure'; count: number;
 }
@@ -98,6 +110,8 @@ export interface PacketReceipt {
   navigationOmissions?: NavigationViewOmission[];
   reviewedEvidence?: ReviewedEvidenceCoverage[];
   reviewedEvidenceOmissions?: ReviewedEvidenceOmission[];
+  reviewedPromises?: ReviewedEvidenceCoverage[];
+  reviewedPromiseOmissions?: ReviewedEvidenceOmission[];
   safeBrief?: { text: string; textHash: string; originMessageId: string | null };
   conversationMessageIds?: string[];
   omittedDiscussionTurns?: number;

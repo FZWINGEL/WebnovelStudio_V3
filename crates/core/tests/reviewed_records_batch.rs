@@ -114,6 +114,7 @@ fn mark_ready(
             operation_id: format!("stage-{operation_id}"),
             expected: document.head.clone(),
             records: Some(vec![record(operation_id, text)]),
+            promises: None,
         })
         .unwrap();
     project

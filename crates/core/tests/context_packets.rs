@@ -1,5 +1,5 @@
 use rusqlite::{Connection, params};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -195,6 +195,31 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
+fn canonicalize_value(value: Value) -> Value {
+    match value {
+        Value::Array(values) => Value::Array(values.into_iter().map(canonicalize_value).collect()),
+        Value::Object(object) => {
+            let mut entries: Vec<_> = object.into_iter().collect();
+            entries.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+            let mut canonical = Map::new();
+            for (key, child) in entries {
+                canonical.insert(key, canonicalize_value(child));
+            }
+            Value::Object(canonical)
+        }
+        scalar => scalar,
+    }
+}
+
+fn logical_request_hash(mut request: Value) -> String {
+    if let Some(access) = request.get_mut("access").and_then(Value::as_object_mut) {
+        access.remove("session");
+        access.remove("writerLease");
+    }
+    let canonical = canonicalize_value(request);
+    sha256_hex(serde_json::to_string(&canonical).unwrap().as_bytes())
+}
+
 #[test]
 fn generic_prepare_rejects_safe_brief_before_snapshot_lookup() {
     let temp = TempDir::new("safe-brief-generic");
@@ -263,6 +288,52 @@ fn rewrite_packet(project: &ProjectSession, packet_id: &str, mutate: impl FnOnce
             ],
         )
         .expect("rewrite packet receipt coherently");
+}
+
+fn rewrite_packet_message(
+    project: &ProjectSession,
+    packet_id: &str,
+    mutate: impl FnOnce(&mut String),
+) {
+    let connection = Connection::open(project.path.join("project.sqlite3"))
+        .expect("open packet database for message tampering");
+    let packet_json: String = connection
+        .query_row(
+            "SELECT packet_json FROM context_packets WHERE id=?",
+            [packet_id],
+            |row| row.get(0),
+        )
+        .expect("read packet JSON for message tampering");
+    let mut packet: Value = serde_json::from_str(&packet_json).expect("decode packet JSON");
+    let mut content = packet["messages"][1]["content"]
+        .as_str()
+        .expect("packet evidence envelope")
+        .to_owned();
+    mutate(&mut content);
+    packet["messages"][1]["content"] = json!(content);
+    let compiled: webnovel_core::context::packet::CompiledPacket =
+        serde_json::from_value(packet.clone()).expect("decode tampered packet");
+    let input =
+        webnovel_core::context::packet::serialized_input(&compiled.messages, &compiled.options)
+            .expect("serialize tampered packet input");
+    packet["receipt"]["inputHash"] = json!(sha256_hex(input.as_bytes()));
+    packet["receipt"]["inputTokens"] = json!(input.len().to_string());
+    let packet_json = serde_json::to_string(&packet).expect("serialize tampered packet");
+    let packet_hash = sha256_hex(packet_json.as_bytes());
+    connection
+        .execute_batch("DROP TRIGGER immutable_context_packet_update;")
+        .expect("disable packet immutability for message tampering");
+    connection
+        .execute(
+            "UPDATE context_packets SET packet_json=?,packet_hash=?,input_hash=? WHERE id=?",
+            params![
+                packet_json,
+                packet_hash,
+                sha256_hex(input.as_bytes()),
+                packet_id
+            ],
+        )
+        .expect("rewrite packet message coherently");
 }
 
 #[test]
@@ -337,6 +408,150 @@ fn legacy_packet_without_mandatory_annotation_retains_exact_input_and_replays() 
 }
 
 #[test]
+fn legacy_v1_packet_replays_at_budget_boundary_after_restart_and_backup() {
+    let temp = TempDir::new("legacy-v1-budget-boundary");
+    let project_path = temp.child("project");
+    let (project, access, document) = setup_project(&project_path);
+    project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "legacy-v1-optional-source".into(),
+            document_id: "legacy-v1-source".into(),
+            title: "Older evidence title".into(),
+            kind: "note".into(),
+            body: body(
+                "The older evidence adds enough bytes to make the label boundary observable.",
+            ),
+        })
+        .expect("create optional source");
+    let frozen = freeze(&project, &access, &document);
+    let original = prepared(
+        project
+            .prepare_context(prepare_request(
+                &access,
+                &frozen.snapshot.snapshot_id,
+                "legacy-v1-boundary",
+                budget(),
+            ))
+            .expect("prepare v2 packet"),
+    );
+    let packet_id = original.receipt.packet_id.clone();
+
+    // Convert the newly compiled packet into the exact old envelope shape,
+    // then constrain the persisted request so v1 still fits while v2 labels
+    // force the same request through layered packing.
+    rewrite_packet_message(&project, &packet_id, |content| {
+        *content = content
+            .replace(
+                "\"schema\":\"webnovelstudio.context.packet.v2\"",
+                "\"schema\":\"webnovelstudio.context.packet.v1\"",
+            )
+            .replace(",\"displayName\":\"Chapter one\"", "")
+            .replace(",\"displayName\":\"Older evidence title\"", "");
+    });
+
+    let connection = Connection::open(project.path.join("project.sqlite3"))
+        .expect("open legacy packet database");
+    let packet_json: String = connection
+        .query_row(
+            "SELECT packet_json FROM context_packets WHERE id=?",
+            [&packet_id],
+            |row| row.get(0),
+        )
+        .expect("read legacy packet JSON");
+    let packet_value: Value = serde_json::from_str(&packet_json).expect("decode legacy packet");
+    let packet: webnovel_core::context::packet::CompiledPacket =
+        serde_json::from_value(packet_value).expect("decode legacy compiled packet");
+    let input = webnovel_core::context::packet::serialized_input(&packet.messages, &packet.options)
+        .expect("serialize legacy packet input");
+    let input_hash = sha256_hex(input.as_bytes());
+    let packet_hash = sha256_hex(packet_json.as_bytes());
+    let context_window = input.len() + 200;
+    let request_json: String = connection
+        .query_row(
+            "SELECT request_json FROM context_packets WHERE id=?",
+            [&packet_id],
+            |row| row.get(0),
+        )
+        .expect("read persisted packet request");
+    let mut request_value: Value = serde_json::from_str(&request_json).expect("decode request");
+    request_value["budget"]["contextWindowTokens"] = json!(context_window.to_string());
+    let request_json = serde_json::to_string(&request_value).expect("serialize boundary request");
+    let payload_hash = logical_request_hash(request_value);
+    connection
+        .execute(
+            "UPDATE context_packets SET request_json=?,payload_hash=? WHERE id=?",
+            params![request_json, payload_hash, packet_id],
+        )
+        .expect("constrain persisted legacy request budget");
+    drop(connection);
+
+    let (stored_json, stored_packet_hash, stored_input_hash): (String, String, String) =
+        Connection::open(project.path.join("project.sqlite3"))
+            .expect("reopen legacy packet database")
+            .query_row(
+                "SELECT packet_json,packet_hash,input_hash FROM context_packets WHERE id=?",
+                [&packet_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read legacy packet fingerprints");
+    assert_eq!(stored_json, packet_json);
+    assert_eq!(stored_packet_hash, packet_hash);
+    assert_eq!(stored_input_hash, input_hash);
+    assert_eq!(packet.receipt.input_tokens, input.len().to_string());
+
+    let historical = project
+        .prepared_context(access.clone(), packet_id.clone())
+        .expect("v1 packet must replay under its authenticated schema");
+    assert_eq!(historical, packet);
+
+    // With the same persisted boundary, a newly compiled v2 request must
+    // choose layered packing because author-room labels no longer fit.
+    let probe = project
+        .prepare_context(prepare_request(
+            &access,
+            &frozen.snapshot.snapshot_id,
+            "legacy-v2-boundary-probe",
+            MockContextBudget::new(context_window.to_string(), "100", "100"),
+        ))
+        .expect("prepare v2 boundary probe");
+    let probe = prepared(probe);
+    let probe_envelope: Value =
+        serde_json::from_str(probe.messages[1].content.as_str()).expect("decode v2 probe envelope");
+    assert_eq!(probe_envelope["schema"], "webnovelstudio.context.packet.v2");
+    assert_eq!(probe_envelope["packingMethod"], "layeredExcerpt");
+
+    drop(project);
+    let reopened = ProjectSession::open(&project_path).expect("reopen legacy project");
+    let reopened_access = reopened
+        .attach("legacy-v1-reopened".into())
+        .expect("attach reopened project");
+    assert_eq!(
+        reopened
+            .prepared_context(reopened_access, packet_id.clone())
+            .expect("reopened v1 packet remains readable"),
+        packet
+    );
+    let archive = temp.child("legacy-v1.wnsbackup");
+    create_backup(&reopened, &archive).expect("backup validates legacy v1 packet");
+    drop(reopened);
+
+    let recovered_path = temp.child("recovered");
+    let recovered = recover_backup(&archive, &recovered_path, "Recovered legacy v1")
+        .expect("recover legacy v1 backup");
+    let recovered_row: (String, String, String) =
+        Connection::open(recovered.path.join("project.sqlite3"))
+            .expect("open recovered database")
+            .query_row(
+                "SELECT packet_json,packet_hash,input_hash FROM context_packets WHERE id=?",
+                [&packet_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read recovered legacy packet");
+    assert_eq!(recovered_row, (packet_json, packet_hash, input_hash));
+}
+
+#[test]
 fn safe_brief_receipt_tampering_is_rejected_by_read_and_backup_validation() {
     let temp = TempDir::new("safe-brief-tamper");
     let (project, access, document) = setup_project(&temp.child("project"));
@@ -371,6 +586,113 @@ fn safe_brief_receipt_tampering_is_rejected_by_read_and_backup_validation() {
     let backup_error = create_backup(&project, &temp.child("tampered.wnsbackup"))
         .expect_err("tampered safe brief receipt must fail backup validation");
     assert_eq!(backup_error.code, "InvalidBackup");
+}
+
+#[test]
+fn unknown_packet_schema_is_rejected_after_authenticated_hash_checks() {
+    let temp = TempDir::new("unknown-packet-schema");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let frozen = freeze(&project, &access, &document);
+    let packet = prepared(
+        project
+            .prepare_context(prepare_request(
+                &access,
+                &frozen.snapshot.snapshot_id,
+                "unknown-packet-schema",
+                budget(),
+            ))
+            .expect("prepare packet"),
+    );
+    rewrite_packet(&project, &packet.receipt.packet_id, |packet| {
+        let mut envelope: Value = serde_json::from_str(
+            packet["messages"][1]["content"]
+                .as_str()
+                .expect("packet evidence envelope"),
+        )
+        .expect("decode packet evidence envelope");
+        envelope["schema"] = json!("webnovelstudio.context.packet.v999");
+        packet["messages"][1]["content"] =
+            json!(serde_json::to_string(&envelope).expect("serialize unknown schema envelope"));
+    });
+    let read_error = project
+        .prepared_context(access, packet.receipt.packet_id.clone())
+        .expect_err("unknown packet schema must fail validated read");
+    assert_eq!(read_error.code, "InvalidContextPacket");
+    let backup_error = create_backup(&project, &temp.child("unknown.wnsbackup"))
+        .expect_err("unknown packet schema must fail backup validation");
+    assert_eq!(backup_error.code, "InvalidBackup");
+}
+
+#[test]
+fn packet_schema_versions_reject_mixed_author_room_labels() {
+    let temp = TempDir::new("packet-schema-label-tamper");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let frozen = freeze(&project, &access, &document);
+    let packet = prepared(
+        project
+            .prepare_context(prepare_request(
+                &access,
+                &frozen.snapshot.snapshot_id,
+                "mixed-author-room-label",
+                budget(),
+            ))
+            .expect("prepare packet"),
+    );
+    rewrite_packet(&project, &packet.receipt.packet_id, |packet| {
+        let mut envelope: Value = serde_json::from_str(
+            packet["messages"][1]["content"]
+                .as_str()
+                .expect("packet evidence envelope"),
+        )
+        .expect("decode packet evidence envelope");
+        assert_eq!(envelope["schema"], "webnovelstudio.context.packet.v2");
+        envelope["target"]
+            .as_object_mut()
+            .expect("target object")
+            .remove("displayName");
+        packet["messages"][1]["content"] =
+            json!(serde_json::to_string(&envelope).expect("serialize mixed label envelope"));
+    });
+    let read_error = project
+        .prepared_context(access, packet.receipt.packet_id.clone())
+        .expect_err("missing v2 target label must fail validated read");
+    assert_eq!(read_error.code, "InvalidContextPacket");
+    let backup_error = create_backup(&project, &temp.child("mixed.wnsbackup"))
+        .expect_err("missing v2 target label must fail backup validation");
+    assert_eq!(backup_error.code, "InvalidBackup");
+}
+
+#[test]
+fn legacy_v1_packet_rejects_a_stray_author_room_label() {
+    let temp = TempDir::new("legacy-v1-stray-label");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let frozen = freeze(&project, &access, &document);
+    let packet = prepared(
+        project
+            .prepare_context(prepare_request(
+                &access,
+                &frozen.snapshot.snapshot_id,
+                "legacy-v1-stray-label",
+                budget(),
+            ))
+            .expect("prepare packet"),
+    );
+    rewrite_packet(&project, &packet.receipt.packet_id, |packet| {
+        let mut envelope: Value = serde_json::from_str(
+            packet["messages"][1]["content"]
+                .as_str()
+                .expect("packet evidence envelope"),
+        )
+        .expect("decode packet evidence envelope");
+        envelope["schema"] = json!("webnovelstudio.context.packet.v1");
+        envelope["target"]["displayName"] = json!("Unexpected legacy title");
+        packet["messages"][1]["content"] =
+            json!(serde_json::to_string(&envelope).expect("serialize stray-label envelope"));
+    });
+    let error = project
+        .prepared_context(access, packet.receipt.packet_id)
+        .expect_err("v1 packets must not retain v2-only labels");
+    assert_eq!(error.code, "InvalidContextPacket");
 }
 
 #[test]

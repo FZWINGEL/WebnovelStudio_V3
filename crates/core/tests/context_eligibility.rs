@@ -723,6 +723,8 @@ fn packet_and_budget_contracts_keep_cross_boundary_counters_as_strings() {
         navigation_omissions: Vec::new(),
         reviewed_evidence: Vec::new(),
         reviewed_evidence_omissions: Vec::new(),
+        reviewed_promises: Vec::new(),
+        reviewed_promise_omissions: Vec::new(),
         input_hash: "b".repeat(64),
         input_tokens: "12345678901234567890".into(),
         token_accounting_method: "utf8-estimate".into(),

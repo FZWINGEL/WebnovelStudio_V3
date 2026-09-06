@@ -92,6 +92,7 @@ fn mark_ready(
             operation_id: stage_operation.into(),
             expected: document.head.clone(),
             records: None,
+            promises: None,
         })
         .expect("stage review");
     project

@@ -258,6 +258,14 @@ pub struct PacketReceipt {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_evidence_omissions:
         Vec<crate::context::reviewed_evidence::ReviewedEvidenceOmission>,
+    /// Author-reviewed promise observations delivered as a separate evidence
+    /// envelope. Empty legacy receipts omit this field entirely.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_promises: Vec<crate::context::reviewed_promises::ReviewedPromiseCoverage>,
+    /// Promise observations omitted by disclosure or budget remain distinct
+    /// from source omissions and from possession evidence omissions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_promise_omissions: Vec<crate::context::reviewed_promises::ReviewedPromiseOmission>,
     pub input_hash: String,
     pub input_tokens: String,
     pub token_accounting_method: String,

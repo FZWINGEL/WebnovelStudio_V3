@@ -125,6 +125,7 @@ fn stage(
             operation_id: operation_id.into(),
             expected: document.head.clone(),
             records: None,
+            promises: None,
         })
         .unwrap()
 }
@@ -142,6 +143,7 @@ fn stage_with_records(
             operation_id: operation_id.into(),
             expected: document.head.clone(),
             records,
+            promises: None,
         })
         .unwrap()
 }
@@ -179,6 +181,7 @@ fn author_review_pins_exact_revisions_and_requires_an_earlier_prefix() {
             operation_id: "stage-second-too-early".into(),
             expected: second.head.clone(),
             records: None,
+            promises: None,
         })
         .unwrap_err();
     assert_eq!(missing.code, "ReviewBasisUnavailable");
@@ -613,6 +616,7 @@ fn review_operations_replay_after_writer_lease_rotation() {
             operation_id: "stage-lease".into(),
             expected: first.head.clone(),
             records: None,
+            promises: None,
         })
         .unwrap_err();
     assert_eq!(old_stage.code, "WriterLeaseExpired");
@@ -622,6 +626,7 @@ fn review_operations_replay_after_writer_lease_rotation() {
             operation_id: "stage-lease".into(),
             expected: first.head,
             records: None,
+            promises: None,
         })
         .unwrap();
     assert_eq!(replayed_stage.id, staged.id);
@@ -780,6 +785,7 @@ fn inherited_evidence_is_revalidated_against_new_revision() {
             operation_id: "stage-invalid-inheritance".into(),
             expected: changed.head.clone(),
             records: None,
+            promises: None,
         })
         .unwrap_err();
     assert_eq!(error.code, "InvalidReviewedRecords");
@@ -869,6 +875,10 @@ fn schema20_archive_migrates_legacy_empty_evidence_rows() {
              ALTER TABLE review_stages DROP COLUMN records_hash;
              ALTER TABLE ready_bundles DROP COLUMN records_json;
              ALTER TABLE ready_bundles DROP COLUMN records_hash;
+             ALTER TABLE review_stages DROP COLUMN promises_json;
+             ALTER TABLE review_stages DROP COLUMN promises_hash;
+             ALTER TABLE ready_bundles DROP COLUMN promises_json;
+             ALTER TABLE ready_bundles DROP COLUMN promises_hash;
              PRAGMA user_version=20;",
         )
         .unwrap();
@@ -901,7 +911,7 @@ fn schema20_archive_migrates_legacy_empty_evidence_rows() {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
-    assert_eq!(schema, 22);
+    assert_eq!(schema, 23);
     assert_eq!(migrated_bundle, bundle.id);
     assert_eq!(records_json, None);
     assert_eq!(records_hash, None);

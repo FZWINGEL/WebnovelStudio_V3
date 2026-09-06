@@ -5,6 +5,7 @@ use rusqlite::{Connection, params};
 /// intentionally one-way; this helper only makes synthetic legacy fixtures
 /// truthful.
 pub fn remove_schema19_features(connection: &Connection) -> rusqlite::Result<()> {
+    remove_schema22_features(connection)?;
     remove_schema20_features(connection)?;
     drop_column_if_present(connection, "export_records", "review_bundle_id")?;
     drop_column_if_present(connection, "proposals", "kind")?;
@@ -42,6 +43,16 @@ pub fn remove_schema19_features(connection: &Connection) -> rusqlite::Result<()>
              DROP TABLE discussion_drafts_schema19;",
         )?;
     }
+    Ok(())
+}
+
+/// Strip only schema-23 promise columns so a current fixture can truthfully be
+/// presented as a schema-22 database before migration coverage runs.
+pub fn remove_schema22_features(connection: &Connection) -> rusqlite::Result<()> {
+    drop_column_if_present(connection, "review_stages", "promises_json")?;
+    drop_column_if_present(connection, "review_stages", "promises_hash")?;
+    drop_column_if_present(connection, "ready_bundles", "promises_json")?;
+    drop_column_if_present(connection, "ready_bundles", "promises_hash")?;
     Ok(())
 }
 

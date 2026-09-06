@@ -9,7 +9,7 @@ import type { PossessionRecord } from '../ipc/reviews';
 
 vi.mock('../ipc/context', () => ({
   preparedStoryContext: vi.fn(), preparedStoryContextIsCurrent: vi.fn(), storyContextSnapshot: vi.fn(),
-  readStoryContextSource: vi.fn(), reviewedEvidenceHistory: vi.fn(), searchStoryContext: vi.fn(),
+  readStoryContextSource: vi.fn(), reviewedEvidenceHistory: vi.fn(), reviewedPromiseHistory: vi.fn(), searchStoryContext: vi.fn(),
 }));
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 const descriptor = (handle: string, title: string): context.SourceDescriptor => ({ handle, displayName: title, source: { projectId: 'project', documentId: handle, revisionId: handle, bodyHash: 'hash' }, kind: 'currentDraft', current: true, coverage: 'verbatim', disclosure: { readerPosition: '1', visibleToCharacters: [], authorOnly: false, futurePrivate: false }, storyTime: null, dependencies: [] });
@@ -283,5 +283,61 @@ describe('recorded object history', () => {
     await render(); await act(async () => historyButton().click());
     expect(host.querySelector('.context-reviewed-evidence')).toBeNull();
     expect(host.textContent).toContain('Source permissions changed.');
+  });
+});
+
+describe('recorded promise context and history', () => {
+  const promise = (id: string, audience: 'reader' | 'authorRoom' = 'reader') => ({ id, promise: { id: 'return-key', label: 'Return the key' }, phase: 'setup' as const, timing: 'unknown' as const, note: 'Ren promises to return the key.', audience, evidence: reviewedRecord(id, audience, 'Key').evidence });
+  const setup = (restricted = false) => {
+    const reader = promise('setup'); const hidden = { ...promise('private', 'authorRoom'), promise: { id: 'secret', label: 'Private betrayal promise' }, note: 'Private plan that must stay hidden.' };
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, policy: { ...frozen.policy, audience: restricted ? 'restrictedWriting' : 'authorRoom' }, reviewedPromises: [{ projectId: 'project', operationNamespace: 'namespace', bundleId: 'promise-bundle', recordsHash: 'promise-hash', sourceHandle: first.handle, source: first.source, records: [reader, hidden] }] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, reviewedPromises: [{ bundleId: 'promise-bundle', recordsHash: 'promise-hash', projectionHash: 'projection', sourceHandle: first.handle, recordIds: [reader.id], completeRecordSet: false }], reviewedPromiseOmissions: [{ sourceHandle: first.handle, bundleId: 'promise-bundle', recordsHash: 'promise-hash', reason: restricted ? 'disclosure' : 'budget', count: 1 }] } });
+    return { snapshotId: 'snapshot', current: true, history: { promiseId: reader.promise.id, labelVariants: [reader.promise.label], observations: [{ ...reader, recordId: reader.id, sourceHandle: first.handle, source: first.source, sourceDisplayName: first.displayName, sourceOrder: 0 }], uncertainty: ['unknownTiming'], incomplete: true, hasRecordedPayoff: false } } satisfies context.ReviewedPromiseHistoryResult;
+  };
+  const historyButton = () => host.querySelector('button[aria-label="Find promise history for Return the key"]') as HTMLButtonElement;
+  it('separates delivered promise records from available records and explains budget omissions', async () => {
+    setup(); await render();
+    const used = [...host.querySelectorAll('details')].find(item => item.querySelector(':scope > summary')?.textContent?.startsWith('Used'))!;
+    expect(used.textContent).toContain('Ren promises'); expect(used.textContent).not.toContain('Private betrayal promise');
+    expect(host.textContent).toContain('Private betrayal promise'); expect(host.textContent).toContain('promise detail was withheld');
+  });
+  it('hides private labels and notes even when they exist in the authenticated frozen set', async () => {
+    setup(true); await render(); expect(host.textContent).toContain('Ren promises');
+    expect(host.textContent).not.toContain('Private betrayal promise'); expect(host.textContent).not.toContain('Private plan that must stay hidden');
+    expect(host.textContent).toContain('reader disclosure policy');
+  });
+  it('queries the exact promise and opens the retained source without asserting resolution', async () => {
+    const result = setup(); vi.mocked(context.reviewedPromiseHistory).mockResolvedValue({ ...result, current: false });
+    vi.mocked(context.readStoryContextSource).mockResolvedValue({ descriptor: first, body: { schemaVersion: 1, body: { type: 'doc', content: [] } }, passages: [], usedValidatedProjection: false });
+    await render(); await act(async () => historyButton().click());
+    expect(context.reviewedPromiseHistory).toHaveBeenCalledExactlyOnceWith(access, 'snapshot', 'return-key');
+    const history = host.querySelector('[aria-label="Recorded promise history"]')!;
+    expect(history.textContent).toContain('does not prove the promise remains unresolved'); expect(history.textContent).toContain('Earlier story version');
+    await act(async () => (history.querySelector('button[aria-label^="Read"]') as HTMLButtonElement).click());
+    expect(context.readStoryContextSource).toHaveBeenCalledExactlyOnceWith(access, 'snapshot', 'first');
+  });
+  it('drops a late or misbound promise-history reply', async () => {
+    const result = setup(); let finish!: (value: context.ReviewedPromiseHistoryResult) => void;
+    vi.mocked(context.reviewedPromiseHistory).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    await render(); await act(async () => historyButton().click()); await render('other-packet', '2'); await act(async () => finish(result));
+    expect(host.querySelector('[aria-label="Recorded promise history"]')).toBeNull();
+    vi.mocked(context.reviewedPromiseHistory).mockResolvedValue({ ...result, history: { ...result.history, promiseId: 'other-promise' } });
+    await act(async () => historyButton().click()); expect(host.textContent).toContain('promise history did not match');
+    expect(host.querySelector('[aria-label="Recorded promise history"]')).toBeNull();
+  });
+  it('distinguishes reader-disclosed and author-only observations in promise history', async () => {
+    const result = setup();
+    result.history.observations.push({ ...result.history.observations[0], recordId: 'private-payoff', audience: 'authorRoom', note: 'Private payoff plan.' });
+    vi.mocked(context.reviewedPromiseHistory).mockResolvedValue(result);
+    await render(); await act(async () => historyButton().click());
+    const rows = host.querySelectorAll('[aria-label="Recorded promise history"] ol > li');
+    expect(rows[0].textContent).toContain('Explicitly reader-disclosed');
+    expect(rows[1].textContent).toContain('Author room only');
+  });
+  it('removes loaded promise history and source evidence after policy revocation', async () => {
+    const result = setup(); vi.mocked(context.reviewedPromiseHistory).mockResolvedValueOnce(result).mockRejectedValueOnce({ code: 'ContextPolicyChanged', detail: 'Promise permissions changed.' });
+    await render(); await act(async () => historyButton().click()); expect(host.querySelector('[aria-label="Recorded promise history"]')).not.toBeNull();
+    await act(async () => historyButton().click()); expect(host.querySelector('[aria-label="Recorded promise history"]')).toBeNull();
+    expect(host.textContent).not.toContain('Ren promises'); expect(host.textContent).toContain('Promise permissions changed.');
   });
 });

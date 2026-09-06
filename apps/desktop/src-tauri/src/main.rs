@@ -118,6 +118,8 @@ fn main() {
             review_commands::read_reviewed_record_set,
             review_commands::reviewed_entity_catalog,
             review_commands::reviewed_evidence_history,
+            review_commands::reviewed_promise_catalog,
+            review_commands::reviewed_promise_history,
             review_commands::stage_author_review,
             review_commands::read_review_stage,
             review_commands::mark_ready,
