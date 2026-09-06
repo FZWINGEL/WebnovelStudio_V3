@@ -41,6 +41,44 @@ describe('LookupContextView', () => {
     expect(host.textContent).not.toContain('"kind":"search"');
   });
 
+  it('uses the frozen lookup source projection when the snapshot descriptor is absent', async () => {
+    const projectedName = 'Chapter 1 · Frozen lookup title';
+    const lookup = packet({
+      sourceProjection: { schemaVersion: 'story-lookup-source.v1', sources: [{ handle: 'chapter-1', source, displayName: projectedName }] },
+      exchanges: [{
+        request: { kind: 'search', id: 'search-projection', query: 'pendant', mode: 'literal', limit: 4 },
+        result: { kind: 'search', result: { snapshotId: 'snapshot', hits: [{ passage: { handle: 'chapter-1', source, blockId: 'block-1', blockOrder: 0, text: 'Frozen evidence.' }, startUtf16: 0, endUtf16: 15 }], sourceMatches: [{ handle: 'chapter-1', source, displayName: 'Stale renderer label', kind: 'reviewedAuthority', current: false, coverage: 'verbatim', disclosure: { readerPosition: null, visibleToCharacters: [], authorOnly: false, futurePrivate: false }, storyTime: null, dependencies: [] }], searchedSources: 1, hasMore: false, coverage: 'Frozen exact text' } },
+      }],
+    });
+    await act(async () => root.render(<LookupContextView lookup={lookup} sources={[]} onRead={() => {}} />));
+    expect(host.textContent).toContain(projectedName);
+    expect(host.textContent).not.toContain('Stale renderer label');
+  });
+
+  it('uses the matching snapshot descriptor for legacy lookup packets', async () => {
+    const lookup = packet({ exchanges: [{
+      request: { kind: 'read', id: 'read-legacy', handle: 'chapter-1' },
+      result: { kind: 'read', handle: 'chapter-1', source, passages: [], complete: true },
+    }] });
+    await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} onRead={() => {}} />));
+    expect(host.textContent).toContain('Read 1 · Chapter 1 · The Pendant');
+  });
+
+  it('does not relabel a foreign source when a projection identity does not match', async () => {
+    const foreignSource: SourceRef = { ...source, revisionId: 'foreign-revision' };
+    const lookup = packet({
+      sourceProjection: { schemaVersion: 'story-lookup-source.v1', sources: [{ handle: 'chapter-1', source, displayName: 'Wrong frozen title' }] },
+      exchanges: [{
+        request: { kind: 'search', id: 'search-foreign', query: 'pendant', mode: 'literal', limit: 4 },
+        result: { kind: 'search', result: { snapshotId: 'snapshot', hits: [{ passage: { handle: 'chapter-1', source: foreignSource, blockId: 'block-foreign', blockOrder: 0, text: 'Foreign evidence.' }, startUtf16: 0, endUtf16: 17 }], sourceMatches: [], searchedSources: 1, hasMore: false, coverage: 'Foreign exact text' } },
+      }],
+    });
+    await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} onRead={() => {}} />));
+    expect(host.textContent).toContain('chapter-1');
+    expect(host.textContent).not.toContain('Wrong frozen title');
+    expect(host.textContent).not.toContain('Chapter 1 · The Pendant');
+  });
+
   it('labels no-match uncertainty, unavailable gaps, and partial reads', async () => {
     const lookup = packet({ exchanges: [
       { request: { kind: 'search', id: 'search-1', query: 'missing vow', mode: 'literal', limit: 6 }, result: { kind: 'search', result: { snapshotId: 'snapshot', hits: [], sourceMatches: [], searchedSources: 1, hasMore: false, coverage: 'Chapter 1 exact text' } } },

@@ -53,17 +53,20 @@ into an in-flight request, so a refreshed descriptor cannot replay an old
 binding, and saved results remain inspectable. A renderer request
 acknowledgment does not trigger automatic generation replay.
 
-Project schema 27 is the reader floor for the distinct author binding profile;
-it changes no project tables. Legacy `codex-stdin.v1` bindings, including
-historical 0.153.3 packet bytes and hashes, remain readable. Maintenance keeps
+Project schema 28 is the current reader floor; the schema-27 author-binding
+boundary remains part of the compatibility contract and changes no project
+tables. Legacy `codex-stdin.v1` bindings, including historical 0.153.3 packet
+bytes and hashes, remain readable. Maintenance keeps
 the fixed GPT-5.6-Luna/xhigh/priority profile and exposes separate
 `memoryReady` state; an author-selected writing model does not redirect
 maintenance work. Manual editing and the HTTP provider path are unchanged.
 
-The implementation is complete as a development slice. The post-parser-fix
-wrapper passes 589 active Rust tests (548 core and 41 desktop), one existing
+The implementation is complete as a development slice. The earlier provider
+wrapper passed 589 active Rust tests (548 core and 41 desktop), one existing
 ignored fixture, and 350 frontend tests in 27 files, with formatting, strict
-Clippy, TypeScript, and the production build. The pre-parser-fix
+Clippy, TypeScript, and the production build; this is dated provider evidence.
+The current wrapper passes 593 active Rust tests (552 core and 41 desktop), one
+existing ignored fixture, and 353 frontend tests in 27 files. The pre-parser-fix
 dynamic development binary with SHA-256
 `775962e975c7dc5b3f0171ba2d3724212b5921295eae897fd2052af92dcf7539` also
 passes the native HTTP fixture with four local-mock POSTs, zero live calls,
@@ -316,18 +319,34 @@ native screenshots, and `.local/promises-live-named.log`. Executable SHA-256 was
 restricted title exclusion has deterministic and native development evidence,
 not a live restricted-generation claim from these two discussions.
 
-The C6 bounded story-lookup experiment has not produced a generation. Its
-prepared harness was run on 6 September 2026 and stopped during compatibility
-preflight because the installed CLI reported `0.153.4` while the old profile
-required `0.153.3`. It made **zero model calls**; the record is
-`.local/live-lookup-preflight-01533/qualification.json`. The live-generation
-total therefore remains thirteen. This is a compatibility finding, not a
-failed generation. The harness is intended to make an initial request, receive
-a `story-lookup.v1` search request, resolve it locally, make a subsequent exact
-read request, and inspect the final packet after the compatibility-aware
-adapter is implemented. No C6 live result, provider-native function-calling
-claim, model-specific token-budget claim, or narrative-quality conclusion is
-recorded here.
+The earlier C6 live-lookup harness was run on 6 September 2026 and stopped
+during compatibility preflight because the installed CLI reported `0.153.4`
+while the old profile required `0.153.3`. It made **zero model calls**; the
+record is `.local/live-lookup-preflight-01533/qualification.json`. This is a
+historical compatibility finding, not a failed generation; current cumulative
+native dispatches remain twenty. The current source-title projection is an
+application packet change under native/full-wrapper qualification. No C6 live
+result, provider-native function-calling claim, model-specific token-budget
+claim, or narrative-quality conclusion is recorded here. The current
+source-title projection change made no new LLM calls.
+
+## Current C6 frozen source-title projection
+
+The source-title projection is implemented for new child lookup packets only.
+It carries exact frozen handles, `SourceRef` values, and display names for
+returned search/read sources; absent initial or historical source sets remain
+absent. The strict native set is now 47 checks after frozen-rename/reopen
+coverage. The current local diagnostic passes 46/47 with zero errors, omitting
+only the known local OS clipboard check, on WebView2 `152.0.4191.62` using
+executable SHA-256
+`a66e07b155d1aedc24588e6d7b388f02bffb5e790c7d9991c5f3640206788cfe`.
+Serialized input and receipts retain the frozen title, and UI rename/reopen
+leaves packet JSON unchanged. The current wrapper passes 593 active Rust tests
+(552 core and 41 desktop), one existing ignored fixture, and 353 frontend tests
+in 27 files, with formatting, strict Clippy, TypeScript, and the production
+build. The strengthened migration checks also pass the focused dynamic-author
+binding case and 13-case full-context migration set. No broader provider or
+live-lookup qualification is claimed.
 
 ## Authentication, sources, and cleanup limits
 

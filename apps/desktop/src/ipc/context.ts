@@ -115,10 +115,15 @@ export type LookupResult =
   | { kind: 'read'; handle: string; source: SourceRef; passages: SourcePassage[]; complete: boolean }
   | { kind: 'unavailable'; code: string; detail: string };
 export interface LookupExchange { request: LookupRequest; result: LookupResult }
+export interface LookupSourceProjection {
+  schemaVersion: 'story-lookup-source.v1';
+  sources: Array<{ handle: string; source: SourceRef; displayName: string }>;
+}
 export interface LookupPacketInput {
   allowance: LookupAllowance;
   completedInvocations: number;
   exchanges: LookupExchange[];
+  sourceProjection?: LookupSourceProjection;
 }
 export interface ScopeGrant {
   kind: 'passage' | 'blocks' | 'wholeDocument' | 'append';

@@ -15,7 +15,10 @@ use super::contracts::{
 use super::conversation::{ConversationTurn, validate_conversation};
 use super::eligibility::{EligibilityError, evaluate_sources};
 use super::guidance::{FrozenGuidance, validate_frozen_guidance};
-use super::lookup::{LookupPacketInput, LookupReadRequest, LookupReadResult};
+use super::lookup::{
+    LOOKUP_SOURCE_PROJECTION_SCHEMA, LookupPacketInput, LookupReadRequest, LookupReadResult,
+    LookupSourceProjection,
+};
 use super::navigation::{
     FrozenNavigationView, NavigationOmissionReason, NavigationViewOmission, NavigationViewRef,
     validate_frozen_navigation_views, validate_navigation_view_payload,
@@ -1840,6 +1843,41 @@ fn validate_lookup_evidence(
                 ));
             }
         }
+    }
+    if lookup.completed_invocations == 0 && lookup.source_projection.is_some() {
+        return Err(invalid(
+            "The initial lookup packet cannot contain a source projection.",
+        ));
+    }
+    if let Some(projection) = &lookup.source_projection {
+        if request.frozen.purpose != ContextPurpose::Discuss
+            || request.frozen.policy.audience != Audience::AuthorRoom
+            || request.frozen.snapshot.basis != super::BasisKind::Working
+        {
+            return Err(invalid(
+                "Lookup source labels require a working author-room discussion.",
+            ));
+        }
+        validate_lookup_source_projection(request, lookup, projection)?;
+    }
+    Ok(())
+}
+
+fn validate_lookup_source_projection(
+    request: &PacketRequest,
+    lookup: &LookupPacketInput,
+    projection: &LookupSourceProjection,
+) -> Result<(), PacketError> {
+    let invalid = |message: &str| source_binding("InvalidLookupEvidence", message, None);
+    if projection.schema_version != LOOKUP_SOURCE_PROJECTION_SCHEMA {
+        return Err(invalid("The lookup source projection schema is unknown."));
+    }
+    let expected = LookupSourceProjection::from_exchanges(&request.frozen, &lookup.exchanges)
+        .map_err(|error| invalid(&error.to_string()))?;
+    if projection != &expected {
+        return Err(invalid(
+            "The lookup source projection does not match its frozen evidence.",
+        ));
     }
     Ok(())
 }

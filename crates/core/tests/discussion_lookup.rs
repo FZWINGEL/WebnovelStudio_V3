@@ -176,6 +176,20 @@ fn lookup_claims_expands_exact_frozen_read_and_finishes_with_child_packet() {
         child.packet.receipt.packet_id,
         initial.packet.receipt.packet_id
     );
+    let source_projection = child
+        .packet
+        .receipt
+        .lookup
+        .as_ref()
+        .and_then(|lookup| lookup.source_projection.as_ref())
+        .expect("new lookup child carries source projection");
+    assert_eq!(source_projection.schema_version, "story-lookup-source.v1");
+    assert_eq!(source_projection.sources.len(), 1);
+    assert_eq!(
+        source_projection.sources[0].source.document_id,
+        "chapter-one"
+    );
+    assert_eq!(source_projection.sources[0].display_name, "Chapter one");
     let claimed_child = project
         .claim_lookup_invocation(owner.clone(), "1".into())
         .expect("claim child lookup");

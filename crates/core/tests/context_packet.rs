@@ -1255,7 +1255,8 @@ fn packet_message_and_options_serialization_is_stable() {
 mod lookup_packets {
     use super::*;
     use webnovel_core::context::lookup::{
-        LookupAllowance, LookupExchange, LookupPacketInput, LookupRead, LookupReadResult,
+        LOOKUP_SOURCE_PROJECTION_SCHEMA, LookupAllowance, LookupExchange, LookupPacketInput,
+        LookupRead, LookupReadResult, LookupSourceProjection,
     };
     use webnovel_core::context::packet::LOOKUP_RESPONSE_CONTRACT;
     use webnovel_core::projects::story_context::{SearchHit, SearchMode, SearchResult};
@@ -1282,6 +1283,7 @@ mod lookup_packets {
             allowance: LookupAllowance::default(),
             completed_invocations: 0,
             exchanges: vec![],
+            source_projection: None,
         });
         req
     }
@@ -1307,6 +1309,14 @@ mod lookup_packets {
         req
     }
 
+    fn projected(req: &PacketRequest) -> LookupSourceProjection {
+        LookupSourceProjection::from_exchanges(
+            &req.frozen,
+            &req.lookup.as_ref().expect("lookup input").exchanges,
+        )
+        .expect("frozen lookup evidence projects")
+    }
+
     #[test]
     fn explicit_lookup_contract_preserves_instruction_and_ordinary_wire_shape() {
         let req = initial();
@@ -1316,6 +1326,7 @@ mod lookup_packets {
         assert!(packet.messages[0].content.contains("story-lookup.v1"));
         let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
         assert_eq!(envelope["lookup"]["completedInvocations"], 0);
+        assert!(envelope["lookup"].get("sourceProjection").is_none());
         let mut ordinary = req;
         ordinary.lookup = None;
         ordinary.response_contract = None;
@@ -1389,6 +1400,155 @@ mod lookup_packets {
                 "mutation {mutation}"
             );
         }
+    }
+
+    #[test]
+    fn new_lookup_projection_carries_exact_read_and_search_titles() {
+        let mut read_request = expanded();
+        let read_projection_input = projected(&read_request);
+        read_request.lookup.as_mut().unwrap().source_projection = Some(read_projection_input);
+        let read_packet = compile_packet(&read_request).expect("read projection compiles");
+        let read_projection = read_packet
+            .receipt
+            .lookup
+            .as_ref()
+            .and_then(|lookup| lookup.source_projection.as_ref())
+            .expect("read projection receipt");
+        assert_eq!(
+            read_projection.schema_version,
+            LOOKUP_SOURCE_PROJECTION_SCHEMA
+        );
+        assert_eq!(read_projection.sources.len(), 1);
+        assert_eq!(read_projection.sources[0].handle, "old");
+        assert_eq!(
+            read_projection.sources[0].source,
+            read_request.sources[1].descriptor.source
+        );
+        assert_eq!(read_projection.sources[0].display_name, "Private title old");
+        let read_envelope: Value = serde_json::from_str(&read_packet.messages[1].content).unwrap();
+        assert_eq!(
+            read_envelope["lookup"]["sourceProjection"]["sources"][0]["displayName"],
+            "Private title old"
+        );
+
+        let mut search_request = expanded();
+        let old_passage = search_request.sources[1].passages[0].clone();
+        let start = old_passage.text.find("brass key").expect("search phrase");
+        search_request.lookup.as_mut().unwrap().exchanges = vec![LookupExchange {
+            request: LookupRead::Search {
+                id: "search-1".into(),
+                query: "brass key".into(),
+                mode: SearchMode::Literal,
+                limit: 3,
+            },
+            result: LookupReadResult::Search {
+                result: SearchResult {
+                    snapshot_id: search_request.frozen.snapshot.snapshot_id.clone(),
+                    hits: vec![SearchHit {
+                        passage: old_passage,
+                        start_utf16: start as u32,
+                        end_utf16: (start + "brass key".len()) as u32,
+                    }],
+                    source_matches: vec![],
+                    searched_sources: 2,
+                    has_more: false,
+                    coverage: "Exact frozen source match.".into(),
+                },
+            },
+        }];
+        let search_projection_input = projected(&search_request);
+        search_request.lookup.as_mut().unwrap().source_projection = Some(search_projection_input);
+        let search_packet = compile_packet(&search_request).expect("search projection compiles");
+        assert_eq!(
+            search_packet
+                .receipt
+                .lookup
+                .as_ref()
+                .unwrap()
+                .source_projection
+                .as_ref()
+                .unwrap()
+                .sources[0]
+                .display_name,
+            "Private title old"
+        );
+    }
+
+    #[test]
+    fn lookup_projection_rejects_tampered_missing_extra_duplicate_and_restricted_labels() {
+        let valid = expanded();
+        let expected = projected(&valid);
+        let mut candidates = Vec::new();
+
+        let mut missing = valid.clone();
+        missing.lookup.as_mut().unwrap().source_projection = Some(LookupSourceProjection {
+            schema_version: LOOKUP_SOURCE_PROJECTION_SCHEMA.into(),
+            sources: Vec::new(),
+        });
+        candidates.push(missing);
+
+        let mut extra = valid.clone();
+        let mut extra_projection = expected.clone();
+        let mut extra_source = extra_projection.sources[0].clone();
+        extra_source.handle = "target".into();
+        extra_source.source = extra.frozen.snapshot.target.clone();
+        extra_source.display_name = "Private title target".into();
+        extra_projection.sources.push(extra_source);
+        extra.lookup.as_mut().unwrap().source_projection = Some(extra_projection);
+        candidates.push(extra);
+
+        let duplicate = valid.clone();
+        let mut duplicate_projection = expected.clone();
+        duplicate_projection
+            .sources
+            .push(duplicate_projection.sources[0].clone());
+        let mut duplicate = duplicate;
+        duplicate.lookup.as_mut().unwrap().source_projection = Some(duplicate_projection);
+        candidates.push(duplicate);
+
+        let mut renamed = valid.clone();
+        let mut renamed_projection = expected.clone();
+        renamed_projection.sources[0].display_name = "Invented title".into();
+        renamed.lookup.as_mut().unwrap().source_projection = Some(renamed_projection);
+        candidates.push(renamed);
+
+        let mut wrong_source = valid.clone();
+        let mut wrong_source_projection = expected.clone();
+        wrong_source_projection.sources[0].source.revision_id = "other-revision".into();
+        wrong_source.lookup.as_mut().unwrap().source_projection = Some(wrong_source_projection);
+        candidates.push(wrong_source);
+
+        for candidate in candidates {
+            assert!(
+                compile_packet(&candidate).is_err(),
+                "tampered source projection accepted"
+            );
+        }
+
+        let mut restricted = valid;
+        restricted.frozen.policy.audience = Audience::RestrictedWriting;
+        restricted.lookup.as_mut().unwrap().source_projection = Some(expected);
+        assert!(compile_packet(&restricted).is_err());
+    }
+
+    #[test]
+    fn historical_lookup_without_projection_round_trips_exact_bytes() {
+        let request = expanded();
+        let packet = compile_packet(&request).expect("historical lookup packet compiles");
+        let packet_bytes = serde_json::to_vec(&packet).expect("serialize packet");
+        let round_tripped: CompiledPacket =
+            serde_json::from_slice(&packet_bytes).expect("reopen packet");
+        assert_eq!(serde_json::to_vec(&round_tripped).unwrap(), packet_bytes);
+        assert!(
+            round_tripped
+                .receipt
+                .lookup
+                .as_ref()
+                .unwrap()
+                .source_projection
+                .is_none()
+        );
+        assert!(!String::from_utf8_lossy(&packet_bytes).contains("sourceProjection"));
     }
 
     #[test]

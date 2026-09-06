@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 /**
  * Qualify the bounded, local-only story lookup journey through the real
@@ -7,9 +9,23 @@ import { resolve } from 'node:path';
  * reads the matching passage, and then returns one final discussion answer.
  * No provider key or network service is involved.
  */
-export async function qualifyContextLookup({ page, output, createWritingProject, checks }) {
+export async function qualifyContextLookup({ page, output, testRoot, createWritingProject, checks }) {
   const prose = 'Mei made one promise before dawn. The brass key waited beside the lantern.';
   await createWritingProject('Lookup story', 'chapter', 'The promise', prose);
+  const library = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
+  const entry = library.entries.find(item => item.title === 'Lookup story');
+  assert(entry, 'The synthetic lookup project must be registered');
+  const projectPath = await realpath(entry.path);
+  const relativePath = relative(await realpath(testRoot), projectPath);
+  assert(relativePath && !relativePath.startsWith(`..${sep}`) && relativePath !== '..' && !isAbsolute(relativePath), 'Read only the owned synthetic test project');
+  function readPacketJson(packetId) {
+    const database = new DatabaseSync(resolve(projectPath, 'project.sqlite3'), { readOnly: true });
+    try {
+      const row = database.prepare('SELECT packet_json FROM context_packets WHERE id = ?').get(packetId);
+      assert(row, 'The selected context packet must be durably stored');
+      return row.packet_json;
+    } finally { database.close(); }
+  }
 
   const lookupOptIn = page.getByRole('checkbox', { name: 'Look up story details when needed', exact: true });
   await lookupOptIn.check();
@@ -45,6 +61,7 @@ export async function qualifyContextLookup({ page, output, createWritingProject,
   await inspector.locator('.context-lookup').waitFor();
   await inspector.getByText(/2 of 2 additional lookups completed/).waitFor();
   assert.equal(await inspector.locator('.context-lookup-exchange').count(), 2);
+
   assert.equal(await inspector.getByText(prose, { exact: true }).count(), 2);
 
   const packetIds = await selector.locator('option').evaluateAll(options => options.map(option => option.value));
@@ -55,6 +72,19 @@ export async function qualifyContextLookup({ page, output, createWritingProject,
   await inspector.getByText(/2 of 2 additional lookups completed/).waitFor();
   assert.equal(await inspector.locator('.context-lookup-exchange').count(), 2);
 
+  const initial = JSON.parse(readPacketJson(packetIds[0]));
+  const finalJson = readPacketJson(packetIds[2]);
+  const final = JSON.parse(finalJson);
+  assert.equal(initial.receipt.lookup.sourceProjection, undefined);
+  const projection = final.receipt.lookup.sourceProjection;
+  assert.equal(projection.schemaVersion, 'story-lookup-source.v1');
+  assert.equal(projection.sources.length, 1);
+  assert.equal(projection.sources[0].displayName, 'The promise');
+  const envelope = JSON.parse(final.messages[1].content);
+  assert.deepEqual(envelope.lookup.sourceProjection, projection);
+  assert.deepEqual(projection.sources[0].source, final.receipt.lookup.exchanges[1].result.source);
+  await inspector.getByText('Read 2 · The promise', { exact: true }).waitFor();
+
   const sourceButton = inspector.locator('.context-lookup button', { hasText: 'Open exact source' }).first();
   await sourceButton.click();
   const source = page.locator('[aria-label="Saved story source"]');
@@ -63,6 +93,11 @@ export async function qualifyContextLookup({ page, output, createWritingProject,
   assert.equal(await source.getByText(prose, { exact: true }).count(), 1);
   await page.screenshot({ path: resolve(output, 'context-lookup-evidence.png') });
 
+  await page.getByRole('button', { name: 'Rename document', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Document title', exact: true }).fill('A different title now');
+  await page.getByRole('button', { name: 'Save document title', exact: true }).click();
+  await page.getByRole('heading', { name: 'A different title now', exact: true }).waitFor();
+
   // Reopen the durable project and discussion. The lookup exchanges and
   // final packet are loaded from Rust persistence, not reconstructed from the
   // current editor body.
@@ -70,7 +105,7 @@ export async function qualifyContextLookup({ page, output, createWritingProject,
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await page.reload();
   await page.getByRole('button', { name: /^Lookup story Last opened/ }).click();
-  await page.getByRole('heading', { name: 'The promise', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'A different title now', exact: true }).waitFor();
   await page.getByText(/Local test assistant: I read this exact saved passage:/, { exact: false }).waitFor({ timeout: 30_000 });
   const reopenedDiscussion = await page.locator('.feedback-scroll').innerText();
   assert(!reopenedDiscussion.includes('"kind":"needsContext"'), 'Reopened discussion must not expose intermediate lookup JSON');
@@ -84,6 +119,9 @@ export async function qualifyContextLookup({ page, output, createWritingProject,
   await reopenedInspector.locator('.context-lookup').waitFor();
   assert.equal(await reopenedInspector.locator('.context-lookup-exchange').count(), 2);
   assert.equal(await reopenedInspector.getByText(prose, { exact: true }).count(), 2);
+  await reopenedInspector.getByText('Read 2 · The promise', { exact: true }).waitFor();
+  assert.equal(await reopenedSelector.inputValue(), packetIds[2]);
+  assert.equal(readPacketJson(packetIds[2]), finalJson);
   await reopenedInspector.locator('.context-lookup button', { hasText: 'Open exact source' }).first().click();
   const reopenedSource = page.locator('[aria-label="Saved story source"]');
   await reopenedSource.waitFor();
@@ -94,4 +132,5 @@ export async function qualifyContextLookup({ page, output, createWritingProject,
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
 
   checks.push('Native local lookup opts in to exactly three durable calls (search, read, final), keeps intermediate JSON out of chat, exposes authenticated packet evidence and exact-source navigation, and preserves the final packet across project reopen');
+  checks.push('Native lookup delivers frozen source titles in both model input and receipt; a later document rename and restart preserve the original title, exact packet bytes, and three-call history');
 }

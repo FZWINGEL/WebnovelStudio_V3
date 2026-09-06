@@ -5,8 +5,14 @@ function sameSource(left: SourceRef, right: SourceRef): boolean {
     && left.revisionId === right.revisionId && left.bodyHash === right.bodyHash;
 }
 
-function sourceName(sources: SourceDescriptor[], handle: string, source?: SourceRef): string {
-  return sources.find(item => item.handle === handle || (source && sameSource(item.source, source)))?.displayName ?? handle;
+function sourceName(lookup: LookupPacketInput, sources: SourceDescriptor[], handle: string, source?: SourceRef): string {
+  if (!source) return handle;
+  const projection = lookup.sourceProjection;
+  if (projection?.schemaVersion === 'story-lookup-source.v1') {
+    const projected = projection.sources.find(item => item.handle === handle && sameSource(item.source, source));
+    if (projected) return projected.displayName;
+  }
+  return sources.find(item => item.handle === handle && sameSource(item.source, source))?.displayName ?? handle;
 }
 
 /** Renders only Rust-authenticated lookup evidence from the packet receipt. */
@@ -25,7 +31,8 @@ export function LookupContextView({ lookup, sources, busy = false, onRead }: {
       {lookup.exchanges.map((exchange, index) => {
         const request = exchange.request;
         const result = exchange.result;
-        const title = request.kind === 'search' ? `Search ${index + 1} · “${request.query}”` : `Read ${index + 1} · ${sourceName(sources, request.handle)}`;
+        const readSource = request.kind === 'read' && result.kind === 'read' ? result.source : undefined;
+        const title = request.kind === 'search' ? `Search ${index + 1} · “${request.query}”` : `Read ${index + 1} · ${sourceName(lookup, sources, request.handle, readSource)}`;
         return <li key={`${request.id}/${index}`} className="context-lookup-exchange">
           <strong>{title}</strong>
           {request.kind === 'search' && <span className="context-detail">{request.mode} search · limit {request.limit}</span>}
@@ -35,11 +42,11 @@ export function LookupContextView({ lookup, sources, busy = false, onRead }: {
             <p className="small-copy">Searched {result.result.searchedSources} sources · {result.result.coverage}{result.result.hasMore ? ' · more matches exist' : ''}</p>
             {result.result.hits.length === 0 && <p className="small-copy">No match in the searched sources. This does not establish that the event never happened.</p>}
             {result.result.hits.map((hit, hitIndex) => <div key={`${hit.passage.handle}/${hit.passage.blockId}/${hitIndex}`} className="context-lookup-passage">
-              <span className="context-detail">{sourceName(sources, hit.passage.handle, hit.passage.source)}</span>
+              <span className="context-detail">{sourceName(lookup, sources, hit.passage.handle, hit.passage.source)}</span>
               <blockquote>{hit.passage.text}</blockquote>
               <button className="text-button" disabled={busy || !sources.some(item => item.handle === hit.passage.handle)} onClick={() => onRead(hit.passage.handle)}>Open exact source</button>
             </div>)}
-            {result.result.sourceMatches.length > 0 && <p className="small-copy">Source matches: {result.result.sourceMatches.map(item => item.displayName).join(', ')}</p>}
+            {result.result.sourceMatches.length > 0 && <p className="small-copy">Source matches: {result.result.sourceMatches.map(item => sourceName(lookup, sources, item.handle, item.source)).join(', ')}</p>}
           </div>}
           {result.kind === 'read' && <div className="context-lookup-result">
             <p className="small-copy">{result.complete ? 'Complete read supplied.' : 'Partial read supplied; other passages were not included.'} · {result.passages.length} {result.passages.length === 1 ? 'passage' : 'passages'}</p>

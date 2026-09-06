@@ -7,7 +7,8 @@
 //! and execution of each requested read.
 
 use crate::context::SourceRef;
-use crate::projects::story_context::{SearchMode, SearchResult, SourcePassage};
+use crate::projects::story_context::{FrozenContext, SearchMode, SearchResult, SourcePassage};
+use crate::projects::{CoreError, CoreResult};
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
@@ -25,6 +26,7 @@ pub const MAX_LOOKUP_TEXT_BYTES: usize = 64 * 1024;
 pub const MAX_LOOKUP_READ_LIMIT: u32 = 20;
 pub const MAX_LOOKUP_TOTAL_INPUT_BYTES: u128 = 3 * 24_576;
 pub const MAX_LOOKUP_TOTAL_OUTPUT_BYTES: u128 = 3 * 65_536;
+pub const LOOKUP_SOURCE_PROJECTION_SCHEMA: &str = "story-lookup-source.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -190,6 +192,78 @@ pub struct LookupPacketInput {
     pub allowance: LookupAllowance,
     pub completed_invocations: u8,
     pub exchanges: Vec<LookupExchange>,
+    /// Author-room source labels for evidence returned by this lookup chain.
+    /// Historical packets omit this optional field; newly created child
+    /// packets populate it from the frozen Rust-owned descriptors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_projection: Option<LookupSourceProjection>,
+}
+
+/// Exact, author-room-only labels for sources that actually appear in lookup
+/// read or search evidence. This is intentionally separate from the provider
+/// `story-lookup.v1` response contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LookupSourceProjection {
+    pub schema_version: String,
+    pub sources: Vec<LookupSourceProjectionSource>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LookupSourceProjectionSource {
+    pub handle: String,
+    pub source: SourceRef,
+    pub display_name: String,
+}
+
+impl LookupSourceProjection {
+    /// Build the deterministic projection for a newly created child packet.
+    /// References are collected only from successful read/search evidence and
+    /// labels are copied from the exact frozen descriptors.
+    pub fn from_exchanges(
+        frozen: &FrozenContext,
+        exchanges: &[LookupExchange],
+    ) -> CoreResult<Self> {
+        let mut returned = HashSet::new();
+        for exchange in exchanges {
+            match &exchange.result {
+                LookupReadResult::Read { handle, source, .. } => {
+                    returned.insert((handle.clone(), source.clone()));
+                }
+                LookupReadResult::Search { result } => {
+                    for descriptor in &result.source_matches {
+                        returned.insert((descriptor.handle.clone(), descriptor.source.clone()));
+                    }
+                    for hit in &result.hits {
+                        returned.insert((hit.passage.handle.clone(), hit.passage.source.clone()));
+                    }
+                }
+                LookupReadResult::Unavailable { .. } => {}
+            }
+        }
+
+        let mut sources = Vec::new();
+        for descriptor in &frozen.snapshot.sources {
+            if returned.remove(&(descriptor.handle.clone(), descriptor.source.clone())) {
+                sources.push(LookupSourceProjectionSource {
+                    handle: descriptor.handle.clone(),
+                    source: descriptor.source.clone(),
+                    display_name: descriptor.display_name.clone(),
+                });
+            }
+        }
+        if let Some((handle, _)) = returned.into_iter().next() {
+            return Err(CoreError::new(
+                "InvalidLookupEvidence",
+                &format!("Lookup evidence returned an unknown source handle {handle:?}."),
+            ));
+        }
+        Ok(Self {
+            schema_version: LOOKUP_SOURCE_PROJECTION_SCHEMA.to_owned(),
+            sources,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

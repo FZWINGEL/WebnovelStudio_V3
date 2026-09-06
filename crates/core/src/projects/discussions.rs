@@ -972,6 +972,7 @@ impl OwnedProject {
                     allowance,
                     completed_invocations: 0,
                     exchanges: Vec::new(),
+                    source_projection: None,
                 }
             }),
             response_contract: response_contract.clone(),
@@ -1502,12 +1503,16 @@ impl OwnedProject {
         let next = completed.checked_add(1).ok_or_else(|| {
             CoreError::new("InvalidLookupCounter", "The lookup ordinal overflowed.")
         })?;
+        let source_projection = Some(
+            crate::context::lookup::LookupSourceProjection::from_exchanges(&frozen, &exchanges)?,
+        );
         prepare.operation_id = crate::projects::new_id();
         prepare.snapshot_id = frozen.snapshot.snapshot_id.clone();
         prepare.lookup = Some(crate::context::lookup::LookupPacketInput {
             allowance: lookup_summary.allowance.clone(),
             completed_invocations: next,
             exchanges,
+            source_projection,
         });
         let sources = frozen
             .snapshot
@@ -2738,6 +2743,7 @@ fn insert_packet(
                 allowance,
                 completed_invocations: 0,
                 exchanges: Vec::new(),
+                source_projection: None,
             }),
         response_contract: match request.intent {
             FeedbackIntent::Discuss if request.lookup.is_some() => {

@@ -54,10 +54,8 @@ const onClose = vi.fn();
 async function render() {
   await act(async () => root.render(<V2ImportDialog session="session" onImported={onImported} onClose={onClose} />));
 }
-async function settle() {
-  await vi.waitFor(async () => {
-    await act(async () => { await new Promise<void>(resolve => setTimeout(resolve, 0)); });
-  }, { interval: 10, timeout: 1000 });
+async function waitForText(text: string) {
+  await vi.waitFor(() => expect(host.textContent).toContain(text));
 }
 function button(label: string): HTMLButtonElement {
   return [...host.querySelectorAll('button')].find(item => item.textContent === label) as HTMLButtonElement;
@@ -84,16 +82,14 @@ afterEach(async () => {
 describe('V2 import dialog', () => {
   it('lists source projects and requires an explicit choice for missing prose', async () => {
     await render();
-    await settle();
-    expect(host.textContent).toContain('The Old Story');
+    await waitForText('The Old Story');
     const projectSelect = host.querySelector<HTMLSelectElement>('#v2-import-project')!;
     await act(async () => {
       projectSelect.value = 'source-project';
       projectSelect.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await act(async () => button('Review project').click());
-    await settle();
-    expect(host.textContent).toContain('Working text is missing; choose a saved draft or empty text');
+    await waitForText('Working text is missing; choose a saved draft or empty text');
     expect(button('Import project').disabled).toBe(true);
 
     const bodySelect = [...host.querySelectorAll('select')].find(select => select !== projectSelect) as HTMLSelectElement;
@@ -106,21 +102,24 @@ describe('V2 import dialog', () => {
 
   it('sends the reviewed fingerprint and exact missing-body decisions', async () => {
     await render();
-    await settle();
+    await waitForText('The Old Story');
     const projectSelect = host.querySelector<HTMLSelectElement>('#v2-import-project')!;
     await act(async () => {
       projectSelect.value = 'source-project';
       projectSelect.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await act(async () => button('Review project').click());
-    await settle();
+    await waitForText('Working text is missing; choose a saved draft or empty text');
     const bodySelect = [...host.querySelectorAll('select')].find(select => select !== projectSelect) as HTMLSelectElement;
     await act(async () => {
       bodySelect.value = 'draft-2';
       bodySelect.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await act(async () => button('Import project').click());
-    expect(ipc.importProject).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(ipc.importProject).toHaveBeenCalledOnce();
+      expect(onImported).toHaveBeenCalledWith(opened);
+    });
     expect(ipc.importProject.mock.calls[0][0]).toMatchObject({
       sourcePath: source.sourcePath,
       sourceProjectId: 'source-project',
@@ -129,55 +128,59 @@ describe('V2 import dialog', () => {
     });
     expect(ipc.importProject.mock.calls[0][0].operationId).toMatch(/^[0-9a-f-]{36}$/);
     expect(ipc.importProject.mock.calls[0][1]).toBe('session');
-    expect(onImported).toHaveBeenCalledWith(opened);
   });
 
   it('keeps an uncertain staged import immutable while a local retry reconciles it', async () => {
     ipc.importProject.mockRejectedValueOnce(new Error('The import acknowledgment was lost.')).mockResolvedValueOnce(opened);
     await render();
-    await settle();
+    await waitForText('The Old Story');
     const projectSelect = host.querySelector<HTMLSelectElement>('#v2-import-project')!;
     await act(async () => {
       projectSelect.value = 'source-project';
       projectSelect.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await act(async () => button('Review project').click());
-    await settle();
+    await waitForText('Working text is missing; choose a saved draft or empty text');
     const bodySelect = [...host.querySelectorAll('select')].find(select => select !== projectSelect) as HTMLSelectElement;
     await act(async () => {
       bodySelect.value = 'empty';
       bodySelect.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await act(async () => button('Import project').click());
-    expect(button('Check import')).not.toBeNull();
-    expect((host.querySelector('#v2-import-title') as HTMLInputElement).disabled).toBe(true);
-    expect(bodySelect.disabled).toBe(true);
-    expect(host.textContent).toContain('may already exist');
+    await vi.waitFor(() => {
+      expect(button('Check import')).not.toBeNull();
+      expect((host.querySelector('#v2-import-title') as HTMLInputElement).disabled).toBe(true);
+      expect(bodySelect.disabled).toBe(true);
+      expect(host.textContent).toContain('may already exist');
+      expect(ipc.importProject).toHaveBeenCalledOnce();
+    });
     const firstRequest = ipc.importProject.mock.calls[0][0];
     await act(async () => button('Check import').click());
-    expect(ipc.importProject).toHaveBeenCalledTimes(2);
-    expect(ipc.importProject.mock.calls[1][0]).toEqual(firstRequest);
-    expect(onImported).toHaveBeenCalledWith(opened);
+    await vi.waitFor(() => {
+      expect(ipc.importProject).toHaveBeenCalledTimes(2);
+      expect(ipc.importProject.mock.calls[1][0]).toEqual(firstRequest);
+      expect(onImported).toHaveBeenCalledWith(opened);
+    });
   });
 
   it('allows closing after an uncertain import so the library can recover it', async () => {
     ipc.importProject.mockRejectedValueOnce(new Error('The import acknowledgment was lost.'));
     await render();
-    await settle();
+    await waitForText('The Old Story');
     const projectSelect = host.querySelector<HTMLSelectElement>('#v2-import-project')!;
     await act(async () => {
       projectSelect.value = 'source-project';
       projectSelect.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await act(async () => button('Review project').click());
-    await settle();
+    await waitForText('Working text is missing; choose a saved draft or empty text');
     const bodySelect = [...host.querySelectorAll('select')].find(select => select !== projectSelect) as HTMLSelectElement;
     await act(async () => {
       bodySelect.value = 'empty';
       bodySelect.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await act(async () => button('Import project').click());
-    expect(button('Cancel').disabled).toBe(false);
+    await vi.waitFor(() => expect(button('Cancel').disabled).toBe(false));
     await act(async () => button('Cancel').click());
     expect(onClose).toHaveBeenCalledOnce();
   });

@@ -5,9 +5,9 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Current author projects use schema 27; app-local model preferences and endpoint profiles use library schema 4.
+The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Current author projects use schema 28; app-local model preferences and endpoint profiles use library schema 4.
 
-C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation is now in progress, with focused protocol, packet, boundary, core, frontend, and local native development evidence. The post-parser-fix dynamic wrapper check passes 589 active Rust tests (548 core and 41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files, with formatting, strict Clippy, TypeScript, and the production build. Bounded native dynamic qualification now passes both Luna/xhigh/priority and Mini/low/no-tier author requests. The earlier Mini failure and diagnostic are retained as evidence; no automatic replay or model substitution occurred, and the reopen check preserved both saved outcomes. Review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, and truthful delivery status. The accepted native C6 build and local HTTP fixture remain earlier development evidence, and the first hosted C6 native attempt failed at restart readiness; one subsequent live lookup used three calls and its saved context reopened without another request. See the current provider checkpoint below. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 strict native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, C6 qualification, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
+C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation now includes frozen source-title projection, with focused protocol, packet, boundary, core, frontend, and local native review evidence. The schema-27 author-binding boundary is preserved; schema 28 adds the frozen source-title reader boundary, and library schema 4 is unchanged. The previous provider wrapper checkpoint passes 589 active Rust tests (548 core and 41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files, with formatting, strict Clippy, TypeScript, and the production build; it is dated evidence. The current wrapper passes 593 active Rust tests (552 core and 41 desktop), one existing ignored fixture, and 353 frontend tests in 27 files. The current local native diagnostic passes 46/47 checks, and C6 qualification remains a development slice. Review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, truthful delivery status, and frozen title/source identity across renames. The accepted native C6 build and local HTTP fixture remain earlier development evidence, and the first hosted C6 native attempt failed at restart readiness; one subsequent live lookup used three calls and its saved context reopened without another request. See the current provider checkpoint below. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 strict native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, C6 qualification, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
 
 Settings now compatibility-checks the installed Codex CLI without a fixed
 version or executable hash and records the observed identity with each request.
@@ -33,15 +33,30 @@ pending. See [ADR 0011](ADR_0011_LIVE_CODEX.md), [ADR 0023](ADR_0023_OPENAI_COMP
 
 ### Current provider checkpoint: Codex compatibility and HTTP development surface
 
-The preceding HTTP checkpoint is `7ce8b76f0d63e9c56d9bb8338ef8eb268079a465`; the dynamic changes described here are in the current branch.
+The preceding provider checkpoint is `1b0048f87961f1160955047812b93057e9c5e402`;
+the frozen-title projection is added by this checkpoint.
+CI run [34036983973](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34036983973)
+passes Ubuntu contracts and the native strict 46-check plus HTTP suite; Windows
+Rust and build passed, but its frontend test timed out. That test's timer-only
+helper now waits for rendered import state and completion; the correction
+passes all 353 frontend tests locally with CI settings. Hosted verification of
+this correction and the new title projection is pending. The local diagnostic passes
+46/47 checks with zero errors, omitting only the known local OS clipboard check.
+The current wrapper passes 593 active Rust tests (552 core and 41 desktop), one
+existing ignored fixture, and 353 frontend tests in 27 files, with formatting,
+strict Clippy, TypeScript, and the production build.
+The earlier provider wrapper checkpoint below remains dated evidence; it is not
+a final check for this C6 change. The preceding HTTP checkpoint is
+`7ce8b76f0d63e9c56d9bb8338ef8eb268079a465`.
 CI run [34033575745](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34033575745)
 passed the native strict 46-check suite and the native HTTP fixture. The overall
 workflow failed Ubuntu Clippy because a Windows-only credential helper was
 compiled there; that helper is fixed in the current source, and the Windows
 contract jobs were canceled after the overall failure. The
-post-parser-fix wrapper passes 589 active Rust tests (548 core and
+previous provider wrapper passed 589 active Rust tests (548 core and
 41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files,
-with formatting, strict Clippy, TypeScript, and the production build. The
+with formatting, strict Clippy, TypeScript, and the production build; this is
+dated provider evidence. The
 pre-parser-fix dynamic development binary (SHA-256
 `775962e975c7dc5b3f0171ba2d3724212b5921295eae897fd2052af92dcf7539`) also
 passes the native HTTP fixture: four local-mock POSTs, zero live calls, and no
@@ -88,21 +103,23 @@ The strict CI clipboard assertion remains enabled, and
 `test:native-http` now runs the separate HTTP fixture in CI.
 
 HTTP context lookup remains unsupported. V2 CLI adapter parity remains pending.
-Dynamic Codex model discovery and bounded Luna/Mini qualification are
-implemented as a development slice; broader native/provider/live and release
-qualification remain pending.
+Dynamic Codex model discovery and bounded Luna/Mini qualification remain a
+separate development slice; the current C6 source-title projection has a
+46/47 local native pass, and its full-wrapper verification now passes.
 
-The earlier live C6 lookup still has a source-label gap: the exact retrieved
-passage reaches the model, but lookup result metadata lacks its chapter title.
-Fixing that projection must preserve old packet bytes. The live call ledger and
-same-data reopen evidence remain in [Codex qualification](CODEX_QUALIFICATION.md).
+The C6 source-title projection now resolves exact frozen handles and `SourceRef`
+values for returned search/read sources without relabeling historical evidence.
+Old packet bytes remain preserved. Its local native and full-wrapper verification
+now pass; the live call ledger and same-data reopen evidence remain in
+[Codex qualification](CODEX_QUALIFICATION.md).
 
 Codex remains compatibility-checked against the installed executable without a
 version or hash pin. Background summary and story-memory work uses the fixed
 Luna/xhigh/priority profile, while author-facing calls follow the selected
-model and traits. The schema-27 project reader floor and library schema-4
-catalog preserve historical Codex packet bytes while adding the dynamic author
-binding boundary. The previous `8edd061` hosted checkpoint ([CI 34030383334](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34030383334)) passed Ubuntu and the strict 46-check Windows native suite; a recurring Windows frontend timeout remains tracked. A CI-only two-worker Vitest cap is locally qualified without increasing test timeouts or weakening assertions. No real HTTP provider call is claimed; cumulative native dispatches now total **twenty**, including the isolated Mini diagnostic and explicit follow-up. Broader live-provider, narrative-quality, installed-release, HTTP context lookup, and hosted qualification gates remain open.
+model and traits. The schema-27 author-binding boundary is preserved; the
+schema-28 project reader floor adds frozen source-title validation. The
+library schema-4 catalog preserves historical Codex packet bytes. The previous
+`8edd061` hosted checkpoint ([CI 34030383334](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34030383334)) passed Ubuntu and the strict 46-check Windows native suite; a recurring Windows frontend timeout remains tracked. A CI-only two-worker Vitest cap is locally qualified without increasing test timeouts or weakening assertions. No real HTTP provider call is claimed; cumulative native dispatches now total **twenty**, including the isolated Mini diagnostic and explicit follow-up. Broader live-provider, narrative-quality, installed-release, HTTP context lookup, and hosted qualification gates remain open.
 
 ### Current C5 promise history slice
 
@@ -269,10 +286,12 @@ Rust schema-21 persistence, canonical hashing, exact UTF-16 anchor validation, r
 
 ### Current C6 bounded story lookup slice
 
-The lookup records remain schema 24. The current project reader floor is schema
-26 because provider receipts can retain optional observed Codex runtime identity
-and HTTP delivery receipts; legacy 0.153.3 Max packets remain byte/hash
-compatible without those optional fields.
+The lookup records retain their schema-24 meaning. The current project reader
+floor is schema 28 because the frozen source-title projection must be validated
+by the reader; this adds no SQL table. Schema-25 runtime identity and schema-26
+HTTP delivery receipts remain historical compatibility boundaries. Library
+schema 4 is unchanged, and legacy 0.153.3 Max packets remain byte/hash
+compatible.
 
 The implementation is a narrow opt-in route for Working, AuthorRoom, and
 Discuss conversations. It uses the strict application response envelope
@@ -287,39 +306,43 @@ remains evidence, not chat text.
 
 The route is application-controlled and does not claim provider-native function
 calling. It does not expose restricted-writing, state/knowledge, or thread
-tools, filesystem/session access, automatic canon, or manuscript edits. Byte
-allowances are application limits, separate from model token limits and billing.
-The ordinary one-packet discussion route remains available with lookup disabled.
+tools, filesystem/session access, automatic canon, or manuscript edits. Child
+lookup packets may include the app-owned `story-lookup-source.v1` projection:
+exact frozen handles, `SourceRef` values, and display names for only returned
+search/read sources, deterministically de-duplicated. The compiler validates
+the complete frozen set and AuthorRoom eligibility; projection metadata counts
+inside the exact UTF-8 input budget and is never silently dropped. Initial or
+historical absent source sets remain absent, and old packet bytes/hashes remain
+unchanged. Byte allowances are application limits, separate from model token
+limits and billing. The ordinary one-packet discussion route remains available
+with lookup disabled.
 
-The current focused evidence is seven pure lookup protocol tests, 34 packet
-compiler tests, nine independent boundary tests, four core lookup tests, four
-native-worker tests, and 324 frontend tests in 26 files. The accepted C6 wrapper
-checkpoint is `.local/lookup-wrapper-accepted.log` with exit code 0: 493 core
-tests, 29 desktop tests, one existing ignored fixture, 324 frontend tests in 26
-files, strict workspace Clippy, formatting, TypeScript, and the production
-build all passed. Its schema-23-to-24 regression coverage preserves legacy
-composer text, keeps lookup disabled, and verifies empty lookup tables. Review
-fixes cover crash/reopen outcomes, exact child-run provenance,
-terminal/result/assistant consistency, historical unavailable gaps,
-reproducible search metadata, and truthful delivery status. The focused native
-lookup journey passed with no page errors. The accepted executable SHA-256 is
-`4ad786861fecf58b3328c663e3c6874fe3aec7c783f59b7ca02c2b3fc2e2d746`; the
-full local diagnostic passed 45/46 checks with zero errors, excluding only the
-known local OS clipboard case, at `2026-09-06T10:20:49.825Z` on WebView2
-`152.0.4191.62`. Evidence is `.local/native-other-results/report.json` and
-`.local/lookup-native-accepted.log`; the focused lookup evidence remains in
-`.local/native-lookup-results/qualification.json`. Hosted C6 and the live
+Focused protocol, packet, boundary, core, frontend, and source-title projection
+checks pass in the current development tree; this source-title change made no
+new LLM calls. The strict native set is now 47 checks after adding
+frozen-rename/reopen coverage. The current local diagnostic passes 46/47 checks
+with zero errors, omitting only the known local OS clipboard check, on WebView2
+`152.0.4191.62`; evidence is `.local/lookup-titles-native-final.log` and
+`.local/native-other-results/report.json`, executable SHA-256
+`a66e07b155d1aedc24588e6d7b388f02bffb5e790c7d9991c5f3640206788cfe`. It
+includes frozen source titles in serialized input and receipts plus unchanged
+packet JSON after UI rename/reopen. The current wrapper passes 593 active Rust
+tests (552 core and 41 desktop), one existing ignored fixture, and 353 frontend
+tests in 27 files; focused migration checks also pass for the dynamic-author
+binding case and the 13-case full-context migration set. Earlier C6
+wrapper/native reports are dated evidence only.
+Hosted C6 and the live
 lookup experiment remain pending.
 
 The prepared live lookup harness was run on 6 September 2026 and made **zero
 model calls**. The installed CLI reported `0.153.4` while the old development
 profile still required `0.153.3`, so compatibility preflight stopped before
 dispatch. The preserved record is
-`.local/live-lookup-preflight-01533/qualification.json`. This is a provider
-compatibility finding, not a failed generation, and the cumulative live total
-remains thirteen. The provider policy is now to discover and compatibility-check
-the installed CLI without pinning a version or executable hash, then record the
-observed identity per request.
+`.local/live-lookup-preflight-01533/qualification.json`. This is a historical
+provider compatibility finding, not a failed generation; the current cumulative
+native dispatch total remains twenty. The provider policy is now to discover
+and compatibility-check the installed CLI without pinning a version or
+executable hash, then record the observed identity per request.
 Existing one-invocation requests and historical provider-result bytes remain
 separate from the new invocation/read records. Crashes and lost
 acknowledgments must remain explicit unknown or retained outcomes and must not

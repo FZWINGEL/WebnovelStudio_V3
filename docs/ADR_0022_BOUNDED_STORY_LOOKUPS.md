@@ -75,7 +75,7 @@ are qualified.
 
 ## Authority and durable records
 
-Schema 24 introduces separate lookup invocation, result, and read records plus the optional saved composer allowance. The current project database reader floor is schema 25 because the compatibility-aware provider receipt can retain observed runtime identity. Existing discussion packets, legacy provider-result bytes, and historical 0.153.3 Max packets remain valid without the new optional runtime field and preserve their serialized bytes/hashes.
+Schema 24 introduces separate lookup invocation, result, and read records plus the optional saved composer allowance. Schema 25's observed-provider-runtime receipt remains a historical compatibility boundary. The current project reader floor is schema 28 because source-title projection must be validated as part of the authorizing reader contract; this prevents older readers from misvalidating the new projection and raises no SQL table or migration requirement. Library schema 4 is unchanged. Existing discussion packets, legacy provider-result bytes, and historical 0.153.3 Max packets remain valid and preserve their serialized bytes/hashes.
 
 The existing discussion run owns the operation, project, namespace, target and initial packet. Every lookup invocation records its ordinal, exact packet and snapshot, source/policy epochs, allowance, and dispatch state. A committed claim can authorize one external start. Reading or reconciling an already claimed invocation cannot authorize a duplicate start.
 
@@ -88,6 +88,32 @@ The root run continues to identify the initial packet. A completed assistant mes
 ## Packet compilation and budgets
 
 Each packet contains the original instruction, mandatory target and constraints, plus the bounded lookup exchanges that led to that invocation. Lookup results are not adopted guidance, generated canon, or an expansion of editable scope. The compiler independently checks exact source identities, passages, block order, completeness, search ranges and snapshot coverage; storage additionally binds these values to application-executed reads.
+
+### Source-title projection for child lookup packets
+
+Child lookup packet input may carry an app-owned `sourceProjection`:
+
+```ts
+type LookupSourceProjection = {
+  schemaVersion: "story-lookup-source.v1";
+  sources: Array<{
+    handle: string;
+    source: SourceRef;
+    displayName: string;
+  }>;
+};
+```
+
+The projection is optional metadata on `LookupPacketInput`; the provider
+`story-lookup.v1` protocol is unchanged. Child lookup packets derive exact
+display names from the frozen context only for sources returned by that
+invocation's search or read, then de-duplicate them deterministically. The
+compiler independently validates the complete handle, exact `SourceRef`, and
+frozen display-name set, together with AuthorRoom eligibility. Projection
+metadata counts against the exact UTF-8 input budget and is never silently
+dropped. An initial `None` lookup source set and a historical `None` source set
+are not reconstructed from current context; prior packet bytes and hashes
+remain authoritative.
 
 The compiler also reproduces search semantics from the validated frozen passages: the query, search mode, aliases, returned matches, and remaining-match flag must agree. Quoting a real passage is insufficient if it does not match the requested search.
 
@@ -119,7 +145,7 @@ The existing JavaScript-owned editor, Rust snapshot acceptance, autosave waterma
 
 ## Inspection and qualification
 
-The inspector separates the initial context, additional search/read evidence, available but unsupplied sources, and gaps. Exact quotations link to saved source revisions. A no-match result says that the searched evidence contained no match; it does not establish that an event never happened or that no later transfer exists.
+The inspector separates the initial context, additional search/read evidence, available but unsupplied sources, and gaps. It resolves labels from the packet's frozen projection, then an exact snapshot descriptor for legacy evidence, and finally the saved handle. Navigation preserves the source identity; renaming a current chapter cannot relabel historical evidence. Exact quotations link to saved source revisions. A no-match result says that the searched evidence contained no match; it does not establish that an event never happened or that no later transfer exists.
 
 Each saved model-call packet must be inspectable. Prepared or unconfirmed calls must not inherit a delivered label merely because an earlier invocation was delivered. The final answer opens its actual packet by default.
 
@@ -135,4 +161,11 @@ Qualification proceeds through independent gates:
 4. A bounded live Codex request that actually asks for missing evidence, receives it in a subsequent saved packet, and returns a final answer without changing the manuscript.
 5. Separate retrieval, uncertainty, narrative and author-trial evaluation. One successful live lookup does not prove general recall, literary quality or semantic disclosure safety.
 
-Focused protocol, packet, boundary, core, frontend, and local native development checks now cover this route. The C6 wrapper checkpoint passes 486 core tests, 29 desktop tests, and 324 frontend tests in 26 files; a delivery-label fix is undergoing fresh qualification. Hosted C6 and the live-provider lookup experiment remain pending. The broader [Story Context design](V3_STORY_CONTEXT_SYSTEM.md) and [C0–C6 plan](V3_STORY_CONTEXT_FIRST_SLICE.md) remain the target. State/thread tools, restricted-writing lookup, model-specific token accounting, broader provider qualification and narrative evaluation remain later work.
+The source-projection slice passes local contracts and the native rename/reopen
+journey. Current counts and hosted results belong in
+[implementation status](IMPLEMENTATION_STATUS.md). The earlier bounded live
+lookup experiment predates this title projection; broader provider/release
+qualification remains open. The broader [Story Context design](V3_STORY_CONTEXT_SYSTEM.md)
+and [C0–C6 plan](V3_STORY_CONTEXT_FIRST_SLICE.md) remain the target. State/
+thread tools, restricted-writing lookup, model-specific token accounting, and
+narrative evaluation remain later work.

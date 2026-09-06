@@ -1066,7 +1066,7 @@ try {
   const { runPromiseHistoryFlow } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-promise-history.mjs')).href);
   await runPromiseHistoryFlow({ page, data, output, createWritingProject, checks });
   const { qualifyContextLookup } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-context-lookup.mjs')).href);
-  await qualifyContextLookup({ page, output, createWritingProject, checks });
+  await qualifyContextLookup({ page, output, testRoot: data, createWritingProject, checks });
   await createWritingProject('Review story', 'chapter', 'The gate', 'Mei left the key beside the gate.');
   await page.getByRole('button', { name: 'Story review', exact: true }).click();
   await page.getByRole('button', { name: 'Review saved chapter', exact: true }).click();
