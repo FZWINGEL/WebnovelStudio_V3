@@ -9,8 +9,8 @@ use std::thread;
 use std::time::Duration;
 
 use webnovel_core::providers::cli::windows_process::{
-    ChildLimits, ChildStream, ChildTermination, CliInvocation, EnvironmentPolicy, MAX_PACKET_BYTES,
-    StopSignal, spawn,
+    ChildLimits, ChildStream, ChildTermination, CliInvocation, EnvironmentPolicy,
+    InteractiveAction, MAX_PACKET_BYTES, StopSignal, spawn, spawn_interactive,
 };
 use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
@@ -290,6 +290,31 @@ fn observer_receives_fast_exit_final_tail() {
     assert_eq!(outcome.termination, ChildTermination::Completed);
     assert_eq!(observed, outcome.output.stdout);
     assert!(String::from_utf8_lossy(&observed).contains("ONESHOT_READY 32"));
+}
+
+#[test]
+fn interactive_observer_appends_bounded_packets_before_closing_stdin() {
+    let mut request = invocation(&["--interactive"], limits());
+    request.packet = b"FIRST\n".to_vec();
+    let running = spawn_interactive(request).expect("spawn interactive fixture");
+    let mut observed = Vec::new();
+    let outcome = running
+        .finish_interactive(StopSignal::new(), |stream, bytes| {
+            assert_eq!(stream, ChildStream::Stdout);
+            observed.extend_from_slice(bytes);
+            if observed.ends_with(b"FIRST_ACK\n") {
+                InteractiveAction::Send(b"SECOND\n".to_vec())
+            } else if observed.ends_with(b"SECOND_ACK\n") {
+                InteractiveAction::Close
+            } else {
+                InteractiveAction::KeepOpen
+            }
+        })
+        .expect("interactive cleanup settles");
+    assert_eq!(outcome.termination, ChildTermination::Completed);
+    assert_eq!(outcome.output.stdin_bytes_written, b"FIRST\nSECOND\n".len());
+    assert_eq!(observed, b"FIRST_ACK\nSECOND_ACK\n");
+    assert_eq!(observed, outcome.output.stdout);
 }
 
 #[test]

@@ -33,6 +33,7 @@ impl CredentialTarget {
         Ok(Self(value.to_owned()))
     }
 
+    #[cfg(any(windows, test))]
     fn generate() -> Self {
         Self(format!("{TARGET_PREFIX}{}", Uuid::new_v4()))
     }

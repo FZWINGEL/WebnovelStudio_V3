@@ -20,10 +20,15 @@ function initialChoice(model: ModelDescriptor): ModelSelection {
     ...model.key,
     reasoning: luna && model.reasoningLevels.includes('xhigh')
       ? 'xhigh'
+      : model.defaultReasoning && model.reasoningLevels.includes(model.defaultReasoning)
+        ? model.defaultReasoning
       : model.reasoningLevels.includes('medium')
         ? 'medium'
         : model.reasoningLevels[0] ?? null,
-    serviceTier: luna && model.serviceTiers.some(tier => tier.id === 'priority') ? 'priority' : null,
+    serviceTier: luna && model.serviceTiers.some(tier => tier.id === 'priority')
+      ? 'priority'
+      : model.defaultServiceTier && model.serviceTiers.some(tier => tier.id === model.defaultServiceTier)
+        ? model.defaultServiceTier : null,
   };
 }
 

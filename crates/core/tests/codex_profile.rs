@@ -11,13 +11,127 @@ fn profile(version: &str) -> CodexLaunchProfile {
 }
 
 #[test]
+fn author_profile_resolves_discovered_defaults_without_enabling_tools_or_inventing_limits() {
+    use webnovel_core::providers::{codex_catalog::CodexCatalogModel, preferences::ModelSelection};
+    let model = CodexCatalogModel {
+        model_id: "new-story-model".into(),
+        label: "New story model".into(),
+        reasoning_levels: vec!["low".into(), "ultra".into()],
+        default_reasoning: Some("ultra".into()),
+        service_tiers: vec![],
+        default_service_tier: None,
+    };
+    let choice = ModelSelection {
+        provider_id: "codex".into(),
+        model_id: model.model_id.clone(),
+        reasoning: None,
+        service_tier: None,
+    };
+    let author = CodexLaunchProfile::for_selection(
+        "codex-cli 9.1",
+        Path::new("catalog.json"),
+        &model,
+        &choice,
+    )
+    .unwrap();
+    assert_eq!(author.model, model.model_id);
+    assert_eq!(author.reasoning_effort, "ultra");
+    assert_eq!(author.service_tier, None);
+    assert!(
+        !author
+            .config_overrides
+            .iter()
+            .any(|value| value.starts_with("service_tier="))
+    );
+    assert!(
+        author
+            .config_overrides
+            .contains(&"model_reasoning_effort=\"ultra\"".into())
+    );
+    assert_eq!(author.catalog.models[0].default_service_tier, None);
+    assert_eq!(author.catalog.models[0].context_window, None);
+    assert_eq!(author.catalog.models[0].shell_type, "disabled");
+    assert_eq!(author.catalog.models[0].apply_patch_tool_type, None);
+    assert!(
+        author.catalog.models[0]
+            .experimental_supported_tools
+            .is_empty()
+    );
+    assert!(!author.catalog.models[0].support_verbosity);
+    assert!(!author.catalog.models[0].supports_reasoning_summary_parameter);
+    assert!(!author.catalog.models[0].use_responses_lite);
+    assert!(profile("codex-cli 9.1").catalog.models[0].use_responses_lite);
+    let mut unsupported = choice.clone();
+    unsupported.reasoning = Some("medium".into());
+    assert!(
+        CodexLaunchProfile::for_selection(
+            "codex-cli 9.1",
+            Path::new("catalog.json"),
+            &model,
+            &unsupported
+        )
+        .is_err()
+    );
+    unsupported = choice;
+    unsupported.service_tier = Some("priority".into());
+    assert!(
+        CodexLaunchProfile::for_selection(
+            "codex-cli 9.1",
+            Path::new("catalog.json"),
+            &model,
+            &unsupported
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn author_bindings_are_distinct_and_do_not_relax_historical_profile_validation() {
+    use webnovel_core::context::packet::ProviderBinding;
+    let historical = ProviderBinding::codex_luna_historical();
+    let historical_bytes = serde_json::to_vec(&historical).unwrap();
+    let author = ProviderBinding::codex_author_runtime(
+        "new-story-model",
+        "ultra",
+        None,
+        "9.1",
+        &"a".repeat(64),
+        &"b".repeat(64),
+    );
+    assert!(author.validate().is_ok());
+    assert!(author.is_current_codex_profile());
+    let mut wrong = author.clone();
+    wrong.profile_version = historical.profile_version.clone();
+    assert!(wrong.validate().is_err());
+    wrong = author.clone();
+    wrong.input_limit_bytes = "9000000".into();
+    assert!(wrong.validate().is_err());
+    wrong = author.clone();
+    wrong.reasoning = None;
+    assert!(wrong.validate().is_err());
+    wrong = author;
+    wrong.model_id = "--config=evil".into();
+    assert!(wrong.validate().is_err());
+    assert!(historical.validate().is_ok());
+    assert_eq!(serde_json::to_vec(&historical).unwrap(), historical_bytes);
+    assert!(
+        !String::from_utf8(historical_bytes)
+            .unwrap()
+            .contains("http")
+    );
+}
+
+#[test]
 fn observed_versions_build_the_same_restrictive_luna_catalog() {
     let current = profile("codex-cli 0.153.4\n");
     assert_eq!(current.executable_version, "0.153.4");
     assert_eq!(current.model, CODEX_LUNA_MODEL);
     assert_eq!(current.reasoning_effort, CODEX_REASONING_EFFORT);
     assert_eq!(current.reasoning_effort, "xhigh");
-    assert_eq!(current.service_tier, CODEX_PRIORITY_SERVICE_TIER);
+    assert_eq!(
+        current.service_tier.as_deref(),
+        Some(CODEX_PRIORITY_SERVICE_TIER)
+    );
     assert!(current.catalog_json.contains("gpt-5.6-luna"));
 
     let other = profile("codex-cli 9.4.1");
@@ -36,7 +150,10 @@ fn observed_versions_build_the_same_restrictive_luna_catalog() {
     assert_eq!(model.max_context_window, None);
     assert_eq!(model.service_tiers[0].id, CODEX_PRIORITY_SERVICE_TIER);
     assert_eq!(model.service_tiers[0].name, CODEX_FAST_TIER_LABEL);
-    assert_eq!(model.default_service_tier, CODEX_PRIORITY_SERVICE_TIER);
+    assert_eq!(
+        model.default_service_tier.as_deref(),
+        Some(CODEX_PRIORITY_SERVICE_TIER)
+    );
     assert_eq!(model.model_messages["instructions_template"], "");
     for field in [
         "approvals",

@@ -246,7 +246,8 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
         if (request.intent === 'continue' && (result.run.intent !== 'continue' || result.run.basis !== request.basis)) throw new Error('The response did not confirm the story basis for this continuation.');
         const binding = result.packet.options.providerBinding;
         if (request.modelSelection?.providerId === 'codex' || request.modelSelection?.providerId.startsWith('openai-compatible:')) {
-          if (!binding || binding.providerId !== request.modelSelection.providerId || binding.modelId !== request.modelSelection.modelId || binding.reasoning !== request.modelSelection.reasoning || binding.serviceTier !== request.modelSelection.serviceTier
+          const resolvedDefault = binding?.profileVersion === 'codex-stdin.author.v1';
+          if (!binding || binding.providerId !== request.modelSelection.providerId || binding.modelId !== request.modelSelection.modelId || (!(resolvedDefault && request.modelSelection.reasoning == null) && binding.reasoning !== request.modelSelection.reasoning) || (!(resolvedDefault && request.modelSelection.serviceTier == null) && binding.serviceTier !== request.modelSelection.serviceTier)
             || JSON.stringify(result.run.providerBinding) !== JSON.stringify(binding)) throw new Error('The response did not confirm the model settings for this request.');
           if (request.modelSelection.providerId.startsWith('openai-compatible:') && (!binding.http || binding.profileVersion !== 'openai-chat-completions.v1')) throw new Error('The response did not confirm the API connection for this request.');
         } else if (binding || result.run.providerBinding) throw new Error('The local test request unexpectedly returned a live provider binding.');

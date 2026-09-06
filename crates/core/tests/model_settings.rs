@@ -239,7 +239,7 @@ fn library_v1_migrates_without_touching_an_author_database_and_future_versions_r
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
     let table: String = connection
         .query_row(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='app_preferences'",

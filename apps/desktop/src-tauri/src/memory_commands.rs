@@ -172,7 +172,7 @@ pub async fn start_memory(
             });
         #[cfg(windows)]
         let connection = if provider_binding.is_some() {
-            runtime.connection().ok()
+            runtime.connection().ok().filter(|connection| connection.catalog().supports(&selected))
         } else {
             None
         };

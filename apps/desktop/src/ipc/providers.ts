@@ -7,12 +7,13 @@ export interface ModelDescriptor {
   key: ModelKey; label: string; providerLabel: string; reasoningLevels: string[];
   serviceTiers: Array<{ id: string; label: string }>;
   contextWindowTokens: string | null; maxOutputTokens: string | null;
-  origin: 'builtIn' | 'reference' | 'openAiCompatible'; ready: boolean; statusDetail: string;
+  defaultReasoning?: string | null; defaultServiceTier?: string | null;
+  origin: 'builtIn' | 'reference' | 'codexDiscovery' | 'openAiCompatible'; ready: boolean; statusDetail: string;
 }
 export interface ProviderState {
   settings: ModelSettings; catalog: { models: ModelDescriptor[] };
   dispatch: { kind: 'localMock' | 'codexCli' | 'openAiCompatible' | 'blocked'; detail: string };
-  codexConnection?: { ready: boolean; detail: string };
+  codexConnection?: { ready: boolean; memoryReady?: boolean; detail: string };
 }
 export const localModel: ModelSelection = { providerId: 'mock', modelId: 'mock-story-context', reasoning: null, serviceTier: null };
 export const storyMemoryModel: ModelSelection = { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority' };

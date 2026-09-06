@@ -13,6 +13,9 @@ use std::path::Path;
 /// observed CLI version is recorded separately and is capability-gated at
 /// connection time.
 pub const CODEX_PROFILE_VERSION: &str = "codex-stdin.v1";
+/// Author-selected models use a distinct contract so earlier packets retain
+/// their fixed Luna settings and exact serialized identity.
+pub const CODEX_AUTHOR_PROFILE_VERSION: &str = "codex-stdin.author.v1";
 pub const CODEX_LUNA_MODEL: &str = "gpt-5.6-luna";
 pub const CODEX_REASONING_EFFORT: &str = "xhigh";
 /// Compatibility name for callers that still refer to the old constant.
@@ -29,9 +32,9 @@ pub struct CodexLaunchProfile {
     /// The CLI version observed from this executable, without the `codex-cli`
     /// prefix. This is descriptive metadata, not an allowlist decision.
     pub executable_version: String,
-    pub model: &'static str,
-    pub reasoning_effort: &'static str,
-    pub service_tier: &'static str,
+    pub model: String,
+    pub reasoning_effort: String,
+    pub service_tier: Option<String>,
     pub catalog: CodexModelCatalog,
     pub catalog_json: String,
     pub config_overrides: Vec<String>,
@@ -55,13 +58,106 @@ impl CodexLaunchProfile {
 
         Ok(Self {
             executable_version,
-            model: CODEX_LUNA_MODEL,
-            reasoning_effort: CODEX_MAX_EFFORT,
-            service_tier: CODEX_PRIORITY_SERVICE_TIER,
+            model: CODEX_LUNA_MODEL.into(),
+            reasoning_effort: CODEX_MAX_EFFORT.into(),
+            service_tier: Some(CODEX_PRIORITY_SERVICE_TIER.into()),
             catalog,
             catalog_json,
             config_overrides: restrictive_overrides(&catalog_path),
         })
+    }
+
+    /// Build an isolated author invocation from one validated discovery row.
+    /// Null author traits resolve once to the observed catalog defaults. The
+    /// caller freezes those resolved values in the request binding.
+    pub fn for_selection(
+        version_output: &str,
+        catalog_path: &Path,
+        model: &super::codex_catalog::CodexCatalogModel,
+        choice: &super::preferences::ModelSelection,
+    ) -> Result<Self, CodexProfileError> {
+        if model.validate().is_err()
+            || choice.provider_id != "codex"
+            || choice.model_id != model.model_id
+            || choice
+                .reasoning
+                .as_ref()
+                .is_some_and(|value| !model.reasoning_levels.contains(value))
+            || choice
+                .service_tier
+                .as_ref()
+                .is_some_and(|value| !model.service_tiers.iter().any(|tier| tier.id == *value))
+        {
+            return Err(CodexProfileError::InvalidSelection);
+        }
+        let mut profile = Self::for_version(version_output, catalog_path)?;
+        profile.model = model.model_id.clone();
+        profile.reasoning_effort = choice
+            .reasoning
+            .clone()
+            .or_else(|| model.default_reasoning.clone())
+            .ok_or(CodexProfileError::InvalidSelection)?;
+        profile.service_tier = choice
+            .service_tier
+            .clone()
+            .or_else(|| model.default_service_tier.clone());
+        let descriptor = &mut profile.catalog.models[0];
+        descriptor.slug = model.model_id.clone();
+        descriptor.display_name = model.label.clone();
+        descriptor.description =
+            "Author-selected model reported by the installed Codex CLI.".into();
+        descriptor.default_reasoning_level = profile.reasoning_effort.clone();
+        descriptor.supported_reasoning_levels = model
+            .reasoning_levels
+            .iter()
+            .map(|effort| CodexReasoningPreset {
+                effort: effort.clone(),
+                description: String::new(),
+            })
+            .collect();
+        descriptor.service_tiers = model
+            .service_tiers
+            .iter()
+            .map(|tier| CodexServiceTier {
+                id: tier.id.clone(),
+                name: tier.label.clone(),
+                description: String::new(),
+            })
+            .collect();
+        descriptor.default_service_tier = profile.service_tier.clone();
+        descriptor.additional_speed_tiers.clear();
+        // These optional request parameters are not reported by model/list.
+        // Do not copy Luna's provider-specific support claims to other models.
+        descriptor.supports_reasoning_summary_parameter = false;
+        descriptor.support_verbosity = false;
+        // Responses Lite was qualified for Luna. Other discovered models can
+        // reject that transport, and model/list does not declare support.
+        descriptor.use_responses_lite = model.model_id == CODEX_LUNA_MODEL;
+        profile.catalog_json = profile
+            .catalog
+            .to_json()
+            .map_err(|error| CodexProfileError::CatalogSerialization(error.to_string()))?;
+        profile.config_overrides.retain(|value| {
+            !["model=", "model_reasoning_effort=", "service_tier="]
+                .iter()
+                .any(|prefix| value.starts_with(prefix))
+        });
+        profile
+            .config_overrides
+            .insert(0, format!("model={}", toml_string(&profile.model)));
+        profile.config_overrides.insert(
+            1,
+            format!(
+                "model_reasoning_effort={}",
+                toml_string(&profile.reasoning_effort)
+            ),
+        );
+        if let Some(tier) = &profile.service_tier {
+            profile
+                .config_overrides
+                .insert(2, format!("service_tier={}", toml_string(tier)));
+        }
+        Ok(profile)
     }
 
     /// Arguments for the existing stdin packet path in `cli::windows_process`.
@@ -81,7 +177,7 @@ impl CodexLaunchProfile {
             "never",
             "--json",
             "-m",
-            self.model,
+            self.model.as_str(),
         ]
         .into_iter()
         .map(OsString::from)
@@ -129,6 +225,7 @@ impl CodexLaunchProfile {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodexProfileError {
+    InvalidSelection,
     InvalidVersionOutput { observed: String },
     InvalidPath(String),
     CatalogSerialization(String),
@@ -137,6 +234,10 @@ pub enum CodexProfileError {
 impl std::fmt::Display for CodexProfileError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidSelection => write!(
+                formatter,
+                "the selected model settings were not reported by Codex"
+            ),
             Self::InvalidVersionOutput { observed } => write!(
                 formatter,
                 "Codex --version output must be a bounded `codex-cli <version>` value; observed {observed}"
@@ -331,7 +432,7 @@ pub struct CodexModelDescriptor {
     pub upgrade: Option<Value>,
     pub additional_speed_tiers: Vec<String>,
     pub service_tiers: Vec<CodexServiceTier>,
-    pub default_service_tier: String,
+    pub default_service_tier: Option<String>,
     pub model_messages: Value,
     pub include_skills_usage_instructions: bool,
     pub include_plugin_usage_instructions: bool,
@@ -384,7 +485,7 @@ impl CodexModelDescriptor {
                 name: CODEX_FAST_TIER_LABEL.to_owned(),
                 description: "1.5x speed, increased usage".to_owned(),
             }],
-            default_service_tier: CODEX_PRIORITY_SERVICE_TIER.to_owned(),
+            default_service_tier: Some(CODEX_PRIORITY_SERVICE_TIER.to_owned()),
             model_messages: serde_json::json!({
                 "persistent_instructions": "",
                 "instructions_template": "",

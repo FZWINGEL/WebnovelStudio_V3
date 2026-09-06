@@ -1026,6 +1026,13 @@ fn validate_start_memory(request: &StartMemory) -> CoreResult<()> {
                 "OpenAI-compatible HTTP chapter memory is not qualified yet.",
             ));
         }
+        if binding.profile_version == crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+        {
+            return Err(CoreError::new(
+                "UnsupportedProviderFeature",
+                "Chapter memory uses the fixed GPT-5.6-Luna Extra high profile.",
+            ));
+        }
     }
     Ok(())
 }

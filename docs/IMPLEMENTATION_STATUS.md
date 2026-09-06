@@ -5,40 +5,66 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Current author projects use schema 26; app-local model preferences and endpoint profiles use library schema 3.
+The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. Current author projects use schema 27; app-local model preferences and endpoint profiles use library schema 4.
 
-C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation is now in progress, with focused protocol, packet, boundary, core, frontend, and local native development evidence. Current verified checks total 569 active Rust tests (529 core and 40 desktop), one existing ignored fixture, and 343 frontend tests in 27 files; the C6-specific 522-test checkpoint remains historical evidence for that slice. Review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, and truthful delivery status. The accepted native C6 build also passes the full local diagnostic at 45/46 checks with the known OS clipboard check excluded; the native HTTP fixture also passes against a local mock server. The first hosted C6 native attempt failed at restart readiness; one subsequent live lookup used three calls and its saved context reopened without another request. See the current provider checkpoint below. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, C6 qualification, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
+C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation is now in progress, with focused protocol, packet, boundary, core, frontend, and local native development evidence. The post-parser-fix dynamic wrapper check passes 589 active Rust tests (548 core and 41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files, with formatting, strict Clippy, TypeScript, and the production build. Bounded native dynamic qualification now passes both Luna/xhigh/priority and Mini/low/no-tier author requests. The earlier Mini failure and diagnostic are retained as evidence; no automatic replay or model substitution occurred, and the reopen check preserved both saved outcomes. Review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, and truthful delivery status. The accepted native C6 build and local HTTP fixture remain earlier development evidence, and the first hosted C6 native attempt failed at restart readiness; one subsequent live lookup used three calls and its saved context reopened without another request. See the current provider checkpoint below. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 strict native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, C6 qualification, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
 
 Settings now compatibility-checks the installed Codex CLI without a fixed
-version or executable hash and records the observed identity with each request. Historical 0.153.3
-dispatches remain dated evidence only. Background summary, story-memory, and
-other maintenance calls use GPT-5.6 Luna with xhigh reasoning; author
-writing and revision follows the persistent V2-style model picker. V2-style model
-picker behavior and configurable OpenAI-compatible endpoint APIs now
-have a development implementation: the rail supports search, favorites,
-keyboard selection, and separate traits; Settings owns endpoint profiles and
-the native credential store owns API-key availability; and the native HTTP
-worker provides the bounded transport. The current Codex path still freezes the
-selected model, exact packet, and application byte allowance, runs in an owned
-Windows process, and saves validated output plus delivery, usage, cleanup, and
-outcome evidence. Application byte caps are not provider token limits. HTTP
-lookup, V2 CLI adapter parity, and dynamic Codex model discovery are not
-implemented. See [ADR 0011](ADR_0011_LIVE_CODEX.md),
-[ADR 0023](ADR_0023_OPENAI_COMPATIBLE.md), and
-[qualification](CODEX_QUALIFICATION.md); this is development integration, not
-full W8 acceptance.
+version or executable hash and records the observed identity with each request.
+An explicit Settings check runs the bounded interactive `initialize`,
+`initialized`, and paginated `model/list` exchange inside the owned Windows
+process boundary. The sanitized catalog is display-only; the current checked
+connection must authorize the exact selected model and concrete traits before
+an author request is bound as `codex-stdin.author.v1`, including
+`runtime.catalogSha256`. Missing models or traits remain selected and
+unavailable for explicit repair. Historical 0.153.3 dispatches remain dated
+evidence only. Background summary, story-memory, and other maintenance calls
+use the fixed GPT-5.6 Luna/xhigh/priority profile; author writing and revision
+follow the persistent V2-style model picker. V2-style model picker behavior and
+configurable OpenAI-compatible endpoint APIs have a development
+implementation. The current Codex path freezes the selected model, exact
+packet, application byte allowance, CLI identity, and sanitized descriptor,
+runs in an owned Windows process, and saves validated output plus delivery,
+usage, cleanup, and outcome evidence. Application byte caps are not provider
+token limits. HTTP context lookup and V2 CLI adapter parity remain pending;
+dynamic Codex discovery and its bounded Luna/Mini qualification are implemented
+as a development slice; broader provider and release qualification remains
+pending. See [ADR 0011](ADR_0011_LIVE_CODEX.md), [ADR 0023](ADR_0023_OPENAI_COMPATIBLE.md), [ADR 0024](ADR_0024_DYNAMIC_CODEX_MODELS.md), and [qualification](CODEX_QUALIFICATION.md); this is development integration, not full W8 acceptance.
 
 ### Current provider checkpoint: Codex compatibility and HTTP development surface
 
-The final full wrapper passes **569 active Rust tests** (529 core and 40 desktop;
-one existing ignored fixture), **343 frontend tests in 27 files**, formatting,
-strict Clippy, TypeScript, and the production build:
-`.local/http-checkpoint-final.log`. Final review added an unsent queued-request
-reconciliation path and retained text in terminal truncation frames. Reconciliation
-respects an existing registered worker or claims/seals an orphaned queued request
-with a `notSent` receipt; a local receipt failure remains retryable without another
-HTTP request. Focused tests cover that race, failed local settlement, and final-frame
-partial output.
+The preceding HTTP checkpoint is `7ce8b76f0d63e9c56d9bb8338ef8eb268079a465`; the dynamic changes described here are in the current branch.
+CI run [34033575745](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34033575745)
+passed the native strict 46-check suite and the native HTTP fixture. The overall
+workflow failed Ubuntu Clippy because a Windows-only credential helper was
+compiled there; that helper is fixed in the current source, and the Windows
+contract jobs were canceled after the overall failure. The
+post-parser-fix wrapper passes 589 active Rust tests (548 core and
+41 desktop), one existing ignored fixture, and 350 frontend tests in 27 files,
+with formatting, strict Clippy, TypeScript, and the production build. The
+pre-parser-fix dynamic development binary (SHA-256
+`775962e975c7dc5b3f0171ba2d3724212b5921295eae897fd2052af92dcf7539`) also
+passes the native HTTP fixture: four local-mock POSTs, zero live calls, and no
+page errors. The broad native diagnostic now passes 45/46 checks with zero
+errors, omitting only the known local OS clipboard check; evidence is
+`.local/native-other-results/report.json`, dated `2026-09-06T13:19:24.007Z`,
+on WebView2 `152.0.4191.62`. The parser fix accepts a null
+`defaultServiceTier`, handles valid non-text audio modalities while excluding
+audio-only rows, and includes a sanitized 0.153.4 seven-model regression
+fixture. Focused catalog, discovery, and integration checks plus strict
+workspace Clippy pass. A current native build discovered seven models. The
+initial Luna/xhigh/priority request completed; the first Mini/low request
+failed because an inherited Luna-only `X-OpenAI-Internal-Codex-Responses-Lite`
+route was applied. Dispatch 19 diagnosed that route; `model/list` does not
+declare it, transport now uses it only for Luna and standard Responses for
+other models, without substitution. The explicit Mini/low/no-tier follow-up on
+binary SHA-256
+`c9068efffda7a2ed08f81afd65f691fac411eabd43837f0a9257daac5830c533` completed
+with settled cleanup and usage 1477 input, 46 output, and 13 reasoning tokens.
+The current bounded Luna/Mini qualification passes; the earlier failure and
+successful manuscript remain retained, with no automatic replay. The binary
+also passes the native HTTP fixture with live 0. Broader provider, HTTP-live,
+and release qualification remain open.
 
 The development provider surface now includes Settings endpoint profiles,
 native credential readiness, manual and cached model catalog entries, the
@@ -61,8 +87,10 @@ Both use native executable SHA-256
 The strict CI clipboard assertion remains enabled, and
 `test:native-http` now runs the separate HTTP fixture in CI.
 
-HTTP lookup remains unsupported. V2 CLI adapter parity and
-dynamic Codex model discovery remain future work.
+HTTP context lookup remains unsupported. V2 CLI adapter parity remains pending.
+Dynamic Codex model discovery and bounded Luna/Mini qualification are
+implemented as a development slice; broader native/provider/live and release
+qualification remain pending.
 
 The earlier live C6 lookup still has a source-label gap: the exact retrieved
 passage reaches the model, but lookup result metadata lacks its chapter title.
@@ -70,11 +98,11 @@ Fixing that projection must preserve old packet bytes. The live call ledger and
 same-data reopen evidence remain in [Codex qualification](CODEX_QUALIFICATION.md).
 
 Codex remains compatibility-checked against the installed executable without a
-version or hash pin. Background summary and story-memory work uses GPT-5.6
-Luna/xhigh, while author-facing calls follow the selected model and traits. The
-latest schema-26 project/library-3 changes preserve historical Codex packet
-bytes while adding optional HTTP delivery receipts. The previous `8edd061`
-hosted checkpoint ([CI 34030383334](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34030383334)) passed Ubuntu and the strict 46-check Windows native suite; a recurring Windows frontend timeout remains tracked. A CI-only two-worker Vitest cap is locally qualified without increasing test timeouts or weakening assertions. No newer hosted run or real HTTP provider call is claimed; cumulative live calls remain **sixteen**. Broader live-provider, narrative-quality, installed-release, and hosted HTTP qualification gates remain open.
+version or hash pin. Background summary and story-memory work uses the fixed
+Luna/xhigh/priority profile, while author-facing calls follow the selected
+model and traits. The schema-27 project reader floor and library schema-4
+catalog preserve historical Codex packet bytes while adding the dynamic author
+binding boundary. The previous `8edd061` hosted checkpoint ([CI 34030383334](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34030383334)) passed Ubuntu and the strict 46-check Windows native suite; a recurring Windows frontend timeout remains tracked. A CI-only two-worker Vitest cap is locally qualified without increasing test timeouts or weakening assertions. No real HTTP provider call is claimed; cumulative native dispatches now total **twenty**, including the isolated Mini diagnostic and explicit follow-up. Broader live-provider, narrative-quality, installed-release, HTTP context lookup, and hosted qualification gates remain open.
 
 ### Current C5 promise history slice
 
@@ -372,7 +400,7 @@ The full `scripts/desktop.ps1` check passed and is recorded in `.local/continuat
 | W5 proposal review and Apply | Implemented selected-passage slice; pushed and CI-covered | Schema-8 proposals, explicit intent, restricted context, immutable prepared versions/decisions, exact structural validation, atomic Apply/Reject, stale/replay fences, and mounted-editor handoff | Whole-chapter/block/manual-rebind work, broader B trial, and separately owned F5 batch Apply |
 | W6 saved versions and restore | Implemented development slice | Bounded metadata paging, exact inert comparison, atomic whole-document restore, shared Apply/restore reconciliation, before/after retention, process-interruption and rollback evidence | Remaining lifecycle/renderer-loss combinations and B trial |
 | W7 exports/package | Development slice and narrow installed lifecycle passed | Working and author-reviewed Markdown/TXT preview, exact native Save, immutable export records, reviewed freshness/record-failure native checks, stable release data, installed lifecycle CI33994616334 | Offline/no-runtime installation, true upgrade, physical/assistive native trials, full N gates |
-| W8 bounded Codex | Integrated development path; HTTP/profile and picker rails implemented as development surfaces | Compatibility-check the installed Codex CLI at connection time, record observed version/hash per request, immutable packet/model, Job-owned streaming, bounded output, durable provider results, Stop and explicit local save retry; Settings endpoint profiles, native credential readiness, native HTTP transport, V2-style provider search/favorites/keyboard/traits, and Luna/xhigh maintenance routing are implemented | Complete native HTTP and live-provider qualification, refusal/truncation/auth/cleanup and isolation gates, model-specific token limits, V2 CLI adapter parity, dynamic Codex discovery, and W8/E3; HTTP lookup remains unsupported |
+| W8 bounded Codex | Integrated development path; dynamic Codex discovery, HTTP/profile, and picker rails implemented as development surfaces | Compatibility-check the installed Codex CLI at connection time, record observed version/hash per request, run bounded interactive app-server discovery, persist a sanitized display-only catalog, bind exact author model/traits with `codex-stdin.author.v1` and `runtime.catalogSha256`, preserve immutable packet/model state, Job-owned streaming, bounded output, durable provider results, Stop and explicit local save retry; Settings endpoint profiles, native credential readiness, native HTTP transport, V2-style provider search/favorites/keyboard/traits, and Luna/xhigh/priority maintenance routing are implemented | Complete current native/live qualification, refusal/truncation/auth/cleanup and isolation gates, model-specific token limits, V2 CLI adapter parity, and W8/E3; HTTP context lookup remains unsupported |
 | C6 bounded story lookup | In-progress implementation slice | Opt-in `story-lookup.v1` search/read route for Working, AuthorRoom, and Discuss; schema-24 invocation/read persistence, fresh-call allowance, exact child packets, focused protocol/packet/boundary/core/frontend checks, accepted local native and wrapper evidence, and review fixes | Hosted C6, broader live lookup/crash/Stop/lost-ack qualification, model-specific token accounting, and broader state/thread/restricted-writing support |
 | F1 V2 import | Implemented schema-8 development slice | Explicit working-body choices, independent staged installation, inert history, Library Check import, source-free receipt recovery, full pre-move validation, and seven-check synthetic native import journey | Broader pending-import native recovery and representative author-approved acceptance |
 | F2 author review | Prose review, reviewed-context core, continuation, and schema-21 possession evidence CI-qualified as a development slice | Exact stages/revisions/earlier prefix, explicit selected bundles, immutable reader-position pins, current validity, saved-stage resumption, independent recovered history, core/IPC freeze of reviewed prefix plus current target, schema-19 Working/Reviewed append preview with atomic Apply/Reject, and the first typed passage-backed record set with audience-filtered delivery | Broader records/summaries/exceptions, provider qualification, and full F2 qualification |

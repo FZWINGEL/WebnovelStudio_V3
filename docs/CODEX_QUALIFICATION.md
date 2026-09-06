@@ -1,6 +1,6 @@
 # Codex qualification evidence
 
-This document records historical versioned discovery and sixteen bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, one native chapter-memory request, one native story-continuation request, one native structured-suggestion request, two native promise-context discussions, and three invocations in one native story lookup. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
+This document records historical versioned discovery and twenty bounded native CLI dispatches: three earlier direct CLI runs, one generated-profile run, two `CodexStream` runner qualifications, two native desktop edit requests, one native chapter-memory request, one native story-continuation request, one native structured-suggestion request, two native promise-context discussions, three invocations in one native story lookup, two current dynamic-author sends, one isolated diagnostic Mini invocation, and one explicit Mini follow-up. It does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
 
 ## Current provider policy
 
@@ -14,13 +14,123 @@ recorded as a compatibility finding below.
 
 Background summary, chapter-memory, and other maintenance calls route to
 GPT-5.6 Luna with xhigh reasoning. Author-facing writing and
-revision should use the persistent V2-style model picker and selected traits.
-V2 CLI adapter/catalog parity remains in progress. The configurable
+revision uses the persistent V2-style model picker and selected traits. The
+dynamic Codex discovery implementation is recorded in [ADR 0024](ADR_0024_DYNAMIC_CODEX_MODELS.md);
+its bounded Luna/Mini qualification passes; broader native/provider/live and
+release qualification remain pending. V2 CLI
+adapter/catalog parity remains in progress. The configurable
 OpenAI-compatible adapter now has native endpoint integration, twelve transport
 tests, and native loopback-server qualification. See [ADR 0023](ADR_0023_OPENAI_COMPATIBLE.md)
 and [current evidence](IMPLEMENTATION_STATUS.md#current-provider-checkpoint-codex-compatibility-and-http-development-surface).
 It uses the same packet and explicit Apply ownership, with separate HTTP delivery
 receipts, and never silently substitutes a provider or model.
+
+## Current dynamic Codex implementation (bounded qualification)
+
+An explicit Settings connection check now discovers author-facing Codex models
+from the installed native CLI. The check records the observed CLI version and
+executable SHA-256, runs bounded version, login, and strict compatibility
+preflights, then performs an interactive app-server exchange of `initialize`,
+`initialized`, and paginated `model/list` requests inside the owned Windows Job
+Object. Discovery is bounded to 15 seconds, 1 MiB of output, 32 pages, and 256
+models. A refresh replaces the app cache only after a complete sanitized
+catalog is received; failure retains the previous cache.
+
+The library schema is 4. The app-owned catalog stores model IDs, labels,
+declared traits and defaults, observed CLI identity, and discovery time; it
+stores no credentials or request text. Cached rows are display-only. The
+current checked connection authorizes the exact selected model and concrete
+traits. If a refresh removes a selected model or trait, the selection remains
+visible and unavailable until the author explicitly repairs it; no automatic
+substitution occurs.
+
+Author-facing requests use `codex-stdin.author.v1`. The binding resolves the
+selected model, reasoning, and service tier against the checked catalog and
+records the observed runtime plus the sanitized descriptor fingerprint in
+`runtime.catalogSha256`. The application caps remain 24 KiB input and 64 KiB
+output; no provider token limit is inferred. The connection snapshot is cloned
+into an in-flight request, so a refreshed descriptor cannot replay an old
+binding, and saved results remain inspectable. A renderer request
+acknowledgment does not trigger automatic generation replay.
+
+Project schema 27 is the reader floor for the distinct author binding profile;
+it changes no project tables. Legacy `codex-stdin.v1` bindings, including
+historical 0.153.3 packet bytes and hashes, remain readable. Maintenance keeps
+the fixed GPT-5.6-Luna/xhigh/priority profile and exposes separate
+`memoryReady` state; an author-selected writing model does not redirect
+maintenance work. Manual editing and the HTTP provider path are unchanged.
+
+The implementation is complete as a development slice. The post-parser-fix
+wrapper passes 589 active Rust tests (548 core and 41 desktop), one existing
+ignored fixture, and 350 frontend tests in 27 files, with formatting, strict
+Clippy, TypeScript, and the production build. The pre-parser-fix
+dynamic development binary with SHA-256
+`775962e975c7dc5b3f0171ba2d3724212b5921295eae897fd2052af92dcf7539` also
+passes the native HTTP fixture with four local-mock POSTs, zero live calls,
+and no page errors. The broad native diagnostic now passes 45/46 checks with
+zero errors, omitting only the known local OS clipboard check; evidence is
+`.local/native-other-results/report.json`, dated `2026-09-06T13:19:24.007Z`,
+on WebView2 `152.0.4191.62`. The parser fix accepts a null `defaultServiceTier`,
+handles valid non-text audio modalities while excluding audio-only rows, and
+includes a sanitized 0.153.4 seven-model regression fixture. Focused catalog,
+discovery, and integration checks plus strict workspace Clippy pass. The
+current native build discovered seven models. The initial Luna/xhigh/priority
+request completed; the first Mini/low request failed because an inherited
+Luna-only `X-OpenAI-Internal-Codex-Responses-Lite` route was applied. Diagnostic
+dispatch 19 confirmed that `model/list` does not declare that route; transport
+now uses it only for Luna and standard Responses for other models, without
+substitution. The explicit Mini/low/no-tier follow-up on binary SHA-256
+`c9068efffda7a2ed08f81afd65f691fac411eabd43837f0a9257daac5830c533` completed
+with usage 1477 input, 46 output, and 13 reasoning tokens, settled cleanup,
+and no page errors. The bounded Luna/Mini qualification passes; the earlier
+failure and successful manuscript remain retained, with no automatic replay.
+The binary also passes the native HTTP fixture with live 0. A reopen-only check
+on the prior binary passed two fresh native process launches: the cached
+seven-model catalog stayed display-only/unready after restart, saved Mini/low/
+null state and manuscript JSON/prose retained both exact identities, and
+run/results counts stayed at two with zero new send, connection check,
+generation, or page-error events. Source checkpoint
+`7ce8b76f0d63e9c56d9bb8338ef8eb268079a465` has CI
+[34033575745](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34033575745)
+passing native strict 46 and the native HTTP fixture; the overall workflow
+failed Ubuntu Clippy because a Windows-only credential helper was compiled
+there. The helper is fixed in the current source, and the Windows contract jobs
+were canceled after that failure. The bounded dynamic qualification is recorded
+above; broader native/provider/live and release totals are not claimed here.
+
+HTTP context lookup, wider V2 CLI adapters, broader live-provider support, and
+release qualification remain pending. Cumulative dispatches now total twenty;
+the bounded result does not qualify broader provider parity or HTTP-live
+support.
+
+### Dynamic selection dispatch ledger
+
+All four dispatches below used synthetic text and the observed CLI 0.153.4.
+The last two failures were not automatically retried. A fresh explicit request
+qualified the corrected Mini profile. Missing usage on failed requests remains
+unknown.
+
+| Dispatch | Requested settings | Result |
+| --- | --- | --- |
+| 17 | Luna / xhigh / priority | Completed; 2,371 stdin bytes; reported 1,204 input and 250 output tokens, including 215 reasoning tokens |
+| 18 | Mini / low / no service tier | Failed with the inherited Responses Lite transport; 3,386 stdin bytes, no assistant output, unknown usage, settled cleanup |
+| 19 | Mini / low / no service tier; isolated diagnostic | Failed with `unsupported_value` for the Responses Lite model route; one tiny request, no author data |
+| 20 | Mini / low / no service tier; corrected transport | Completed; 3,374 stdin bytes; reported 1,477 input and 46 output tokens, including 13 reasoning tokens |
+
+Evidence is retained under `.local/live-dynamic-codex-qualification`,
+`.local/wns-mini-diagnostic-_3klzina` (diagnostic at `2026-09-06T13:31:47Z`),
+and `.local/live-mini-qualification` (finished `2026-09-06T13:36:46.055Z`).
+The separate `.local/dynamic-codex-reopen-evidence` check finished at
+`2026-09-06T13:34:36.663Z` with zero requests. The corrected transport's
+native HTTP fixture finished at `2026-09-06T13:39:40.060Z`, using only four
+loopback mock POSTs.
+
+The full wrapper preceded the final transport and cursor-validation fixes.
+After those narrow changes, the seven profile tests, six catalog unit tests,
+four catalog integration tests, formatting, and strict workspace Clippy passed.
+The successful native Mini run exercised the transport fix. The last cursor
+change rejects malformed pagination without changing valid discovery results;
+the next hosted run verifies the integrated final source.
 
 ## Current 0.153.4 lookup qualification (generations fourteen to sixteen)
 
@@ -53,7 +163,8 @@ label (`.local/live-lookup-qualification/qualification.json`). Same-data reopen
 passed using the select ID and retained all three contexts plus unchanged prose
 without another model request
 (`.local/live-lookup-reopen-qualification/qualification.json`). The failed record
-is preserved. Cumulative live generations: sixteen. Subsequent HTTP qualification
+is preserved. At this historical checkpoint, cumulative live generations were
+sixteen. Subsequent HTTP qualification
 uses a local mock server; no real HTTP model service has been called.
 
 ## Historical installed identity and discovery (0.153.3)

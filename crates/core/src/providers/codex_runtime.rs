@@ -8,6 +8,8 @@ use super::cli::windows_process::{
     self, ChildIoError, ChildLimits, ChildOutcome, ChildTermination, CliInvocation,
     EnvironmentPolicy, StopSignal,
 };
+use super::codex_catalog::CodexCatalog;
+use super::codex_discovery;
 use super::codex_profile::CodexLaunchProfile;
 use super::codex_runner::CodexStream;
 use crate::projects::{CoreError, CoreResult};
@@ -18,7 +20,7 @@ use std::{
     io::Read,
     os::windows::fs::OpenOptionsExt,
     path::{Path, PathBuf},
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 pub const MAX_CODEX_STDIN_BYTES: usize = 24 * 1024;
@@ -40,6 +42,7 @@ pub struct CodexConnection {
     executable: PathBuf,
     observed_version: String,
     fingerprint: String,
+    catalog: CodexCatalog,
 }
 
 fn unavailable(code: &str, detail: &str) -> CoreError {
@@ -53,6 +56,10 @@ impl CodexConnection {
 
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
+    }
+
+    pub fn catalog(&self) -> &CodexCatalog {
+        &self.catalog
     }
 
     /// Explicit discovery, bounded to Codex's installed native-bin directory.
@@ -119,17 +126,91 @@ impl CodexConnection {
                 "Sign in to Codex, then check the connection again.",
             ));
         }
+        let discovered_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| unavailable("CodexDiscoveryFailed", "Codex discovery time was invalid."))?
+            .as_millis()
+            .to_string();
+        let catalog = codex_discovery::discover(
+            &path,
+            &run.cwd,
+            &profile.executable_version,
+            &pinned.fingerprint,
+            &discovered_at,
+        )?;
         drop(pinned.file);
         Ok(Self {
             executable: path,
             observed_version: profile.executable_version,
             fingerprint: pinned.fingerprint,
+            catalog,
         })
     }
 
     /// One explicit invocation. No automatic retry, model substitution, shell,
     /// author working directory, transcript file, or packet command argument.
     pub fn start(&self, packet: Vec<u8>, stop: StopSignal) -> CoreResult<CodexStream> {
+        self.start_with_choice(None, packet, stop)
+    }
+
+    pub fn start_bound(
+        &self,
+        binding: &crate::context::packet::ProviderBinding,
+        packet: Vec<u8>,
+        stop: StopSignal,
+    ) -> CoreResult<CodexStream> {
+        use crate::context::packet::ProviderBinding;
+        if binding == &ProviderBinding::codex_luna_runtime(self.version(), self.fingerprint()) {
+            return self.start(packet, stop);
+        }
+        if binding.validate().is_err()
+            || binding.profile_version != super::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+            || !binding.runtime.as_ref().is_some_and(|identity| {
+                identity.cli_version == self.observed_version
+                    && identity.executable_sha256 == self.fingerprint
+            })
+        {
+            return Err(unavailable(
+                "ProviderProfileInvalid",
+                "The saved Codex settings do not match this checked connection.",
+            ));
+        }
+        let model = self.catalog().model(&binding.model_id).ok_or_else(|| {
+            unavailable(
+                "ProviderProfileInvalid",
+                "The saved model is absent from this checked Codex catalog.",
+            )
+        })?;
+        if binding
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.catalog_sha256.as_deref())
+            != Some(model.fingerprint()?.as_str())
+            || (binding.service_tier.is_none() && model.default_service_tier.is_some())
+        {
+            return Err(unavailable(
+                "ProviderProfileInvalid",
+                "The saved Codex capabilities changed. This request will not be sent again.",
+            ));
+        }
+        self.start_with_choice(
+            Some(super::preferences::ModelSelection {
+                provider_id: binding.provider_id.clone(),
+                model_id: binding.model_id.clone(),
+                reasoning: binding.reasoning.clone(),
+                service_tier: binding.service_tier.clone(),
+            }),
+            packet,
+            stop,
+        )
+    }
+
+    fn start_with_choice(
+        &self,
+        choice: Option<super::preferences::ModelSelection>,
+        packet: Vec<u8>,
+        stop: StopSignal,
+    ) -> CoreResult<CodexStream> {
         if packet.is_empty() || packet.len() > MAX_CODEX_STDIN_BYTES {
             return Err(unavailable(
                 "ProviderInputTooLarge",
@@ -144,10 +225,35 @@ impl CodexConnection {
             ));
         }
         let owned = OwnedRun::new()?;
-        let profile = CodexLaunchProfile::for_version(
-            &format!("codex-cli {}", self.observed_version),
-            &owned.catalog,
-        )
+        let maintenance = super::preferences::ModelSelection {
+            provider_id: "codex".into(),
+            model_id: super::codex_profile::CODEX_LUNA_MODEL.into(),
+            reasoning: Some(super::codex_profile::CODEX_REASONING_EFFORT.into()),
+            service_tier: Some(super::codex_profile::CODEX_PRIORITY_SERVICE_TIER.into()),
+        };
+        if !self
+            .catalog()
+            .supports(choice.as_ref().unwrap_or(&maintenance))
+        {
+            return Err(unavailable(
+                "ProviderUnavailable",
+                "The requested Codex model settings are not available in this checked catalog.",
+            ));
+        }
+        let version = format!("codex-cli {}", self.observed_version);
+        let profile = if let Some(choice) = &choice {
+            let model = self
+                .catalog()
+                .models
+                .iter()
+                .find(|model| model.model_id == choice.model_id)
+                .ok_or_else(|| {
+                    unavailable("ProviderUnavailable", "The selected model is unavailable.")
+                })?;
+            CodexLaunchProfile::for_selection(&version, &owned.catalog, model, choice)
+        } else {
+            CodexLaunchProfile::for_version(&version, &owned.catalog)
+        }
         .map_err(|_| {
             unavailable(
                 "ProviderProfileInvalid",
@@ -461,6 +567,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn changed_catalog_metadata_fences_a_saved_author_binding_before_process_creation() {
+        use super::super::codex_catalog::CodexCatalogModel;
+        use crate::context::packet::ProviderBinding;
+        let model = CodexCatalogModel {
+            model_id: "synthetic-model".into(),
+            label: "Synthetic model".into(),
+            reasoning_levels: vec!["low".into(), "high".into()],
+            default_reasoning: Some("low".into()),
+            service_tiers: vec![],
+            default_service_tier: None,
+        };
+        let binding = ProviderBinding::codex_author_runtime(
+            "synthetic-model",
+            "low",
+            None,
+            "9.1",
+            &"a".repeat(64),
+            &model.fingerprint().unwrap(),
+        );
+        let old_bytes = serde_json::to_vec(&binding).unwrap();
+        let mut changed = model;
+        changed.default_reasoning = Some("high".into());
+        let connection = CodexConnection {
+            executable: PathBuf::from("intentionally-missing-codex.exe"),
+            observed_version: "9.1".into(),
+            fingerprint: "a".repeat(64),
+            catalog: CodexCatalog {
+                cli_version: "9.1".into(),
+                executable_sha256: "a".repeat(64),
+                discovered_at: "0".into(),
+                models: vec![changed],
+            },
+        };
+        let error = connection
+            .start_bound(&binding, b"synthetic story".to_vec(), StopSignal::new())
+            .err()
+            .unwrap();
+        assert_eq!(error.code, "ProviderProfileInvalid");
+        assert!(
+            binding.validate().is_ok(),
+            "history stays inspectable without the old catalog"
+        );
+        assert_eq!(serde_json::to_vec(&binding).unwrap(), old_bytes);
+    }
+
+    #[test]
     fn arbitrary_executables_are_fingerprinted_without_a_global_allowlist() {
         let run = OwnedRun::new().unwrap();
         let fake = run.root.join("fake.exe");
@@ -472,6 +624,12 @@ mod tests {
             executable: fake.clone(),
             observed_version: "0.0.0".into(),
             fingerprint: "a different session fingerprint".into(),
+            catalog: CodexCatalog {
+                cli_version: "codex-cli 0.0.0".into(),
+                executable_sha256: "a".repeat(64),
+                discovered_at: "1700000000000".into(),
+                models: Vec::new(),
+            },
         };
         assert_eq!(
             connection

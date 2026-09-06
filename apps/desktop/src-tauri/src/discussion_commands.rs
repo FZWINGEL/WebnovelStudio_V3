@@ -4,11 +4,9 @@ use crate::discussion_recovery::{
 };
 use crate::library_commands::DesktopLibrary;
 use crate::project_commands::{DesktopProjects, execute};
-use crate::provider_runtime::{DesktopProviders, binding_matches_choice, is_supported_choice};
+use crate::provider_runtime::{DesktopProviders, binding_matches_author_choice};
 use tauri::State;
-use webnovel_core::context::packet::{
-    CompiledPacket, MOCK_MODEL_ID, ProviderBinding, packet_input_hash,
-};
+use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, packet_input_hash};
 use webnovel_core::projects::discussions::*;
 use webnovel_core::projects::proposals::*;
 use webnovel_core::projects::{CoreError, CoreResult, ProjectAccess, ProjectSession};
@@ -184,17 +182,25 @@ pub async fn start_discussion(
         // arbitrary command options. Existing mock payloads stay unchanged.
         request.provider_binding = if let Some(existing) = &existing {
             existing.provider_binding.clone()
-        } else if is_supported_choice(&selected) {
+        } else if selected.provider_id == "codex" {
             #[cfg(windows)]
             {
-                connection
-                    .as_ref()
-                    .map(crate::provider_runtime::connection_binding)
-                    .or_else(|| Some(ProviderBinding::codex_luna()))
+                let checked = connection.as_ref().ok_or_else(|| {
+                    CoreError::new(
+                        "ProviderUnavailable",
+                        "Check the Codex connection in Settings before sending this request.",
+                    )
+                })?;
+                Some(crate::provider_runtime::connection_author_binding(
+                    checked, &selected,
+                )?)
             }
             #[cfg(not(windows))]
             {
-                Some(ProviderBinding::codex_luna())
+                return Err(CoreError::new(
+                    "ProviderUnavailable",
+                    "This Codex connection is currently available on Windows only.",
+                ));
             }
         } else {
             None
@@ -305,12 +311,11 @@ fn check_model_choice(
     let requested = requested.unwrap_or(&local);
     let saved = has_saved_request(project, request)?;
     if requested != &local
-        && !((is_supported_choice(requested) || saved)
-            && request.provider_binding.as_ref().is_some_and(|binding| {
-                binding_matches_choice(binding, requested)
-                    || (saved
-                        && crate::provider_runtime::binding_matches_saved_model(binding, requested))
-            }))
+        && !(request.provider_binding.as_ref().is_some_and(|binding| {
+            binding_matches_author_choice(binding, requested)
+                || (saved
+                    && crate::provider_runtime::binding_matches_saved_model(binding, requested))
+        }))
     {
         return Err(CoreError::new(
             "ProviderUnavailable",

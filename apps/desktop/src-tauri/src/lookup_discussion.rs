@@ -274,7 +274,12 @@ pub(super) fn run_live(
                     crate::provider_runtime::connection_matches_binding(connection, binding)
                 })
         });
-        let result = collect_live(matched, input, stop.clone());
+        let result = collect_live(
+            matched,
+            grant.packet.options.provider_binding.as_ref(),
+            input,
+            stop.clone(),
+        );
         let legacy = crate::live_discussion::report(&grant.run, result);
         LookupInvocationReport {
             owner: grant.run.owner.clone(),
@@ -294,6 +299,7 @@ pub(super) fn run_live(
 #[cfg(windows)]
 fn collect_live(
     connection: Option<&webnovel_core::providers::codex_runtime::CodexConnection>,
+    binding: Option<&webnovel_core::context::packet::ProviderBinding>,
     input: String,
     stop: webnovel_core::providers::cli::windows_process::StopSignal,
 ) -> webnovel_core::providers::codex_runner::CodexRunResult {
@@ -312,10 +318,10 @@ fn collect_live(
     if stop.is_requested() {
         return failed(CodexRunStatus::Stopped, String::new(), true);
     }
-    let Some(connection) = connection else {
+    let (Some(connection), Some(binding)) = (connection, binding) else {
         return failed(CodexRunStatus::ProcessUnavailable, String::new(), true);
     };
-    let mut stream = match connection.start(input.into_bytes(), stop.clone()) {
+    let mut stream = match connection.start_bound(binding, input.into_bytes(), stop.clone()) {
         Ok(stream) => stream,
         Err(_) => return failed(CodexRunStatus::ProcessUnavailable, String::new(), true),
     };

@@ -206,6 +206,16 @@ pub struct ChildOutcome {
     pub output: ChildOutput,
 }
 
+/// Action returned by an interactive stdout observer. Interactive children
+/// keep stdin open between bounded JSONL request packets; the observer decides
+/// when to append another packet or close the pipe after pending bytes drain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InteractiveAction {
+    KeepOpen,
+    Send(Vec<u8>),
+    Close,
+}
+
 // A TimedOut/Stopped outcome means the Job Object was terminated and local
 // worker cleanup settled.  A cleanup failure is returned as ContainmentError;
 // it never gets relabelled as an ordinary provider failure or successful run.
@@ -257,6 +267,8 @@ pub struct RunningChild {
     stdin_offset: usize,
     stdin_write: Option<Box<PendingWrite>>,
     stdin_error: Option<ChildIoError>,
+    interactive: bool,
+    close_stdin_when_drained: bool,
     process_id: u32,
     limits: ChildLimits,
     started_at: Instant,
@@ -497,10 +509,22 @@ pub fn spawn(invocation: CliInvocation) -> Result<RunningChild, ContainmentError
         stdin_offset: 0,
         stdin_write: None,
         stdin_error: None,
+        interactive: false,
+        close_stdin_when_drained: false,
         process_id: process_information.dwProcessId,
         limits,
         started_at: Instant::now(),
     })
+}
+
+/// Create a job-contained child whose stdin remains open after the initial
+/// packet. Additional bounded packets may be appended by
+/// [`RunningChild::finish_interactive`]. The ordinary [`spawn`] path retains
+/// its existing write-and-close behavior.
+pub fn spawn_interactive(invocation: CliInvocation) -> Result<RunningChild, ContainmentError> {
+    let mut child = spawn(invocation)?;
+    child.interactive = true;
+    Ok(child)
 }
 
 impl RunningChild {
@@ -528,12 +552,46 @@ impl RunningChild {
     /// accepted bytes remain available in the bounded outcome but are not
     /// observed.
     pub fn finish_or_stop_with_output<F>(
-        mut self,
+        self,
         stop: StopSignal,
         mut observer: F,
     ) -> Result<ChildOutcome, ContainmentError>
     where
         F: FnMut(ChildStream, &[u8]),
+    {
+        self.finish_or_stop_with_action(stop, |stream, bytes| {
+            observer(stream, bytes);
+            InteractiveAction::KeepOpen
+        })
+    }
+
+    /// Finish an interactive child while allowing the bounded observer to
+    /// append request packets or close stdin after the current write drains.
+    /// The observer runs on this caller's thread and must remain short and
+    /// nonblocking.
+    pub fn finish_interactive<F>(
+        self,
+        stop: StopSignal,
+        observer: F,
+    ) -> Result<ChildOutcome, ContainmentError>
+    where
+        F: FnMut(ChildStream, &[u8]) -> InteractiveAction,
+    {
+        if !self.interactive {
+            return Err(ContainmentError::InvalidInvocation(
+                "interactive finish requires spawn_interactive".to_owned(),
+            ));
+        }
+        self.finish_or_stop_with_action(stop, observer)
+    }
+
+    fn finish_or_stop_with_action<F>(
+        mut self,
+        stop: StopSignal,
+        mut observer: F,
+    ) -> Result<ChildOutcome, ContainmentError>
+    where
+        F: FnMut(ChildStream, &[u8]) -> InteractiveAction,
     {
         let mut capture = Capture::default();
         let mut terminal = None;
@@ -577,13 +635,16 @@ impl RunningChild {
 
             let wait = self.next_wait(stop_deadline);
             match self.output_rx.recv_timeout(wait) {
-                Ok(message) => capture.accept(
-                    message,
-                    self.limits.max_total_output_bytes,
-                    &stop,
-                    &mut observer_requested_stop,
-                    &mut observer,
-                ),
+                Ok(message) => {
+                    let action = capture.accept(
+                        message,
+                        self.limits.max_total_output_bytes,
+                        &stop,
+                        &mut observer_requested_stop,
+                        &mut observer,
+                    );
+                    self.apply_interactive_action(action)?;
+                }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     if unsafe {
@@ -718,6 +779,43 @@ impl RunningChild {
         wait.max(Duration::from_millis(1))
     }
 
+    fn apply_interactive_action(
+        &mut self,
+        action: InteractiveAction,
+    ) -> Result<(), ContainmentError> {
+        if !self.interactive {
+            if action != InteractiveAction::KeepOpen {
+                return Err(ContainmentError::InvalidInvocation(
+                    "interactive input was returned for a finite child".to_owned(),
+                ));
+            }
+            return Ok(());
+        }
+        match action {
+            InteractiveAction::KeepOpen => {}
+            InteractiveAction::Send(bytes) => {
+                if self.close_stdin_when_drained {
+                    return Err(ContainmentError::InvalidInvocation(
+                        "interactive stdin was already closed".to_owned(),
+                    ));
+                }
+                if self.stdin_packet.len().saturating_add(bytes.len()) > MAX_PACKET_BYTES {
+                    return Err(ContainmentError::InvalidInvocation(format!(
+                        "interactive stdin exceeds {MAX_PACKET_BYTES} bytes"
+                    )));
+                }
+                self.stdin_packet.extend(bytes);
+            }
+            InteractiveAction::Close => {
+                self.close_stdin_when_drained = true;
+                if self.stdin_write.is_none() && self.stdin_offset >= self.stdin_packet.len() {
+                    self.stdin_pipe.close();
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn progress_stdin(&mut self, capture: &mut Capture) -> Result<(), ContainmentError> {
         if let Some(pending) = self.stdin_write.as_ref() {
             if unsafe { WaitForSingleObject(raw(&pending.event), 0) } != WAIT_OBJECT_0 {
@@ -751,7 +849,9 @@ impl RunningChild {
             return Ok(());
         }
         if self.stdin_offset >= self.stdin_packet.len() {
-            self.stdin_pipe.close();
+            if !self.interactive || self.close_stdin_when_drained {
+                self.stdin_pipe.close();
+            }
             return Ok(());
         }
 
@@ -893,14 +993,14 @@ impl RunningChild {
     }
 
     fn drain_output<F>(
-        &self,
+        &mut self,
         capture: &mut Capture,
         stop: &StopSignal,
         observer_requested_stop: &mut bool,
         observer: &mut F,
     ) -> Result<(), ContainmentError>
     where
-        F: FnMut(ChildStream, &[u8]),
+        F: FnMut(ChildStream, &[u8]) -> InteractiveAction,
     {
         let deadline = Instant::now() + CLEANUP_TIMEOUT;
         loop {
@@ -913,13 +1013,14 @@ impl RunningChild {
             {
                 Ok(message) => {
                     let ended = matches!(message, OutputMessage::End);
-                    capture.accept(
+                    let action = capture.accept(
                         message,
                         self.limits.max_total_output_bytes,
                         stop,
                         observer_requested_stop,
                         observer,
                     );
+                    self.apply_interactive_action(action)?;
                     if ended && capture.ends == 2 {
                         return Ok(());
                     }
@@ -1140,16 +1241,21 @@ impl Capture {
         stop: &StopSignal,
         observer_requested_stop: &mut bool,
         observer: &mut F,
-    ) where
-        F: FnMut(ChildStream, &[u8]),
+    ) -> InteractiveAction
+    where
+        F: FnMut(ChildStream, &[u8]) -> InteractiveAction,
     {
         match message {
-            OutputMessage::End => self.ends = self.ends.saturating_add(1),
+            OutputMessage::End => {
+                self.ends = self.ends.saturating_add(1);
+                InteractiveAction::KeepOpen
+            }
             OutputMessage::ReadFailure(stream, code) => {
                 self.io_errors.push(match stream {
                     OutputStream::Stdout => ChildIoError::ReadStdout(code),
                     OutputStream::Stderr => ChildIoError::ReadStderr(code),
                 });
+                InteractiveAction::KeepOpen
             }
             OutputMessage::Data(stream, bytes) => {
                 let available = limit.saturating_sub(self.bytes);
@@ -1159,8 +1265,9 @@ impl Capture {
                     OutputStream::Stderr => self.stderr.extend_from_slice(&bytes[..retained]),
                 }
                 self.bytes += retained;
+                let mut action = InteractiveAction::KeepOpen;
                 if retained > 0 && !stop.is_requested() {
-                    observer(stream.into(), &bytes[..retained]);
+                    action = observer(stream.into(), &bytes[..retained]);
                     if stop.is_requested() {
                         *observer_requested_stop = true;
                     }
@@ -1169,6 +1276,7 @@ impl Capture {
                     self.truncated = true;
                     self.limit_reached = true;
                 }
+                action
             }
         }
     }

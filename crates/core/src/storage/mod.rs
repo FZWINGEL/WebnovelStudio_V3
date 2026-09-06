@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 26;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 27;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -109,6 +109,9 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         if version < 26 {
             tx.execute_batch(include_str!("026_http_provider_delivery.sql"))?;
         }
+        // Schema 27 changes no tables: author-selected Codex bindings have a
+        // distinct profile that older readers cannot validate. Exact earlier
+        // packet bytes and the fixed maintenance profile remain unchanged.
         // Schema 25 also changes no tables: new provider bindings record the
         // app profile and observed CLI identity independently. Older readers
         // cannot validate those receipts. Historical packet bytes stay intact.

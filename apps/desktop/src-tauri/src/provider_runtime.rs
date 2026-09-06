@@ -42,6 +42,7 @@ pub struct DesktopProviderState {
 #[serde(rename_all = "camelCase")]
 struct ConnectionView {
     ready: bool,
+    memory_ready: bool,
     detail: String,
 }
 
@@ -58,6 +59,21 @@ pub fn binding_matches_choice(binding: &ProviderBinding, choice: &ModelSelection
         && binding.service_tier == choice.service_tier
 }
 
+pub fn binding_matches_author_choice(binding: &ProviderBinding, choice: &ModelSelection) -> bool {
+    binding_matches_choice(binding, choice)
+        || (binding.profile_version
+            == webnovel_core::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+            && binding_matches_saved_model(binding, choice)
+            && choice
+                .reasoning
+                .as_ref()
+                .is_none_or(|value| binding.reasoning.as_ref() == Some(value))
+            && choice
+                .service_tier
+                .as_ref()
+                .is_none_or(|value| binding.service_tier.as_ref() == Some(value)))
+}
+
 pub fn binding_matches_saved_model(binding: &ProviderBinding, choice: &ModelSelection) -> bool {
     binding.validate().is_ok()
         && binding.provider_id == choice.provider_id
@@ -70,8 +86,56 @@ pub fn connection_binding(connection: &CodexConnection) -> ProviderBinding {
 }
 
 #[cfg(windows)]
+pub fn connection_author_binding(
+    connection: &CodexConnection,
+    choice: &ModelSelection,
+) -> CoreResult<ProviderBinding> {
+    if !connection.catalog().supports(choice) {
+        return Err(CoreError::new(
+            "ProviderUnavailable",
+            "This model or its selected settings are absent from the checked Codex catalog. Check the connection in Settings.",
+        ));
+    }
+    let model = connection
+        .catalog()
+        .models
+        .iter()
+        .find(|model| model.model_id == choice.model_id)
+        .ok_or_else(unavailable)?;
+    let binding = ProviderBinding::codex_author_runtime(
+        &choice.model_id,
+        choice
+            .reasoning
+            .as_deref()
+            .or(model.default_reasoning.as_deref())
+            .ok_or_else(unavailable)?,
+        choice
+            .service_tier
+            .as_deref()
+            .or(model.default_service_tier.as_deref()),
+        connection.version(),
+        connection.fingerprint(),
+        &model.fingerprint()?,
+    );
+    binding.validate().map_err(|_| unavailable())?;
+    Ok(binding)
+}
+
+#[cfg(windows)]
 pub fn connection_matches_binding(connection: &CodexConnection, binding: &ProviderBinding) -> bool {
     binding == &connection_binding(connection)
+        || (binding.profile_version
+            == webnovel_core::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+            && connection_author_binding(
+                connection,
+                &ModelSelection {
+                    provider_id: binding.provider_id.clone(),
+                    model_id: binding.model_id.clone(),
+                    reasoning: binding.reasoning.clone(),
+                    service_tier: binding.service_tier.clone(),
+                },
+            )
+            .is_ok_and(|expected| expected == *binding))
 }
 fn unavailable() -> CoreError {
     CoreError::new(
@@ -178,25 +242,60 @@ impl DesktopProviders {
         let ready = false;
         let detail = runtime.detail.clone().unwrap_or_else(|| "Use the Codex sign-in on this computer. Check the connection to enable live requests.".into());
         if ready {
-            if let Some(model) = state.catalog.models.iter_mut().find(|model| {
-                model.key.provider_id == "codex" && model.key.model_id == "gpt-5.6-luna"
-            }) {
-                model.ready = true;
-                model.status_detail = "Connected through Codex. Available with Extra high reasoning and Fast response speed.".into();
+            #[cfg(windows)]
+            for model in state
+                .catalog
+                .models
+                .iter_mut()
+                .filter(|model| model.key.provider_id == "codex")
+            {
+                model.ready = runtime.connection.as_ref().is_some_and(|connection| {
+                    connection
+                        .catalog()
+                        .models
+                        .iter()
+                        .any(|current| current.model_id == model.key.model_id)
+                        && (model.key != state.settings.active.key()
+                            || connection.catalog().supports(&state.settings.active))
+                });
+                if model.ready {
+                    model.status_detail = "Available through the checked Codex connection.".into();
+                }
             }
             if state.settings.active.provider_id == "codex" {
-                state.dispatch = if is_supported_choice(&state.settings.active) {
+                #[cfg(windows)]
+                let supported = runtime.connection.as_ref().is_some_and(|connection| {
+                    connection.catalog().supports(&state.settings.active)
+                });
+                #[cfg(not(windows))]
+                let supported = false;
+                state.dispatch = if supported {
                     DispatchResolution::CodexCli {
                         detail: "Uses your Codex sign-in. Sending starts one live response.".into(),
                     }
                 } else {
-                    DispatchResolution::Blocked { detail: "This connection currently supports GPT-5.6-Luna with Extra high reasoning and Fast response speed. Choose those settings to send.".into() }
+                    DispatchResolution::Blocked { detail: "This model or its selected traits are no longer available through the checked Codex connection. Choose available settings or check the connection again.".into() }
                 };
             }
         }
+        #[cfg(windows)]
+        let memory_ready = runtime.connection.as_ref().is_some_and(|connection| {
+            connection.catalog().supports(&ModelSelection {
+                provider_id: "codex".into(),
+                model_id: "gpt-5.6-luna".into(),
+                reasoning: Some("xhigh".into()),
+                service_tier: Some("priority".into()),
+            })
+        });
+        #[cfg(not(windows))]
+        let memory_ready = false;
         Ok(DesktopProviderState {
             state,
-            codex_connection: ConnectionView { ready, detail },
+            codex_connection: ConnectionView {
+                ready,
+                memory_ready,
+                detail,
+            },
         })
     }
 
@@ -224,7 +323,7 @@ impl DesktopProviders {
             match checked {
                 Ok(connection) => {
                     state.connection = Some(connection);
-                    state.detail = Some("Signed in through Codex. GPT-5.6-Luna is available with Extra high reasoning and Fast response speed.".into());
+                    state.detail = Some("Signed in through Codex. Available models and traits were read from this installation.".into());
                 }
                 Err(error) => {
                     state.detail = Some(error.detail);
@@ -244,6 +343,33 @@ impl DesktopProviders {
     #[cfg(windows)]
     pub fn connection(&self) -> CoreResult<CodexConnection> {
         self.lock()?.connection.clone().ok_or_else(unavailable)
+    }
+    pub fn checked_catalog(
+        &self,
+    ) -> CoreResult<Option<webnovel_core::providers::codex_catalog::CodexCatalog>> {
+        #[cfg(windows)]
+        {
+            Ok(self
+                .lock()?
+                .connection
+                .as_ref()
+                .map(|connection| connection.catalog().clone()))
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(None)
+        }
+    }
+    pub fn invalidate_connection(&self) -> CoreResult<()> {
+        let mut state = self.lock()?;
+        #[cfg(windows)]
+        {
+            state.connection = None;
+        }
+        state.detail = Some(
+            "The discovered Codex models could not be saved. Check the connection again.".into(),
+        );
+        Ok(())
     }
     #[cfg(windows)]
     fn register_key(
@@ -341,6 +467,34 @@ impl DesktopProviders {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn author_defaults_resolve_once_but_explicit_traits_and_legacy_bindings_remain_exact() {
+        let binding = ProviderBinding::codex_author_runtime(
+            "gpt-5.4-mini",
+            "medium",
+            None,
+            "9.1",
+            &"a".repeat(64),
+            &"b".repeat(64),
+        );
+        let mut choice = ModelSelection {
+            provider_id: "codex".into(),
+            model_id: "gpt-5.4-mini".into(),
+            reasoning: None,
+            service_tier: None,
+        };
+        assert!(binding_matches_author_choice(&binding, &choice));
+        choice.reasoning = Some("high".into());
+        assert!(!binding_matches_author_choice(&binding, &choice));
+        choice.model_id = "gpt-5.6-luna".into();
+        choice.reasoning = None;
+        assert!(!binding_matches_author_choice(
+            &ProviderBinding::codex_luna_historical(),
+            &choice
+        ));
+        assert!(!binding_matches_author_choice(&binding, &choice));
+    }
     use std::collections::HashMap;
     use std::sync::Mutex;
     use webnovel_core::library::Library;

@@ -5,9 +5,10 @@
 //! app-local Library stores them separately from project databases.
 
 use super::catalog::{
-    DispatchResolution, ProviderState, built_in_catalog, catalog_with_endpoints, find_model,
-    validate_catalog, validate_selection,
+    DispatchResolution, ProviderState, built_in_catalog, catalog_with_endpoints_and_codex,
+    find_model, validate_catalog, validate_selection,
 };
+use super::codex_catalog::CodexCatalog;
 use super::endpoints::EndpointProfilesSettings;
 use crate::projects::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
@@ -106,14 +107,6 @@ impl ModelSettings {
         validate_catalog(&catalog)?;
         validate_settings_against_catalog(self, &catalog)
     }
-
-    pub(crate) fn validate_with_endpoints(
-        &self,
-        endpoints: &EndpointProfilesSettings,
-    ) -> CoreResult<()> {
-        let catalog = catalog_with_endpoints(endpoints, self)?;
-        validate_settings_against_catalog(self, &catalog)
-    }
 }
 
 pub fn validate_settings_against_catalog(
@@ -141,6 +134,66 @@ pub fn validate_settings_against_catalog(
     Ok(())
 }
 
+/// Validate a stored selection while allowing an unchanged active Codex
+/// selection whose model or explicit trait disappeared from the latest
+/// discovery.  New choices still use the strict validator above.
+pub(crate) fn validate_settings_preserving_unavailable_active(
+    settings: &ModelSettings,
+    catalog: &super::catalog::CatalogSnapshot,
+) -> CoreResult<()> {
+    parse_revision(&settings.revision)?;
+    if let Err(error) = validate_selection(catalog, &settings.active) {
+        // A stored active Codex choice may outlive the discovery row that
+        // originally declared its traits.  Preserve it when its model key is
+        // still a known Codex fallback/tombstone and all persisted identifiers
+        // remain bounded.  Do not infer permission from user-facing copy or
+        // catalog origin: both may legitimately change across refreshes.
+        let preserved = find_model(catalog, &settings.active.key()).is_ok_and(|model| {
+            model.key.provider_id == super::catalog::CODEX_PROVIDER_ID
+                && safe_identifier(&settings.active.model_id)
+                && settings
+                    .active
+                    .reasoning
+                    .as_deref()
+                    .is_none_or(safe_identifier)
+                && settings
+                    .active
+                    .service_tier
+                    .as_deref()
+                    .is_none_or(safe_identifier)
+        });
+        if !preserved {
+            return Err(error);
+        }
+    }
+    if settings.favorites.len() > MAX_FAVORITES {
+        return Err(CoreError::new(
+            "TooManyFavorites",
+            "A maximum of 32 favorite models can be saved.",
+        ));
+    }
+    let mut seen = HashSet::new();
+    for favorite in &settings.favorites {
+        find_model(catalog, favorite)?;
+        if !seen.insert(favorite) {
+            return Err(CoreError::new(
+                "DuplicateFavorite",
+                "A model cannot appear more than once in favorites.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn safe_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && !value.starts_with('-')
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b':' | b'/')
+        })
+}
+
 pub fn parse_revision(value: &str) -> CoreResult<i64> {
     if value.is_empty()
         || !value.bytes().all(|byte| byte.is_ascii_digit())
@@ -166,12 +219,13 @@ pub fn parse_revision(value: &str) -> CoreResult<i64> {
     Ok(revision)
 }
 
-pub(crate) fn provider_state_with_endpoints(
+pub(crate) fn provider_state_with_endpoints_and_codex(
     settings: ModelSettings,
     endpoints: &EndpointProfilesSettings,
+    codex: Option<&CodexCatalog>,
 ) -> CoreResult<ProviderState> {
-    let catalog = catalog_with_endpoints(endpoints, &settings)?;
-    validate_settings_against_catalog(&settings, &catalog)?;
+    let catalog = catalog_with_endpoints_and_codex(endpoints, &settings, codex)?;
+    validate_settings_preserving_unavailable_active(&settings, &catalog)?;
     let model = find_model(&catalog, &settings.active.key())?;
     let dispatch = if model.key
         == ModelKey::new(

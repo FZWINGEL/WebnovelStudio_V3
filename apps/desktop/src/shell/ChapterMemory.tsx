@@ -154,7 +154,7 @@ export function ChapterMemory({ session, state, title, visible, onClose }: {
   const model = providers.state?.catalog.models.find(item => sameModel(item.key, memorySelection));
   const modelAvailable = !providers.busy && !!providers.state && !!model && (memorySelection.providerId === 'mock'
     ? providers.state.dispatch.kind === 'localMock'
-    : providers.state.codexConnection?.ready === true);
+    : providers.state.codexConnection?.memoryReady ?? (providers.state.codexConnection?.ready === true && model.ready && model.reasoningLevels.includes('xhigh') && model.serviceTiers.some(tier => tier.id === 'priority')));
   const access = session.projectAccess;
   const ownerIdentity = `${access.projectId}/${access.operationNamespace}/${state.head.documentId}`;
   const identity = `${ownerIdentity}/${access.session}/${access.writerLease}`;

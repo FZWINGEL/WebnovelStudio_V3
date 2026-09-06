@@ -6,7 +6,7 @@
 //! Object terminates them.
 
 use std::fs::OpenOptions;
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -28,6 +28,7 @@ fn main() {
         "--exit-with-descendant" => exit_with_descendant(),
         "--check-sentinel" => check_sentinel(),
         "--codex-jsonl" => codex_jsonl(),
+        "--interactive" => interactive(),
         _ => root(),
     }
 }
@@ -125,6 +126,18 @@ fn oneshot() {
     let mut packet = Vec::new();
     let _ = io::stdin().read_to_end(&mut packet);
     println!("ONESHOT_READY {}", packet.len());
+}
+
+fn interactive() {
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        match line.expect("interactive fixture stdin").as_str() {
+            "FIRST" => println!("FIRST_ACK"),
+            "SECOND" => println!("SECOND_ACK"),
+            _ => println!("UNKNOWN_ACK"),
+        }
+        io::stdout().flush().expect("interactive fixture stdout");
+    }
 }
 
 fn early_output() {

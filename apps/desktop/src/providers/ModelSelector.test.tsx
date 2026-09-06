@@ -20,6 +20,24 @@ function Probe() { const value = useProviders(); return <output>{value.state?.se
 function button(label: string) { return [...host.querySelectorAll('button')].find(button => button.textContent === label || button.getAttribute('aria-label') === label)!; }
 async function click(label: string) { await act(async () => button(label).click()); }
 async function render() { await act(async () => root.render(<ProviderSettingsProvider><ModelSelector /><ModelSettings /><Probe /></ProviderSettingsProvider>)); }
+describe('unavailable saved traits', () => {
+  it.each(['settings', 'traits'])('shows the retained values and repairs both traits together in %s', async surface => {
+    state.settings.active = { ...luna, reasoning: 'ultra', serviceTier: 'removed' };
+    const model = state.catalog.models.find(model=>model.key.modelId===luna.modelId)!;
+    model.reasoningLevels=['high']; model.defaultReasoning='high'; model.serviceTiers=[]; model.defaultServiceTier=null;
+    state.dispatch={kind:'blocked',detail:'Saved traits are unavailable'};
+    await render();
+    if(surface==='settings') await click('Settings');
+    else await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label^="Edit model traits"]')!.click());
+    const selects=[...host.querySelectorAll<HTMLSelectElement>('select')];
+    expect(selects.some(select=>select.value==='ultra'&&select.selectedOptions[0].textContent?.includes('unavailable'))).toBe(true);
+    expect(selects.some(select=>select.value==='removed'&&select.selectedOptions[0].textContent?.includes('unavailable'))).toBe(true);
+    expect(ipc.saveModelSettings).not.toHaveBeenCalled();
+    await click('Use available traits');
+    expect(ipc.saveModelSettings).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ipc.saveModelSettings).mock.calls[0][1]).toEqual({...luna,reasoning:'high',serviceTier:null});
+  });
+});
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); vi.resetAllMocks(); state = initial();
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
@@ -32,6 +50,25 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 describe('persistent model selection', () => {
+  it('keeps the requested Luna xhigh preference when discovery reports a lower default', async () => {
+    const model = state.catalog.models.find(model => model.key.modelId === luna.modelId)!;
+    model.origin = 'codexDiscovery'; model.defaultReasoning = 'medium';
+    await render(); await click('Choose model: Local test model');
+    await act(async () => (host.querySelectorAll('.model-choice')[1] as HTMLButtonElement).click());
+    expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('0', luna, []);
+  });
+  it('uses discovered model defaults instead of forcing Luna traits', async () => {
+    state.catalog.models.push({
+      key: { providerId: 'codex', modelId: 'writer-v3' }, label: 'Writer V3', providerLabel: 'Codex CLI',
+      reasoningLevels: ['low', 'high'], defaultReasoning: 'high', serviceTiers: [{ id: 'standard', label: 'Standard' }], defaultServiceTier: 'standard',
+      contextWindowTokens: null, maxOutputTokens: null, origin: 'codexDiscovery', ready: false, statusDetail: 'Discovered',
+    });
+    await render(); await click('Choose model: Local test model');
+    const input = host.querySelector('#model-search') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'writer-v3'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('0', { providerId: 'codex', modelId: 'writer-v3', reasoning: 'high', serviceTier: 'standard' }, []);
+  });
   it('does not match opaque endpoint identity characters as part of a model name', async () => {
     const endpoint = state.catalog.models[2]; endpoint.key.modelId = 'test-editor-v2'; endpoint.label = 'test-editor-v2';
     await render(); await click('Choose model: Local test model');

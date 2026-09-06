@@ -8,6 +8,9 @@ pub mod adapter;
 pub mod catalog;
 pub mod claude_exec;
 pub mod cli;
+pub mod codex_catalog;
+#[cfg(windows)]
+pub mod codex_discovery;
 pub mod codex_exec;
 pub mod codex_profile;
 #[cfg(windows)]

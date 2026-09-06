@@ -241,5 +241,5 @@ fn schema_two_migrates_to_three_without_losing_preferences() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
 }

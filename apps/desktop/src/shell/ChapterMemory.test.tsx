@@ -65,6 +65,16 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('chapter story memory controller', () => {
+  it('blocks memory when the checked catalog lacks Luna maintenance traits even if another model is ready', async () => {
+    vi.mocked(providerIpc.readProviderState).mockResolvedValue({
+      settings: { revision: '3', active: { providerId: 'codex', modelId: 'gpt-6-astra', reasoning: 'high', serviceTier: null }, favorites: [] },
+      catalog: { models: [{ key: providerIpc.storyMemoryModel, label: 'GPT-5.6-Luna', providerLabel: 'Codex', reasoningLevels: ['xhigh'], serviceTiers: [{id:'priority',label:'Fast'}], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: true, statusDetail: 'Historical reference' }] },
+      dispatch: { kind: 'codexCli', detail: 'Connected' }, codexConnection: { ready: true, memoryReady: false, detail: 'Connected' },
+    });
+    await act(async () => root.render(<ProviderSettingsProvider><ChapterMemory session={session} state={state} title="The return" visible onClose={vi.fn()} /></ProviderSettingsProvider>));
+    expect([...host.querySelectorAll('button')].find(button=>button.textContent==='Refresh story memory')!.disabled).toBe(true);
+    expect(memory.startMemory).not.toHaveBeenCalled();
+  });
   it('uses Luna xhigh for memory even when the writing picker has another model', async () => {
     vi.mocked(providerIpc.readProviderState).mockResolvedValue({
       settings: { revision: '3', active: { providerId: 'claude', modelId: 'claude-sonnet', reasoning: null, serviceTier: null }, favorites: [] },

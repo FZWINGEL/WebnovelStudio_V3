@@ -220,6 +220,25 @@ describe('persistent FeedbackPanel safeguards', () => {
     return { settings: { revision: '1', active: httpSelection, favorites: [] }, dispatch: { kind: 'openAiCompatible', detail: '' }, catalog: { models: [{ key: httpSelection, label: 'Fiction V1', providerLabel: 'Synthetic endpoint', reasoningLevels: [], serviceTiers: [], origin: 'openAiCompatible', ready: true, statusDetail: '', contextWindowTokens: null, maxOutputTokens: null }] } };
   }
   function RefreshModel() { const providers = useProviders(); return <button onClick={() => void providers.refresh()}>Reload model choice</button>; }
+  it.each([null, 'high'] as const)('retains an author-selected Codex response with %s requested reasoning and frozen defaults', async reasoning => {
+    const session = await makeSession(); const connected = providerState(true);
+    connected.settings.active = { providerId: 'codex', modelId: 'gpt-5.4-mini', reasoning, serviceTier: null };
+    connected.dispatch.kind = 'codexCli'; connected.catalog.models[0] = { ...connected.catalog.models[0], key: connected.settings.active, label: 'GPT-5.4-Mini', ready: true };
+    vi.mocked(providerIpc.readProviderState).mockResolvedValue(connected);
+    const binding: ProviderBinding = { providerId: 'codex', modelId: 'gpt-5.4-mini', reasoning: reasoning ?? 'medium', serviceTier: null, profileVersion: 'codex-stdin.author.v1', inputLimitBytes: '24576', reservedOutputBytes: '0', reservedProtocolBytes: '0', outputLimitBytes: '65536', accountingMethod: 'utf8-byte-count/codex-stdin-application-cap-v1' };
+    vi.mocked(discussions.startDiscussion).mockImplementation(async request => {
+      const response = startResult(session, 'author-model-run', request.operationId);
+      response.packet.options = { ...response.packet.options, modelId: binding.modelId, providerBinding: binding };
+      response.run = { ...response.run, providerBinding: binding, status: 'completed' };
+      vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), runs: [response.run], messages: [response.userMessage, { ...response.userMessage, id: 'author-model-answer', role: 'assistant', content: 'Keep the quiet ending.' }] });
+      return response;
+    });
+    await renderWithProvider(session); await typeInstruction('Discuss this ending.'); await click('Send');
+    await waitFor(() => expect(host.textContent).toContain('Keep the quiet ending.'));
+    expect(host.textContent).not.toContain('did not confirm the model');
+    expect(vi.mocked(discussions.startDiscussion).mock.calls[0][0].modelSelection).toEqual(connected.settings.active);
+    expect(session.body).toEqual(emptyBody);
+  });
   async function renderWithProvider(session: DocumentSession) {
     await act(async () => root.render(<ProviderSettingsProvider><RefreshModel /><FeedbackPanel session={session} state={session.state} title="Chapter" documentKind="chapter" selection={null} visible onClose={() => {}} registerSaver={() => {}} /></ProviderSettingsProvider>));
     await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());

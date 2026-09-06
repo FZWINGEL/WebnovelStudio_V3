@@ -31,7 +31,14 @@ pub async fn check_codex_connection(
     let runtime = runtime.inner().clone();
     execute(move || {
         runtime.check_connection()?;
-        runtime.view_library(&*state.0.lock().map_err(|_| unavailable())?)
+        let mut library = state.0.lock().map_err(|_| unavailable())?;
+        if let Some(catalog) = runtime.checked_catalog()?
+            && let Err(error) = library.save_codex_catalog(catalog)
+        {
+            runtime.invalidate_connection()?;
+            return Err(error);
+        }
+        runtime.view_library(&library)
     })
     .await
 }

@@ -27,19 +27,23 @@ function SettingsDialog({ onClose }: { onClose(): void }) {
     {model && active && state ? <>
       <p className="provider-active-name">{model.label}<span>{model.providerLabel}</span></p>
       <p className="provider-note">{state.dispatch.detail || model.statusDetail}</p>
-      {!!model.reasoningLevels.length && <div className="provider-field"><label htmlFor="model-reasoning">Reasoning</label>
+      {((active.reasoning && !model.reasoningLevels.includes(active.reasoning)) || (active.serviceTier && !model.serviceTiers.some(tier=>tier.id===active.serviceTier))) && model.reasoningLevels.length > 0 && <button type="button" disabled={busy} onClick={()=>void save({...active,reasoning:model.defaultReasoning ?? model.reasoningLevels[0],serviceTier:model.defaultServiceTier ?? null},state.settings.favorites)}>Use available traits</button>}
+      {(!!model.reasoningLevels.length || !!active.reasoning) && <div className="provider-field"><label htmlFor="model-reasoning">Reasoning</label>
         <select id="model-reasoning" value={active.reasoning ?? ''} disabled={busy} onChange={event => void save({ ...active, reasoning: event.target.value || null }, state.settings.favorites)}>
+          {active.reasoning && !model.reasoningLevels.includes(active.reasoning) && <option value={active.reasoning} disabled>{active.reasoning} (unavailable)</option>}
           <option value="">Provider default</option>{model.reasoningLevels.map(level => <option key={level} value={level}>{level === 'xhigh' ? 'Extra high' : level.charAt(0).toUpperCase() + level.slice(1)}</option>)}
         </select>
       </div>}
-      {!!model.serviceTiers.length && <div className="provider-field"><label htmlFor="model-speed">Response speed</label>
+      {(!!model.serviceTiers.length || !!active.serviceTier) && <div className="provider-field"><label htmlFor="model-speed">Response speed</label>
         <select id="model-speed" value={active.serviceTier ?? ''} disabled={busy} onChange={event => void save({ ...active, serviceTier: event.target.value || null }, state.settings.favorites)}>
+          {active.serviceTier && !model.serviceTiers.some(tier => tier.id === active.serviceTier) && <option value={active.serviceTier} disabled>{active.serviceTier} (unavailable)</option>}
           <option value="">Provider default</option>{model.serviceTiers.map(tier => <option key={tier.id} value={tier.id}>{tier.label}</option>)}
         </select>
       </div>}
       {model.origin === 'reference' && <p className="provider-note">These options come from the saved reference catalog. The connection check verifies the supported Codex installation and sign-in; model context and output limits remain unverified.</p>}
+      {model.origin === 'codexDiscovery' && <p className="provider-note">This model was reported by the installed Codex CLI. Its traits are saved from that discovery; the connection check controls whether it can send.</p>}
       {activeCodex && state.dispatch.kind === 'blocked' && <p className="provider-note">{state.dispatch.detail}</p>}
-      {activeCodexLuna && codexReady && !exactCodexTraits && <button type="button" disabled={busy} onClick={() => void save({ ...active, reasoning: 'xhigh', serviceTier: 'priority' }, state.settings.favorites)}>Use Extra high reasoning + Fast response speed</button>}
+      {activeCodexLuna && codexReady && !exactCodexTraits && model.reasoningLevels.includes('xhigh') && model.serviceTiers.some(tier=>tier.id==='priority') && <button type="button" disabled={busy} onClick={() => void save({ ...active, reasoning: 'xhigh', serviceTier: 'priority' }, state.settings.favorites)}>Use Extra high reasoning + Fast response speed</button>}
       <p className="provider-note">Changes are saved on this computer and apply to new requests. Your current response keeps its original model. You can continue writing without an assistant.</p>
     </> : <p className="provider-note">{busy ? 'Loading model settings…' : 'Model settings could not be loaded.'}</p>}
     {state && codexModel && <section className={`provider-connection ${codexReady ? 'is-ready' : 'is-unavailable'}`} aria-labelledby="codex-connection-title">

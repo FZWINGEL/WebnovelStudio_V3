@@ -107,7 +107,7 @@ pub fn run_live(
         );
         return;
     };
-    let mut stream = match connection.start(input.into_bytes(), stop.clone()) {
+    let mut stream = match connection.start_bound(&binding, input.into_bytes(), stop.clone()) {
         Ok(stream) => stream,
         Err(_) => {
             save_failure(

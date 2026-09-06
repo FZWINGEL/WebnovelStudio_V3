@@ -1,11 +1,12 @@
 //! The small, offline model catalog used by the native settings surface.
 //!
-//! This is a built-in reference catalog, not provider discovery.  The Codex
-//! entries are copied from the versioned qualification record and remain
-//! unqualified until a provider adapter passes its gates.  Keeping that state
-//! in the descriptor prevents the picker from turning a remembered choice into
-//! a claim that the provider is ready.
+//! The built-in reference catalog is complemented by a persisted, sanitized
+//! Codex discovery when one exists.  Both remain descriptive until a provider
+//! adapter passes its readiness gates.  Keeping that state in the descriptor
+//! prevents the picker from turning a remembered choice into a claim that the
+//! provider is ready.
 
+use super::codex_catalog::CodexCatalog;
 use super::endpoints::{ENDPOINT_PROVIDER_PREFIX, EndpointProfilesSettings};
 use super::preferences::{ModelKey, ModelSelection, ModelSettings};
 use crate::projects::{CoreError, CoreResult};
@@ -30,6 +31,10 @@ pub struct ModelDescriptor {
     pub service_tiers: Vec<ServiceTier>,
     pub context_window_tokens: Option<String>,
     pub max_output_tokens: Option<String>,
+    #[serde(default)]
+    pub default_reasoning: Option<String>,
+    #[serde(default)]
+    pub default_service_tier: Option<String>,
     pub origin: CatalogOrigin,
     pub ready: bool,
     pub status_detail: String,
@@ -47,6 +52,7 @@ pub struct ServiceTier {
 pub enum CatalogOrigin {
     BuiltIn,
     Reference,
+    CodexDiscovery,
     OpenAiCompatible,
 }
 
@@ -86,6 +92,8 @@ pub fn built_in_catalog() -> CatalogSnapshot {
         // budget.  Keep these values absent rather than inventing a limit.
         context_window_tokens: None,
         max_output_tokens: None,
+        default_reasoning: None,
+        default_service_tier: None,
         origin: CatalogOrigin::BuiltIn,
         ready: true,
         status_detail: "Local test model. No live AI connected.".to_owned(),
@@ -124,6 +132,8 @@ pub fn built_in_catalog() -> CatalogSnapshot {
             },
             context_window_tokens: None,
             max_output_tokens: None,
+            default_reasoning: if luna { Some("xhigh".to_owned()) } else { None },
+            default_service_tier: if luna { Some("priority".to_owned()) } else { None },
             origin: CatalogOrigin::Reference,
             ready: false,
             status_detail:
@@ -138,16 +148,45 @@ pub fn built_in_catalog() -> CatalogSnapshot {
     }
 }
 
-/// Extend the offline reference catalog with the manually entered and most
-/// recently discovered models for configured compatible endpoints.  Endpoint
-/// entries remain unready until native credential binding and dispatch pass
-/// their readiness gates.
-pub(crate) fn catalog_with_endpoints(
+/// Build the picker catalog from the static fallback, an optional completed
+/// Codex discovery, and endpoint profiles.  Discovery is descriptive only;
+/// native readiness is overlaid by the desktop runtime after a connection
+/// check.  The active/favorite selections are preserved as unavailable rows
+/// when a model disappears from the latest discovery.
+pub(crate) fn catalog_with_endpoints_and_codex(
     endpoints: &EndpointProfilesSettings,
     settings: &ModelSettings,
+    codex: Option<&CodexCatalog>,
 ) -> CoreResult<CatalogSnapshot> {
     endpoints.validate()?;
     let mut catalog = built_in_catalog();
+    if let Some(codex) = codex {
+        codex.validate()?;
+        for discovered in &codex.models {
+            let key = ModelKey::new(CODEX_PROVIDER_ID, discovered.model_id.clone());
+            let descriptor = ModelDescriptor {
+                key: key.clone(),
+                label: discovered.label.clone(),
+                provider_label: "Codex CLI".to_owned(),
+                reasoning_levels: discovered.reasoning_levels.clone(),
+                service_tiers: discovered.service_tiers.clone(),
+                context_window_tokens: None,
+                max_output_tokens: None,
+                default_reasoning: discovered.default_reasoning.clone(),
+                default_service_tier: discovered.default_service_tier.clone(),
+                origin: CatalogOrigin::CodexDiscovery,
+                ready: false,
+                status_detail:
+                    "Discovered from the installed Codex CLI; check the connection before sending."
+                        .to_owned(),
+            };
+            if let Some(existing) = catalog.models.iter_mut().find(|model| model.key == key) {
+                *existing = descriptor;
+            } else {
+                catalog.models.push(descriptor);
+            }
+        }
+    }
     let mut known = catalog
         .models
         .iter()
@@ -187,6 +226,8 @@ pub(crate) fn catalog_with_endpoints(
                 service_tiers: Vec::new(),
                 context_window_tokens: None,
                 max_output_tokens: None,
+                default_reasoning: None,
+                default_service_tier: None,
                 origin: CatalogOrigin::OpenAiCompatible,
                 ready: false,
                 status_detail: "The saved model is unavailable; its selection was preserved."
@@ -204,8 +245,50 @@ pub(crate) fn catalog_with_endpoints(
             catalog.models.push(descriptor);
         }
     }
+
+    // Preserve Codex author intent across discovery changes.  An explicit
+    // trait that disappeared is also retained, but marked unavailable so it
+    // cannot be mistaken for a newly supported choice.
+    let mut remembered = Vec::with_capacity(1 + settings.favorites.len());
+    remembered.push(settings.active.key());
+    remembered.extend(settings.favorites.iter().cloned());
+    for key in remembered {
+        if key.provider_id != CODEX_PROVIDER_ID {
+            continue;
+        }
+        let Some(descriptor) = catalog.models.iter_mut().find(|model| model.key == key) else {
+            catalog.models.push(codex_unavailable_model(&key));
+            continue;
+        };
+        if key == settings.active.key()
+            && codex.is_some_and(|discovered| !discovered.supports(&settings.active))
+        {
+            descriptor.ready = false;
+            descriptor.status_detail =
+                "The saved Codex selection is no longer declared; its selection was preserved."
+                    .to_owned();
+        }
+    }
     validate_catalog(&catalog)?;
     Ok(catalog)
+}
+
+fn codex_unavailable_model(key: &ModelKey) -> ModelDescriptor {
+    ModelDescriptor {
+        key: key.clone(),
+        label: key.model_id.clone(),
+        provider_label: "Codex CLI".to_owned(),
+        reasoning_levels: Vec::new(),
+        service_tiers: Vec::new(),
+        context_window_tokens: None,
+        max_output_tokens: None,
+        default_reasoning: None,
+        default_service_tier: None,
+        origin: CatalogOrigin::CodexDiscovery,
+        ready: false,
+        status_detail: "The saved Codex model is unavailable; its selection was preserved."
+            .to_owned(),
+    }
 }
 
 fn endpoint_model(profile: &super::endpoints::EndpointProfile, model_id: &str) -> ModelDescriptor {
@@ -222,6 +305,8 @@ fn endpoint_model(profile: &super::endpoints::EndpointProfile, model_id: &str) -
         service_tiers: Vec::new(),
         context_window_tokens: None,
         max_output_tokens: None,
+        default_reasoning: None,
+        default_service_tier: None,
         origin: CatalogOrigin::OpenAiCompatible,
         ready: false,
         status_detail,
@@ -254,6 +339,15 @@ pub(crate) fn validate_catalog(catalog: &CatalogSnapshot) -> CoreResult<()> {
             ));
         }
         validate_unique_strings(&model.reasoning_levels, "reasoning level")?;
+        if let Some(default) = &model.default_reasoning {
+            validate_text(default, "default reasoning level")?;
+            if !model.reasoning_levels.iter().any(|value| value == default) {
+                return Err(CoreError::new(
+                    "InvalidCatalog",
+                    "The model default reasoning level is not declared.",
+                ));
+            }
+        }
         let mut tiers = std::collections::HashSet::new();
         for tier in &model.service_tiers {
             validate_text(&tier.id, "service tier ID")?;
@@ -262,6 +356,15 @@ pub(crate) fn validate_catalog(catalog: &CatalogSnapshot) -> CoreResult<()> {
                 return Err(CoreError::new(
                     "InvalidCatalog",
                     "The model catalog contains a duplicate service tier.",
+                ));
+            }
+        }
+        if let Some(default) = &model.default_service_tier {
+            validate_text(default, "default service tier")?;
+            if !model.service_tiers.iter().any(|tier| &tier.id == default) {
+                return Err(CoreError::new(
+                    "InvalidCatalog",
+                    "The model default service tier is not declared.",
                 ));
             }
         }

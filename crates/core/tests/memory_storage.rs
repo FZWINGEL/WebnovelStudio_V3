@@ -79,6 +79,32 @@ fn start_request(
     }
 }
 
+#[test]
+fn author_selected_codex_binding_cannot_change_the_memory_model() {
+    let temp = TempProject::new("fixed-memory-model");
+    let (project, access, document) = temp.create();
+    let mut request = start_request(&access, &document, "memory-author-profile");
+    request.provider_binding = Some(ProviderBinding::codex_author_runtime(
+        "gpt-6-astra",
+        "ultra",
+        Some("priority"),
+        "9.1",
+        &"a".repeat(64),
+        &"b".repeat(64),
+    ));
+    assert_eq!(
+        project.start_memory(request).unwrap_err().code,
+        "UnsupportedProviderFeature"
+    );
+    assert_eq!(
+        project
+            .document(access, document.head.document_id.clone())
+            .unwrap()
+            .body,
+        document.body
+    );
+}
+
 fn complete_mock(
     project: &ProjectSession,
     dispatch: &webnovel_core::projects::memory::MemoryDispatch,
@@ -342,7 +368,7 @@ fn queued_stop_without_terminal_result_is_valid_backup_history() {
     assert_eq!(stopped.status, MemoryJobStatus::Stopped);
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 26);
+    assert_eq!(manifest.database_schema_version, 27);
     let _ = fs::remove_file(backup);
 }
 
@@ -627,7 +653,7 @@ fn backup_validation_accepts_retained_memory_history() {
     project.install_memory(job.owner).unwrap();
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 26);
+    assert_eq!(manifest.database_schema_version, 27);
     let _ = fs::remove_file(backup);
 }
 

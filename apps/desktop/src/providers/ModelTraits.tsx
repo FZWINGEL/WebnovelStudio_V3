@@ -14,7 +14,7 @@ export function ModelTraits() {
   const model = state?.catalog.models.find(candidate => active && sameModel(candidate.key, active));
   const summary = [
     active?.reasoning && traitLabel(active.reasoning),
-    active?.serviceTier && model?.serviceTiers.find(tier => tier.id === active.serviceTier)?.label,
+    active?.serviceTier && (model?.serviceTiers.find(tier => tier.id === active.serviceTier)?.label ?? `${active.serviceTier} (unavailable)`),
   ].filter(Boolean).join(' · ');
 
   return <div className="model-traits">
@@ -44,10 +44,13 @@ function TraitsDialog({ onClose }: { onClose(): void }) {
     <div className="provider-dialog-heading"><div><h2 id="model-traits-title">Model traits</h2><p className="provider-note">These choices apply to new requests.</p></div><button type="button" onClick={close} aria-label="Close model traits">Close</button></div>
     {model && active ? <>
       <p className="provider-active-name">{model.label}<span>{model.providerLabel}</span></p>
-      {!!model.reasoningLevels.length && <label className="provider-field" htmlFor="traits-reasoning"><span>Reasoning</span><select id="traits-reasoning" value={active.reasoning ?? ''} disabled={busy} onChange={event => update({ reasoning: event.target.value || null })}>
+      {((active.reasoning && !model.reasoningLevels.includes(active.reasoning)) || (active.serviceTier && !model.serviceTiers.some(tier=>tier.id===active.serviceTier))) && model.reasoningLevels.length > 0 && <button type="button" disabled={busy} onClick={()=>update({reasoning:model.defaultReasoning ?? model.reasoningLevels[0],serviceTier:model.defaultServiceTier ?? null})}>Use available traits</button>}
+      {(!!model.reasoningLevels.length || !!active.reasoning) && <label className="provider-field" htmlFor="traits-reasoning"><span>Reasoning</span><select id="traits-reasoning" value={active.reasoning ?? ''} disabled={busy} onChange={event => update({ reasoning: event.target.value || null })}>
+        {active.reasoning && !model.reasoningLevels.includes(active.reasoning) && <option value={active.reasoning} disabled>{traitLabel(active.reasoning)} (unavailable)</option>}
         <option value="">Provider default</option>{model.reasoningLevels.map(level => <option key={level} value={level}>{traitLabel(level)}</option>)}
       </select></label>}
-      {!!model.serviceTiers.length && <label className="provider-field" htmlFor="traits-service-tier"><span>Response speed</span><select id="traits-service-tier" value={active.serviceTier ?? ''} disabled={busy} onChange={event => update({ serviceTier: event.target.value || null })}>
+      {(!!model.serviceTiers.length || !!active.serviceTier) && <label className="provider-field" htmlFor="traits-service-tier"><span>Response speed</span><select id="traits-service-tier" value={active.serviceTier ?? ''} disabled={busy} onChange={event => update({ serviceTier: event.target.value || null })}>
+        {active.serviceTier && !model.serviceTiers.some(tier => tier.id === active.serviceTier) && <option value={active.serviceTier} disabled>{active.serviceTier} (unavailable)</option>}
         <option value="">Provider default</option>{model.serviceTiers.map(tier => <option key={tier.id} value={tier.id}>{tier.label}</option>)}
       </select></label>}
       {!model.reasoningLevels.length && !model.serviceTiers.length && <p className="provider-note">No additional controls are available for this model.</p>}

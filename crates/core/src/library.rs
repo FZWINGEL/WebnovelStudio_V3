@@ -8,7 +8,8 @@ use crate::projects::{
     CoreError, CoreResult, CreationOrigin, ProjectSession, read_creation_origin,
 };
 use crate::providers::{
-    catalog::ProviderState,
+    catalog::{ProviderState, catalog_with_endpoints_and_codex},
+    codex_catalog::{CODEX_CATALOG_KEY, CODEX_CATALOG_SCHEMA_VERSION, CodexCatalog},
     endpoints::{
         ENDPOINT_PROFILES_KEY, ENDPOINT_PROFILES_SCHEMA_VERSION, EndpointProfile,
         EndpointProfileDraft, EndpointProfilesSettings, StoredEndpointProfiles,
@@ -16,7 +17,9 @@ use crate::providers::{
     },
     preferences::{
         MODEL_SETTINGS_KEY, MODEL_SETTINGS_SCHEMA_VERSION, ModelKey, ModelSelection, ModelSettings,
-        StoredModelSettings, parse_revision, provider_state_with_endpoints as build_provider_state,
+        StoredModelSettings, parse_revision,
+        provider_state_with_endpoints_and_codex as build_provider_state,
+        validate_settings_against_catalog, validate_settings_preserving_unavailable_active,
     },
 };
 use crate::v2_import::preview_v2_import;
@@ -119,7 +122,7 @@ impl Library {
         })?;
         let mut connection = Connection::open(root.join("library.sqlite3"))?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 3 {
+        if version > 4 {
             return Err(CoreError::new(
                 "UnsupportedSchema",
                 "This library needs a newer WebnovelStudio.",
@@ -162,6 +165,11 @@ impl Library {
             tx.execute_batch("PRAGMA user_version=3;")?;
             tx.commit().map_err(CoreError::uncertain)?;
         }
+        if version < 4 {
+            let tx = connection.transaction()?;
+            tx.execute_batch("PRAGMA user_version=4;")?;
+            tx.commit().map_err(CoreError::uncertain)?;
+        }
         let namespace = connection.query_row("SELECT namespace FROM identity", [], |r| r.get(0))?;
         std::fs::create_dir_all(root.join("Projects"))?;
         Ok(Self {
@@ -176,7 +184,8 @@ impl Library {
     pub fn provider_state(&self) -> CoreResult<ProviderState> {
         let settings = self.read_model_settings()?;
         let endpoints = self.read_endpoint_profiles()?;
-        build_provider_state(settings, &endpoints)
+        let codex = self.read_codex_catalog()?;
+        build_provider_state(settings, &endpoints, codex.as_ref())
     }
     /// Persist an explicit active model and favorites with a compare-and-swap
     /// revision.  The returned state is read from the committed values, so a
@@ -202,13 +211,20 @@ impl Library {
                 "The model preference revision limit was reached.",
             )
         })?;
+        let active_unchanged = active == current.active;
         let settings = ModelSettings {
             revision: next_revision.to_string(),
             active,
             favorites,
         };
         let endpoints = self.read_endpoint_profiles()?;
-        settings.validate_with_endpoints(&endpoints)?;
+        let codex = self.read_codex_catalog()?;
+        let catalog = catalog_with_endpoints_and_codex(&endpoints, &current, codex.as_ref())?;
+        if active_unchanged {
+            validate_settings_preserving_unavailable_active(&settings, &catalog)?;
+        } else {
+            validate_settings_against_catalog(&settings, &catalog)?;
+        }
         let value_json = serde_json::to_string(&settings.stored()).map_err(|error| {
             CoreError::new(
                 "InvalidModelSettings",
@@ -230,7 +246,55 @@ impl Library {
             ],
         )?;
         tx.commit().map_err(CoreError::uncertain)?;
-        build_provider_state(settings, &endpoints)
+        build_provider_state(settings, &endpoints, codex.as_ref())
+    }
+
+    /// Read the last complete native Codex discovery.  This cache contains
+    /// only model names and declared traits; it never contains credentials or
+    /// request content.
+    pub fn codex_catalog(&self) -> CoreResult<Option<CodexCatalog>> {
+        self.read_codex_catalog()
+    }
+
+    /// Atomically replace the Codex discovery cache after a complete,
+    /// validated discovery.  Selection and favorites live under a separate
+    /// preference key and are untouched by this write.
+    pub fn save_codex_catalog(&mut self, catalog: CodexCatalog) -> CoreResult<()> {
+        catalog.validate()?;
+        let value_json = serde_json::to_string(&catalog).map_err(|error| {
+            CoreError::new(
+                "InvalidCodexCatalog",
+                &format!("Could not serialize the Codex catalog: {error}"),
+            )
+        })?;
+        let tx = self.connection.transaction()?;
+        let stored_revision: Option<i64> = tx
+            .query_row(
+                "SELECT revision FROM app_preferences WHERE key=?",
+                [CODEX_CATALOG_KEY],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let next_revision = stored_revision.unwrap_or(0).checked_add(1).ok_or_else(|| {
+            CoreError::new(
+                "PreferenceRevisionLimit",
+                "The Codex catalog revision limit was reached.",
+            )
+        })?;
+        tx.execute(
+            "INSERT INTO app_preferences(key,schema_version,revision,value_json,updated_at)
+             VALUES(?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+             ON CONFLICT(key) DO UPDATE SET schema_version=excluded.schema_version,
+               revision=excluded.revision,value_json=excluded.value_json,
+               updated_at=excluded.updated_at",
+            params![
+                CODEX_CATALOG_KEY,
+                i64::from(CODEX_CATALOG_SCHEMA_VERSION),
+                next_revision,
+                value_json,
+            ],
+        )?;
+        tx.commit().map_err(CoreError::uncertain)
     }
 
     /// Read all nonsecret OpenAI-compatible endpoint profiles.  Omitted
@@ -479,8 +543,38 @@ impl Library {
         })?;
         let settings = ModelSettings::from_stored(revision.to_string(), stored);
         let endpoints = self.read_endpoint_profiles()?;
-        settings.validate_with_endpoints(&endpoints)?;
+        let codex = self.read_codex_catalog()?;
+        let catalog = catalog_with_endpoints_and_codex(&endpoints, &settings, codex.as_ref())?;
+        validate_settings_preserving_unavailable_active(&settings, &catalog)?;
         Ok(settings)
+    }
+
+    fn read_codex_catalog(&self) -> CoreResult<Option<CodexCatalog>> {
+        let row: Option<(i64, i64, String)> = self
+            .connection
+            .query_row(
+                "SELECT schema_version,revision,value_json FROM app_preferences WHERE key=?",
+                [CODEX_CATALOG_KEY],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((schema_version, revision, value_json)) = row else {
+            return Ok(None);
+        };
+        if schema_version != i64::from(CODEX_CATALOG_SCHEMA_VERSION) || revision < 0 {
+            return Err(CoreError::new(
+                "InvalidCodexCatalog",
+                "The stored Codex catalog uses an unsupported schema or revision.",
+            ));
+        }
+        let catalog: CodexCatalog = serde_json::from_str(&value_json).map_err(|error| {
+            CoreError::new(
+                "InvalidCodexCatalog",
+                &format!("The stored Codex catalog is invalid: {error}"),
+            )
+        })?;
+        catalog.validate()?;
+        Ok(Some(catalog))
     }
     pub fn list(&self) -> CoreResult<Vec<LibraryEntry>> {
         let mut statement = self.connection.prepare("SELECT project_id,title,path,archived,last_opened FROM entries ORDER BY last_opened DESC,title COLLATE NOCASE")?;

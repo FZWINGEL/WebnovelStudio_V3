@@ -189,6 +189,8 @@ pub enum HttpResponseFormat {
 pub struct ProviderRuntimeIdentity {
     pub cli_version: String,
     pub executable_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog_sha256: Option<String>,
 }
 
 impl ProviderRuntimeIdentity {
@@ -204,6 +206,12 @@ impl ProviderRuntimeIdentity {
                 .executable_sha256
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            && self.catalog_sha256.as_ref().is_none_or(|hash| {
+                hash.len() == 64
+                    && hash
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            })
     }
 }
 
@@ -226,12 +234,41 @@ impl ProviderBinding {
         binding.runtime = Some(ProviderRuntimeIdentity {
             cli_version: cli_version.to_owned(),
             executable_sha256: executable_sha256.to_owned(),
+            catalog_sha256: None,
         });
         binding
     }
 
     pub fn is_current_codex_profile(&self) -> bool {
-        self.profile_version == CODEX_PROFILE_VERSION && self.validate().is_ok()
+        matches!(
+            self.profile_version.as_str(),
+            CODEX_PROFILE_VERSION | crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+        ) && self.validate().is_ok()
+    }
+
+    /// Concrete author traits have already been resolved against the native
+    /// connection's discovery result. Structural validation here does not
+    /// authorize dispatch; the native connection rechecks its exact catalog.
+    pub fn codex_author_runtime(
+        model_id: &str,
+        reasoning: &str,
+        service_tier: Option<&str>,
+        cli_version: &str,
+        executable_sha256: &str,
+        catalog_sha256: &str,
+    ) -> Self {
+        let mut binding = Self::codex_luna_runtime(cli_version, executable_sha256);
+        binding.profile_version =
+            crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION.into();
+        binding.model_id = model_id.into();
+        binding.reasoning = Some(reasoning.into());
+        binding.service_tier = service_tier.map(str::to_owned);
+        binding
+            .runtime
+            .as_mut()
+            .expect("runtime supplied")
+            .catalog_sha256 = Some(catalog_sha256.into());
+        binding
     }
 
     fn codex_luna_with_profile(profile_version: &str) -> Self {
@@ -260,6 +297,42 @@ impl ProviderBinding {
         }
         let mut expected = Self::codex_luna();
         expected.runtime = self.runtime.clone();
+        if self.profile_version == crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION {
+            let identifier = |value: &str| {
+                !value.is_empty()
+                    && value.len() <= 128
+                    && !value.starts_with('-')
+                    && value.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric()
+                            || matches!(byte, b'.' | b'-' | b'_' | b':' | b'/')
+                    })
+            };
+            if !self
+                .runtime
+                .as_ref()
+                .is_some_and(|runtime| runtime.catalog_sha256.is_some())
+                || !identifier(&self.model_id)
+                || !self.reasoning.as_deref().is_some_and(identifier)
+                || self
+                    .service_tier
+                    .as_deref()
+                    .is_some_and(|value| !identifier(value))
+            {
+                return Err("the author-selected Codex model or traits are invalid".into());
+            }
+            expected.profile_version = self.profile_version.clone();
+            expected.model_id = self.model_id.clone();
+            expected.reasoning = self.reasoning.clone();
+            expected.service_tier = self.service_tier.clone();
+        } else if self
+            .runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.catalog_sha256.is_some())
+        {
+            return Err(
+                "the fixed Codex profile does not use an author catalog fingerprint".into(),
+            );
+        }
         if self != &expected
             || self
                 .runtime
