@@ -1,6 +1,6 @@
 # ADR 0019: Cross-chapter reviewed evidence history
 
-Status: implemented; qualification in progress. This follows the schema-21
+Status: CI-qualified development slice. This follows the schema-21
 passage-backed evidence boundary in [ADR 0018](ADR_0018_REVIEWED_STORY_EVIDENCE.md)
 and defines the next narrow step toward C5 state views. It does not establish
 complete continuity, current ownership, canon, or large-book performance.
@@ -76,22 +76,34 @@ request used the history, its delivered material remains represented by that
 request's packet receipt. A later history-panel read does not rewrite that
 receipt or imply that the model saw the newly opened evidence.
 
-## Planned implementation and qualification
+## Qualification and remaining work
 
-1. Define a read-only entity-choice projection from currently valid selected
-   bundles, including human label and first-chapter context.
-2. Add authenticated object-ID history over `FrozenContext`; apply disclosure
-   filtering before grouping, labels, counts, or UI serialization.
-3. Preserve reviewed-prefix chapter order, within-chapter record-array order,
-   timing, unknown holders, incomplete evidence, exact source references, and
-   refusal reasons for revoked or namespace-mismatched inputs; return
-   `current=false` for authenticated historical source changes.
-4. Add pure and storage tests for same-label distinct entities, explicit reuse,
-   private-record exclusion, historical source changes, policy revocation,
-   copied authority, unknown holders, and no-inferred-transfer behavior.
-5. Add native inspection and current-review validation before treating the
-   projection as a usable C5 surface. Measure repeated-prefix work on synthetic
-   chapter counts separately; no benchmark establishes large-novel readiness.
+The implementation includes a read-only entity-choice projection from current
+selected bundles, authenticated object-ID history over `FrozenContext`,
+disclosure filtering before grouping or serialization, preserved reviewed-prefix
+and record-array order, uncertainty markers, and refusal/currentness behavior.
+The full local wrapper passes 459 active Rust tests and 275 frontend tests,
+plus formatting, Clippy, TypeScript, and build checks. Evidence is
+`.local/evidence-history-check.log`.
+
+The local native diagnostic passes 40/41 checks with zero errors, omitting only
+the known local OS clipboard case. Evidence is `.local/evidence-history-native.log`
+and `.local/native-other-results/report.json` (`2026-09-06T05:40:09.731Z`,
+WebView2 `152.0.4191.62`). [CI 34014694823](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34014694823) passes both contract jobs and all 41 strict native checks.
+The retained native report is `.local/ci-34014694823/report.json`, dated
+`2026-09-06T05:56:35.15Z`, on WebView2 `151.0.4129.101`, for source
+`284625b6576540939f3dabb065f1e9320d0bb01e`.
+
+Broader author and narrative quality evaluation remain open. The separate measurements in
+`.local/reviewed-evidence-freeze-benchmark/result-v3.json` use two samples at
+50, 100, and 200 chapters: catalog lookup is about 3.9, 10.2–11.1, and
+32.6–33.1 ms, while history lookup is about 42.1–42.5, 225.7–229.7, and
+1,437–1,486.7 ms. Source-bound freeze does not remove historical snapshot
+revalidation cost; these fixtures do not establish whole-request speed,
+large-novel readiness, or an exact asymptotic bound. Batch immutable snapshot
+validation is the next priority before scaling richer history or other C5
+views, while preserving policy, namespace, packet-receipt, and bundle-
+authenticity checks.
 
 This ADR records the implemented contract while qualification continues. It
 does not change the existing save, review, Apply, packet, or model-provider
