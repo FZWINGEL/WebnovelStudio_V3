@@ -4,9 +4,9 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, stat, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, stat, writeFile, readFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, relative, isAbsolute, sep } from 'node:path';
 import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
@@ -37,9 +37,10 @@ const app = spawn(executable, [], {
 
 let releaseFirst;
 let modelReads = 0;
+let memoryRequests = 0;
 const requests=[];
 const api=createHttpServer(async (req,res)=>{
-  if(req.method==='GET'&&req.url.endsWith('/models')) { if (++modelReads === 2) return; res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({data:[{id:'test-editor-v1'},{id:'test-editor-v2'}]})); return; }
+  if(req.method==='GET'&&req.url.endsWith('/models')) { if (++modelReads === 2) return; res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({data:[{id:'test-editor-v1'},{id:'test-editor-v2'},{id:'gpt-5.6-luna'}]})); return; }
   const chunks=[]; for await(const chunk of req) chunks.push(chunk);
   const raw=Buffer.concat(chunks); const body=JSON.parse(raw.toString());
   const n=requests.length+1;
@@ -49,7 +50,19 @@ const api=createHttpServer(async (req,res)=>{
   const event=(delta,finish=null)=>res.write(`data: ${JSON.stringify({model:body.model,choices:[{index:0,delta,finish_reason:finish}]})}\n\n`);
   event({role:'assistant'});
   const finish=()=>{event({},'stop');res.write(`data: ${JSON.stringify({choices:[],usage:{prompt_tokens:111,completion_tokens:22,total_tokens:133}})}\n\n`);res.end('data: [DONE]\n\n');};
-  if(n===1) { event({content:'Mara waits at the station. '}); releaseFirst=()=>{event({content:'Her ending is unchanged.'});finish();}; }
+  if(body.model==='gpt-5.6-luna') {
+    memoryRequests++;
+    if(memoryRequests===1) {
+      const envelope=body.messages.map(m=>{try{return JSON.parse(m.content);}catch{return null;}}).find(m=>m?.purpose==='memoryAnalysis');
+      assert(envelope, 'Memory request must carry its frozen analysis envelope');
+      const blocks=(envelope.target.body.body??envelope.target.body).content;
+      const paragraph=blocks.find(b=>b.type==='paragraph');
+      const quote=paragraph.content.map(n=>n.type==='hardBreak'?'\n':n.text??'').join('');
+      event({content:JSON.stringify({schemaVersion:'navigation-digest.v1',source:envelope.target.source,items:[{text:'The chapter keeps its ending unchanged.',evidence:[{blockId:paragraph.attrs.id,fromUtf16:0,toUtf16:quote.length,quote}],uncertainty:null}]})});
+      finish();
+    } else { event({content:'{"schemaVersion":"navigation-digest.v1"'}); }
+  }
+  else if(n===1) { event({content:'Mara waits at the station. '}); releaseFirst=()=>{event({content:'Her ending is unchanged.'});finish();}; }
   else if(n===2) { event({content:JSON.stringify({suggestions:[{title:'Sister perspective',replacementText:'Her sister',explanation:'Changes only the selected name.'}]})}); finish(); }
   else { event({content:'This is retained partial text. '}); }
 });
@@ -121,17 +134,17 @@ try {
   await page.getByLabel('Connection name',{exact:true}).fill('Synthetic compatible API');
   await page.getByLabel('Base URL',{exact:true}).fill(`http://127.0.0.1:${apiPort}/custom`);
   await page.locator('#endpoint-key').fill('synthetic-native-key-one');
-  await page.locator('#endpoint-models').fill('test-editor-v1');
+  await page.locator('#endpoint-models').fill('test-editor-v1\ngpt-5.6-luna');
   await page.getByLabel('Request JSON mode for suggestions',{exact:true}).check();
   await page.getByRole('button',{name:'Save connection',exact:true}).click();
   await page.getByRole('button',{name:'Find models for Synthetic compatible API',exact:true}).click();
   await page.getByText('Model list refreshed. You can choose a model from the picker.',{exact:true}).waitFor();
-  assert.match(await page.locator('.endpoint-list').innerText(), /2 models/);
+  assert.match(await page.locator('.endpoint-list').innerText(), /3 models/);
   await page.getByRole('button',{name:'Find models for Synthetic compatible API',exact:true}).click();
   await page.getByRole('button',{name:'Stop model search',exact:true}).click();
   await page.getByRole('button',{name:'Stop model search',exact:true}).waitFor({state:'detached'});
   await page.getByText('Model search stopped. Your saved model list is unchanged.', {exact:true}).waitFor();
-  assert.match(await page.locator('.endpoint-list').innerText(), /2 models/);
+  assert.match(await page.locator('.endpoint-list').innerText(), /3 models/);
   await page.screenshot({path:resolve(evidence,'api-settings.png')});
   await page.getByRole('button',{name:'Close settings',exact:true}).click();
   await page.getByRole('button',{name:'Choose model: Local test model',exact:true}).click();
@@ -205,6 +218,66 @@ try {
   metadata.results=results.map(r=>({...r,binding_json:JSON.parse(r.binding_json),delivery_json:JSON.parse(r.delivery_json)}));
   metadata.checks.push('Stop retains partial text, HTTP error is sanitized, exact body receipts survive reopen without another request, and only explicit Apply changes prose');
   await page.screenshot({path:resolve(evidence,'reopened.png')});
+  // Story-memory transport is explicitly chosen independently of the author model.
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  const endpoint = await page.evaluate(async()=> (await window.__TAURI_INTERNALS__.invoke('endpoint_settings')).profiles.find(p=>p.label==='Synthetic compatible API'));
+  await page.getByLabel('Maintenance provider',{exact:true}).selectOption(endpoint.id);
+  await page.waitForFunction(async id=>{const state=await window.__TAURI_INTERNALS__.invoke('provider_state');return state.storyMemory.providerId===id&&state.storyMemory.ready;},endpoint.id);
+  assert.equal(await page.getByLabel('Maintenance provider',{exact:true}).inputValue(),endpoint.id);
+  await page.screenshot({path:resolve(evidence,'memory-settings.png')});
+  await page.getByRole('button',{name:'Close settings',exact:true}).click();
+  await page.getByRole('button',{name:'Choose model: test-editor-v1',exact:true}).waitFor();
+  const within=relative(await realpath(data),await realpath(path));
+  assert(within&&!isAbsolute(within)&&within!=='..'&&!within.startsWith(`..${sep}`),'Memory write fixture must stay inside this synthetic run directory');
+  const memoryDb=new DatabaseSync(resolve(path,'project.sqlite3'));
+  try {
+    memoryDb.exec("CREATE TRIGGER native_http_memory_save_fault BEFORE INSERT ON memory_results BEGIN SELECT RAISE(ABORT,'synthetic HTTP memory save failure'); END;");
+    await page.getByRole('button',{name:'Story memory',exact:true}).click();
+    await page.getByRole('heading',{name:'No story memory yet',exact:true}).waitFor();
+    assert.equal(requests.length,4,'Opening memory never starts a request');
+    await page.getByRole('button',{name:'Refresh story memory',exact:true}).click();
+    await page.getByRole('button',{name:'Check saved result',exact:true}).waitFor();
+    assert.equal(requests.length,5);
+    assert.equal(requests[4].body.model,'gpt-5.6-luna');
+    assert.equal(requests[4].body.reasoning_effort,'xhigh');
+    assert.equal(requests[4].body.service_tier,undefined);
+    assert(requests[4].authorizationCorrect);
+    assert.equal(requests[4].path,'/changed/chat/completions');
+    memoryDb.exec('DROP TRIGGER native_http_memory_save_fault;');
+    await page.getByRole('button',{name:'Check saved result',exact:true}).click();
+    await page.getByRole('heading',{name:'Current story memory',exact:true}).waitFor();
+    assert.equal(requests.length,5,'Local result reconciliation cannot repeat the POST');
+    await page.getByRole('button',{name:'Inspect saved request',exact:true}).click();
+    const inspectedRequest = page.getByRole('region',{name:'Saved story memory request'});
+    await inspectedRequest.getByText('Story context',{exact:true}).click();
+    await inspectedRequest.getByText(/Used · 1 source/).waitFor();
+    await page.screenshot({path:resolve(evidence,'memory-result.png')});
+    await page.getByRole('button',{name:'Back to writing',exact:true}).click();
+    await page.reload();
+    await page.getByRole('button',{name:/^HTTP adapter qualification Last opened/}).click();
+    await page.getByRole('heading',{name:'The station',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Story memory',exact:true}).click();
+    await page.getByRole('heading',{name:'Current story memory',exact:true}).waitFor();
+    assert.equal(requests.length,5);
+    await page.getByRole('button',{name:'Refresh story memory',exact:true}).click();
+    const deadline=Date.now()+15000;
+    while(requests.length<6&&Date.now()<deadline)await new Promise(r=>setTimeout(r,50));
+    assert.equal(requests.length,6);
+    await page.getByRole('button',{name:'Stop',exact:true}).click();
+    await page.getByRole('button',{name:'Stop',exact:true}).waitFor({state:'detached'});
+    let memoryResults=[];
+    const stopSettlementDeadline=Date.now()+15000;
+    while(memoryResults.length<2&&Date.now()<stopSettlementDeadline) {
+      memoryResults=memoryDb.prepare('SELECT outcome,confirmed_stdin_bytes,delivery_json FROM memory_results ORDER BY rowid').all();
+      if(memoryResults.length<2) await new Promise(r=>setTimeout(r,100));
+    }
+    assert.deepEqual(memoryResults.map(r=>r.outcome),['completed','stopped']);
+    memoryResults.forEach((r,i)=>{const receipt=JSON.parse(r.delivery_json);assert.equal(r.confirmed_stdin_bytes,null);assert.equal(receipt.bodyHash,requests[i+4].hash);assert.equal(Number(receipt.bodyBytes),requests[i+4].bytes);});
+    assert.equal(memoryDb.prepare('SELECT count(*) n FROM memory_views').get().n,1);
+    assert.equal(await manuscript.innerText(),'Her sister held the lantern. The ending stays unchanged.');
+    metadata.memoryResults=memoryResults.map(r=>({...r,delivery_json:JSON.parse(r.delivery_json)}));
+    metadata.checks.push('API-only memory requests Luna/xhigh independently of the writer, saves exact HTTP delivery, recovers a failed local result save without another POST, survives reopen, and supports Stop without changing prose');
+  } finally {memoryDb.exec('DROP TRIGGER IF EXISTS native_http_memory_save_fault;');memoryDb.close();}
   metadata.pageErrors=pageErrors; assert.deepEqual(pageErrors,[]); metadata.status='passed';
 } catch(error) {
   metadata.status='failed';metadata.failure=String(error?.message??error).slice(0,1600);

@@ -4,13 +4,20 @@ use std::path::PathBuf;
 use std::{fs, mem};
 use uuid::Uuid;
 use webnovel_core::context::memory::mock_navigation_digest;
-use webnovel_core::context::packet::{MockContextBudget, ProviderBinding, serialized_input};
+use webnovel_core::context::packet::{
+    HTTP_MEMORY_INPUT_LIMIT_BYTES, HTTP_MEMORY_MODEL_ID, HTTP_MEMORY_OUTPUT_LIMIT_BYTES,
+    HTTP_MEMORY_PROFILE_VERSION, HTTP_MEMORY_REASONING, HTTP_TOKEN_ACCOUNTING_METHOD,
+    HttpProviderBinding, HttpResponseFormat, MockContextBudget, ProviderBinding, serialized_input,
+};
 use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
+use webnovel_core::projects::discussions::HttpProviderUsage;
+use webnovel_core::projects::discussions::{HttpDeliverySubmission, ProviderDeliveryReceipt};
 use webnovel_core::projects::memory::{CompleteMemory, MemoryJobStatus, StartMemory};
 use webnovel_core::projects::story_context::FreezeStory;
 use webnovel_core::projects::{
     CreateDocument, DocumentRecord, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
 };
+use webnovel_core::providers::http_request::prepare_request;
 use webnovel_core::transfer::create_backup;
 
 struct TempProject {
@@ -65,6 +72,28 @@ fn budget() -> MockContextBudget {
     MockContextBudget::new("100000", "100", "100")
 }
 
+fn http_memory_binding() -> ProviderBinding {
+    ProviderBinding {
+        provider_id: "openai-compatible:00000000-0000-0000-0000-000000000001".into(),
+        model_id: HTTP_MEMORY_MODEL_ID.into(),
+        reasoning: Some(HTTP_MEMORY_REASONING.into()),
+        service_tier: None,
+        profile_version: HTTP_MEMORY_PROFILE_VERSION.into(),
+        input_limit_bytes: HTTP_MEMORY_INPUT_LIMIT_BYTES.to_string(),
+        reserved_output_bytes: "0".into(),
+        reserved_protocol_bytes: "0".into(),
+        output_limit_bytes: HTTP_MEMORY_OUTPUT_LIMIT_BYTES.to_string(),
+        accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.into(),
+        runtime: None,
+        http: Some(HttpProviderBinding {
+            base_url: "https://example.test/v1".into(),
+            config_revision: "1".into(),
+            stream: true,
+            response_format: HttpResponseFormat::JsonObject,
+        }),
+    }
+}
+
 fn start_request(
     access: &ProjectAccess,
     document: &DocumentRecord,
@@ -105,6 +134,162 @@ fn author_selected_codex_binding_cannot_change_the_memory_model() {
     );
 }
 
+#[test]
+fn http_memory_completion_retains_exact_delivery_and_reopens_without_codex_fields() {
+    let temp = TempProject::new("http-memory-delivery");
+    let (project, access, document) = temp.create();
+    let mut request = start_request(&access, &document, "memory-http");
+    request.provider_binding = Some(http_memory_binding());
+    let job = project.start_memory(request).unwrap();
+    let dispatch = project.begin_memory(job.owner.clone()).unwrap();
+    let raw = serde_json::to_string(&mock_navigation_digest(&dispatch.source).unwrap()).unwrap();
+    let prepared = prepare_request(&dispatch.packet.messages, &dispatch.packet.options).unwrap();
+    let delivery = ProviderDeliveryReceipt {
+        body_hash: prepared.body_hash,
+        body_bytes: prepared.body_bytes,
+        submission: HttpDeliverySubmission::ResponseReceived,
+        usage: None,
+    };
+    let completion = project
+        .complete_memory(CompleteMemory {
+            owner: dispatch.job.owner.clone(),
+            event_id: "http-memory-result".into(),
+            raw_output: raw,
+            outcome: webnovel_core::projects::discussions::ProviderOutcomeStatus::Completed,
+            confirmed_stdin_bytes: None,
+            usage: None,
+            cleanup: Some(webnovel_core::projects::discussions::ProviderCleanup::Settled),
+            error: None,
+            effective_identity: None,
+            delivery: Some(delivery.clone()),
+        })
+        .unwrap();
+    assert_eq!(completion.result.delivery, Some(delivery.clone()));
+    assert!(completion.result.confirmed_stdin_bytes.is_none());
+    assert!(completion.result.usage.is_none());
+
+    drop(project);
+    let reopened = ProjectSession::open(&temp.path).unwrap();
+    let access = reopened.attach("http-memory-reopen".into()).unwrap();
+    let read = reopened
+        .read_memory(access, document.head.document_id)
+        .unwrap();
+    let result = read.jobs[0].result.as_ref().expect("retained result");
+    assert_eq!(result.delivery, Some(delivery));
+    assert!(result.confirmed_stdin_bytes.is_none());
+    assert!(result.usage.is_none());
+}
+
+#[test]
+fn http_memory_completion_requires_received_response_and_exact_body() {
+    let temp = TempProject::new("http-memory-receipt");
+    let (project, access, document) = temp.create();
+    let mut request = start_request(&access, &document, "memory-http-receipt");
+    request.provider_binding = Some(http_memory_binding());
+    let job = project.start_memory(request).unwrap();
+    let dispatch = project.begin_memory(job.owner.clone()).unwrap();
+    let raw = serde_json::to_string(&mock_navigation_digest(&dispatch.source).unwrap()).unwrap();
+    let prepared = prepare_request(&dispatch.packet.messages, &dispatch.packet.options).unwrap();
+    let mut delivery = ProviderDeliveryReceipt {
+        body_hash: prepared.body_hash,
+        body_bytes: prepared.body_bytes,
+        submission: HttpDeliverySubmission::Uncertain,
+        usage: None,
+    };
+    let rejected = project.complete_memory(CompleteMemory {
+        owner: dispatch.job.owner.clone(),
+        event_id: "http-memory-uncertain".into(),
+        raw_output: raw.clone(),
+        outcome: webnovel_core::projects::discussions::ProviderOutcomeStatus::Completed,
+        confirmed_stdin_bytes: None,
+        usage: None,
+        cleanup: Some(webnovel_core::projects::discussions::ProviderCleanup::Settled),
+        error: None,
+        effective_identity: None,
+        delivery: Some(delivery.clone()),
+    });
+    assert_eq!(rejected.unwrap_err().code, "ProviderInputUnknown");
+
+    delivery.body_bytes = "1".into();
+    delivery.submission = HttpDeliverySubmission::ResponseReceived;
+    let rejected = project.complete_memory(CompleteMemory {
+        owner: dispatch.job.owner.clone(),
+        event_id: "http-memory-mismatch".into(),
+        raw_output: raw,
+        outcome: webnovel_core::projects::discussions::ProviderOutcomeStatus::Completed,
+        confirmed_stdin_bytes: None,
+        usage: None,
+        cleanup: Some(webnovel_core::projects::discussions::ProviderCleanup::Settled),
+        error: None,
+        effective_identity: None,
+        delivery: Some(delivery),
+    });
+    assert_eq!(rejected.unwrap_err().code, "ProviderInputMismatch");
+
+    let prepared = prepare_request(&dispatch.packet.messages, &dispatch.packet.options).unwrap();
+    let rejected = project.complete_memory(CompleteMemory {
+        owner: dispatch.job.owner.clone(),
+        event_id: "http-memory-missing-cleanup".into(),
+        raw_output: serde_json::to_string(&mock_navigation_digest(&dispatch.source).unwrap())
+            .unwrap(),
+        outcome: webnovel_core::projects::discussions::ProviderOutcomeStatus::Completed,
+        confirmed_stdin_bytes: None,
+        usage: None,
+        cleanup: None,
+        error: None,
+        effective_identity: None,
+        delivery: Some(ProviderDeliveryReceipt {
+            body_hash: prepared.body_hash.clone(),
+            body_bytes: prepared.body_bytes.clone(),
+            submission: HttpDeliverySubmission::ResponseReceived,
+            usage: None,
+        }),
+    });
+    assert_eq!(rejected.unwrap_err().code, "ProviderCleanupUnknown");
+
+    let rejected = project.complete_memory(CompleteMemory {
+        owner: dispatch.job.owner.clone(),
+        event_id: "http-memory-not-sent-output".into(),
+        raw_output: "unexpected provider output".into(),
+        outcome: webnovel_core::projects::discussions::ProviderOutcomeStatus::Failed,
+        confirmed_stdin_bytes: None,
+        usage: None,
+        cleanup: Some(webnovel_core::projects::discussions::ProviderCleanup::Settled),
+        error: Some("request was not sent".into()),
+        effective_identity: None,
+        delivery: Some(ProviderDeliveryReceipt {
+            body_hash: prepared.body_hash.clone(),
+            body_bytes: prepared.body_bytes.clone(),
+            submission: HttpDeliverySubmission::NotSent,
+            usage: None,
+        }),
+    });
+    assert_eq!(rejected.unwrap_err().code, "InvalidRequest");
+
+    let rejected = project.complete_memory(CompleteMemory {
+        owner: dispatch.job.owner,
+        event_id: "http-memory-uncertain-usage".into(),
+        raw_output: String::new(),
+        outcome: webnovel_core::projects::discussions::ProviderOutcomeStatus::Failed,
+        confirmed_stdin_bytes: None,
+        usage: None,
+        cleanup: Some(webnovel_core::projects::discussions::ProviderCleanup::Settled),
+        error: Some("request outcome uncertain".into()),
+        effective_identity: None,
+        delivery: Some(ProviderDeliveryReceipt {
+            body_hash: prepared.body_hash,
+            body_bytes: prepared.body_bytes,
+            submission: HttpDeliverySubmission::Uncertain,
+            usage: Some(HttpProviderUsage {
+                input_tokens: Some(1),
+                output_tokens: Some(1),
+                total_tokens: Some(2),
+            }),
+        }),
+    });
+    assert_eq!(rejected.unwrap_err().code, "InvalidRequest");
+}
+
 fn complete_mock(
     project: &ProjectSession,
     dispatch: &webnovel_core::projects::memory::MemoryDispatch,
@@ -125,6 +310,7 @@ fn complete_mock(
             cleanup: None,
             error: None,
             effective_identity: None,
+            delivery: None,
         })
         .unwrap()
 }
@@ -368,7 +554,7 @@ fn queued_stop_without_terminal_result_is_valid_backup_history() {
     assert_eq!(stopped.status, MemoryJobStatus::Stopped);
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 28);
+    assert_eq!(manifest.database_schema_version, 29);
     let _ = fs::remove_file(backup);
 }
 
@@ -396,6 +582,7 @@ fn unresolved_cleanup_stays_interrupted_and_retains_result_without_installation(
             cleanup: Some(webnovel_core::projects::discussions::ProviderCleanup::Unresolved),
             error: Some("cleanup could not be confirmed".into()),
             effective_identity: None,
+            delivery: None,
         })
         .unwrap();
     assert_eq!(completion.job.status, MemoryJobStatus::Interrupted);
@@ -499,6 +686,7 @@ fn reopened_dispatched_claim_can_settle_historical_result_without_installation()
             cleanup: None,
             error: None,
             effective_identity: None,
+            delivery: None,
         })
         .unwrap();
     assert_eq!(completion.job.status, MemoryJobStatus::Interrupted);
@@ -548,6 +736,7 @@ fn live_completion_requires_exact_delivery_and_foreign_owner_is_refused() {
         cleanup: None,
         error: None,
         effective_identity: None,
+        delivery: None,
     };
     assert_eq!(
         project.complete_memory(missing_cleanup).unwrap_err().code,
@@ -563,6 +752,7 @@ fn live_completion_requires_exact_delivery_and_foreign_owner_is_refused() {
         cleanup: Some(webnovel_core::projects::discussions::ProviderCleanup::Settled),
         error: None,
         effective_identity: None,
+        delivery: None,
     };
     assert_eq!(
         project.complete_memory(missing_delivery).unwrap_err().code,
@@ -578,6 +768,7 @@ fn live_completion_requires_exact_delivery_and_foreign_owner_is_refused() {
         cleanup: Some(webnovel_core::projects::discussions::ProviderCleanup::Settled),
         error: None,
         effective_identity: None,
+        delivery: None,
     };
     complete.confirmed_stdin_bytes = Some(input_bytes);
     let completion = project.complete_memory(complete).unwrap();
@@ -616,6 +807,7 @@ fn policy_revocation_redacts_terminal_candidate_and_raw_output() {
             cleanup: None,
             error: Some("diagnostic copied chapter prose".into()),
             effective_identity: Some("provider-identity".into()),
+            delivery: None,
         })
         .unwrap();
     project
@@ -653,7 +845,7 @@ fn backup_validation_accepts_retained_memory_history() {
     project.install_memory(job.owner).unwrap();
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 28);
+    assert_eq!(manifest.database_schema_version, 29);
     let _ = fs::remove_file(backup);
 }
 
@@ -800,6 +992,7 @@ fn backup_rejects_mismatched_delivery_and_invalid_lifecycle() {
             cleanup: Some(webnovel_core::projects::discussions::ProviderCleanup::Settled),
             error: None,
             effective_identity: None,
+            delivery: None,
         })
         .unwrap();
 

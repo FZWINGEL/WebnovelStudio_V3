@@ -915,7 +915,7 @@ fn schema20_archive_migrates_legacy_empty_evidence_rows() {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
-    assert_eq!(schema, 28);
+    assert_eq!(schema, 29);
     assert_eq!(migrated_bundle, bundle.id);
     assert_eq!(records_json, None);
     assert_eq!(records_hash, None);

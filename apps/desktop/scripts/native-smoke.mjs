@@ -1138,6 +1138,10 @@ try {
   checks.push('Native review binds the earlier reviewed prefix; changing an earlier chapter marks the later review unavailable while preserving later prose across reopen');
   // C4 uses only the explicit local test model. Observe the real project DB;
   // dropping an IPC acknowledgment must not create a second memory job.
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByLabel('Maintenance provider', { exact: true }).selectOption('mock');
+  await page.waitForFunction(async () => (await window.__TAURI_INTERNALS__.invoke('provider_state')).storyMemory.providerId === 'mock');
+  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   const memoryLibrary = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
   const memoryProjectPath = await realpath(memoryLibrary.entries.find(entry => entry.title === 'Review story').path);
   const memoryRelative = relative(toNamespacedPath(await realpath(data)), toNamespacedPath(memoryProjectPath));
@@ -1233,8 +1237,9 @@ try {
       access: opened.access, operationId: 'memory-policy-chapter', documentId: 'memory-policy-chapter', title: 'A promise', kind: 'chapter',
       body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'promise' }, content: [{ type: 'text', text: 'Mei promised to return the silver key.' }] }] } },
     } });
-    const modelSelection = (await invoke('provider_state')).settings.active;
-    const request = { access: opened.access, operationId: 'memory-policy-refresh', expected: chapter.head, modelSelection,
+    const providerState = await invoke('provider_state');
+    const modelSelection = providerState.settings.active;
+    const request = { access: opened.access, operationId: 'memory-policy-refresh', expected: chapter.head, modelSelection, maintenanceRevision: providerState.storyMemory.revision,
       budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' } };
     const job = await invoke('start_memory', { request });
     let read;
@@ -1275,9 +1280,10 @@ try {
     const target = await create('navigation-target', 'The return', 'Mei waited for Ren to explain what happened to the silver key.');
     const old = await create('navigation-old', 'The old promise', 'Ren promised to return the silver key. '.repeat(3000));
     await create('navigation-middle', 'The long journey', 'The road wound through the valley. '.repeat(3600));
-    const modelSelection = (await invoke('provider_state')).settings.active;
+    const providerState = await invoke('provider_state');
+    const modelSelection = providerState.settings.active;
     const job = await invoke('start_memory', { request: { access: opened.access, operationId: 'navigation-memory', expected: old.head,
-      modelSelection, budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' } } });
+      modelSelection, maintenanceRevision: providerState.storyMemory.revision, budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' } } });
     const deadline = Date.now() + 15000;
     let read;
     do {

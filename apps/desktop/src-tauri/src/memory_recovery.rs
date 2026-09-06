@@ -314,6 +314,7 @@ mod tests {
             cleanup: Some(ProviderCleanup::Settled),
             error: None,
             effective_identity: None,
+            delivery: None,
         }
     }
 

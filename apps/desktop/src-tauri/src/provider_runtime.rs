@@ -5,9 +5,10 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use webnovel_core::context::packet::ProviderBinding;
-use webnovel_core::projects::{CoreError, CoreResult};
 #[cfg(windows)]
-use webnovel_core::projects::{discussions::RunOwner, memory::MemoryOwner};
+use webnovel_core::projects::discussions::RunOwner;
+use webnovel_core::projects::memory::MemoryOwner;
+use webnovel_core::projects::{CoreError, CoreResult};
 use webnovel_core::providers::{
     catalog::{DispatchResolution, ProviderState},
     credentials::WindowsCredentialStore,
@@ -30,6 +31,10 @@ struct RuntimeState {
         (String, String, String),
         webnovel_core::providers::adapter::CancellationToken,
     >,
+    http_memory_stops: std::collections::HashMap<
+        (String, String, String),
+        webnovel_core::providers::adapter::CancellationToken,
+    >,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +42,32 @@ pub struct DesktopProviderState {
     #[serde(flatten)]
     state: ProviderState,
     codex_connection: ConnectionView,
+    story_memory: StoryMemoryView,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoryMemoryView {
+    revision: String,
+    provider_id: String,
+    provider_label: String,
+    model_id: String,
+    reasoning: Option<String>,
+    service_tier: Option<String>,
+    ready: bool,
+    detail: String,
+}
+
+pub fn memory_selection(provider_id: &str) -> ModelSelection {
+    if provider_id == "mock" {
+        ModelSelection::local_mock()
+    } else {
+        ModelSelection {
+            provider_id: provider_id.into(),
+            model_id: "gpt-5.6-luna".into(),
+            reasoning: Some("xhigh".into()),
+            service_tier: (provider_id == "codex").then(|| "priority".into()),
+        }
+    }
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -145,6 +176,37 @@ fn unavailable() -> CoreError {
 }
 
 impl DesktopProviders {
+    pub fn register_http_memory(
+        &self,
+        owner: &MemoryOwner,
+    ) -> CoreResult<webnovel_core::providers::adapter::CancellationToken> {
+        let mut state = self.lock()?;
+        let key = (
+            owner.project_id.clone(),
+            owner.operation_namespace.clone(),
+            owner.job_id.clone(),
+        );
+        if state.http_memory_stops.contains_key(&key) {
+            return Err(CoreError::new(
+                "RunAlreadyStarted",
+                "This memory refresh already has a worker.",
+            ));
+        }
+        let stop = webnovel_core::providers::adapter::CancellationToken::new();
+        state.http_memory_stops.insert(key, stop.clone());
+        Ok(stop)
+    }
+
+    pub fn release_http_memory(&self, owner: &MemoryOwner) {
+        if let Ok(mut state) = self.lock() {
+            state.http_memory_stops.remove(&(
+                owner.project_id.clone(),
+                owner.operation_namespace.clone(),
+                owner.job_id.clone(),
+            ));
+        }
+    }
+
     pub fn register_http(
         &self,
         owner: &webnovel_core::projects::discussions::RunOwner,
@@ -229,6 +291,55 @@ impl DesktopProviders {
                 };
             }
         }
+        let settings = library.story_memory_settings()?;
+        let selected = memory_selection(&settings.provider_id);
+        let mut memory = StoryMemoryView {
+            revision: settings.revision,
+            provider_id: selected.provider_id.clone(),
+            provider_label: "Unavailable connection".into(),
+            model_id: selected.model_id.clone(),
+            reasoning: selected.reasoning.clone(),
+            service_tier: selected.service_tier.clone(),
+            ready: false,
+            detail: "This story-memory connection is unavailable. Choose a connection in Settings."
+                .into(),
+        };
+        match selected.provider_id.as_str() {
+            "mock" => {
+                memory.provider_label = "Local test model".into();
+                memory.ready = true;
+                memory.detail =
+                    "Creates a local demonstration digest. No LLM or API request is made.".into();
+            }
+            "codex" => {
+                memory.provider_label = "Codex".into();
+                memory.ready = view.codex_connection.memory_ready;
+                memory.detail = if memory.ready { "Refresh sends one request through Codex using GPT-5.6 Luna with Extra high reasoning." } else { "Check Codex in Settings. Story memory requires GPT-5.6 Luna with Extra high reasoning and Fast service." }.into();
+            }
+            _ => {
+                if let Some(profile) = endpoints
+                    .profiles
+                    .iter()
+                    .find(|p| p.id == selected.provider_id)
+                {
+                    memory.provider_label = profile.label.clone();
+                    let listed = profile.manual_model_ids.contains(&selected.model_id)
+                        || profile.cached_model_ids.contains(&selected.model_id);
+                    memory.ready =
+                        profile.enabled && listed && credential_available(profile, store);
+                    memory.detail = if !profile.enabled {
+                    "Enable this API connection in Settings before refreshing story memory."
+                } else if !listed {
+                    "Add gpt-5.6-luna to this connection's models. The service must support xhigh reasoning."
+                } else if !memory.ready {
+                    "The saved API key is unavailable. Re-enter it in Settings before refreshing."
+                } else {
+                    "Configured to request GPT-5.6 Luna with xhigh reasoning. The API service must support these settings."
+                }.into();
+                }
+            }
+        }
+        view.story_memory = memory;
         Ok(view)
     }
     fn lock(&self) -> CoreResult<std::sync::MutexGuard<'_, RuntimeState>> {
@@ -291,6 +402,16 @@ impl DesktopProviders {
         let memory_ready = false;
         Ok(DesktopProviderState {
             state,
+            story_memory: StoryMemoryView {
+                revision: "0".into(),
+                provider_id: "codex".into(),
+                provider_label: "Codex".into(),
+                model_id: "gpt-5.6-luna".into(),
+                reasoning: Some("xhigh".into()),
+                service_tier: Some("priority".into()),
+                ready: memory_ready,
+                detail: "Check Codex in Settings before refreshing story memory.".into(),
+            },
             codex_connection: ConnectionView {
                 ready,
                 memory_ready,
@@ -430,8 +551,17 @@ impl DesktopProviders {
         #[cfg(not(windows))]
         let _ = owner;
     }
-    #[cfg(windows)]
     pub fn stop_memory(&self, owner: &MemoryOwner) {
+        if let Ok(state) = self.lock()
+            && let Some(stop) = state.http_memory_stops.get(&(
+                owner.project_id.clone(),
+                owner.operation_namespace.clone(),
+                owner.job_id.clone(),
+            ))
+        {
+            stop.cancel();
+        }
+        #[cfg(windows)]
         if let Ok(state) = self.lock()
             && let Some(stop) = state.stops.get(&(
                 owner.project_id.clone(),
@@ -647,6 +777,46 @@ mod tests {
             available.state.dispatch,
             DispatchResolution::OpenAiCompatible { .. }
         ));
+
+        // A configured writing model does not qualify the fixed maintenance
+        // model, and changing maintenance never changes the author selection.
+        library
+            .save_story_memory_provider("0", &profile.id)
+            .unwrap();
+        let missing_luna = runtime.view_library_with_store(&library, &store).unwrap();
+        assert!(!missing_luna.story_memory.ready);
+        assert!(missing_luna.story_memory.detail.contains("gpt-5.6-luna"));
+        library
+            .save_endpoint_profiles(
+                "1",
+                vec![EndpointProfileDraft {
+                    id: Some(profile.id.clone()),
+                    label: profile.label,
+                    base_url: profile.base_url,
+                    enabled: true,
+                    json_mode: false,
+                    credential_ref: profile.credential_ref,
+                    manual_model_ids: vec!["story-model".into(), "gpt-5.6-luna".into()],
+                }],
+            )
+            .unwrap();
+        let memory_ready = runtime.view_library_with_store(&library, &store).unwrap();
+        assert!(memory_ready.story_memory.ready);
+        assert!(!memory_ready.codex_connection.ready);
+        assert_eq!(
+            memory_ready.story_memory.reasoning.as_deref(),
+            Some("xhigh")
+        );
+        assert!(memory_ready.story_memory.service_tier.is_none());
+        assert_eq!(memory_ready.state.settings.active.model_id, "story-model");
+        store.delete(&SyntheticCredentialStore::target()).unwrap();
+        let unavailable_memory = runtime.view_library_with_store(&library, &store).unwrap();
+        assert!(!unavailable_memory.story_memory.ready);
+        assert_eq!(unavailable_memory.story_memory.provider_id, profile.id);
+        library.save_story_memory_provider("1", "mock").unwrap();
+        let local = runtime.view_library_with_store(&library, &store).unwrap();
+        assert!(local.story_memory.ready);
+        assert_eq!(local.state.settings.active.model_id, "story-model");
 
         drop(library);
         std::fs::remove_dir_all(root).unwrap();

@@ -15,6 +15,7 @@ mod endpoint_discovery;
 mod export_commands;
 mod guidance_commands;
 mod http_discussion;
+mod http_memory;
 mod library_commands;
 #[cfg(windows)]
 mod live_discussion;
@@ -134,6 +135,7 @@ fn main() {
             v2_import_commands::v2_import,
             provider_commands::check_codex_connection,
             provider_commands::save_model_settings,
+            provider_commands::save_story_memory_provider,
             endpoint_commands::endpoint_settings,
             endpoint_commands::save_endpoint_settings,
             endpoint_commands::discover_endpoint_models,

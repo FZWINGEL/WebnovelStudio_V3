@@ -1,8 +1,11 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use webnovel_core::context::packet::{
-    MEMORY_RESPONSE_CONTRACT, MockContextBudget, PacketError, PacketRequest, compile_packet,
-    packet_input_hash, serialized_input,
+    HTTP_MEMORY_INPUT_LIMIT_BYTES, HTTP_MEMORY_MODEL_ID, HTTP_MEMORY_OUTPUT_LIMIT_BYTES,
+    HTTP_MEMORY_PROFILE_VERSION, HTTP_MEMORY_REASONING, HTTP_TOKEN_ACCOUNTING_METHOD,
+    HttpProviderBinding, HttpResponseFormat, MEMORY_RESPONSE_CONTRACT, MockContextBudget,
+    PacketError, PacketRequest, ProviderBinding, compile_packet, packet_input_hash,
+    serialized_input,
 };
 use webnovel_core::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
@@ -136,6 +139,28 @@ fn invalid_request(request: PacketRequest) {
     ));
 }
 
+fn http_memory_binding() -> ProviderBinding {
+    ProviderBinding {
+        provider_id: "openai-compatible:00000000-0000-0000-0000-000000000001".into(),
+        model_id: HTTP_MEMORY_MODEL_ID.into(),
+        reasoning: Some(HTTP_MEMORY_REASONING.into()),
+        service_tier: None,
+        profile_version: HTTP_MEMORY_PROFILE_VERSION.into(),
+        input_limit_bytes: HTTP_MEMORY_INPUT_LIMIT_BYTES.to_string(),
+        reserved_output_bytes: "0".into(),
+        reserved_protocol_bytes: "0".into(),
+        output_limit_bytes: HTTP_MEMORY_OUTPUT_LIMIT_BYTES.to_string(),
+        accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.into(),
+        runtime: None,
+        http: Some(HttpProviderBinding {
+            base_url: "https://example.test/v1".into(),
+            config_revision: "1".into(),
+            stream: true,
+            response_format: HttpResponseFormat::Text,
+        }),
+    }
+}
+
 #[test]
 fn memory_packet_is_exactly_one_chapter_and_stable() {
     let packet = compile_packet(&valid_request("An exact saved chapter.")).expect("compile");
@@ -245,6 +270,15 @@ fn memory_recipe_rejects_conversation_context() {
         omitted_turns: 0,
         turns: Vec::new(),
     });
+    invalid_request(request);
+}
+
+#[test]
+fn memory_http_profile_cannot_cross_into_author_discussion_packets() {
+    let mut request = valid_request("The memory profile is chapter scoped.");
+    request.provider_binding = Some(http_memory_binding());
+    request.frozen.purpose = ContextPurpose::Discuss;
+    request.response_contract = None;
     invalid_request(request);
 }
 

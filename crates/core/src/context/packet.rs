@@ -62,6 +62,16 @@ pub const CODEX_TOKEN_ACCOUNTING_METHOD: &str = "utf8-byte-count/codex-stdin-app
 pub const HTTP_TOKEN_ACCOUNTING_METHOD: &str =
     "utf8-byte-count/openai-compatible-http-application-cap-v1";
 pub const HTTP_PROFILE_VERSION: &str = "openai-chat-completions.v1";
+/// The fixed OpenAI-compatible profile used for chapter-memory analysis.
+///
+/// This is deliberately a separate application contract from the author-room
+/// HTTP profile.  It keeps the memory worker's model and trait selection
+/// stable while allowing ordinary author requests to evolve independently.
+pub const HTTP_MEMORY_PROFILE_VERSION: &str = "openai-chat-completions.memory.v1";
+pub const HTTP_MEMORY_MODEL_ID: &str = "gpt-5.6-luna";
+pub const HTTP_MEMORY_REASONING: &str = "xhigh";
+pub const HTTP_MEMORY_INPUT_LIMIT_BYTES: usize = HTTP_INPUT_LIMIT_BYTES;
+pub const HTTP_MEMORY_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 pub const HTTP_INPUT_LIMIT_BYTES: usize = 2 * 1024 * 1024;
 pub const HTTP_OUTPUT_LIMIT_BYTES: usize = 2 * 1024 * 1024;
 /// Stable envelope identifiers. Version 1 is retained solely for validating
@@ -137,8 +147,9 @@ impl MockContextBudget {
 ///
 /// These limits are application byte caps for the exact serialized stdin and
 /// retained output. They are deliberately not model token-window claims. A
-/// future qualified adapter may replace this fixed profile with a separately
-/// qualified contract; this slice accepts only the Codex/Luna profile below.
+/// Provider-specific adapters may replace these fixed profiles with separately
+/// qualified contracts; this slice accepts only the explicit Codex and
+/// OpenAI-compatible contracts below.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderBinding {
@@ -354,9 +365,19 @@ impl ProviderBinding {
         self.provider_id.starts_with("openai-compatible:")
     }
 
+    /// Whether this binding uses the fixed HTTP chapter-memory profile.
+    /// Keeping this separate from [`Self::is_http`] lets callers distinguish
+    /// the memory contract from ordinary author-room HTTP requests without
+    /// treating the profile as a provider identity.
+    pub fn is_http_memory(&self) -> bool {
+        self.is_http() && self.profile_version == HTTP_MEMORY_PROFILE_VERSION
+    }
+
     fn validate_http(&self) -> Result<(), String> {
-        if self.profile_version != HTTP_PROFILE_VERSION
-            || self.accounting_method != HTTP_TOKEN_ACCOUNTING_METHOD
+        if !matches!(
+            self.profile_version.as_str(),
+            HTTP_PROFILE_VERSION | HTTP_MEMORY_PROFILE_VERSION
+        ) || self.accounting_method != HTTP_TOKEN_ACCOUNTING_METHOD
             || self.runtime.is_some()
         {
             return Err(
@@ -388,11 +409,26 @@ impl ProviderBinding {
             return Err("the HTTP endpoint configuration revision is not canonical".to_owned());
         }
         if self.input_limit_bytes.parse::<usize>().ok() != Some(HTTP_INPUT_LIMIT_BYTES)
-            || self.output_limit_bytes.parse::<usize>().ok() != Some(HTTP_OUTPUT_LIMIT_BYTES)
+            || self.output_limit_bytes.parse::<usize>().ok()
+                != Some(if self.is_http_memory() {
+                    HTTP_MEMORY_OUTPUT_LIMIT_BYTES
+                } else {
+                    HTTP_OUTPUT_LIMIT_BYTES
+                })
             || self.reserved_output_bytes != "0"
             || self.reserved_protocol_bytes != "0"
         {
             return Err("the OpenAI-compatible byte allowances are invalid".to_owned());
+        }
+        if self.is_http_memory()
+            && (self.model_id != HTTP_MEMORY_MODEL_ID
+                || self.reasoning.as_deref() != Some(HTTP_MEMORY_REASONING)
+                || self.service_tier.is_some())
+        {
+            return Err(
+                "the OpenAI-compatible chapter-memory profile requires GPT-5.6-Luna with xhigh and no service tier"
+                    .to_owned(),
+            );
         }
         if self.reasoning.as_deref().is_some_and(|value| {
             value.is_empty() || value.len() > 64 || value.chars().any(char::is_control)
@@ -2468,16 +2504,24 @@ fn build_serialized(
 }
 
 fn validate_response_contract(request: &PacketRequest) -> Result<(), PacketError> {
-    if request
+    if let Some(binding) = request
         .provider_binding
         .as_ref()
-        .is_some_and(ProviderBinding::is_http)
-        && (request.lookup.is_some() || request.frozen.purpose == ContextPurpose::MemoryAnalysis)
+        .filter(|binding| binding.is_http())
+        && (request.lookup.is_some()
+            || (request.frozen.purpose == ContextPurpose::MemoryAnalysis
+                && !binding.is_http_memory())
+            || (request.frozen.purpose != ContextPurpose::MemoryAnalysis
+                && binding.is_http_memory()))
     {
         return Err(PacketError::InvalidRequest {
-            message:
-                "OpenAI-compatible HTTP is not qualified for story lookup or chapter memory yet."
-                    .to_owned(),
+            message: if request.lookup.is_some() {
+                "OpenAI-compatible HTTP is not qualified for story lookup.".to_owned()
+            } else if binding.is_http_memory() {
+                "The OpenAI-compatible chapter-memory profile is only valid for chapter memory analysis.".to_owned()
+            } else {
+                "The ordinary OpenAI-compatible profile is not qualified for chapter memory analysis.".to_owned()
+            },
         });
     }
     if request.lookup.is_some()

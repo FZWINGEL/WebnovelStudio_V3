@@ -16,6 +16,12 @@ use std::collections::HashSet;
 
 pub const MODEL_SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub const MODEL_SETTINGS_KEY: &str = "model-selection-v1";
+pub const STORY_MEMORY_SETTINGS_SCHEMA_VERSION: u32 = 1;
+pub const STORY_MEMORY_SETTINGS_KEY: &str = "story-memory-provider-v1";
+pub const STORY_MEMORY_CODEX_PROVIDER_ID: &str = "codex";
+pub const STORY_MEMORY_MOCK_PROVIDER_ID: &str = "mock";
+pub const STORY_MEMORY_MODEL_ID: &str = "gpt-5.6-luna";
+pub const STORY_MEMORY_REASONING: &str = "xhigh";
 pub const MAX_FAVORITES: usize = 32;
 pub const DEFAULT_REVISION: &str = "0";
 
@@ -74,6 +80,77 @@ pub struct ModelSettings {
 pub struct StoredModelSettings {
     pub active: ModelSelection,
     pub favorites: Vec<ModelKey>,
+}
+
+/// The provider selected for story-memory and summary maintenance.  The
+/// model and reasoning level are deliberately not user-editable here: live
+/// maintenance always uses GPT-5.6 Luna with Extra high reasoning.  Endpoint
+/// profile IDs are kept as opaque provider IDs and never contain credentials.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoryMemorySettings {
+    pub revision: String,
+    pub provider_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoredStoryMemorySettings {
+    pub provider_id: String,
+}
+
+impl Default for StoryMemorySettings {
+    fn default() -> Self {
+        Self {
+            revision: DEFAULT_REVISION.to_owned(),
+            provider_id: STORY_MEMORY_CODEX_PROVIDER_ID.to_owned(),
+        }
+    }
+}
+
+impl StoryMemorySettings {
+    pub fn stored(&self) -> StoredStoryMemorySettings {
+        StoredStoryMemorySettings {
+            provider_id: self.provider_id.clone(),
+        }
+    }
+
+    pub fn from_stored(revision: String, stored: StoredStoryMemorySettings) -> Self {
+        Self {
+            revision,
+            provider_id: stored.provider_id,
+        }
+    }
+
+    pub fn validate(&self, endpoints: &EndpointProfilesSettings) -> CoreResult<()> {
+        parse_revision(&self.revision)?;
+        validate_story_memory_provider_id(&self.provider_id, endpoints)
+    }
+}
+
+pub(crate) fn validate_story_memory_provider_id(
+    provider_id: &str,
+    endpoints: &EndpointProfilesSettings,
+) -> CoreResult<()> {
+    if matches!(
+        provider_id,
+        STORY_MEMORY_CODEX_PROVIDER_ID | STORY_MEMORY_MOCK_PROVIDER_ID
+    ) {
+        return Ok(());
+    }
+    if !provider_id.starts_with(super::endpoints::ENDPOINT_PROVIDER_PREFIX) {
+        return Err(CoreError::new(
+            "InvalidStoryMemoryProvider",
+            "Choose Codex, the local test provider, or a saved OpenAI-compatible endpoint.",
+        ));
+    }
+    if endpoints.find(provider_id).is_none() {
+        return Err(CoreError::new(
+            "UnknownStoryMemoryProvider",
+            "The selected story-memory endpoint is no longer saved.",
+        ));
+    }
+    Ok(())
 }
 
 impl Default for ModelSettings {

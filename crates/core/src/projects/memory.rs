@@ -10,15 +10,19 @@ use super::*;
 use crate::context::memory::{DigestCandidate, MAX_RAW_BYTES, validate_navigation_digest};
 use crate::context::navigation::navigation_content_hash;
 use crate::context::packet::{
-    CompiledPacket, MEMORY_RESPONSE_CONTRACT, MockContextBudget, PacketError, PacketRequest,
-    ProviderBinding, compile_packet, serialized_input,
+    CompiledPacket, HTTP_MEMORY_PROFILE_VERSION, MEMORY_RESPONSE_CONTRACT, MockContextBudget,
+    PacketError, PacketRequest, ProviderBinding, compile_packet, serialized_input,
 };
 use crate::context::{Audience, BasisKind, ContextPurpose, InformationPolicy, SourceRef};
 use crate::projects::context_packets::{PrepareContext, validated_packet_record};
-use crate::projects::discussions::{ProviderCleanup, ProviderOutcomeStatus, ProviderUsage};
+use crate::projects::discussions::{
+    HttpDeliverySubmission, ProviderCleanup, ProviderDeliveryReceipt, ProviderOutcomeStatus,
+    ProviderUsage,
+};
 use crate::projects::story_context::{
     FreezeStory, FrozenContext, SourceRead, read_source, validated_snapshot_record,
 };
+use crate::providers::http_request::prepare_request as prepare_http_request;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
@@ -168,6 +172,8 @@ pub struct CompleteMemory {
     /// provenance only and never used to authorize a different binding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effective_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<ProviderDeliveryReceipt>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,6 +192,8 @@ pub struct MemoryResult {
     pub validation_error: Option<String>,
     pub candidate: Option<DigestCandidate>,
     pub effective_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<ProviderDeliveryReceipt>,
     pub created_at: String,
 }
 
@@ -750,8 +758,13 @@ impl OwnedProject {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
+        let delivery_json = request
+            .delivery
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
         tx.execute(
-            "INSERT INTO memory_results(job_id,event_id,raw_output,raw_output_hash,candidate_json,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,validation_error,effective_identity) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO memory_results(job_id,event_id,raw_output,raw_output_hash,candidate_json,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,validation_error,effective_identity,delivery_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 request.owner.job_id,
                 request.event_id,
@@ -765,6 +778,7 @@ impl OwnedProject {
                 request.error,
                 validation_error,
                 request.effective_identity,
+                delivery_json,
             ],
         )?;
         tx.execute(
@@ -1020,10 +1034,10 @@ fn validate_start_memory(request: &StartMemory) -> CoreResult<()> {
         binding
             .validate()
             .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
-        if binding.is_http() {
+        if binding.is_http() && binding.profile_version != HTTP_MEMORY_PROFILE_VERSION {
             return Err(CoreError::new(
                 "UnsupportedProviderFeature",
-                "OpenAI-compatible HTTP chapter memory is not qualified yet.",
+                "Chapter memory only accepts the fixed OpenAI-compatible memory profile.",
             ));
         }
         if binding.profile_version == crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
@@ -1050,6 +1064,18 @@ fn validate_complete_memory(request: &CompleteMemory) -> CoreResult<()> {
     }
     if let Some(value) = &request.confirmed_stdin_bytes {
         parse_decimal_u64(value)?;
+    }
+    if request.delivery.is_some() && request.confirmed_stdin_bytes.is_some() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "An HTTP memory result cannot include local stdin delivery proof.",
+        ));
+    }
+    if request.delivery.is_some() && request.usage.is_some() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "An HTTP memory result records provider usage inside its HTTP delivery receipt.",
+        ));
     }
     validate_optional_text(request.error.as_deref(), "provider error")?;
     validate_optional_text(request.effective_identity.as_deref(), "provider identity")?;
@@ -1362,6 +1388,20 @@ fn read_memory_job_with_policy(
 }
 
 fn validate_delivery(request: &CompleteMemory, packet: &CompiledPacket) -> CoreResult<()> {
+    if packet
+        .options
+        .provider_binding
+        .as_ref()
+        .is_some_and(ProviderBinding::is_http_memory)
+    {
+        return validate_http_memory_delivery(request, packet);
+    }
+    if request.delivery.is_some() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "HTTP delivery evidence is only valid for the fixed HTTP memory profile.",
+        ));
+    }
     if packet.options.provider_binding.is_some()
         && request.outcome == ProviderOutcomeStatus::Completed
         && request.cleanup != Some(ProviderCleanup::Settled)
@@ -1401,6 +1441,89 @@ fn validate_delivery(request: &CompleteMemory, packet: &CompiledPacket) -> CoreR
         return Err(CoreError::new(
             "ProviderInputMismatch",
             "The reported local delivery exceeds the frozen memory packet.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_http_memory_delivery(
+    request: &CompleteMemory,
+    packet: &CompiledPacket,
+) -> CoreResult<()> {
+    if request.outcome == ProviderOutcomeStatus::Completed
+        && request.cleanup != Some(ProviderCleanup::Settled)
+    {
+        return Err(CoreError::new(
+            "ProviderCleanupUnknown",
+            "A completed HTTP memory result needs confirmed settled provider cleanup.",
+        ));
+    }
+    if request.confirmed_stdin_bytes.is_some() || request.usage.is_some() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "HTTP memory delivery cannot include Codex stdin or usage fields.",
+        ));
+    }
+    let delivery = request.delivery.as_ref().ok_or_else(|| {
+        CoreError::new(
+            "ProviderInputUnknown",
+            "An OpenAI-compatible memory result needs HTTP delivery evidence.",
+        )
+    })?;
+    validate_http_memory_delivery_shape(delivery, request.outcome)?;
+    if delivery.submission == HttpDeliverySubmission::NotSent
+        && (!request.raw_output.is_empty() || delivery.usage.is_some())
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "An HTTP memory request marked not sent cannot retain output or usage.",
+        ));
+    }
+    if delivery.usage.is_some() && delivery.submission != HttpDeliverySubmission::ResponseReceived {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "HTTP memory usage is only known after a response is received.",
+        ));
+    }
+    let prepared = prepare_http_request(&packet.messages, &packet.options)?;
+    if delivery.body_hash != prepared.body_hash || delivery.body_bytes != prepared.body_bytes {
+        return Err(CoreError::new(
+            "ProviderInputMismatch",
+            "The HTTP memory delivery receipt does not match the immutable request body.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_http_memory_delivery_shape(
+    delivery: &ProviderDeliveryReceipt,
+    status: ProviderOutcomeStatus,
+) -> CoreResult<()> {
+    if delivery.body_hash.len() != 64
+        || !delivery
+            .body_hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The HTTP memory request body hash is invalid.",
+        ));
+    }
+    let body_bytes = parse_decimal_u64(&delivery.body_bytes)?;
+    if body_bytes == 0 || body_bytes > crate::context::packet::HTTP_MEMORY_INPUT_LIMIT_BYTES as u64
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The HTTP memory request body byte count is outside the application limit.",
+        ));
+    }
+    if status == ProviderOutcomeStatus::Completed
+        && delivery.submission != HttpDeliverySubmission::ResponseReceived
+    {
+        return Err(CoreError::new(
+            "ProviderInputUnknown",
+            "A completed HTTP memory result needs a fully received response.",
         ));
     }
     Ok(())
@@ -1492,6 +1615,7 @@ fn result_matches(saved: &MemoryResult, request: &CompleteMemory) -> bool {
         && saved.cleanup == request.cleanup
         && saved.error == request.error
         && saved.effective_identity == request.effective_identity
+        && saved.delivery == request.delivery
 }
 
 type MemoryResultColumns = (
@@ -1507,6 +1631,7 @@ type MemoryResultColumns = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
     String,
 );
 
@@ -1517,7 +1642,7 @@ fn read_memory_result(
 ) -> CoreResult<Option<MemoryResult>> {
     let row: Option<MemoryResultColumns> = db
         .query_row(
-            "SELECT job_id,event_id,raw_output,raw_output_hash,candidate_json,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,validation_error,effective_identity,created_at FROM memory_results WHERE job_id=?",
+            "SELECT job_id,event_id,raw_output,raw_output_hash,candidate_json,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,validation_error,effective_identity,delivery_json,created_at FROM memory_results WHERE job_id=?",
             [job_id],
             |row| {
                 Ok((
@@ -1534,6 +1659,7 @@ fn read_memory_result(
                     row.get(10)?,
                     row.get(11)?,
                     row.get(12)?,
+                    row.get(13)?,
                 ))
             },
         )
@@ -1551,6 +1677,7 @@ fn read_memory_result(
         error,
         validation_error,
         effective_identity,
+        delivery_json,
         created_at,
     )) = row
     else {
@@ -1587,6 +1714,10 @@ fn read_memory_result(
         .as_deref()
         .map(serde_json::from_str)
         .transpose()?;
+    let delivery = delivery_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()?;
     let confirmed_stdin_bytes = confirmed_stdin_bytes
         .map(|value| {
             u64::try_from(value)
@@ -1616,6 +1747,7 @@ fn read_memory_result(
         validation_error,
         candidate: if reveal { candidate } else { None },
         effective_identity,
+        delivery,
         created_at,
     };
     Ok(Some(result))
@@ -2134,6 +2266,7 @@ fn validate_memory_job_record(db: &Connection, row: &MemoryJobRow) -> CoreResult
             cleanup: result.cleanup,
             error: result.error.clone(),
             effective_identity: result.effective_identity.clone(),
+            delivery: result.delivery.clone(),
         };
         validate_delivery(&delivery, &packet).map_err(|error| {
             CoreError::new(

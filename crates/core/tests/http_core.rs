@@ -1,7 +1,8 @@
 use webnovel_core::context::packet::{
-    HTTP_INPUT_LIMIT_BYTES, HTTP_OUTPUT_LIMIT_BYTES, HTTP_PROFILE_VERSION,
-    HTTP_TOKEN_ACCOUNTING_METHOD, HttpProviderBinding, HttpResponseFormat, PacketMessage,
-    PacketOptions, ProviderBinding,
+    HTTP_INPUT_LIMIT_BYTES, HTTP_MEMORY_INPUT_LIMIT_BYTES, HTTP_MEMORY_MODEL_ID,
+    HTTP_MEMORY_OUTPUT_LIMIT_BYTES, HTTP_MEMORY_PROFILE_VERSION, HTTP_MEMORY_REASONING,
+    HTTP_OUTPUT_LIMIT_BYTES, HTTP_PROFILE_VERSION, HTTP_TOKEN_ACCOUNTING_METHOD,
+    HttpProviderBinding, HttpResponseFormat, PacketMessage, PacketOptions, ProviderBinding,
 };
 use webnovel_core::providers::http_request::prepare_request;
 
@@ -81,4 +82,79 @@ fn http_binding_rejects_secrets_and_non_normalized_urls() {
     assert!(binding.validate().is_err());
     binding.http.as_mut().unwrap().base_url = "https://example.test/v1/".into();
     assert!(binding.validate().is_err());
+}
+
+fn http_memory_binding() -> ProviderBinding {
+    ProviderBinding {
+        provider_id: "openai-compatible:00000000-0000-0000-0000-000000000001".into(),
+        model_id: HTTP_MEMORY_MODEL_ID.into(),
+        reasoning: Some(HTTP_MEMORY_REASONING.into()),
+        service_tier: None,
+        profile_version: HTTP_MEMORY_PROFILE_VERSION.into(),
+        input_limit_bytes: HTTP_MEMORY_INPUT_LIMIT_BYTES.to_string(),
+        reserved_output_bytes: "0".into(),
+        reserved_protocol_bytes: "0".into(),
+        output_limit_bytes: HTTP_MEMORY_OUTPUT_LIMIT_BYTES.to_string(),
+        accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.into(),
+        runtime: None,
+        http: Some(HttpProviderBinding {
+            base_url: "https://example.test/v1".into(),
+            config_revision: "1".into(),
+            stream: true,
+            response_format: HttpResponseFormat::Text,
+        }),
+    }
+}
+
+#[test]
+fn memory_http_profile_is_fixed_and_secret_free() {
+    let binding = http_memory_binding();
+    binding.validate().unwrap();
+    assert!(binding.is_http());
+    assert!(binding.is_http_memory());
+    assert_eq!(binding.input_limit().unwrap(), HTTP_INPUT_LIMIT_BYTES);
+    assert_eq!(
+        binding.output_limit().unwrap(),
+        HTTP_MEMORY_OUTPUT_LIMIT_BYTES
+    );
+
+    for (mutated, message) in [
+        (
+            {
+                let mut value = binding.clone();
+                value.model_id = "gpt-6-astra".into();
+                value
+            },
+            "model",
+        ),
+        (
+            {
+                let mut value = binding.clone();
+                value.reasoning = Some("medium".into());
+                value
+            },
+            "reasoning",
+        ),
+        (
+            {
+                let mut value = binding.clone();
+                value.service_tier = Some("priority".into());
+                value
+            },
+            "tier",
+        ),
+        (
+            {
+                let mut value = binding.clone();
+                value.profile_version = HTTP_PROFILE_VERSION.into();
+                value
+            },
+            "profile",
+        ),
+    ] {
+        assert!(mutated.validate().is_err(), "invalid {message} accepted");
+    }
+    let encoded = serde_json::to_string(&binding).unwrap();
+    assert!(!encoded.contains("apiKey"));
+    assert!(!encoded.contains("secret"));
 }

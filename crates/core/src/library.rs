@@ -17,9 +17,11 @@ use crate::providers::{
     },
     preferences::{
         MODEL_SETTINGS_KEY, MODEL_SETTINGS_SCHEMA_VERSION, ModelKey, ModelSelection, ModelSettings,
-        StoredModelSettings, parse_revision,
+        STORY_MEMORY_SETTINGS_KEY, STORY_MEMORY_SETTINGS_SCHEMA_VERSION, StoredModelSettings,
+        StoredStoryMemorySettings, StoryMemorySettings, parse_revision,
         provider_state_with_endpoints_and_codex as build_provider_state,
         validate_settings_against_catalog, validate_settings_preserving_unavailable_active,
+        validate_story_memory_provider_id,
     },
 };
 use crate::v2_import::preview_v2_import;
@@ -187,6 +189,13 @@ impl Library {
         let codex = self.read_codex_catalog()?;
         build_provider_state(settings, &endpoints, codex.as_ref())
     }
+
+    /// Read the independent story-memory provider preference.  Older
+    /// libraries have no row yet; they retain the established Codex Luna
+    /// maintenance default without changing the author model selection.
+    pub fn story_memory_settings(&self) -> CoreResult<StoryMemorySettings> {
+        self.read_story_memory_settings()
+    }
     /// Persist an explicit active model and favorites with a compare-and-swap
     /// revision.  The returned state is read from the committed values, so a
     /// caller that loses this acknowledgment can safely call provider_state.
@@ -247,6 +256,60 @@ impl Library {
         )?;
         tx.commit().map_err(CoreError::uncertain)?;
         build_provider_state(settings, &endpoints, codex.as_ref())
+    }
+
+    /// Save the independent story-memory provider under its own compare-and-
+    /// swap revision.  Only a provider ID is accepted: the native runtime
+    /// resolves the fixed Luna/xhigh maintenance contract and any credential
+    /// locally after this preference is committed.
+    pub fn save_story_memory_provider(
+        &mut self,
+        expected_revision: &str,
+        provider_id: &str,
+    ) -> CoreResult<StoryMemorySettings> {
+        let expected = parse_revision(expected_revision)?;
+        let current = self.read_story_memory_settings()?;
+        let current_revision = parse_revision(&current.revision)?;
+        if current_revision != expected {
+            return Err(CoreError::new(
+                "PreferenceConflict",
+                "The story-memory provider changed. Read it again before saving.",
+            ));
+        }
+        let endpoints = self.read_endpoint_profiles()?;
+        validate_story_memory_provider_id(provider_id, &endpoints)?;
+        let next_revision = expected.checked_add(1).ok_or_else(|| {
+            CoreError::new(
+                "PreferenceRevisionLimit",
+                "The story-memory provider revision limit was reached.",
+            )
+        })?;
+        let settings = StoryMemorySettings {
+            revision: next_revision.to_string(),
+            provider_id: provider_id.to_owned(),
+        };
+        let value_json = serde_json::to_string(&settings.stored()).map_err(|error| {
+            CoreError::new(
+                "InvalidStoryMemoryProvider",
+                &format!("Could not serialize the story-memory provider: {error}"),
+            )
+        })?;
+        let tx = self.connection.transaction()?;
+        tx.execute(
+            "INSERT INTO app_preferences(key,schema_version,revision,value_json,updated_at)
+             VALUES(?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+             ON CONFLICT(key) DO UPDATE SET schema_version=excluded.schema_version,
+               revision=excluded.revision,value_json=excluded.value_json,
+               updated_at=excluded.updated_at",
+            params![
+                STORY_MEMORY_SETTINGS_KEY,
+                i64::from(STORY_MEMORY_SETTINGS_SCHEMA_VERSION),
+                next_revision,
+                value_json,
+            ],
+        )?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(settings)
     }
 
     /// Read the last complete native Codex discovery.  This cache contains
@@ -546,6 +609,36 @@ impl Library {
         let codex = self.read_codex_catalog()?;
         let catalog = catalog_with_endpoints_and_codex(&endpoints, &settings, codex.as_ref())?;
         validate_settings_preserving_unavailable_active(&settings, &catalog)?;
+        Ok(settings)
+    }
+
+    fn read_story_memory_settings(&self) -> CoreResult<StoryMemorySettings> {
+        let row: Option<(i64, i64, String)> = self
+            .connection
+            .query_row(
+                "SELECT schema_version,revision,value_json FROM app_preferences WHERE key=?",
+                [STORY_MEMORY_SETTINGS_KEY],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((schema_version, revision, value_json)) = row else {
+            return Ok(StoryMemorySettings::default());
+        };
+        if schema_version != i64::from(STORY_MEMORY_SETTINGS_SCHEMA_VERSION) || revision < 0 {
+            return Err(CoreError::new(
+                "InvalidStoryMemoryProvider",
+                "The stored story-memory provider uses an unsupported schema or revision.",
+            ));
+        }
+        let stored: StoredStoryMemorySettings =
+            serde_json::from_str(&value_json).map_err(|error| {
+                CoreError::new(
+                    "InvalidStoryMemoryProvider",
+                    &format!("The stored story-memory provider is invalid: {error}"),
+                )
+            })?;
+        let settings = StoryMemorySettings::from_stored(revision.to_string(), stored);
+        settings.validate(&self.read_endpoint_profiles()?)?;
         Ok(settings)
     }
 

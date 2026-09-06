@@ -60,3 +60,20 @@ pub async fn save_model_settings(
     })
     .await
 }
+
+#[tauri::command]
+pub async fn save_story_memory_provider(
+    expected_revision: String,
+    provider_id: String,
+    state: State<'_, DesktopLibrary>,
+    runtime: State<'_, DesktopProviders>,
+) -> CoreResult<DesktopProviderState> {
+    let state = state.inner().clone();
+    let runtime = runtime.inner().clone();
+    execute(move || {
+        let mut library = state.0.lock().map_err(|_| unavailable())?;
+        library.save_story_memory_provider(&expected_revision, &provider_id)?;
+        runtime.view_library(&library)
+    })
+    .await
+}

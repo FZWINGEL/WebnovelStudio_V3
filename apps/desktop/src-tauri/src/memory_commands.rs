@@ -26,6 +26,9 @@ pub struct StartMemoryRequest {
     pub expected: Head,
     pub budget: MockContextBudget,
     pub model_selection: ModelSelection,
+    /// Absent only on a replay of an operation accepted by an older app.
+    #[serde(default)]
+    pub maintenance_revision: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -111,12 +114,8 @@ pub async fn stop_memory(
     runtime: State<'_, DesktopProviders>,
 ) -> CoreResult<MemoryJob> {
     let project = state.project(&access.project_id)?;
-    #[cfg(windows)]
     let runtime = runtime.inner().clone();
-    #[cfg(not(windows))]
-    let _runtime = runtime;
     execute(move || {
-        #[cfg(windows)]
         let owner = MemoryOwner {
             project_id: access.project_id.clone(),
             operation_namespace: access.operation_namespace.clone(),
@@ -124,12 +123,10 @@ pub async fn stop_memory(
         };
         match project.stop_memory(access, job_id) {
             Ok(job) => {
-                #[cfg(windows)]
                 runtime.stop_memory(&job.owner);
                 Ok(job)
             }
             Err(error) => {
-                #[cfg(windows)]
                 if error.code == "UncertainOutcome" {
                     runtime.stop_memory(&owner);
                 }
@@ -151,6 +148,20 @@ pub async fn start_memory(
     let project = state.project(&request.access.project_id)?;
     let recovery = recovery.inner().clone();
     let library = library.inner().clone();
+    if request
+        .model_selection
+        .provider_id
+        .starts_with("openai-compatible:")
+    {
+        return crate::http_memory::start(
+            request,
+            project,
+            recovery,
+            library,
+            runtime.inner().clone(),
+        )
+        .await;
+    }
     #[cfg(windows)]
     let runtime = runtime.inner().clone();
     #[cfg(not(windows))]
@@ -207,13 +218,12 @@ pub async fn start_memory(
         };
         let started = {
             let library = library.0.lock().map_err(|_| model_settings_error())?;
-            let active = library.provider_state()?.settings.active;
-            check_model_choice(
-                &selected,
-                &active,
-                existing.is_some(),
-                &start.provider_binding,
-            )?;
+            if existing.is_some() {
+                check_saved_choice(&selected, &start.provider_binding)?;
+            } else {
+                check_maintenance_choice(&selected, request.maintenance_revision.as_deref(), &library)?;
+                check_saved_choice(&selected, &start.provider_binding)?;
+            }
             // Keep preference acceptance and creation of a new immutable job
             // in one critical section.  Provider work starts only afterward.
             project.start_memory(start)?
@@ -325,37 +335,43 @@ pub async fn start_memory(
     .await
 }
 
-fn check_model_choice(
+pub(crate) fn check_maintenance_choice(
     selected: &ModelSelection,
-    active: &ModelSelection,
-    saved_operation: bool,
-    binding: &Option<ProviderBinding>,
+    revision: Option<&str>,
+    library: &webnovel_core::library::Library,
 ) -> CoreResult<()> {
-    let local = ModelSelection::local_mock();
-    if selected != &local
-        && !((is_supported_choice(selected) || saved_operation)
-            && binding.as_ref().is_some_and(|binding| {
-                binding_matches_choice(binding, selected)
-                    || (saved_operation
-                        && crate::provider_runtime::binding_matches_saved_model(binding, selected))
-            }))
-    {
-        return Err(CoreError::new(
-            "ProviderUnavailable",
-            "This model or its selected settings is unavailable. Check Settings before refreshing.",
-        ));
-    }
-    // Live story-memory jobs use Luna/xhigh independently of the drafting
-    // picker. Switching to the offline test model still fences a new paid job.
-    if active == selected
-        || saved_operation
-        || (is_supported_choice(selected) && active.provider_id != "mock")
+    let settings = library.story_memory_settings()?;
+    if revision == Some(settings.revision.as_str())
+        && selected == &crate::provider_runtime::memory_selection(&settings.provider_id)
     {
         Ok(())
     } else {
         Err(CoreError::new(
             "ModelChoiceChanged",
-            "The selected model changed before this refresh started. Check Settings and try again.",
+            "The story-memory connection changed before this refresh started. Check Settings and try again.",
+        ))
+    }
+}
+
+fn check_saved_choice(
+    selected: &ModelSelection,
+    binding: &Option<ProviderBinding>,
+) -> CoreResult<()> {
+    let matches = match binding {
+        None => selected == &ModelSelection::local_mock(),
+        Some(binding) => {
+            !binding.is_http()
+                && (binding_matches_choice(binding, selected)
+                    || (is_supported_choice(selected)
+                        && binding == &ProviderBinding::codex_luna_historical()))
+        }
+    };
+    if matches {
+        Ok(())
+    } else {
+        Err(CoreError::new(
+            "ProviderUnavailable",
+            "This refresh's saved provider differs from the requested story-memory connection.",
         ))
     }
 }
@@ -377,6 +393,7 @@ fn run_mock(project: ProjectSession, recovery: MemoryRecovery, dispatch: MemoryD
             cleanup: Some(ProviderCleanup::Settled),
             error: None,
             effective_identity: None,
+            delivery: None,
         },
         Err(_error) => CompleteMemory {
             owner,
@@ -388,6 +405,7 @@ fn run_mock(project: ProjectSession, recovery: MemoryRecovery, dispatch: MemoryD
             cleanup: Some(ProviderCleanup::Settled),
             error: Some("The local memory response could not be prepared.".to_owned()),
             effective_identity: None,
+            delivery: None,
         },
     };
     let _ = recovery.save_or_retain(&project, completion, document_id);
@@ -409,6 +427,7 @@ fn record_worker_failure(
         cleanup: Some(ProviderCleanup::Settled),
         error: Some(detail.to_owned()),
         effective_identity: None,
+        delivery: None,
     };
     let _ = recovery.save_or_retain(project, completion, dispatch.job.target.document_id.clone());
 }
@@ -427,26 +446,16 @@ mod tests {
     }
 
     #[test]
-    fn changed_model_blocks_new_refresh_but_saved_operation_may_replay() {
-        let local = ModelSelection::local_mock();
-        let codex = codex_luna();
-        let binding = Some(ProviderBinding::codex_luna());
-
-        assert_eq!(
-            check_model_choice(&codex, &local, false, &binding)
-                .expect_err("a fresh request must reject a changed active model")
-                .code,
-            "ModelChoiceChanged"
-        );
+    fn saved_refresh_cannot_replace_its_binding_with_local_or_another_model() {
+        assert!(check_saved_choice(&codex_luna(), &Some(ProviderBinding::codex_luna())).is_ok());
+        assert!(check_saved_choice(&ModelSelection::local_mock(), &None).is_ok());
+        assert!(check_saved_choice(&codex_luna(), &None).is_err());
         assert!(
-            check_model_choice(&codex, &local, true, &binding).is_ok(),
-            "an exact saved operation may be replayed after Settings changes"
-        );
-        assert_eq!(
-            check_model_choice(&codex, &local, true, &None)
-                .expect_err("replay may not replace a missing saved binding")
-                .code,
-            "ProviderUnavailable"
+            check_saved_choice(
+                &ModelSelection::local_mock(),
+                &Some(ProviderBinding::codex_luna())
+            )
+            .is_err()
         );
     }
 
@@ -459,32 +468,14 @@ mod tests {
             reasoning: None,
             service_tier: None,
         };
-        assert!(
-            check_model_choice(
-                &luna,
-                &drafting,
-                false,
-                &Some(ProviderBinding::codex_luna())
-            )
-            .is_ok()
-        );
-        assert!(
-            check_model_choice(
-                &drafting,
-                &drafting,
-                false,
-                &Some(ProviderBinding::codex_luna())
-            )
-            .is_err()
-        );
+        assert!(check_saved_choice(&luna, &Some(ProviderBinding::codex_luna())).is_ok());
+        assert!(check_saved_choice(&drafting, &Some(ProviderBinding::codex_luna())).is_err());
         let historical = Some(ProviderBinding::codex_luna_historical());
-        assert!(check_model_choice(&luna, &drafting, true, &historical).is_ok());
-        assert!(check_model_choice(&luna, &drafting, false, &historical).is_err());
+        assert!(check_saved_choice(&luna, &historical).is_ok());
     }
 
     #[test]
     fn unsupported_model_is_rejected_even_when_a_saved_operation_exists() {
-        let local = ModelSelection::local_mock();
         let unsupported = ModelSelection {
             provider_id: "claude".into(),
             model_id: "claude-sonnet".into(),
@@ -492,7 +483,7 @@ mod tests {
             service_tier: None,
         };
         assert_eq!(
-            check_model_choice(&unsupported, &local, true, &None)
+            check_saved_choice(&unsupported, &None)
                 .expect_err("a saved operation cannot authorize a different provider")
                 .code,
             "ProviderUnavailable"

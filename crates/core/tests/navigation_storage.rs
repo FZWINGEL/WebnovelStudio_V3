@@ -111,6 +111,7 @@ impl Fixture {
                 cleanup: None,
                 error: None,
                 effective_identity: None,
+                delivery: None,
             })
             .unwrap();
         self.project.install_memory(job.owner).unwrap();

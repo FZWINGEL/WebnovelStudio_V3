@@ -70,9 +70,20 @@ describe('chapter story memory controller', () => {
       settings: { revision: '3', active: { providerId: 'codex', modelId: 'gpt-6-astra', reasoning: 'high', serviceTier: null }, favorites: [] },
       catalog: { models: [{ key: providerIpc.storyMemoryModel, label: 'GPT-5.6-Luna', providerLabel: 'Codex', reasoningLevels: ['xhigh'], serviceTiers: [{id:'priority',label:'Fast'}], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: true, statusDetail: 'Historical reference' }] },
       dispatch: { kind: 'codexCli', detail: 'Connected' }, codexConnection: { ready: true, memoryReady: false, detail: 'Connected' },
+      storyMemory: { revision: '0', providerId: 'codex', providerLabel: 'Codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority', ready: false, detail: 'Connected but Luna maintenance traits are unavailable' },
     });
     await act(async () => root.render(<ProviderSettingsProvider><ChapterMemory session={session} state={state} title="The return" visible onClose={vi.fn()} /></ProviderSettingsProvider>));
     expect([...host.querySelectorAll('button')].find(button=>button.textContent==='Refresh story memory')!.disabled).toBe(true);
+    expect(memory.startMemory).not.toHaveBeenCalled();
+  });
+  it('fails closed when native maintenance state is absent instead of selecting a live fallback', async () => {
+    vi.mocked(providerIpc.readProviderState).mockResolvedValue({
+      settings: { revision: '0', active: providerIpc.localModel, favorites: [] },
+      catalog: { models: [{ key: providerIpc.localModel, label: 'Local test model', providerLabel: 'Local', reasoningLevels: [], serviceTiers: [], contextWindowTokens: null, maxOutputTokens: null, origin: 'builtIn', ready: true, statusDetail: 'No live AI connected' }] },
+      dispatch: { kind: 'localMock', detail: 'No live AI connected' },
+    });
+    await act(async () => root.render(<ProviderSettingsProvider><ChapterMemory session={session} state={state} title="The return" visible onClose={vi.fn()} /></ProviderSettingsProvider>));
+    expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Refresh story memory')!.disabled).toBe(true);
     expect(memory.startMemory).not.toHaveBeenCalled();
   });
   it('uses Luna xhigh for memory even when the writing picker has another model', async () => {
@@ -81,6 +92,7 @@ describe('chapter story memory controller', () => {
       catalog: { models: [{ key: providerIpc.storyMemoryModel, label: 'GPT-5.6-Luna', providerLabel: 'Codex', reasoningLevels: ['xhigh'], serviceTiers: [{ id: 'priority', label: 'Fast' }], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: true, statusDetail: 'Connected' }] },
       dispatch: { kind: 'blocked', detail: 'Drafting model is unavailable' },
       codexConnection: { ready: true, detail: 'Connected' },
+      storyMemory: { revision: '4', providerId: 'codex', providerLabel: 'Codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority', ready: true, detail: 'Connected' },
     });
     await act(async () => root.render(<ProviderSettingsProvider><ChapterMemory session={session} state={state} title="The return" visible onClose={vi.fn()} /></ProviderSettingsProvider>));
     expect(host.textContent).toContain('GPT-5.6-Luna · Extra high');

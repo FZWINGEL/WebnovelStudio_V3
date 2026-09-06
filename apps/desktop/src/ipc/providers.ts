@@ -3,6 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 export interface ModelKey { providerId: string; modelId: string }
 export interface ModelSelection extends ModelKey { reasoning: string | null; serviceTier: string | null }
 export interface ModelSettings { revision: string; active: ModelSelection; favorites: ModelKey[] }
+export interface StoryMemoryView {
+  revision: string; providerId: string; providerLabel: string;
+  modelId: string; reasoning: string | null; serviceTier: string | null;
+  ready: boolean; detail: string;
+}
 export interface ModelDescriptor {
   key: ModelKey; label: string; providerLabel: string; reasoningLevels: string[];
   serviceTiers: Array<{ id: string; label: string }>;
@@ -14,13 +19,20 @@ export interface ProviderState {
   settings: ModelSettings; catalog: { models: ModelDescriptor[] };
   dispatch: { kind: 'localMock' | 'codexCli' | 'openAiCompatible' | 'blocked'; detail: string };
   codexConnection?: { ready: boolean; memoryReady?: boolean; detail: string };
+  /** Native production state always supplies this. Optional keeps isolated
+   * picker fixtures compatible while preventing the memory panel from
+   * inventing a live maintenance target when it is absent. */
+  storyMemory?: StoryMemoryView;
 }
 export const localModel: ModelSelection = { providerId: 'mock', modelId: 'mock-story-context', reasoning: null, serviceTier: null };
+export const storyMemoryMockModel: ModelSelection = { ...localModel };
+/** Retained for older isolated fixtures; production memory uses storyMemory. */
 export const storyMemoryModel: ModelSelection = { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority' };
 export const sameModel = (left: ModelKey, right: ModelKey) => left.providerId === right.providerId && left.modelId === right.modelId;
 export const readProviderState = (): Promise<ProviderState> => invoke('provider_state');
 export const checkCodexConnection = (): Promise<ProviderState> => invoke('check_codex_connection');
 export const saveModelSettings = (expectedRevision: string, active: ModelSelection, favorites: ModelKey[]): Promise<ProviderState> => invoke('save_model_settings', { expectedRevision, active, favorites });
+export const saveStoryMemoryProvider = (expectedRevision: string, providerId: string): Promise<ProviderState> => invoke('save_story_memory_provider', { expectedRevision, providerId });
 
 export interface EndpointProfile {
   id: string; label: string; baseUrl: string; enabled: boolean; jsonMode: boolean;

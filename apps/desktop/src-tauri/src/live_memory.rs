@@ -268,6 +268,7 @@ fn report_with_error(
         }),
         error,
         effective_identity: None,
+        delivery: None,
     }
 }
 
