@@ -1088,6 +1088,8 @@ try {
   await qualifyReviewedExport({ page, data, output, operateSaveDialog, createWritingProject, checks });
   const { qualifyReviewedEvidence } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-reviewed-evidence.mjs')).href);
   await qualifyReviewedEvidence({ page, data, output, createWritingProject, checks });
+  const { qualifyReviewedSummaries } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-reviewed-summaries.mjs')).href);
+  await qualifyReviewedSummaries({ page, data, output, createWritingProject, checks });
   const { qualifyStructuredSuggestions } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-structured-suggestions.mjs')).href);
   await qualifyStructuredSuggestions({ page, data, output, createWritingProject, checks });
   const { runPromiseHistoryFlow } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-promise-history.mjs')).href);

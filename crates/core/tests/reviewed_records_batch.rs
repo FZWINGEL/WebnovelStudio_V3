@@ -115,6 +115,7 @@ fn mark_ready(
             expected: document.head.clone(),
             records: Some(vec![record(operation_id, text)]),
             promises: None,
+            summary: None,
         })
         .unwrap();
     project

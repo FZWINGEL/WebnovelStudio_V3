@@ -16,6 +16,7 @@ pub mod packet;
 pub mod promise_history;
 pub mod reviewed_evidence;
 pub mod reviewed_promises;
+pub mod reviewed_summaries;
 
 pub use contracts::{
     Audience, BasisKind, BudgetError, BudgetErrorCode, CharacterGrant, ContextPurpose,

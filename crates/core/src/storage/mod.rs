@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 31;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 32;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -121,6 +121,34 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         // validate.
         if version < 31 {
             tx.execute_batch("SELECT 1;")?;
+        }
+        if version < 32 {
+            let columns = [
+                ("review_stages", "summary_json"),
+                ("review_stages", "summary_hash"),
+                ("ready_bundles", "summary_json"),
+                ("ready_bundles", "summary_hash"),
+            ];
+            let mut missing = Vec::new();
+            for &(table, column) in &columns {
+                let present: bool = tx.query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name=?)"
+                    ),
+                    [column],
+                    |row| row.get(0),
+                )?;
+                if !present {
+                    missing.push((table, column));
+                }
+            }
+            if missing.len() == columns.len() {
+                tx.execute_batch(include_str!("032_reviewed_summaries.sql"))?;
+            } else {
+                for (table, column) in missing {
+                    tx.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT"), [])?;
+                }
+            }
         }
         // Schema 30 adds the nullable Claude terminal model claim. NULL keeps
         // historical Codex and HTTP receipts byte-compatible while the reader

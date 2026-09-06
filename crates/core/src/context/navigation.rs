@@ -41,6 +41,7 @@ pub struct FrozenNavigationView {
 #[serde(rename_all = "camelCase")]
 pub enum NavigationOmissionReason {
     OriginalTextIncluded,
+    AcceptedSummaryIncluded,
     Budget,
     NotSmaller,
 }

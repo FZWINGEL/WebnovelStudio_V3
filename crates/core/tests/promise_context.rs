@@ -177,6 +177,7 @@ fn working_frozen(
         conversation: None,
         navigation_views: Vec::new(),
         reviewed_evidence: Vec::new(),
+        reviewed_summaries: Vec::new(),
         reviewed_promises: promises,
     }
 }
@@ -359,6 +360,7 @@ fn restricted_history_filters_private_observations_without_private_identifiers()
         conversation: None,
         navigation_views: Vec::new(),
         reviewed_evidence: Vec::new(),
+        reviewed_summaries: Vec::new(),
         reviewed_promises: vec![set],
     };
     let history = query_promise_history(&frozen, "reader-promise").unwrap();
@@ -686,6 +688,7 @@ fn restricted_packet_omits_frozen_source_titles() {
         conversation: None,
         navigation_views: Vec::new(),
         reviewed_evidence: Vec::new(),
+        reviewed_summaries: Vec::new(),
         reviewed_promises: vec![promise_set],
     };
     let request = PacketRequest {

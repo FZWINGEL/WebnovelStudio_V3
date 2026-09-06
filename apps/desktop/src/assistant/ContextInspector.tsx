@@ -118,6 +118,13 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
   const reviewedEvidenceCoverage = state?.packet.receipt.reviewedEvidence ?? [];
   const reviewedEvidenceOmissions = state?.packet.receipt.reviewedEvidenceOmissions ?? [];
   const restrictedAudience = state?.frozen.policy.audience === 'restrictedWriting';
+  const acceptedSummaries = (state?.frozen.reviewedSummaries ?? []).filter(set =>
+    !restrictedAudience || set.summary.audience === 'reader');
+  const summaryCoverage = state?.packet.receipt.reviewedSummaries ?? [];
+  const suppliedSummaries = acceptedSummaries.filter(set => summaryCoverage.some(receipt =>
+    receipt.sourceHandle === set.sourceHandle && receipt.bundleId === set.bundleId
+      && receipt.summaryId === set.summary.id && receipt.summaryHash === set.summaryHash));
+  const summaryOmissions = state?.packet.receipt.reviewedSummaryOmissions ?? [];
   const reviewedPromises = state?.frozen.reviewedPromises ?? [];
   const promiseCoverage = state?.packet.receipt.reviewedPromises ?? [];
   const promiseOmissions = state?.packet.receipt.reviewedPromiseOmissions ?? [];
@@ -174,6 +181,24 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
     if (view.dependencies.length !== 1 || !sameSource(view.dependencies[0], view.candidate.source)) return undefined;
     return items.find(item => sameSource(item.source, view.dependencies[0]));
   }
+  function summaryRows(used: boolean) {
+    return (used ? suppliedSummaries : acceptedSummaries).map(set => {
+      const original = items.find(item => item.handle === set.sourceHandle && sameSource(item.source, set.summary.source));
+      return <li key={set.summary.id} className="context-accepted-summary"><details>
+        <summary>Accepted narrative summary · {reviewedSourceName(set.sourceHandle)}</summary>
+        <p className="small-copy">Reviewed by you for this saved chapter version. {set.summary.audience === 'reader' ? 'Approved for reader-facing writing.' : 'Author room only.'} The original prose remains available.</p>
+        <p style={{ whiteSpace: 'pre-wrap' }}>{set.summary.text}</p>
+        <button className="text-button" disabled={!original || busy} onClick={() => original && void read(original)}>Open summary source{original ? ` · ${original.displayName}` : ''}</button>
+      </details></li>;
+    });
+  }
+  function summaryOmission(item: typeof summaryOmissions[number]): string {
+    const reason = item.reason === 'disclosure' ? 'it is private to the author room'
+      : item.reason === 'originalTextIncluded' ? 'the original prose was supplied instead'
+        : item.reason === 'notSmaller' ? 'it would not reduce the supplied context'
+          : 'it did not fit within the request budget';
+    return `${reviewedSourceName(item.sourceHandle)} accepted summary: ${reason}.`;
+  }
   function navigationRows(used: boolean) {
     return (used ? suppliedNavigation : navigation).map(view => {
       const original = navigationSource(view);
@@ -193,6 +218,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
     const view = navigation.find(item => item.reference.viewId === viewId);
     const title = view ? navigationSource(view)?.displayName ?? 'A chapter' : 'A chapter';
     const explanation = reason === 'originalTextIncluded' ? 'the original text was included instead'
+      : reason === 'acceptedSummaryIncluded' ? 'an accepted narrative summary was supplied instead'
       : reason === 'notSmaller' ? 'it would not reduce the size of the supplied context'
         : 'it did not fit within the request budget';
     return `${title} summary: ${explanation}.`;
@@ -212,6 +238,7 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
     const match = /^handle:([^;]+);reason:(.*)$/u.exec(text);
     if (!match) return text;
     const title = items.find(item => item.handle === match[1])?.displayName ?? 'A source';
+    if (suppliedSummaries.some(set => set.sourceHandle === match[1])) return `${title}: an accepted narrative summary was supplied. The original text was not included.`;
     if (suppliedNavigation.some(view => navigationSource(view)?.handle === match[1])) return `${title}: a generated summary was supplied. The original text was not included.`;
     const count = /(?:^|;)(?:blocks|remaining):(\d+)/u.exec(match[2]);
     return `${title}: ${count ? `${count[1]} blocks were not included` : 'some text was not included'} within the request budget.`;
@@ -239,10 +266,11 @@ export function ContextInspector({ access, packetId, delivered, refreshKey, onPi
       {state.packet.options.providerBinding?.runtime && <p className="small-copy">Prepared for Codex CLI {state.packet.options.providerBinding.runtime.cliVersion}. The saved request retains the checked executable identity.</p>}
       {state.packet.receipt.safeBrief && <section className="context-safe-brief" aria-label="Approved writing brief"><strong>Author-approved writing brief</strong><p>{state.packet.receipt.safeBrief.text}</p><p className="small-copy">Exact directions shared for this edit request. The originating discussion was not added as context.</p></section>}
       {state.packet.receipt.lookup && <LookupContextView lookup={state.packet.receipt.lookup} sources={items} busy={busy} onRead={readHandle} />}
-      <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} {supplied.size === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${suppliedNavigation.length} generated ${suppliedNavigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedRecords(true).length ? ` · ${reviewedRecords(true).length} reviewed ${reviewedRecords(true).length === 1 ? 'detail' : 'details'}` : ''}{suppliedPromises.length ? ` · ${suppliedPromises.length} promise ${suppliedPromises.length === 1 ? 'detail' : 'details'}` : ''}{guidance.length > 0 ? ` · ${suppliedGuidance.size} ${suppliedGuidance.size === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${suppliedTurns.length} earlier ${suppliedTurns.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}{reviewedProvenanceRows(true)}{reviewedRows(true)}{promiseRows(true)}{navigationRows(true)}{guidanceRows(true)}{conversationRows(true)}</ul></details>
-      <details><summary>Available · {items.length} {items.length === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${navigation.length} generated ${navigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedEvidence.length ? ` · ${reviewedRecords(false).length} reviewed ${reviewedRecords(false).length === 1 ? 'detail' : 'details'}` : ''}{availablePromises.length ? ` · ${availablePromises.length} promise ${availablePromises.length === 1 ? 'detail' : 'details'}` : ''}{guidance.length > 0 ? ` · ${guidance.length} ${guidance.length === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${conversation.length} earlier ${conversation.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><p className="small-copy">Permitted for this request. Availability does not mean the model read every source.</p><ul>{items.map(row)}{reviewedProvenanceRows(false)}{reviewedRows(false)}{promiseRows(false)}{navigationRows(false)}{guidanceRows(false)}{conversationRows(false)}</ul></details>
+      <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} {supplied.size === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${suppliedNavigation.length} generated ${suppliedNavigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedRecords(true).length ? ` · ${reviewedRecords(true).length} reviewed ${reviewedRecords(true).length === 1 ? 'detail' : 'details'}` : ''}{suppliedPromises.length ? ` · ${suppliedPromises.length} promise ${suppliedPromises.length === 1 ? 'detail' : 'details'}` : ''}{suppliedSummaries.length ? ` · ${suppliedSummaries.length} accepted ${suppliedSummaries.length === 1 ? 'summary' : 'summaries'}` : ''}{guidance.length > 0 ? ` · ${suppliedGuidance.size} ${suppliedGuidance.size === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${suppliedTurns.length} earlier ${suppliedTurns.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}{reviewedProvenanceRows(true)}{reviewedRows(true)}{promiseRows(true)}{summaryRows(true)}{navigationRows(true)}{guidanceRows(true)}{conversationRows(true)}</ul></details>
+      <details><summary>Available · {items.length} {items.length === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${navigation.length} generated ${navigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedEvidence.length ? ` · ${reviewedRecords(false).length} reviewed ${reviewedRecords(false).length === 1 ? 'detail' : 'details'}` : ''}{availablePromises.length ? ` · ${availablePromises.length} promise ${availablePromises.length === 1 ? 'detail' : 'details'}` : ''}{acceptedSummaries.length ? ` · ${acceptedSummaries.length} accepted ${acceptedSummaries.length === 1 ? 'summary' : 'summaries'}` : ''}{guidance.length > 0 ? ` · ${guidance.length} ${guidance.length === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${conversation.length} earlier ${conversation.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><p className="small-copy">Permitted for this request. Availability does not mean the model read every source.</p><ul>{items.map(row)}{reviewedProvenanceRows(false)}{reviewedRows(false)}{promiseRows(false)}{summaryRows(false)}{navigationRows(false)}{guidanceRows(false)}{conversationRows(false)}</ul></details>
       <details><summary>Not included</summary>
         {state.packet.receipt.omissions.length ? <ul>{state.packet.receipt.omissions.map((text, i) => <li key={i}>{omission(text)}</li>)}</ul> : <p className="small-copy">All permitted sources fit this request.</p>}
+        {summaryOmissions.length > 0 && <ul>{summaryOmissions.map(item => <li key={`summary/${item.sourceHandle}`}>{summaryOmission(item)}</li>)}</ul>}
         {navigationOmissions.length > 0 && <ul>{navigationOmissions.map(item => <li key={item.viewId}>{navigationOmission(item.viewId, item.reason)}</li>)}</ul>}
         {reviewedEvidenceOmissions.length > 0 && <ul>{reviewedEvidenceOmissions.map((item, index) => <li key={`${item.sourceHandle}/${item.bundleId}/${item.reason}/${index}`}>{reviewedOmission(item)}</li>)}</ul>}
         {promiseOmissions.length > 0 && <ul>{promiseOmissions.map((item, index) => <li key={`promise/${item.sourceHandle}/${item.bundleId}/${item.reason}/${index}`}>{item.count} promise {item.count === 1 ? 'detail was' : 'details were'} withheld from {reviewedSourceName(item.sourceHandle)} by {item.reason === 'disclosure' ? 'the reader disclosure policy' : 'the request budget'}.</li>)}</ul>}

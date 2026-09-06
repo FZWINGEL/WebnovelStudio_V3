@@ -25,6 +25,7 @@ pub mod import;
 pub mod memory;
 pub mod proposals;
 pub mod reviewed_story;
+pub mod reviewed_summary;
 pub mod source_pins;
 pub mod story_context;
 pub mod story_records;

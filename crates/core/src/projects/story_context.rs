@@ -15,6 +15,9 @@ use crate::context::reviewed_promises::{
     ReviewedPromiseSet, from_storage_parts as promise_from_storage_parts,
     validate_frozen_promise_set, validate_promise_payload,
 };
+use crate::context::reviewed_summaries::{
+    ReviewedSummarySet, validate_frozen_set as validate_frozen_summary,
+};
 use crate::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
     ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind, SourceRef,
@@ -75,6 +78,8 @@ pub struct FrozenContext {
     /// Empty legacy snapshots omit this field and retain their original JSON.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_promises: Vec<ReviewedPromiseSet>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_summaries: Vec<ReviewedSummarySet>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -623,6 +628,7 @@ pub(super) fn freeze_reviewed_continuation_at(
     let mut reviewed_source_refs = Vec::with_capacity(prefix.len());
     let mut reviewed_evidence = Vec::new();
     let mut reviewed_promises = Vec::new();
+    let mut reviewed_summaries = Vec::new();
     for item in &prefix {
         let revision = read_revision(tx, &item.revision_id)?;
         if revision.head != item.head {
@@ -689,6 +695,22 @@ pub(super) fn freeze_reviewed_continuation_at(
                 )
             })?;
         let source_handle = format!("reviewed-{}", record_set.bundle_id);
+        if let Some(summary) = record_set.summary.clone() {
+            let summary_hash = record_set.summary_hash.clone().ok_or_else(|| {
+                CoreError::new(
+                    "InvalidReviewedSummary",
+                    "An accepted summary is missing its fingerprint.",
+                )
+            })?;
+            reviewed_summaries.push(ReviewedSummarySet {
+                project_id: record_set.project_id.clone(),
+                operation_namespace: record_set.operation_namespace.clone(),
+                bundle_id: record_set.bundle_id.clone(),
+                summary_hash,
+                source_handle: source_handle.clone(),
+                summary,
+            });
+        }
         if !record_set.records.is_empty() {
             let records_hash = record_set.records_hash.ok_or_else(|| {
                 CoreError::new(
@@ -785,12 +807,16 @@ pub(super) fn freeze_reviewed_continuation_at(
         navigation_views: Vec::new(),
         reviewed_evidence,
         reviewed_promises,
+        reviewed_summaries,
     };
     for evidence in &frozen.reviewed_evidence {
         validate_frozen_evidence_set(evidence, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
     for promises in &frozen.reviewed_promises {
         validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
+    for summary in &frozen.reviewed_summaries {
+        validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
     let json = serde_json::to_string(&frozen)?;
     tx.execute(
@@ -1045,6 +1071,7 @@ fn freeze_story_impl(
         navigation_views: Vec::new(),
         reviewed_evidence: Vec::new(),
         reviewed_promises: Vec::new(),
+        reviewed_summaries: Vec::new(),
     };
     frozen.navigation_views = select_navigation_views_at(tx, &frozen)?;
     if frozen.policy.audience == Audience::AuthorRoom
@@ -1082,6 +1109,22 @@ fn freeze_story_impl(
                     )
                 })?;
             let source_handle = source.handle.clone();
+            if let Some(summary) = record_set.summary.clone() {
+                let summary_hash = record_set.summary_hash.clone().ok_or_else(|| {
+                    CoreError::new(
+                        "InvalidReviewedSummary",
+                        "An accepted summary is missing its fingerprint.",
+                    )
+                })?;
+                frozen.reviewed_summaries.push(ReviewedSummarySet {
+                    project_id: record_set.project_id.clone(),
+                    operation_namespace: record_set.operation_namespace.clone(),
+                    bundle_id: record_set.bundle_id.clone(),
+                    summary_hash,
+                    source_handle: source_handle.clone(),
+                    summary,
+                });
+            }
             if !record_set.records.is_empty() {
                 let records_hash = record_set.records_hash.ok_or_else(|| {
                     CoreError::new(
@@ -1125,6 +1168,9 @@ fn freeze_story_impl(
     }
     for promises in &frozen.reviewed_promises {
         validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
+    for summary in &frozen.reviewed_summaries {
+        validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
     validate_frozen_navigation_views(
         &frozen.navigation_views,
@@ -1503,6 +1549,9 @@ pub(super) fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContex
     for promises in &frozen.reviewed_promises {
         validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
+    for summary in &frozen.reviewed_summaries {
+        validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
     validate_frozen_guidance(
         &frozen.guidance,
         &frozen.snapshot.project_id,
@@ -1537,6 +1586,26 @@ fn validate_pins(
     snapshot_namespace: &str,
 ) -> CoreResult<()> {
     let mut review_validation = reviewed_story::ReviewValidationContext::new(db);
+    let mut summary_handles = HashSet::new();
+    for summary in &frozen.reviewed_summaries {
+        validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+        if summary.operation_namespace != snapshot_namespace
+            || !summary_handles.insert(&summary.source_handle)
+        {
+            return Err(CoreError::new(
+                "InvalidReviewedSummary",
+                "Accepted summaries have an invalid namespace or duplicate source.",
+            ));
+        }
+        review_validation.validate_reviewed_summary(
+            &frozen.snapshot.project_id,
+            snapshot_namespace,
+            &summary.bundle_id,
+            &summary.summary_hash,
+            &summary.summary,
+        )?;
+    }
+
     for evidence in &frozen.reviewed_evidence {
         validate_frozen_evidence_set(evidence, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
         let source = read_source(db, frozen, &evidence.source_handle)?;

@@ -290,6 +290,7 @@ fn mark_ready(project: &ProjectSession, access: &ProjectAccess, chapter: &Head, 
             expected: chapter.clone(),
             records: None,
             promises: None,
+            summary: None,
         })
         .unwrap();
     project

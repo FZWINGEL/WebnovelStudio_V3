@@ -35,6 +35,9 @@ use super::reviewed_promises::{
     ReviewedPromiseSet, eligible_records as eligible_promise_records,
     records_hash as promise_records_hash, validate_frozen_promise_set, validate_promise_payload,
 };
+use super::reviewed_summaries::{
+    self, ReviewedSummaryOmission, ReviewedSummaryOmissionReason, ReviewedSummarySet,
+};
 use crate::documents::{ScopeGrant, ScopeKind, ScopeValidationRequest, validate_scope};
 use crate::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
 use crate::validate_snapshot_json;
@@ -719,6 +722,49 @@ struct PacketSource {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct AcceptedSummariesEnvelope {
+    coverage: &'static str,
+    representation: &'static str,
+    complete_summary: bool,
+    summaries: Vec<AcceptedSummaryPayload>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcceptedSummaryPayload {
+    source_handle: String,
+    bundle_id: String,
+    summary_id: String,
+    summary_hash: String,
+    source: SourceRef,
+    dependencies: Vec<SourceRef>,
+    text: String,
+}
+
+fn summary_payload(set: &ReviewedSummarySet) -> AcceptedSummaryPayload {
+    AcceptedSummaryPayload {
+        source_handle: set.source_handle.clone(),
+        bundle_id: set.bundle_id.clone(),
+        summary_id: set.summary.id.clone(),
+        summary_hash: set.summary_hash.clone(),
+        source: set.summary.source.clone(),
+        dependencies: set
+            .summary
+            .dependencies
+            .iter()
+            .map(|item| SourceRef {
+                project_id: set.project_id.clone(),
+                document_id: item.document_id.clone(),
+                revision_id: item.revision_id.clone(),
+                body_hash: item.head.body_hash.clone(),
+            })
+            .collect(),
+        text: set.summary.text.clone(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ContextEnvelope {
     schema: &'static str,
     snapshot_id: String,
@@ -746,6 +792,8 @@ struct ContextEnvelope {
     reviewed_evidence: Option<ReviewedEvidenceEnvelope>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reviewed_promises: Option<ReviewedPromiseEnvelope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    accepted_summaries: Option<AcceptedSummariesEnvelope>,
     omissions: Vec<String>,
 }
 
@@ -1004,6 +1052,48 @@ fn compile_packet_with_schema(
     let validated_navigation_views = validate_navigation_views(request, &canonical_reads)?;
     let validated_reviewed_evidence = validate_reviewed_evidence(request, &canonical_reads)?;
     let validated_reviewed_promises = validate_reviewed_promises(request, &canonical_reads)?;
+    let mut summary_handles = HashSet::new();
+    for summary in &request.frozen.reviewed_summaries {
+        reviewed_summaries::validate_frozen_set(
+            summary,
+            &request.frozen.snapshot,
+            &request.frozen.policy,
+            request.frozen.purpose,
+        )
+        .map_err(|error| {
+            source_binding(
+                &error.code,
+                error.detail,
+                Some(summary.source_handle.clone()),
+            )
+        })?;
+        if !summary_handles.insert(&summary.source_handle)
+            || !canonical_reads.iter().any(|read| {
+                read.read.descriptor.handle == summary.source_handle
+                    && read.read.descriptor.source == summary.summary.source
+            })
+        {
+            return Err(source_binding(
+                "InvalidReviewedSummary",
+                "Accepted summaries require unique exact original source reads.",
+                Some(summary.source_handle.clone()),
+            ));
+        }
+        for dependency in &summary.summary.dependencies {
+            if !canonical_reads.iter().any(|read| {
+                read.read.descriptor.source.project_id == summary.project_id
+                    && read.read.descriptor.source.document_id == dependency.document_id
+                    && read.read.descriptor.source.revision_id == dependency.revision_id
+                    && read.read.descriptor.source.body_hash == dependency.head.body_hash
+            }) {
+                return Err(source_binding(
+                    "InvalidReviewedSummary",
+                    "Every accepted summary dependency requires its exact eligible source read.",
+                    Some(summary.source_handle.clone()),
+                ));
+            }
+        }
+    }
 
     let mut available = match request.provider_binding.as_ref() {
         Some(binding) => binding.input_limit().map_err(|message| {
@@ -1218,6 +1308,7 @@ fn compile_packet_with_schema(
             navigation_views: &[],
             reviewed_evidence: &validated_reviewed_evidence,
             reviewed_promises: &validated_reviewed_promises,
+            accepted_summaries: &[],
         },
         &options,
     )?;
@@ -1230,6 +1321,7 @@ fn compile_packet_with_schema(
             full_omissions,
             "fullText",
             PacketReceipts {
+                accepted_summaries: &[],
                 navigation: NavigationReceipt {
                     delivered_views: &[],
                     omissions: navigation_omissions(
@@ -1273,6 +1365,7 @@ fn compile_packet_with_schema(
             navigation_views: &[],
             reviewed_evidence: &[],
             reviewed_promises: &[],
+            accepted_summaries: &[],
         },
         &options,
     )?;
@@ -1311,6 +1404,7 @@ fn compile_packet_with_schema(
                 navigation_views: &[],
                 reviewed_evidence: &[],
                 reviewed_promises: &[],
+                accepted_summaries: &[],
             },
             &options,
         )?;
@@ -1335,6 +1429,7 @@ fn compile_packet_with_schema(
                 navigation_views: &[],
                 reviewed_evidence: &[],
                 reviewed_promises: &[],
+                accepted_summaries: &[],
             },
             &options,
         )?;
@@ -1346,6 +1441,7 @@ fn compile_packet_with_schema(
             mandatory_omissions,
             "layeredExcerpt",
             PacketReceipts {
+                accepted_summaries: &[],
                 navigation: NavigationReceipt {
                     delivered_views: &[],
                     omissions: navigation_omissions(
@@ -1368,6 +1464,56 @@ fn compile_packet_with_schema(
             },
         );
     }
+
+    // Accepted narrative summaries precede replaceable generated views. Each
+    // complete summary replaces optional original prose, never the target or a pin.
+    let mut delivered_summaries: Vec<ReviewedSummarySet> = Vec::new();
+    for handle in &optional_handles {
+        let Some(summary) = request
+            .frozen
+            .reviewed_summaries
+            .iter()
+            .find(|set| &set.source_handle == handle)
+        else {
+            continue;
+        };
+        if !reviewed_summaries::eligible(summary, request.frozen.policy.audience)
+            || !summary_is_smaller(summary, request)
+        {
+            continue;
+        }
+        let mut candidate = delivered_summaries.clone();
+        candidate.push(summary.clone());
+        let packet = build_serialized(
+            request,
+            &target_handle,
+            &target,
+            &mandatory_sources,
+            &mandatory_omissions,
+            Packing {
+                schema,
+                method: "layeredExcerpt",
+                conversation_turns: included_turns,
+                navigation_views: &[],
+                reviewed_evidence: &[],
+                reviewed_promises: &[],
+                accepted_summaries: &candidate,
+            },
+            &options,
+        )?;
+        if packet.input_tokens > available {
+            break;
+        }
+        delivered_summaries = candidate;
+    }
+    let optional_handles: Vec<String> = optional_handles
+        .into_iter()
+        .filter(|handle| {
+            !delivered_summaries
+                .iter()
+                .any(|summary| &summary.source_handle == handle)
+        })
+        .collect();
 
     // First choose complete generated views in stable source order. A view is
     // useful only when its full representation is smaller than the original
@@ -1414,6 +1560,7 @@ fn compile_packet_with_schema(
                 navigation_views: &candidate_views,
                 reviewed_evidence: &[],
                 reviewed_promises: &[],
+                accepted_summaries: &delivered_summaries,
             },
             &options,
         )?;
@@ -1472,6 +1619,7 @@ fn compile_packet_with_schema(
                     navigation_views: &delivered_views,
                     reviewed_evidence: &candidate_evidence,
                     reviewed_promises: &[],
+                    accepted_summaries: &delivered_summaries,
                 },
                 &options,
             )?;
@@ -1533,6 +1681,7 @@ fn compile_packet_with_schema(
                     navigation_views: &delivered_views,
                     reviewed_evidence: &delivered_reviewed_evidence,
                     reviewed_promises: &candidate_promises,
+                    accepted_summaries: &delivered_summaries,
                 },
                 &options,
             )?;
@@ -1612,6 +1761,7 @@ fn compile_packet_with_schema(
                     navigation_views: &delivered_views,
                     reviewed_evidence: &delivered_reviewed_evidence,
                     reviewed_promises: &delivered_reviewed_promises,
+                    accepted_summaries: &delivered_summaries,
                 },
                 &options,
             )?;
@@ -1642,6 +1792,7 @@ fn compile_packet_with_schema(
             navigation_views: &delivered_views,
             reviewed_evidence: &delivered_reviewed_evidence,
             reviewed_promises: &delivered_reviewed_promises,
+            accepted_summaries: &delivered_summaries,
         },
         &options,
     )?;
@@ -1653,6 +1804,7 @@ fn compile_packet_with_schema(
         omissions,
         "layeredExcerpt",
         PacketReceipts {
+            accepted_summaries: &delivered_summaries,
             navigation: NavigationReceipt {
                 delivered_views: &delivered_views,
                 omissions: navigation_omissions(
@@ -1724,14 +1876,30 @@ fn finish_packet(
             origin_message_id: brief.origin_message_id.clone(),
         }),
         coverage,
-        omissions,
+        omissions: summary_source_omissions(&omissions, receipts.accepted_summaries),
         navigation_views: receipts
             .navigation
             .delivered_views
             .iter()
             .map(|view| view.reference.clone())
             .collect(),
-        navigation_omissions: receipts.navigation.omissions,
+        navigation_omissions: receipts
+            .navigation
+            .omissions
+            .into_iter()
+            .map(|mut omission| {
+                if request.frozen.navigation_views.iter().any(|view| {
+                    view.reference.view_id == omission.view_id
+                        && receipts
+                            .accepted_summaries
+                            .iter()
+                            .any(|summary| summary.summary.source == view.candidate.source)
+                }) {
+                    omission.reason = NavigationOmissionReason::AcceptedSummaryIncluded;
+                }
+                omission
+            })
+            .collect(),
         reviewed_evidence: receipts
             .evidence
             .delivered
@@ -1769,6 +1937,37 @@ fn finish_packet(
             })
             .collect(),
         reviewed_promise_omissions: receipts.promises.omissions.to_vec(),
+        reviewed_summaries: receipts
+            .accepted_summaries
+            .iter()
+            .map(reviewed_summaries::coverage)
+            .collect(),
+        reviewed_summary_omissions: request
+            .frozen
+            .reviewed_summaries
+            .iter()
+            .filter(|summary| {
+                !receipts
+                    .accepted_summaries
+                    .iter()
+                    .any(|item| item.source_handle == summary.source_handle)
+            })
+            .map(|summary| ReviewedSummaryOmission {
+                source_handle: summary.source_handle.clone(),
+                reason: if !reviewed_summaries::eligible(summary, request.frozen.policy.audience) {
+                    ReviewedSummaryOmissionReason::Disclosure
+                } else if sources.iter().any(|source| {
+                    source.read.read.descriptor.handle == summary.source_handle
+                        && source.passages.is_none()
+                }) {
+                    ReviewedSummaryOmissionReason::OriginalTextIncluded
+                } else if !summary_is_smaller(summary, request) {
+                    ReviewedSummaryOmissionReason::NotSmaller
+                } else {
+                    ReviewedSummaryOmissionReason::Budget
+                },
+            })
+            .collect(),
         input_hash: sha256_hex(packet.serialized.as_bytes()),
         input_tokens: packet.input_tokens.to_string(),
         token_accounting_method: options.token_accounting_method.clone(),
@@ -2365,6 +2564,7 @@ struct Packing<'a> {
     navigation_views: &'a [FrozenNavigationView],
     reviewed_evidence: &'a [PackedReviewedEvidence],
     reviewed_promises: &'a [PackedReviewedPromises],
+    accepted_summaries: &'a [ReviewedSummarySet],
 }
 
 struct ReviewedEvidenceReceipt<'a> {
@@ -2381,6 +2581,7 @@ struct PacketReceipts<'a> {
     navigation: NavigationReceipt<'a>,
     evidence: ReviewedEvidenceReceipt<'a>,
     promises: ReviewedPromiseReceipt<'a>,
+    accepted_summaries: &'a [ReviewedSummarySet],
 }
 
 fn is_zero(value: &u32) -> bool {
@@ -2531,7 +2732,19 @@ fn build_serialized(
                     .collect(),
             }
         }),
-        omissions: omissions.to_vec(),
+        accepted_summaries: (!packing.accepted_summaries.is_empty()).then(|| {
+            AcceptedSummariesEnvelope {
+                coverage: "reviewedAccepted",
+                representation: "narrativeSummary",
+                complete_summary: true,
+                summaries: packing
+                    .accepted_summaries
+                    .iter()
+                    .map(summary_payload)
+                    .collect(),
+            }
+        }),
+        omissions: summary_source_omissions(omissions, packing.accepted_summaries),
     };
     let system_content =
         serde_json::to_string(&envelope).map_err(|error| PacketError::InvalidRequest {
@@ -3153,4 +3366,35 @@ fn sha256_hex(bytes: &[u8]) -> String {
         write!(&mut result, "{byte:02x}").expect("writing to String cannot fail");
     }
     result
+}
+
+fn summary_is_smaller(summary: &ReviewedSummarySet, request: &PacketRequest) -> bool {
+    let summary_bytes =
+        serde_json::to_vec(&summary_payload(summary)).map_or(usize::MAX, |bytes| bytes.len());
+    request
+        .sources
+        .iter()
+        .find(|source| source.descriptor.handle == summary.source_handle)
+        .is_some_and(|source| {
+            serde_json::to_vec(&source.body).is_ok_and(|bytes| summary_bytes < bytes.len())
+        })
+}
+
+fn summary_source_omissions(original: &[String], summaries: &[ReviewedSummarySet]) -> Vec<String> {
+    let mut omissions: Vec<String> = original
+        .iter()
+        .filter(|entry| {
+            !summaries.iter().any(|summary| {
+                entry.starts_with(&format!("handle:{};reason:", summary.source_handle))
+            })
+        })
+        .cloned()
+        .collect();
+    omissions.extend(summaries.iter().map(|summary| {
+        omission(
+            &summary.source_handle,
+            "accepted narrative summary delivered;original source omitted",
+        )
+    }));
+    omissions
 }

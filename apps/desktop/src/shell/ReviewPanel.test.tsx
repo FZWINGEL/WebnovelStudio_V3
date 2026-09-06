@@ -16,6 +16,12 @@ const body = (text: string): WnsDocument => ({ schemaVersion: 1, body: { type: '
 let host: HTMLDivElement; let root: Root; let session: DocumentSession; let record: DocumentRecord;
 let staged: ipc.ReviewStage; let transport: ProjectTransport;
 const detail = (): ipc.PossessionRecord => ({ id: 'detail-1', object: { id: 'object-key', label: 'Key' }, holder: { id: 'holder-mei', label: 'Mei' }, timing: 'unknown', audience: 'authorRoom', evidence: { blockId: 'p', fromUtf16: 0, toUtf16: 17, quote: 'Mei held the key.', quoteHash: 'a'.repeat(64) } });
+async function summaryHashFor(summary: ipc.SummaryRevision): Promise<string> {
+  return bodyHash(JSON.stringify({ id: summary.id, text: summary.text, audience: summary.audience,
+    source: { projectId: summary.source.projectId, documentId: summary.source.documentId, revisionId: summary.source.revisionId, bodyHash: summary.source.bodyHash },
+    dependencies: summary.dependencies.map(member => ({ documentId: member.documentId, title: member.title, bundleId: member.bundleId, revisionId: member.revisionId,
+      head: { documentId: member.head.documentId, version: member.head.version, bodyHash: member.head.bodyHash } })) }));
+}
 function Harness({ visible = true, current = session }: { visible?: boolean; current?: DocumentSession }) {
   const [state, setState] = useState(current.state);
   useEffect(() => { setState(current.state); return current.subscribe(() => setState(current.state)); }, [current]);
@@ -71,6 +77,67 @@ describe('author review', () => {
     expect(session.body).toEqual(record.body); expect(transport.save).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Your review is saved.');
     expect(document.activeElement?.id).toBe('review-heading');
+  });
+  it('stages an explicit narrative summary and validates the returned identity', async () => {
+    staged.records = [detail()];
+    staged.summary = { id: 'summary-1', text: 'Mei guards the gate.', audience: 'authorRoom', source: { projectId: access.projectId, documentId: record.head.documentId, revisionId: 'revision', bodyHash: record.head.bodyHash }, dependencies: [] };
+    staged.summaryHash = await summaryHashFor(staged.summary);
+    vi.mocked(ipc.stageAuthorReview).mockImplementation(async request => {
+      const result = structuredClone(staged);
+      if (request.summary?.kind === 'set' && result.summary) { result.summary = { ...result.summary, text: request.summary.text, audience: request.summary.audience }; result.summaryHash = await summaryHashFor(result.summary); }
+      return result;
+    });
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    const editor = host.querySelector('#review-summary-text') as HTMLTextAreaElement;
+    await act(async () => { const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!; setValue.call(editor, 'The gate is under threat.'); editor.dispatchEvent(new Event('input', { bubbles: true })); });
+    await waitFor(() => expect(button('Save reviewed details')).toBeDefined()); await click('Save reviewed details'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[1][0].summary).toEqual({ kind: 'set', text: 'The gate is under threat.', audience: 'authorRoom' });
+    expect(host.textContent).toContain('Key');
+    await click('Edit'); await waitFor(() => expect(host.querySelector('[aria-label="Edit possession detail"]')).not.toBeNull());
+    const selects = host.querySelectorAll('select');
+    await act(async () => { (selects[2] as HTMLSelectElement).value = 'earlier'; selects[2].dispatchEvent(new Event('change', { bubbles: true })); });
+    await click('Keep detail'); await waitFor(() => expect(button('Save reviewed details')).toBeDefined()); await click('Save reviewed details');
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[2][0].summary).toEqual({ kind: 'set', text: 'The gate is under threat.', audience: 'authorRoom' });
+  });
+  it('refuses a staged summary with a tampered fingerprint', async () => {
+    staged.summary = { id: 'summary-1', text: 'Mei guards the gate.', audience: 'authorRoom', source: { projectId: access.projectId, documentId: record.head.documentId, revisionId: 'revision', bodyHash: record.head.bodyHash }, dependencies: [] };
+    staged.summaryHash = await summaryHashFor(staged.summary);
+    vi.mocked(ipc.stageAuthorReview).mockResolvedValue({ ...structuredClone(staged), summaryHash: '0'.repeat(64) });
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Check review save')).toBeDefined());
+    expect(ipc.markReady).not.toHaveBeenCalled();
+  });
+  it('refuses a mark acknowledgment with a changed summary fingerprint', async () => {
+    staged.summary = { id: 'summary-1', text: 'Mei guards the gate.', audience: 'authorRoom', source: { projectId: access.projectId, documentId: record.head.documentId, revisionId: 'revision', bodyHash: record.head.bodyHash }, dependencies: [] };
+    staged.summaryHash = await summaryHashFor(staged.summary);
+    vi.mocked(ipc.markReady).mockResolvedValue({ id: 'bundle', projectId: 'project', operationNamespace: 'namespace', target: record.head, stageId: 'stage', createdAt: '2026-09-06T00:01:00Z', summary: staged.summary, summaryHash: '0'.repeat(64) });
+    await render(); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined()); await click('Mark this version reviewed'); await waitFor(() => expect(button('Check review save')).toBeDefined());
+    expect(ipc.markReady).toHaveBeenCalledOnce();
+  });
+  it('requires an explicit summary decision before staging after the reviewed basis changes', async () => {
+    const oldBody = body('The old saved chapter.');
+    const oldHead = { documentId: record.head.documentId, version: '3', bodyHash: await bodyHash(canonicalJson(oldBody)) };
+    const oldRevision = { id: 'old-revision', head: oldHead, body: oldBody, reason: 'review', parentId: null };
+    const oldSummary: ipc.SummaryRevision = { id: 'old-summary', text: 'The old chapter held the gate.', audience: 'authorRoom', source: { projectId: access.projectId, documentId: oldHead.documentId, revisionId: oldRevision.id, bodyHash: oldHead.bodyHash }, dependencies: [] };
+    vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'changedProse', activeBundleId: 'bundle', pendingStageId: null, reason: 'Writing changed since review.', canStage: true });
+    vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue({ bundleId: 'bundle', projectId: access.projectId, operationNamespace: access.operationNamespace, target: oldHead, revision: oldRevision, records: [], current: false, summary: oldSummary, summaryHash: await summaryHashFor(oldSummary) });
+    await render(); expect(host.textContent).toContain('belongs to another saved chapter');
+    await click('Review saved chapter'); expect(ipc.stageAuthorReview).not.toHaveBeenCalled(); expect(host.textContent).toContain('Use this summary');
+    await click('Clear summary'); await click('Review saved chapter');
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[0][0].summary).toEqual({ kind: 'clear' });
+  });
+  it('preserves an explicit summary clear when a staged detail is restaged', async () => {
+    const oldBody = body('The old saved chapter.');
+    const oldHead = { documentId: record.head.documentId, version: '3', bodyHash: await bodyHash(canonicalJson(oldBody)) };
+    const oldRevision = { id: 'old-revision', head: oldHead, body: oldBody, reason: 'review', parentId: null };
+    const oldSummary: ipc.SummaryRevision = { id: 'old-summary', text: 'The old chapter held the gate.', audience: 'authorRoom', source: { projectId: access.projectId, documentId: oldHead.documentId, revisionId: oldRevision.id, bodyHash: oldHead.bodyHash }, dependencies: [] };
+    staged.records = [detail()];
+    vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'changedProse', activeBundleId: 'bundle', pendingStageId: null, reason: 'Writing changed since review.', canStage: true });
+    vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue({ bundleId: 'bundle', projectId: access.projectId, operationNamespace: access.operationNamespace, target: oldHead, revision: oldRevision, records: [], current: false, summary: oldSummary, summaryHash: await summaryHashFor(oldSummary) });
+    vi.mocked(ipc.stageAuthorReview).mockImplementation(async _request => { const result = structuredClone(staged); delete result.summary; delete result.summaryHash; return result; });
+    await render(); await click('Clear summary'); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    await click('Edit'); const selects = host.querySelectorAll('select'); await act(async () => { (selects[2] as HTMLSelectElement).value = 'earlier'; selects[2].dispatchEvent(new Event('change', { bubbles: true })); });
+    await click('Keep detail'); await waitFor(() => expect(button('Save reviewed details')).toBeDefined()); await click('Save reviewed details');
+    expect(vi.mocked(ipc.stageAuthorReview).mock.calls[1][0].summary).toEqual({ kind: 'clear' });
   });
   it('explains a missing earlier basis without disabling ordinary writing', async () => {
     vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'reviewNeeded', activeBundleId: null, pendingStageId: null, reason: 'Review The Departure first.', canStage: false });
@@ -238,7 +305,7 @@ describe('reviewed promises', () => {
     vi.mocked(ipc.stageAuthorReview).mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'Lost promise acknowledgment.' }).mockImplementation(async request => ({ ...structuredClone(staged), promises: request.promises }));
     await click('Save reviewed details');
     const original = vi.mocked(ipc.stageAuthorReview).mock.calls[1][0];
-    expect(original.promises).toEqual([]); expect(original.records).toBeUndefined();
+    expect(original.promises).toEqual([]); expect(original.records).toEqual([expect.objectContaining({ id: 'detail-1' })]);
     await click('Check review save'); await waitFor(() => expect(ipc.stageAuthorReview).toHaveBeenCalledTimes(3));
     expect(vi.mocked(ipc.stageAuthorReview).mock.calls[2][0]).toEqual({ ...original, access: { ...access, writerLease: 'new-lease' } });
     await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined()); expect(ipc.markReady).not.toHaveBeenCalled();

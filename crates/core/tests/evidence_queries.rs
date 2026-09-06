@@ -102,6 +102,7 @@ fn review(
             expected: document.head.clone(),
             records: Some(records),
             promises: None,
+            summary: None,
         })
         .unwrap();
     project

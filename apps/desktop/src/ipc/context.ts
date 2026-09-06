@@ -3,7 +3,7 @@ import type { WnsDocument } from '../editor/document';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { FrozenGuidance } from './guidance';
 import type { DigestCandidate } from './memory';
-import type { PossessionRecord, PromiseRecord } from './reviews';
+import type { PossessionRecord, PromiseRecord, SummaryRevision } from './reviews';
 
 export interface EvidenceHistoryObservation extends Pick<PossessionRecord, 'object' | 'holder' | 'timing' | 'audience' | 'evidence'> {
   recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
@@ -69,7 +69,14 @@ export interface FrozenContext {
   navigationViews?: FrozenNavigationView[];
   reviewedEvidence?: ReviewedEvidenceSet[];
   reviewedPromises?: ReviewedPromiseSet[];
+  reviewedSummaries?: ReviewedSummarySet[];
 }
+export interface ReviewedSummarySet {
+  projectId: string; operationNamespace: string; bundleId: string; summaryHash: string;
+  sourceHandle: string; summary: SummaryRevision;
+}
+export interface ReviewedSummaryCoverage { sourceHandle: string; bundleId: string; summaryId: string; summaryHash: string }
+export interface ReviewedSummaryOmission { sourceHandle: string; reason: 'budget' | 'disclosure' | 'originalTextIncluded' | 'notSmaller' }
 export interface ReviewedEvidenceSet {
   projectId: string; operationNamespace: string; bundleId: string; recordsHash: string;
   sourceHandle: string; source: SourceRef; records: PossessionRecord[];
@@ -87,7 +94,7 @@ export interface FrozenNavigationView {
   reference: NavigationViewRef; sourceContextEpoch: string; disclosurePolicyVersion: string;
   dependencies: SourceRef[]; candidate: DigestCandidate;
 }
-export interface NavigationViewOmission { viewId: string; reason: 'originalTextIncluded' | 'budget' | 'notSmaller' }
+export interface NavigationViewOmission { viewId: string; reason: 'originalTextIncluded' | 'acceptedSummaryIncluded' | 'budget' | 'notSmaller' }
 export interface ConversationMessage { id: string; content: string; scope: ScopeGrant | null }
 export interface ConversationTurn { runId: string; packetId: string; sourceSnapshotId: string; policyVersion: string; user: ConversationMessage; assistant: ConversationMessage }
 export interface FrozenConversation { projectId: string; operationNamespace: string; documentId: string; threadId: string; turns: ConversationTurn[]; omittedTurns: number }
@@ -145,6 +152,8 @@ export interface PacketReceipt {
   reviewedEvidenceOmissions?: ReviewedEvidenceOmission[];
   reviewedPromises?: ReviewedEvidenceCoverage[];
   reviewedPromiseOmissions?: ReviewedEvidenceOmission[];
+  reviewedSummaries?: ReviewedSummaryCoverage[];
+  reviewedSummaryOmissions?: ReviewedSummaryOmission[];
   safeBrief?: { text: string; textHash: string; originMessageId: string | null };
   conversationMessageIds?: string[];
   omittedDiscussionTurns?: number;

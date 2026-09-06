@@ -1,13 +1,16 @@
 //! Author-only reviewed prose basis.
 //!
 //! This slice records which exact chapter revisions an author has marked as
-//! ready. It deliberately stores no generated canon, summaries, or model
-//! claims. A ready head is a mutable selection over immutable bundles; the
+//! ready, with optional author-accepted summaries and passage-backed records.
+//! Generated memory is never accepted implicitly. A ready head selects immutable bundles; the
 //! bundles and stages remain historical evidence after the selection changes.
 
 use super::*;
 use crate::context::SourceRef;
 use crate::context::{ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind};
+use crate::projects::reviewed_summary::{
+    SummaryChange, SummaryRevision, canonical_summary_json, summary_hash, validate_summary_binding,
+};
 use crate::projects::story_records::{
     PossessionRecord, PromiseRecord, canonical_promises_json, canonical_records_json,
     validate_promises, validate_records,
@@ -28,6 +31,8 @@ pub struct StageAuthorReview {
     pub records: Option<Vec<PossessionRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promises: Option<Vec<PromiseRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<SummaryChange>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,6 +71,10 @@ pub struct ReviewStage {
     pub promises: Option<Vec<PromiseRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promises_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<SummaryRevision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_hash: Option<String>,
     pub source_epoch: String,
     pub policy_epoch: String,
     pub created_at: String,
@@ -87,6 +96,10 @@ pub struct ReadyBundle {
     pub promises: Option<Vec<PromiseRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promises_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<SummaryRevision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_hash: Option<String>,
     pub created_at: String,
 }
 
@@ -105,6 +118,10 @@ pub struct ReviewedRecordSet {
     pub promises: Option<Vec<PromiseRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promises_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<SummaryRevision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_hash: Option<String>,
     pub current: bool,
 }
 
@@ -156,6 +173,8 @@ struct StageRow {
     records_hash: Option<String>,
     promises: Option<Vec<PromiseRecord>>,
     promises_hash: Option<String>,
+    summary: Option<SummaryRevision>,
+    summary_hash: Option<String>,
     created_at: String,
 }
 
@@ -175,6 +194,8 @@ struct BundleRow {
     records_hash: Option<String>,
     promises: Option<Vec<PromiseRecord>>,
     promises_hash: Option<String>,
+    summary: Option<SummaryRevision>,
+    summary_hash: Option<String>,
     created_at: String,
 }
 
@@ -352,6 +373,80 @@ impl<'db> ReviewValidationContext<'db> {
             project_id,
             operation_namespace,
             &source.document_id,
+            bundle_id,
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn validate_reviewed_summary(
+        &mut self,
+        project_id: &str,
+        operation_namespace: &str,
+        bundle_id: &str,
+        expected_summary_hash: &str,
+        summary: &SummaryRevision,
+    ) -> CoreResult<()> {
+        check_id(project_id)?;
+        check_id(operation_namespace)?;
+        check_id(bundle_id)?;
+        if !valid_hash(expected_summary_hash) {
+            return Err(CoreError::new(
+                "InvalidReviewedSummary",
+                "The reviewed summary fingerprint is invalid.",
+            ));
+        }
+        let (revision_id, prefix, target) = {
+            let bundle = self.read_bundle(bundle_id)?.ok_or_else(|| {
+                CoreError::new(
+                    "ReviewBundleNotFound",
+                    "The reviewed summary bundle is unavailable.",
+                )
+            })?;
+            if bundle.project_id != project_id
+                || bundle.operation_namespace != operation_namespace
+                || bundle.coverage != "authorOnly"
+            {
+                return Err(CoreError::new(
+                    "InvalidReviewedSummary",
+                    "The reviewed summary bundle does not match its immutable source.",
+                ));
+            }
+            (
+                bundle.revision_id.clone(),
+                bundle.prefix.clone(),
+                bundle.target.clone(),
+            )
+        };
+        let expected_source = SourceRef {
+            project_id: project_id.to_owned(),
+            document_id: target.document_id,
+            revision_id,
+            body_hash: target.body_hash,
+        };
+        validate_summary_binding(summary, project_id, &expected_source, &prefix)?;
+        if summary_hash(summary)? != expected_summary_hash {
+            return Err(CoreError::new(
+                "InvalidReviewedSummary",
+                "The reviewed summary fingerprint does not match its canonical payload.",
+            ));
+        }
+        {
+            let bundle = self
+                .read_bundle(bundle_id)?
+                .expect("bundle inserted into validation cache");
+            if bundle.summary_hash.as_deref() != Some(expected_summary_hash)
+                || bundle.summary.as_ref() != Some(summary)
+            {
+                return Err(CoreError::new(
+                    "InvalidReviewedSummary",
+                    "The reviewed summary does not match its immutable bundle.",
+                ));
+            }
+        }
+        self.validate_prefix_evidence(
+            project_id,
+            operation_namespace,
+            &expected_source.document_id,
             bundle_id,
         )?;
         Ok(())
@@ -579,6 +674,8 @@ type StageDbRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
+    Option<String>,
     String,
 );
 type BundleDbRow = (
@@ -596,6 +693,8 @@ type BundleDbRow = (
     String,
     String,
     String,
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -777,6 +876,8 @@ impl OwnedProject {
             records_hash: bundle.records_hash,
             promises: bundle.promises,
             promises_hash: bundle.promises_hash,
+            summary: bundle.summary,
+            summary_hash: bundle.summary_hash,
             current: status.state == ReviewState::Ready,
         }))
     }
@@ -977,11 +1078,22 @@ impl OwnedProject {
                 )
             })?;
         let promises_json = canonical_promises_json(&promises.clone().unwrap_or_default())?;
+        let summary = resolve_summary(
+            &tx,
+            &request.access,
+            &document.head,
+            &revision,
+            &prefix,
+            previous_bundle_id.as_deref(),
+            request.summary.as_ref(),
+        )?;
+        let summary_json = summary.as_ref().map(canonical_summary_json).transpose()?;
+        let summary_hash = summary.as_ref().map(summary_hash).transpose()?;
         let prefix_hash = hash_prefix(&prefix)?;
         let stage_id = new_id();
         tx.execute(
-            "INSERT INTO review_stages(id,project_id,operation_namespace,operation_id,payload_hash,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO review_stages(id,project_id,operation_namespace,operation_id,payload_hash,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 stage_id,
                 request.access.project_id,
@@ -1001,6 +1113,8 @@ impl OwnedProject {
                 records_hash,
                 promises_json,
                 promises_hash,
+                summary_json,
+                summary_hash,
             ],
         )?;
         let stage = read_stage(&tx, &request.access, &stage_id)?.ok_or_else(|| {
@@ -1087,9 +1201,14 @@ impl OwnedProject {
         }
         let bundle_id = new_id();
         let prefix_json = serde_json::to_string(&stage.prefix)?;
+        let summary_json = stage
+            .summary
+            .as_ref()
+            .map(canonical_summary_json)
+            .transpose()?;
         tx.execute(
-            "INSERT INTO ready_bundles(id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'authorOnly',?,?,?,?)",
+            "INSERT INTO ready_bundles(id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'authorOnly',?,?,?,?,?,?)",
             params![
                 bundle_id,
                 request.access.project_id,
@@ -1110,6 +1229,8 @@ impl OwnedProject {
                 stage.records_hash,
                 canonical_promises_json(&stage.promises.clone().unwrap_or_default())?,
                 stage.promises_hash,
+                summary_json,
+                stage.summary_hash,
             ],
         )?;
         let target_position: i64 = tx.query_row(
@@ -1287,6 +1408,58 @@ fn hash_prefix(prefix: &[ReviewPrefixItem]) -> CoreResult<String> {
     Ok(sha256_hex(serde_json::to_string(prefix)?.as_bytes()))
 }
 
+fn resolve_summary(
+    db: &Connection,
+    access: &ProjectAccess,
+    target: &Head,
+    revision: &Revision,
+    prefix: &[ReviewPrefixItem],
+    previous_bundle_id: Option<&str>,
+    change: Option<&SummaryChange>,
+) -> CoreResult<Option<SummaryRevision>> {
+    let expected_source = SourceRef {
+        project_id: access.project_id.clone(),
+        document_id: target.document_id.clone(),
+        revision_id: revision.id.clone(),
+        body_hash: target.body_hash.clone(),
+    };
+    match change {
+        Some(SummaryChange::Set { text, audience }) => {
+            let summary = SummaryRevision {
+                id: new_id(),
+                text: text.clone(),
+                audience: *audience,
+                source: expected_source,
+                dependencies: prefix.to_vec(),
+            };
+            validate_summary_binding(&summary, &access.project_id, &summary.source, prefix)?;
+            Ok(Some(summary))
+        }
+        Some(SummaryChange::Clear) => Ok(None),
+        None => {
+            let Some(previous_bundle_id) = previous_bundle_id else {
+                return Ok(None);
+            };
+            let previous = read_bundle(db, previous_bundle_id)?.ok_or_else(|| {
+                CoreError::new("InvalidProject", "The previous reviewed bundle is missing.")
+            })?;
+            let Some(summary) = previous.summary else {
+                return Ok(None);
+            };
+            if previous.target == *target
+                && summary.source == expected_source
+                && summary.dependencies == prefix
+            {
+                return Ok(Some(summary));
+            }
+            Err(CoreError::new(
+                "ReviewSummaryRequired",
+                "The reviewed summary basis changed; explicitly set or clear the summary.",
+            ))
+        }
+    }
+}
+
 fn parse_record_set(
     records_json: Option<String>,
     records_hash: Option<String>,
@@ -1373,6 +1546,51 @@ fn parse_promise_set(
     }
 }
 
+fn parse_summary_set(
+    summary_json: Option<String>,
+    expected_hash: Option<String>,
+    project_id: &str,
+    target: &Head,
+    revision_id: &str,
+    prefix: &[ReviewPrefixItem],
+) -> CoreResult<(Option<SummaryRevision>, Option<String>)> {
+    match (summary_json, expected_hash) {
+        (None, None) => Ok((None, None)),
+        (Some(_), None) | (None, Some(_)) => Err(CoreError::new(
+            "InvalidProject",
+            "Reviewed summary JSON and hash must be present together.",
+        )),
+        (Some(json), Some(hash)) => {
+            if json.len() > 4 * 1024 * 1024 || !valid_hash(&hash) {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "The saved reviewed summary is too large or has an invalid hash.",
+                ));
+            }
+            let summary: SummaryRevision = serde_json::from_str(&json).map_err(|error| {
+                CoreError::new(
+                    "InvalidProject",
+                    &format!("The saved reviewed summary is malformed: {error}"),
+                )
+            })?;
+            if canonical_summary_json(&summary)? != json || summary_hash(&summary)? != hash {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "The saved reviewed summary hash or canonical JSON is invalid.",
+                ));
+            }
+            let source = SourceRef {
+                project_id: project_id.to_owned(),
+                document_id: target.document_id.clone(),
+                revision_id: revision_id.to_owned(),
+                body_hash: target.body_hash.clone(),
+            };
+            validate_summary_binding(&summary, project_id, &source, prefix)?;
+            Ok((Some(summary), Some(hash)))
+        }
+    }
+}
+
 fn read_stage(
     db: &Connection,
     access: &ProjectAccess,
@@ -1380,12 +1598,12 @@ fn read_stage(
 ) -> CoreResult<Option<StageRow>> {
     let row: Option<StageDbRow> = db
         .query_row(
-            "SELECT id,project_id,operation_namespace,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,created_at FROM review_stages WHERE id=? AND project_id=? AND operation_namespace=?",
+            "SELECT id,project_id,operation_namespace,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash,created_at FROM review_stages WHERE id=? AND project_id=? AND operation_namespace=?",
             params![stage_id, access.project_id, access.operation_namespace],
             |row| Ok((
                 row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?,
                 row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?,
-                row.get(13)?, row.get(14)?, row.get(15)?, row.get(16)?,
+                row.get(13)?, row.get(14)?, row.get(15)?, row.get(16)?, row.get(17)?, row.get(18)?,
             )),
         )
         .optional()?;
@@ -1406,6 +1624,8 @@ fn read_stage(
         records_hash,
         promises_json,
         promises_hash,
+        summary_json,
+        summary_hash,
         created_at,
     )) = row
     else {
@@ -1424,6 +1644,18 @@ fn read_stage(
     }
     let (records, records_hash) = parse_record_set(records_json, records_hash, &revision)?;
     let (promises, promises_hash) = parse_promise_set(promises_json, promises_hash, &revision)?;
+    let (summary, summary_hash) = parse_summary_set(
+        summary_json,
+        summary_hash,
+        &project_id,
+        &Head {
+            document_id: document_id.clone(),
+            version: parse_stored_version(target_version)?,
+            body_hash: target_body_hash.clone(),
+        },
+        &target_revision_id,
+        &prefix,
+    )?;
     Ok(Some(StageRow {
         id,
         project_id,
@@ -1444,6 +1676,8 @@ fn read_stage(
         records_hash,
         promises,
         promises_hash,
+        summary,
+        summary_hash,
         created_at,
     }))
 }
@@ -1468,6 +1702,8 @@ fn stage_to_dto(db: &Connection, stage: StageRow) -> CoreResult<ReviewStage> {
         records_hash: stage.records_hash,
         promises: stage.promises,
         promises_hash: stage.promises_hash,
+        summary: stage.summary,
+        summary_hash: stage.summary_hash,
         source_epoch: parse_stored_version(stage.source_epoch)?,
         policy_epoch: parse_stored_version(stage.policy_epoch)?,
         created_at: stage.created_at,
@@ -1477,12 +1713,12 @@ fn stage_to_dto(db: &Connection, stage: StageRow) -> CoreResult<ReviewStage> {
 fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>> {
     let row: Option<BundleDbRow> = db
         .query_row(
-            "SELECT id,project_id,operation_namespace,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,created_at FROM ready_bundles WHERE id=?",
+            "SELECT id,project_id,operation_namespace,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash,created_at FROM ready_bundles WHERE id=?",
             [bundle_id],
             |row| Ok((
                 row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?,
                 row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?, row.get(13)?, row.get(14)?,
-                row.get(15)?, row.get(16)?, row.get(17)?, row.get(18)?,
+                row.get(15)?, row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?, row.get(20)?,
             )),
         )
         .optional()?;
@@ -1505,6 +1741,8 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
         records_hash,
         promises_json,
         promises_hash,
+        summary_json,
+        summary_hash,
         created_at,
     )) = row
     else {
@@ -1522,17 +1760,26 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
     }
     let (records, records_hash) = parse_record_set(records_json, records_hash, &revision)?;
     let (promises, promises_hash) = parse_promise_set(promises_json, promises_hash, &revision)?;
+    let target = Head {
+        document_id: document_id.clone(),
+        version: parse_stored_version(target_version)?,
+        body_hash: target_body_hash.clone(),
+    };
+    let (summary, summary_hash) = parse_summary_set(
+        summary_json,
+        summary_hash,
+        &project_id,
+        &target,
+        &target_revision_id,
+        &parse_prefix(&prefix_json, &prefix_hash)?,
+    )?;
     Ok(Some(BundleRow {
         id,
         project_id,
         operation_namespace,
         stage_id,
         document_id: document_id.clone(),
-        target: Head {
-            document_id,
-            version: parse_stored_version(target_version)?,
-            body_hash: target_body_hash,
-        },
+        target,
         revision_id: target_revision_id,
         policy_epoch,
         prefix: parse_prefix(&prefix_json, &prefix_hash)?,
@@ -1541,6 +1788,8 @@ fn read_bundle(db: &Connection, bundle_id: &str) -> CoreResult<Option<BundleRow>
         records_hash,
         promises,
         promises_hash,
+        summary,
+        summary_hash,
         created_at,
     }))
 }
@@ -1556,6 +1805,8 @@ fn bundle_to_dto(bundle: BundleRow) -> ReadyBundle {
         records_hash: bundle.records_hash,
         promises: bundle.promises,
         promises_hash: bundle.promises_hash,
+        summary: bundle.summary,
+        summary_hash: bundle.summary_hash,
         created_at: bundle.created_at,
     }
 }
@@ -1802,7 +2053,10 @@ pub(super) fn current_records_for_sources(
         {
             continue;
         }
-        if candidate.bundle.records.is_none() && candidate.bundle.promises.is_none() {
+        if candidate.bundle.records.is_none()
+            && candidate.bundle.promises.is_none()
+            && candidate.bundle.summary.is_none()
+        {
             continue;
         }
         result.push(ReviewedRecordSet {
@@ -1815,6 +2069,8 @@ pub(super) fn current_records_for_sources(
             records_hash: candidate.bundle.records_hash,
             promises: candidate.bundle.promises,
             promises_hash: candidate.bundle.promises_hash,
+            summary: candidate.bundle.summary,
+            summary_hash: candidate.bundle.summary_hash,
             current: true,
         });
     }
@@ -2258,7 +2514,7 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
         ));
     }
     let mut stages = db.prepare(
-        "SELECT id,project_id,operation_namespace,operation_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash FROM review_stages ORDER BY id",
+        "SELECT id,project_id,operation_namespace,operation_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash FROM review_stages ORDER BY id",
     )?;
     let stage_rows = stages.query_map([], |row| {
         Ok((
@@ -2279,6 +2535,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             row.get::<_, Option<String>>(14)?,
             row.get::<_, Option<String>>(15)?,
             row.get::<_, Option<String>>(16)?,
+            row.get::<_, Option<String>>(17)?,
+            row.get::<_, Option<String>>(18)?,
         ))
     })?;
     for row in stage_rows {
@@ -2300,6 +2558,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             records_hash,
             promises_json,
             promises_hash,
+            summary_json,
+            summary_hash,
         ) = row?;
         check_id(&id)?;
         check_id(&stage_project)?;
@@ -2336,10 +2596,21 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
         }
         let _ = parse_record_set(records_json, records_hash, &revision)?;
         let _ = parse_promise_set(promises_json, promises_hash, &revision)?;
-        let _ = prefix;
+        let _ = parse_summary_set(
+            summary_json,
+            summary_hash,
+            &stage_project,
+            &Head {
+                document_id: document_id.clone(),
+                version: parse_stored_version(version)?,
+                body_hash: body_hash.clone(),
+            },
+            &revision_id,
+            &prefix,
+        )?;
     }
     let mut bundles = db.prepare(
-        "SELECT id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash FROM ready_bundles ORDER BY id",
+        "SELECT id,project_id,operation_namespace,operation_id,payload_hash,stage_id,document_id,target_version,target_body_hash,target_revision_id,source_epoch,policy_epoch,previous_bundle_id,prefix_json,prefix_hash,coverage,records_json,records_hash,promises_json,promises_hash,summary_json,summary_hash FROM ready_bundles ORDER BY id",
     )?;
     let bundle_rows = bundles.query_map([], |row| {
         Ok((
@@ -2363,6 +2634,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             row.get::<_, Option<String>>(17)?,
             row.get::<_, Option<String>>(18)?,
             row.get::<_, Option<String>>(19)?,
+            row.get::<_, Option<String>>(20)?,
+            row.get::<_, Option<String>>(21)?,
         ))
     })?;
     for row in bundle_rows {
@@ -2387,6 +2660,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             records_hash,
             promises_json,
             promises_hash,
+            summary_json,
+            summary_hash,
         ) = row?;
         for id in [
             &id,
@@ -2442,6 +2717,18 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             parse_record_set(records_json, records_hash, &revision)?;
         let (bundle_promises, bundle_promises_hash) =
             parse_promise_set(promises_json, promises_hash, &revision)?;
+        let (bundle_summary, bundle_summary_hash) = parse_summary_set(
+            summary_json,
+            summary_hash,
+            &bundle_project,
+            &Head {
+                document_id: document_id.clone(),
+                version: parse_stored_version(version)?,
+                body_hash: body_hash.clone(),
+            },
+            &revision_id,
+            &prefix,
+        )?;
         let stage_identity: Option<(String, String)> = db
             .query_row(
                 "SELECT project_id,operation_namespace FROM review_stages WHERE id=?",
@@ -2480,6 +2767,8 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
             || stage.records_hash != bundle_records_hash
             || stage.promises != bundle_promises
             || stage.promises_hash != bundle_promises_hash
+            || stage.summary != bundle_summary
+            || stage.summary_hash != bundle_summary_hash
         {
             return Err(CoreError::new(
                 "InvalidProject",

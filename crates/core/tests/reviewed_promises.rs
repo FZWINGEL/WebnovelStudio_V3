@@ -133,6 +133,7 @@ fn stage(
             expected: document.head.clone(),
             records: None,
             promises,
+            summary: None,
         })
         .unwrap()
 }
@@ -471,6 +472,7 @@ fn promise_quote_and_note_are_checked_before_persistence() {
             expected: document.head.clone(),
             records: None,
             promises: Some(vec![invalid_quote]),
+            summary: None,
         })
         .unwrap_err();
     assert_eq!(error.code, "InvalidReviewedPromises");
@@ -488,6 +490,7 @@ fn promise_quote_and_note_are_checked_before_persistence() {
             expected: document.head,
             records: None,
             promises: Some(vec![invalid_note]),
+            summary: None,
         })
         .unwrap_err();
     assert_eq!(error.code, "InvalidReviewedPromises");
@@ -506,6 +509,7 @@ fn schema22_fixture_migrates_and_preserves_legacy_evidence_columns() {
                 "legacy-possession",
             )]),
             promises: None,
+            summary: None,
         })
         .unwrap();
     project
@@ -537,7 +541,7 @@ fn schema22_fixture_migrates_and_preserves_legacy_evidence_columns() {
     let version: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 31);
+    assert_eq!(version, 32);
     let columns: Vec<String> = migrated
         .prepare("SELECT name FROM pragma_table_info('ready_bundles')")
         .unwrap()

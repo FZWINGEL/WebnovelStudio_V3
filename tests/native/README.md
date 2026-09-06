@@ -2,7 +2,7 @@
 
 These checks drive the built Windows Tauri application through its development-only WebView2 remote debugging endpoint. They do not launch a standalone Chromium browser. The smoke flow is implemented by `apps/desktop/scripts/native-smoke.mjs` and writes ignored output under `.local/native-results/`. The separate local diagnostic subset intentionally omits the currently blocked OS clipboard step and labels that omission; it cannot establish a strict pass.
 
-The current harness includes **48 checks**. Its new recovery-copy group injects
+The current harness includes **50 checks**. Two accepted-summary groups exercise explicit generated-memory seeding, saved-stage resumption, acceptance without a model call, context inspection, and clearing after a prose change. Current executed results are in [implementation status](../../docs/IMPLEMENTATION_STATUS.md). Its new recovery-copy group injects
 a SQLite save failure in an owned temporary project, uses the actual Markdown
 Save/Cancel dialogs, verifies unchanged durable text and retained unsaved editor
 content, then removes the fault and retries. The focused native run passes;
@@ -18,7 +18,7 @@ Stop and close retains terminal outcomes without replay. It writes
 `.local/native-results/app-close/qualification.json` and uses no live models.
 Run `npm run test:native-close` from `apps/desktop` after the native build, or
 set `WNS_V3_NATIVE_EXE` to an owned development executable. CI runs this
-separately from the 48-check main flow and existing HTTP fixture.
+separately from the 50-check main flow and existing HTTP fixture.
 
 From the repository root, use the wrapper:
 

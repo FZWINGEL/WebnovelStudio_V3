@@ -42,6 +42,41 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('historical context inspection', () => {
+  const acceptedSummary: context.ReviewedSummarySet = {
+    projectId: 'project', operationNamespace: 'namespace', bundleId: 'bundle', sourceHandle: 'second', summaryHash: 'summary-hash',
+    summary: { id: 'accepted-summary', text: 'Mei keeps the promise despite their separation.', audience: 'reader', source: second.source, dependencies: [] },
+  };
+  it('shows accepted narrative summaries separately and opens their frozen chapter', async () => {
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, reviewedSummaries: [acceptedSummary], navigationViews: [navigation] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt,
+      reviewedSummaries: [{ sourceHandle: 'second', bundleId: 'bundle', summaryId: 'accepted-summary', summaryHash: 'summary-hash' }],
+      navigationOmissions: [{ viewId: 'memory-view', reason: 'acceptedSummaryIncluded' }],
+    } });
+    vi.mocked(context.readStoryContextSource).mockResolvedValue({ descriptor: second, usedValidatedProjection: false, body: { schemaVersion: 1, body: { type: 'doc', content: [] } }, passages: [] });
+    await render();
+    expect(host.querySelector('.context-accepted-summary')?.textContent).toContain('Reviewed by you for this saved chapter version');
+    expect(host.textContent).toContain('1 accepted summary');
+    expect(host.textContent).toContain('an accepted narrative summary was supplied. The original text was not included');
+    expect(host.textContent).toContain('an accepted narrative summary was supplied instead');
+    const button = host.querySelector('.context-accepted-summary button') as HTMLButtonElement;
+    await act(async () => button.click());
+    expect(context.readStoryContextSource).toHaveBeenCalledWith(access, 'snapshot', 'second');
+  });
+  it('withholds private accepted summary text from restricted context inspection', async () => {
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, policy: { ...frozen.policy, audience: 'restrictedWriting' }, reviewedSummaries: [{ ...acceptedSummary, summary: { ...acceptedSummary.summary, audience: 'authorRoom', text: 'Private mentor revelation.' } }] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, reviewedSummaryOmissions: [{ sourceHandle: 'second', reason: 'disclosure' }] } });
+    await render();
+    expect(host.textContent).not.toContain('Private mentor revelation');
+    expect(host.querySelector('.context-accepted-summary')).toBeNull();
+    expect(host.textContent).toContain('accepted summary: it is private to the author room');
+  });
+  it('does not count a different summary revision or hash as delivered', async () => {
+    vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, reviewedSummaries: [acceptedSummary] });
+    vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, reviewedSummaries: [{ sourceHandle: 'second', bundleId: 'bundle', summaryId: 'wrong-revision', summaryHash: 'summary-hash' }] } });
+    await render();
+    expect(host.querySelectorAll('.context-accepted-summary')).toHaveLength(1);
+    expect(host.querySelector('details[open] > ul .context-accepted-summary')).toBeNull();
+  });
   it('separates delivered summaries from original text and opens the exact frozen evidence', async () => {
     vi.mocked(context.storyContextSnapshot).mockResolvedValue({ ...frozen, navigationViews: [navigation] });
     vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, navigationViews: [navigation.reference] } });

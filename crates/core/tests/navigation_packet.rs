@@ -181,6 +181,7 @@ fn frozen(
         navigation_views,
         reviewed_evidence: Vec::new(),
         reviewed_promises: Vec::new(),
+        reviewed_summaries: Vec::new(),
     }
 }
 

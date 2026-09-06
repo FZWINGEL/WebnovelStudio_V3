@@ -270,6 +270,11 @@ pub struct PacketReceipt {
     /// from source omissions and from possession evidence omissions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_promise_omissions: Vec<crate::context::reviewed_promises::ReviewedPromiseOmission>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_summaries: Vec<crate::context::reviewed_summaries::ReviewedSummaryCoverage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_summary_omissions:
+        Vec<crate::context::reviewed_summaries::ReviewedSummaryOmission>,
     pub input_hash: String,
     pub input_tokens: String,
     pub token_accounting_method: String,

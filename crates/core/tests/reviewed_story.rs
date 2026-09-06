@@ -129,6 +129,7 @@ fn stage(
             expected: document.head.clone(),
             records: None,
             promises: None,
+            summary: None,
         })
         .unwrap()
 }
@@ -147,6 +148,7 @@ fn stage_with_records(
             expected: document.head.clone(),
             records,
             promises: None,
+            summary: None,
         })
         .unwrap()
 }
@@ -185,6 +187,7 @@ fn author_review_pins_exact_revisions_and_requires_an_earlier_prefix() {
             expected: second.head.clone(),
             records: None,
             promises: None,
+            summary: None,
         })
         .unwrap_err();
     assert_eq!(missing.code, "ReviewBasisUnavailable");
@@ -620,6 +623,7 @@ fn review_operations_replay_after_writer_lease_rotation() {
             expected: first.head.clone(),
             records: None,
             promises: None,
+            summary: None,
         })
         .unwrap_err();
     assert_eq!(old_stage.code, "WriterLeaseExpired");
@@ -630,6 +634,7 @@ fn review_operations_replay_after_writer_lease_rotation() {
             expected: first.head,
             records: None,
             promises: None,
+            summary: None,
         })
         .unwrap();
     assert_eq!(replayed_stage.id, staged.id);
@@ -789,6 +794,7 @@ fn inherited_evidence_is_revalidated_against_new_revision() {
             expected: changed.head.clone(),
             records: None,
             promises: None,
+            summary: None,
         })
         .unwrap_err();
     assert_eq!(error.code, "InvalidReviewedRecords");
@@ -915,7 +921,7 @@ fn schema20_archive_migrates_legacy_empty_evidence_rows() {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
-    assert_eq!(schema, 31);
+    assert_eq!(schema, 32);
     assert_eq!(migrated_bundle, bundle.id);
     assert_eq!(records_json, None);
     assert_eq!(records_hash, None);

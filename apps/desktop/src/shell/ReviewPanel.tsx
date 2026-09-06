@@ -3,11 +3,14 @@ import { bodyHash, canonicalJson } from '../editor/document';
 import type { Scope } from '../editor/selection';
 import type { DocumentSession, SessionState } from '../editor/session';
 import { chapterReviewStatus, markReady, readReviewedRecordSet, reviewedEntityCatalog, reviewedPromiseCatalog, readReviewStage, stageAuthorReview, type MarkReady, type PossessionRecord, type PromiseRecord, type ReviewedEntityChoice, type ReviewMember, type ReviewStage, type ReviewStatus, type StageAuthorReview } from '../ipc/reviews';
+import type { SourceRef } from '../ipc/context';
+import type { SummaryChange, SummaryRevision } from '../ipc/reviews';
 import { readDocumentRevision } from '../ipc/history';
 import type { ProjectAccess, Revision } from '../ipc/projects';
 import { SavedProse } from './HistoryPanel';
 import { ReviewEvidenceEditor } from './ReviewEvidenceEditor';
 import { ReviewPromiseEditor } from './ReviewPromiseEditor';
+import { ReviewSummaryEditor, type ReviewSummaryDraft } from './ReviewSummaryEditor';
 
 type Pending = { kind: 'stage'; request: StageAuthorReview } | { kind: 'mark'; request: MarkReady; reviewed: ReviewStage };
 const labels: Record<ReviewStatus['state'], string> = {
@@ -21,6 +24,56 @@ function message(error: unknown): string {
 function uncertain(error: unknown): boolean {
   return !error || typeof error !== 'object' || !('code' in error)
     || ['UncertainOutcome', 'ReconciliationRequired', 'PersistenceUnavailable', 'ProtocolError'].includes(String(error.code));
+}
+function summarySource(access: ProjectAccess, revision: Revision): SourceRef {
+  return { projectId: access.projectId, documentId: revision.head.documentId, revisionId: revision.id, bodyHash: revision.head.bodyHash };
+}
+function summaryBasisMatches(summary: SummaryRevision, access: ProjectAccess, target: { documentId: string; bodyHash: string }, current: boolean): boolean {
+  return current && summary.source.projectId === access.projectId && summary.source.documentId === target.documentId && summary.source.bodyHash === target.bodyHash;
+}
+function sameHead(left: { documentId: string; version: string; bodyHash: string } | null, right: { documentId: string; version: string; bodyHash: string }): boolean {
+  return !!left && left.documentId === right.documentId && left.version === right.version && left.bodyHash === right.bodyHash;
+}
+function makeSummaryDraft(summary: SummaryRevision | null | undefined, canInherit: boolean): ReviewSummaryDraft {
+  return summary ? { choice: canInherit ? 'inherit' : 'required', text: summary.text, audience: summary.audience } : { choice: 'inherit', text: '', audience: 'authorRoom' };
+}
+function summaryJson(summary: SummaryRevision): string {
+  return JSON.stringify({
+    id: summary.id,
+    text: summary.text,
+    audience: summary.audience,
+    source: {
+      projectId: summary.source.projectId,
+      documentId: summary.source.documentId,
+      revisionId: summary.source.revisionId,
+      bodyHash: summary.source.bodyHash,
+    },
+    dependencies: summary.dependencies.map(member => ({
+      documentId: member.documentId,
+      title: member.title,
+      bundleId: member.bundleId,
+      revisionId: member.revisionId,
+      head: { documentId: member.head.documentId, version: member.head.version, bodyHash: member.head.bodyHash },
+    })),
+  });
+}
+async function validateSummary(summary: SummaryRevision | null | undefined, summaryHash: string | null | undefined, access: ProjectAccess, revision: Revision, prefix?: ReviewMember[]): Promise<void> {
+  if (!summary) {
+    if (summaryHash !== undefined && summaryHash !== null) throw new Error('The saved narrative summary fingerprint was present without a summary. Check the review save.');
+    return;
+  }
+  const source = summarySource(access, revision);
+  if (!summary.id || new TextEncoder().encode(summary.text).length > 16 * 1024 || !['authorRoom', 'reader'].includes(summary.audience)
+    || canonicalJson(summary.source) !== canonicalJson(source) || (prefix !== undefined && canonicalJson(summary.dependencies) !== canonicalJson(prefix))
+    || !summaryHash || summaryHash !== await bodyHash(summaryJson(summary))) throw new Error('The saved narrative summary did not match the reviewed chapter, its earlier basis, or its fingerprint. Check the review save.');
+}
+function summaryChange(value: ReviewSummaryDraft): SummaryChange | undefined {
+  if (value.choice === 'inherit') return undefined;
+  if (value.choice === 'clear') return { kind: 'clear' };
+  if (value.choice === 'required') throw new Error('This saved summary no longer matches the chapter. Choose Use this summary, edit it, or Clear summary before saving the review.');
+  if (!value.text.trim()) throw new Error('Enter a narrative summary or choose Clear summary.');
+  if (new TextEncoder().encode(value.text).length > 16 * 1024) throw new Error('The narrative summary is limited to 16 KiB. Shorten it before saving the review.');
+  return { kind: 'set', text: value.text, audience: value.audience };
 }
 
 function EarlierReview({ access, member }: { access: ProjectAccess; member: ReviewMember }) {
@@ -62,6 +115,9 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   const [refresh, setRefresh] = useState(0);
   const [currentRecords, setCurrentRecords] = useState<PossessionRecord[]>([]);
   const [currentRecordsCurrent, setCurrentRecordsCurrent] = useState(true);
+  const [currentSummary, setCurrentSummary] = useState<SummaryRevision | null>(null);
+  const [currentBundleTarget, setCurrentBundleTarget] = useState<{ documentId: string; version: string; bodyHash: string } | null>(null);
+  const [summaryDraft, setSummaryDraft] = useState<ReviewSummaryDraft>({ choice: 'inherit', text: '', audience: 'authorRoom' });
   const [draftRecords, setDraftRecords] = useState<PossessionRecord[]>([]);
   const [orphanedRecords, setOrphanedRecords] = useState<PossessionRecord[] | null>(null);
   const [evidenceEditing, setEvidenceEditing] = useState(false);
@@ -84,34 +140,38 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   const liveVisible = useRef(visible); liveVisible.current = visible;
   const owns = () => liveOwner.current === owner;
 
-  useEffect(() => { setStage(null); setCurrentPromises([]); setDraftPromises([]); setOrphanedPromises(null); setDetailKind('possessions'); setCurrentRecords([]); setCurrentRecordsCurrent(true); setDraftRecords([]); setOrphanedRecords(null); setEvidenceEditing(false); setNotice(''); setError(''); setReadError(''); setRetry(false); pending.current = null; }, [owner]);
+  useEffect(() => { setStage(null); setCurrentPromises([]); setDraftPromises([]); setOrphanedPromises(null); setDetailKind('possessions'); setCurrentRecords([]); setCurrentRecordsCurrent(true); setCurrentSummary(null); setCurrentBundleTarget(null); setSummaryDraft({ choice: 'inherit', text: '', audience: 'authorRoom' }); setDraftRecords([]); setOrphanedRecords(null); setEvidenceEditing(false); setNotice(''); setError(''); setReadError(''); setRetry(false); pending.current = null; }, [owner]);
   useEffect(() => { if (visible) heading.current?.focus(); }, [visible]);
   useEffect(() => {
     if (visible && !working && focusAfterSave.current) { focusAfterSave.current = false; heading.current?.focus(); }
   }, [visible, working]);
   useEffect(() => {
     const read = ++sequence.current;
-    if (!visible || !state.editable || working) return;
+    if (!visible || !state.editable || working || stage) return;
     setLoading(true); setStatus(null);
     void chapterReviewStatus(access, state.head.documentId).then(async result => {
       if (read !== sequence.current || !owns() || !liveVisible.current) return;
       if (result.documentId !== state.head.documentId || canonicalJson(result.head) !== canonicalJson(state.head)) throw new Error('The review status belongs to a different saved version. Refresh to read it again.');
       let records: PossessionRecord[] = [];
       let promises: PromiseRecord[] = [];
+      let summary: SummaryRevision | null = null;
       let bundleCurrent = true;
+      let bundleTarget: { documentId: string; version: string; bodyHash: string } | null = null;
       if (result.activeBundleId) {
         const bundle = await readReviewedRecordSet(access, state.head.documentId);
         if (read !== sequence.current || !owns() || !liveVisible.current) return;
         if (bundle && (bundle.projectId !== access.projectId || bundle.operationNamespace !== access.operationNamespace || bundle.target.documentId !== state.head.documentId)) throw new Error('The reviewed details belong to a different chapter. Refresh to read them again.');
-        records = bundle?.records ?? []; promises = bundle?.promises ?? []; bundleCurrent = bundle?.current ?? true;
+        records = bundle?.records ?? []; promises = bundle?.promises ?? []; summary = bundle?.summary ?? null; bundleCurrent = bundle?.current ?? true; bundleTarget = bundle?.target ?? null;
+        if (bundle) await validateSummary(bundle.summary, bundle.summaryHash, access, bundle.revision);
       }
       if (read !== sequence.current || !owns() || !liveVisible.current) return;
       setCurrentPromises(promises); setOrphanedPromises(previous => previous ?? (!bundleCurrent && promises.length ? structuredClone(promises) : null));
-      setCurrentRecords(records); setCurrentRecordsCurrent(bundleCurrent); setOrphanedRecords(previous => previous ?? (!bundleCurrent && records.length ? structuredClone(records) : null)); setStatus(result); setReadError('');
+      setCurrentRecords(records); setCurrentRecordsCurrent(bundleCurrent); setCurrentBundleTarget(bundleTarget); setOrphanedRecords(previous => previous ?? (!bundleCurrent && records.length ? structuredClone(records) : null));
+      setCurrentSummary(summary); setSummaryDraft(makeSummaryDraft(summary, bundleCurrent && !!summary && result.state === 'ready' && sameHead(bundleTarget, state.head) && summaryBasisMatches(summary, access, state.head, true))); setStatus(result); setReadError('');
     }).catch(reason => { if (read === sequence.current && owns() && liveVisible.current) setReadError(message(reason)); })
       .finally(() => { if (read === sequence.current && owns()) setLoading(false); });
     return () => { ++sequence.current; };
-  }, [owner, access.writerLease, visible, state.head.version, state.head.bodyHash, state.editable, working, refresh]);
+  }, [owner, access.writerLease, visible, state.head.version, state.head.bodyHash, state.editable, working, refresh, stage?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,11 +208,26 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
         || await bodyHash(canonicalJson(result.revision.body)) !== result.target.bodyHash) throw new Error('The saved review did not match the selected writing. Check the review save.');
       if (operation.request.records !== undefined && canonicalJson(result.records ?? []) !== canonicalJson(operation.request.records)) throw new Error('The saved reviewed details did not match the requested complete set. Check the review save.');
       if (operation.request.promises !== undefined && canonicalJson(result.promises ?? []) !== canonicalJson(operation.request.promises)) throw new Error('The saved promises did not match the requested complete set. Check the review save.');
-      if (owns()) { setStage(result); setOrphanedPromises(null); setDraftPromises(structuredClone(result.promises ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(result.records ?? [])); setNotice('Read this saved version, then confirm your review.'); }
+      await validateSummary(result.summary, result.summaryHash, currentAccess, result.revision, result.prefix);
+      if (operation.request.summary?.kind === 'set'
+        && (!result.summary || result.summary.text !== operation.request.summary.text || result.summary.audience !== operation.request.summary.audience)) {
+        throw new Error('The saved narrative summary did not match the requested text. Check the review save.');
+      }
+      if (operation.request.summary?.kind === 'clear' && result.summary) {
+        throw new Error('The saved review did not clear its narrative summary. Check the review save.');
+      }
+      if (owns()) { setStage(result); setSummaryDraft(makeSummaryDraft(result.summary ?? null, true)); setOrphanedPromises(null); setDraftPromises(structuredClone(result.promises ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(result.records ?? [])); setNotice('Read this saved version, then confirm your review.'); }
     } else {
       const result = await markReady({ ...operation.request, access: currentAccess });
       if (result.projectId !== currentAccess.projectId || result.operationNamespace !== currentAccess.operationNamespace
         || result.stageId !== operation.request.stageId || canonicalJson(result.target) !== canonicalJson(operation.reviewed.target)) throw new Error('The review acknowledgment did not match your decision. Check the review save.');
+      await validateSummary(result.summary, result.summaryHash, currentAccess, operation.reviewed.revision, operation.reviewed.prefix);
+      if ((result.summaryHash ?? null) !== (operation.reviewed.summaryHash ?? null)) {
+        throw new Error('The review acknowledgment did not preserve its narrative summary fingerprint. Check the review save.');
+      }
+      if (canonicalJson(result.summary ?? null) !== canonicalJson(operation.reviewed.summary ?? null)) {
+        throw new Error('The review acknowledgment did not preserve its narrative summary. Check the review save.');
+      }
       if (owns()) { setStage(null); setNotice('Your review is saved. The chapter remains editable.'); }
     }
     if (owns()) { pending.current = null; setRetry(false); focusAfterSave.current = true; setRefresh(value => value + 1); }
@@ -167,7 +242,8 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       if (saved.id !== stageId || saved.projectId !== currentAccess.projectId || saved.operationNamespace !== currentAccess.operationNamespace
         || saved.target.documentId !== state.head.documentId || canonicalJson(saved.revision.head) !== canonicalJson(saved.target)
         || await bodyHash(canonicalJson(saved.revision.body)) !== saved.target.bodyHash) throw new Error('The saved review did not match this chapter. Refresh its review status.');
-      if (owns()) { setStage(saved); setOrphanedPromises(null); setDraftPromises(structuredClone(saved.promises ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(saved.records ?? [])); setNotice('Your saved review is open. Read it before confirming.'); focusAfterSave.current = true; }
+      await validateSummary(saved.summary, saved.summaryHash, currentAccess, saved.revision, saved.prefix);
+      if (owns()) { setStage(saved); setSummaryDraft(makeSummaryDraft(saved.summary ?? null, true)); setOrphanedPromises(null); setDraftPromises(structuredClone(saved.promises ?? [])); setOrphanedRecords(null); setDraftRecords(structuredClone(saved.records ?? [])); setNotice('Your saved review is open. Read it before confirming.'); focusAfterSave.current = true; }
     } catch (reason) { if (owns()) setError(message(reason)); }
     finally { busy.current = false; if (owns()) setWorking(false); }
   }
@@ -176,14 +252,24 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
     busy.current = true; setWorking(true); setError(''); setNotice('');
     try {
       if (kind === 'retry' && session.state.phase === 'reconciling') await session.reconcile();
+      let requestedSummary = kind === 'stage' ? summaryChange(summaryDraft) : undefined;
+      if (kind === 'stage' && requestedSummary === undefined && stage) {
+        if (stage.summary) requestedSummary = { kind: 'set', text: stage.summary.text, audience: stage.summary.audience };
+        else requestedSummary = { kind: 'clear' };
+      }
+      const oldSummary = stage ? stage.summary ?? null : currentSummary;
+      if (kind === 'stage' && stage && outdated && oldSummary && summaryDraft.choice === 'inherit') {
+        throw new Error('This chapter changed after the summary was accepted. Choose Use this summary, edit it, or Clear summary before saving the new review.');
+      }
       let reviewRejection: unknown;
       await session.projectWrite(async () => {
         if (kind === 'stage') {
           const request: StageAuthorReview = { access: session.projectAccess, operationId: crypto.randomUUID(), expected: session.state.head };
-          if (stage && (outdated || canonicalJson(draftRecords) !== canonicalJson(stage.records ?? []))) request.records = structuredClone(draftRecords);
+          if (stage) request.records = structuredClone(draftRecords);
           else if (!stage && orphanedRecords !== null) request.records = structuredClone(orphanedRecords);
-          if (stage && (outdated || canonicalJson(draftPromises) !== canonicalJson(stage.promises ?? []))) request.promises = structuredClone(draftPromises);
+          if (stage) request.promises = structuredClone(draftPromises);
           else if (!stage && orphanedPromises !== null) request.promises = structuredClone(orphanedPromises);
+          if (requestedSummary !== undefined) request.summary = structuredClone(requestedSummary);
           pending.current = { kind: 'stage', request };
         } else if (kind === 'mark') {
           if (!stage) return;
@@ -193,7 +279,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
           try { await perform(pending.current); }
           catch (reason) {
             if (reason && typeof reason === 'object' && 'code' in reason
-              && ['ReviewStageStale', 'ReviewBasisUnavailable', 'ReviewStageNotFound', 'ReviewLimitExceeded', 'InvalidReviewedRecords', 'InvalidReviewedPromises', 'OperationIdReusedWithDifferentPayload'].includes(String(reason.code))) {
+            && ['ReviewStageStale', 'ReviewBasisUnavailable', 'ReviewStageNotFound', 'ReviewLimitExceeded', 'InvalidReviewedRecords', 'InvalidReviewedPromises', 'InvalidReviewedSummary', 'ReviewSummaryRequired', 'OperationIdReusedWithDifferentPayload'].includes(String(reason.code))) {
               reviewRejection = reason;
             } else { throw reason; }
           }
@@ -222,9 +308,15 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   if (!visible) return null;
   const outdated = !!stage && (state.dirty || canonicalJson(stage.target) !== canonicalJson(state.head));
   const recordsChanged = !!stage && (canonicalJson(draftRecords) !== canonicalJson(stage.records ?? []) || canonicalJson(draftPromises) !== canonicalJson(stage.promises ?? []));
-  const needsStage = !stage || outdated || recordsChanged;
+  const summaryChanged = !!stage && summaryDraft.choice !== 'inherit';
+  const needsStage = !stage || outdated || recordsChanged || summaryChanged;
+  const stagedSummary = stage ? stage.summary ?? null : currentSummary;
+  const summaryCanInherit = !outdated && (stage ? stage.summary !== undefined
+    : status?.state === 'ready' && sameHead(currentBundleTarget, state.head) && !!currentSummary && summaryBasisMatches(currentSummary, access, state.head, currentRecordsCurrent));
+  const displayedSummaryDraft = outdated && stagedSummary && summaryDraft.choice === 'inherit'
+    ? { choice: 'required' as const, text: stagedSummary.text, audience: stagedSummary.audience } : summaryDraft;
   const reviewActionLabel = !stage ? (status?.state === 'ready' ? 'Update reviewed details' : 'Review saved chapter')
-    : outdated ? 'Review latest saved chapter' : recordsChanged ? 'Save reviewed details' : 'Mark this version reviewed';
+    : outdated ? 'Review latest saved chapter' : recordsChanged || summaryChanged ? 'Save reviewed details' : 'Mark this version reviewed';
   return <aside className="history-panel review-panel" aria-labelledby="review-heading">
     <div className="feedback-heading"><h2 id="review-heading" tabIndex={-1} ref={heading}>Story review</h2><button disabled={working} onClick={onClose}>Back to writing</button></div>
     <div className="review-summary">
@@ -252,13 +344,14 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       </div>
       {detailKind === 'possessions' ? <ReviewEvidenceEditor projectEntities={projectEntities} records={draftRecords} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftRecords} onEditingChange={setEvidenceEditing} />
         : <ReviewPromiseEditor projectPromises={projectPromises} records={draftPromises} disabled={!state.editable || working || retry || outdated} captureSelection={selectEvidence} onChange={setDraftPromises} onEditingChange={setEvidenceEditing} />}
+      <ReviewSummaryEditor access={access} documentId={stage.target.documentId} target={state.head} current={stagedSummary} canInherit={summaryCanInherit} value={displayedSummaryDraft} disabled={!state.editable || working || retry} onChange={setSummaryDraft} />
       <div className="history-preview" aria-label="Chapter under review"><SavedProse body={stage.revision.body} /></div>
       <div className="history-restore">{outdated ? <p role="status">Your writing changed. Prepare a new review of the saved chapter.</p>
         : <p>Confirm that you have reviewed this chapter against the earlier story. You can keep writing afterward.</p>}
         <button className="primary-button" disabled={!state.editable || working || retry || evidenceEditing} onClick={() => void act(needsStage ? 'stage' : 'mark')}>
           {working ? 'Saving review…' : reviewActionLabel}
         </button></div>
-    </> : <div className="review-empty"><p>Your manuscript stays editable. Reviewing chapters is optional.</p>{detailKind === 'promises' ? <>
+    </> : <div className="review-empty"><p>Your manuscript stays editable. Reviewing chapters is optional.</p>{currentSummary && <ReviewSummaryEditor access={access} documentId={state.head.documentId} target={state.head} current={currentSummary} canInherit={summaryCanInherit} value={summaryDraft} disabled={!state.editable || working || retry} onChange={setSummaryDraft} />}{detailKind === 'promises' ? <>
       {orphanedPromises !== null && <p role="status">These promise details are retained. Reselect or remove outdated passages before preparing the saved chapter again.</p>}
       <ReviewPromiseEditor projectPromises={projectPromises} records={orphanedPromises ?? currentPromises} disabled={orphanedPromises === null || !state.editable || working || retry} captureSelection={selectEvidence} onChange={setOrphanedPromises} onEditingChange={setEvidenceEditing} />
     </> : <>{orphanedRecords !== null ? <><p role="status">{currentRecordsCurrent ? 'Your unsubmitted reviewed details are still here. Prepare the saved chapter again to submit them.' : 'These details belong to an older reviewed version. Reselect or remove any passage before preparing the new review.'}</p><ReviewEvidenceEditor projectEntities={projectEntities} records={orphanedRecords} captureSelection={selectEvidence} onChange={setOrphanedRecords} onEditingChange={setEvidenceEditing} /></> : currentRecords.length ? <ReviewEvidenceEditor projectEntities={projectEntities} records={currentRecords} disabled captureSelection={() => null} onChange={() => {}} /> : <p>No reviewed story details are recorded yet.</p>}</>}</div>}

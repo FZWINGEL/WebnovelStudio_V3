@@ -93,6 +93,7 @@ fn mark_ready(
             expected: document.head.clone(),
             records: None,
             promises: None,
+            summary: None,
         })
         .expect("stage review");
     project
