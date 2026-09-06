@@ -16,7 +16,6 @@ use webnovel_core::projects::{
 };
 use webnovel_core::transfer::{create_backup, recover_backup};
 
-#[allow(dead_code)]
 #[path = "support/schema.rs"]
 mod legacy_schema;
 
@@ -527,6 +526,7 @@ fn schema22_fixture_migrates_and_preserves_legacy_evidence_columns() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
+    legacy_schema::remove_schema24_features(&connection).unwrap();
     legacy_schema::remove_schema22_features(&connection).unwrap();
     connection.pragma_update(None, "user_version", 22).unwrap();
     drop(connection);
@@ -537,7 +537,7 @@ fn schema22_fixture_migrates_and_preserves_legacy_evidence_columns() {
     let version: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 23);
+    assert_eq!(version, 24);
     let columns: Vec<String> = migrated
         .prepare("SELECT name FROM pragma_table_info('ready_bundles')")
         .unwrap()

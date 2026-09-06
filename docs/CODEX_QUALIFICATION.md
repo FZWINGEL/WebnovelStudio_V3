@@ -151,6 +151,14 @@ native screenshots, and `.local/promises-live-named.log`. Executable SHA-256 was
 restricted title exclusion has deterministic and native development evidence,
 not a live restricted-generation claim from these two discussions.
 
+The C6 bounded story-lookup experiment has not been dispatched. The prepared
+qualification harness is intended to make an initial request, receive a
+`story-lookup.v1` search request, resolve it locally, make a subsequent exact
+read request, and inspect the final packet; preparation is not provider
+evidence. The live-generation total therefore remains thirteen. No C6 live
+result, provider-native function-calling claim, model-specific token-budget
+claim, or narrative-quality conclusion is recorded here.
+
 ## Authentication, sources, and cleanup limits
 
 The successful normal-home run used the native executable's existing managed login without reading, copying, or extracting auth/config/credential values. `--ignore-user-config` still excluded the user config layer and `--ignore-rules` excluded user/project execpolicy rules. The dedicated-home 401 demonstrates that an empty isolated auth home cannot be assumed to carry the managed login. Host authentication therefore remains intentionally unisolated; the app-owned working directory and generated catalog/profile/run artifacts were isolated from manuscript sources.

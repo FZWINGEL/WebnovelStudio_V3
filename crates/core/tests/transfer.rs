@@ -1088,7 +1088,14 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
     legacy_schema::remove_schema19_features(&connection).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE snapshot_navigation_views; DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position;
+            "DROP TRIGGER discussion_lookup_results_no_update;
+             DROP TRIGGER discussion_lookup_results_no_delete;
+             DROP TRIGGER discussion_lookup_reads_no_update;
+             DROP TRIGGER discussion_lookup_reads_no_delete;
+             DROP TABLE discussion_lookup_reads;
+             DROP TABLE discussion_lookup_results;
+             DROP TABLE discussion_lookup_invocations;
+             DROP TABLE snapshot_navigation_views; DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position;
              DROP TRIGGER review_stages_no_update;
              DROP TRIGGER review_stages_no_delete;
              DROP TRIGGER ready_bundles_no_update;
@@ -1121,7 +1128,7 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
         .unwrap()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 23);
+    assert_eq!(version, 24);
     let table: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row(
@@ -1189,7 +1196,14 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let connection = Connection::open(&database_path).expect("open source database");
     connection
         .execute_batch(
-            "DROP TRIGGER review_stages_no_update;
+            "DROP TRIGGER discussion_lookup_results_no_update;
+             DROP TRIGGER discussion_lookup_results_no_delete;
+             DROP TRIGGER discussion_lookup_reads_no_update;
+             DROP TRIGGER discussion_lookup_reads_no_delete;
+             DROP TABLE discussion_lookup_reads;
+             DROP TABLE discussion_lookup_results;
+             DROP TABLE discussion_lookup_invocations;
+             DROP TRIGGER review_stages_no_update;
              DROP TRIGGER review_stages_no_delete;
              DROP TRIGGER ready_bundles_no_update;
              DROP TRIGGER ready_bundles_no_delete;
@@ -1269,5 +1283,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 23);
+    assert_eq!(version, 24);
 }

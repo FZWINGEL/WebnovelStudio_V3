@@ -19,6 +19,10 @@ pub fn run_live(
     dispatch: DiscussionDispatch,
     stop: StopSignal,
 ) {
+    if dispatch.run.lookup.is_some() {
+        crate::lookup_discussion::run_live(project, recovery, runtime, connection, dispatch, stop);
+        return;
+    }
     let owner = dispatch.run.owner.clone();
     let _registration = Registration {
         runtime,
@@ -199,7 +203,7 @@ fn failed() -> CodexRunResult {
         cleanup_settled: true,
     }
 }
-fn report(run: &DiscussionRun, result: CodexRunResult) -> ProviderTerminalReport {
+pub(super) fn report(run: &DiscussionRun, result: CodexRunResult) -> ProviderTerminalReport {
     let (status, error) = match result.status {
         CodexRunStatus::Completed => (ProviderOutcomeStatus::Completed, None),
         CodexRunStatus::Stopped => (ProviderOutcomeStatus::Stopped, None),
@@ -330,6 +334,7 @@ mod tests {
             body:serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"The ending stays."}]}]}}) }).unwrap();
         let started = project
             .start_discussion(StartDiscussion {
+                lookup: None,
                 access: access.clone(),
                 operation_id: "discuss".into(),
                 expected: document.head,

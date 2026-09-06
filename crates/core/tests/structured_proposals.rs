@@ -21,6 +21,9 @@ use webnovel_core::projects::proposals::{
 };
 use webnovel_core::projects::{CreateDocument, ProjectSession};
 
+#[path = "support/schema.rs"]
+mod legacy_schema;
+
 struct Fixture {
     root: PathBuf,
     project: Option<ProjectSession>,
@@ -81,6 +84,7 @@ impl Fixture {
                 budget: MockContextBudget::new("100000", "1000", "100"),
                 provider_binding: None,
                 previous_run_id: None,
+                lookup: None,
             })
             .unwrap()
     }
@@ -103,6 +107,7 @@ impl Fixture {
                 budget: MockContextBudget::new("100000", "1000", "100"),
                 provider_binding: None,
                 previous_run_id: None,
+                lookup: None,
             })
             .unwrap()
     }
@@ -460,6 +465,7 @@ fn whole_document_scope_uses_versioned_contract_and_preserves_formatting() {
         budget: MockContextBudget::new("100000", "1000", "100"),
         provider_binding: Some(ProviderBinding::codex_luna()),
         previous_run_id: None,
+        lookup: None,
     };
     let started = fixture.project().start_discussion(request.clone()).unwrap();
     assert!(
@@ -649,6 +655,7 @@ fn schema22_rebuild_preserves_legacy_candidate_payload_receipt_and_decision() {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
+    legacy_schema::remove_schema24_features(&connection).unwrap();
     legacy_schema21_proposal_tables(&connection);
     drop(connection);
     let reopened = ProjectSession::open(&path).unwrap();
@@ -709,7 +716,7 @@ fn schema22_rebuild_preserves_legacy_candidate_payload_receipt_and_decision() {
     let schema: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 23);
+    assert_eq!(schema, 24);
     let (run_id, ordinal): (String, i64) = migrated
         .query_row(
             "SELECT run_id,ordinal FROM proposals WHERE id=?",

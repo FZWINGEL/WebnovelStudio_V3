@@ -447,6 +447,7 @@ fn promise_absence_keeps_legacy_packet_and_context_bytes() {
     let serialized_context = serde_json::to_string(&frozen).unwrap();
     assert!(!serialized_context.contains("reviewedPromises"));
     let request = PacketRequest {
+        lookup: None,
         packet_id: "packet-legacy".into(),
         session_id: "session-legacy".into(),
         invocation_ordinal: "1".into(),
@@ -504,6 +505,7 @@ fn author_packet_delivers_promise_envelope_and_receipt_identity() {
         vec![promise_set],
     );
     let request = PacketRequest {
+        lookup: None,
         packet_id: "packet-promises".into(),
         session_id: "session-promises".into(),
         invocation_ordinal: "1".into(),
@@ -579,6 +581,7 @@ fn layered_author_packet_keeps_frozen_names_for_promise_evidence() {
         vec![promise_set],
     );
     let request = PacketRequest {
+        lookup: None,
         packet_id: "packet-layered-promises".into(),
         session_id: "session-layered-promises".into(),
         invocation_ordinal: "1".into(),
@@ -686,6 +689,7 @@ fn restricted_packet_omits_frozen_source_titles() {
         reviewed_promises: vec![promise_set],
     };
     let request = PacketRequest {
+        lookup: None,
         packet_id: "packet-restricted-promises".into(),
         session_id: "session-restricted-promises".into(),
         invocation_ordinal: "1".into(),
@@ -728,6 +732,7 @@ fn frozen_source_label_tampering_is_rejected_before_packet_packing() {
     );
     let frozen = working_frozen(&target, std::slice::from_ref(&target), Vec::new());
     let mut request = PacketRequest {
+        lookup: None,
         packet_id: "packet-label-tamper".into(),
         session_id: "session-label-tamper".into(),
         invocation_ordinal: "1".into(),

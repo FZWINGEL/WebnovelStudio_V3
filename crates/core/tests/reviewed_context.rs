@@ -296,6 +296,7 @@ fn reviewed_prefix_is_optional_packet_material_when_target_has_no_dependencies()
     .unwrap();
     let prepared = project
         .prepare_context(PrepareContext {
+            lookup: None,
             access: access.clone(),
             operation_id: "reviewed-packet".into(),
             snapshot_id: frozen.snapshot.snapshot_id,
@@ -405,6 +406,7 @@ fn reviewed_evidence_freezes_from_marked_bundle_and_reaches_restricted_packet() 
     .unwrap();
     let prepared = project
         .prepare_context(PrepareContext {
+            lookup: None,
             access,
             operation_id: "reviewed-evidence-packet".into(),
             snapshot_id: frozen.snapshot.snapshot_id,
@@ -633,6 +635,7 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
     drop(project);
 
     let connection = Connection::open(&legacy_database_path).unwrap();
+    legacy_schema::remove_schema24_features(&connection).unwrap();
     legacy_schema::remove_schema19_features(&connection).unwrap();
     connection
         .execute_batch(
@@ -674,7 +677,7 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
     let schema: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 23);
+    assert_eq!(schema, 24);
     let retained_json: String = connection
         .query_row(
             "SELECT manifest_json FROM story_snapshots WHERE id=?",

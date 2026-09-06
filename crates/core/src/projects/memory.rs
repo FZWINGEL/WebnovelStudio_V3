@@ -451,6 +451,7 @@ impl OwnedProject {
         let target_handle = frozen.snapshot.target.revision_id.clone();
         let source = story_context::read_source(&tx, &frozen, &target_handle)?;
         let prepare = PrepareContext {
+            lookup: None,
             access: request.access.clone(),
             operation_id: request.operation_id.clone(),
             snapshot_id: frozen.snapshot.snapshot_id.clone(),
@@ -464,6 +465,7 @@ impl OwnedProject {
             response_contract: Some(MEMORY_RESPONSE_CONTRACT.to_owned()),
         };
         let packet_request = PacketRequest {
+            lookup: None,
             packet_id: new_id(),
             session_id: new_id(),
             invocation_ordinal: "0".to_owned(),

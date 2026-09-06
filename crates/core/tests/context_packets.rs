@@ -145,6 +145,7 @@ fn prepare_request(
     budget: MockContextBudget,
 ) -> PrepareContext {
     PrepareContext {
+        lookup: None,
         access: access.clone(),
         operation_id: operation_id.into(),
         snapshot_id: snapshot_id.into(),
@@ -573,6 +574,7 @@ fn safe_brief_receipt_tampering_is_rejected_by_read_and_backup_validation() {
             budget: budget(),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect("prepare safe brief packet");
     rewrite_packet(&project, &started.packet.receipt.packet_id, |packet| {
@@ -1144,6 +1146,7 @@ fn generic_preparation_rejects_consumed_discussion_request_guidance() {
         budget: budget(),
         provider_binding: None,
         previous_run_id: None,
+        lookup: None,
     };
     let original = project
         .start_discussion(discussion_request.clone())

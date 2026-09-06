@@ -17,6 +17,7 @@ mod library_commands;
 mod live_discussion;
 #[cfg(windows)]
 mod live_memory;
+mod lookup_discussion;
 mod memory_commands;
 mod memory_recovery;
 mod project_commands;

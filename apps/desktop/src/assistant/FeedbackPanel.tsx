@@ -3,7 +3,7 @@ import type { Scope } from '../editor/selection';
 import { bodyHash, canonicalJson, snapshotFromEditor } from '../editor/document';
 import { captureRevisionScope } from '../editor/revisionScope';
 import type { DocumentSession, SessionState } from '../editor/session';
-import { discussionRetry, readDiscussion, retryDiscussionSave, saveDiscussionDraft, startDiscussion, stopDiscussion, type ComposerBody, type DiscussionRun, type DiscussionView, type StartDiscussion } from '../ipc/discussions';
+import { DEFAULT_LOOKUP_ALLOWANCE, discussionRetry, readDiscussion, retryDiscussionSave, saveDiscussionDraft, startDiscussion, stopDiscussion, type ComposerBody, type DiscussionRun, type DiscussionView, type LookupAllowance, type StartDiscussion } from '../ipc/discussions';
 import { readProposals, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { ComposerSession, composerIntent, emptyComposer } from './composer';
 import { ContextInspector } from './ContextInspector';
@@ -22,6 +22,29 @@ function sameAccess(left: { projectId: string; operationNamespace: string; sessi
 }
 const activeRun = (run: DiscussionRun) => ['queued', 'running', 'stopping'].includes(run.status);
 function assistantName(run?: DiscussionRun): string { return run?.providerBinding?.modelId === 'gpt-5.6-luna' ? 'GPT-5.6-Luna' : run?.providerBinding ? run.providerBinding.modelId : 'Test assistant'; }
+function sameLookupAllowance(left: LookupAllowance | undefined, right: LookupAllowance | undefined): boolean {
+  return !!left && !!right && left.maxAdditionalInvocations === right.maxAdditionalInvocations
+    && left.totalInputBytes === right.totalInputBytes && left.totalOutputBytes === right.totalOutputBytes;
+}
+/** The run points at the initial packet; a completed lookup answer records its final packet on the assistant message. */
+export function finalContextPacketIdForRun(view: Pick<DiscussionView, 'messages'> | null, run: Pick<DiscussionRun, 'id' | 'packetId'> | undefined): string | undefined {
+  if (!run) return undefined;
+  return [...(view?.messages ?? [])].reverse().find(item => item.role === 'assistant' && item.runId === run.id && item.packetId)?.packetId ?? run.packetId;
+}
+function lookupStateLabel(state: NonNullable<DiscussionRun['lookup']>['invocations'][number]['state']): string {
+  switch (state) {
+    case 'prepared': return 'prepared · not sent';
+    case 'claimed': return 'in progress · delivery not confirmed';
+    case 'needsContext': return 'read complete · more context requested';
+    case 'completed': return 'answer received';
+    case 'failed': return 'failed · answer not confirmed';
+    case 'stopped': return 'stopped';
+    default: return 'delivery unknown';
+  }
+}
+function lookupPacketDelivered(inputDelivered: boolean): boolean {
+  return inputDelivered;
+}
 
 function ResponseDetails({ run }: { run: DiscussionRun }) {
   const result = run.providerResult;
@@ -101,8 +124,11 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
     if (!keepRetry) next = { ...next, previousRunId: null };
     if (composerIntent(next) !== 'continue') next = { ...next, basis: undefined };
     if (composerIntent(next) === 'discuss') next = { ...next, safeBrief: undefined };
-    else if (!keepRetry && next.safeBrief && canonicalJson(next.scope) !== canonicalJson(controller.current?.body.scope ?? null)) {
-      next = { ...next, safeBrief: { ...next.safeBrief, confirmed: false } };
+    else {
+      next = { ...next, lookup: undefined };
+      if (!keepRetry && next.safeBrief && canonicalJson(next.scope) !== canonicalJson(controller.current?.body.scope ?? null)) {
+        next = { ...next, safeBrief: { ...next.safeBrief, confirmed: false } };
+      }
     }
     controller.current?.update(next); setBody(structuredClone(next));
     if (timer.current) clearTimeout(timer.current);
@@ -206,7 +232,8 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
             modelSelection: selectedModel ? { ...selectedModel } : undefined,
             basis: submittedIntent === 'continue' ? submitted.basis : undefined,
             safeBrief: submittedIntent !== 'discuss' ? submitted.safeBrief : undefined,
-            budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' }, previousRunId: submitted.previousRunId ?? null };
+            budget: { modelId: 'mock-story-context', contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' }, previousRunId: submitted.previousRunId ?? null,
+            lookup: submittedIntent === 'discuss' ? submitted.lookup : undefined };
         }
         setPending(request);
         const result = await startDiscussion({ ...request, access: session.projectAccess });
@@ -220,13 +247,16 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
         const brief = result.packet.receipt.safeBrief;
         if (request.safeBrief ? !brief || brief.text !== request.safeBrief.text || brief.textHash !== await bodyHash(request.safeBrief.text)
           || (brief.originMessageId ?? null) !== (request.safeBrief.originMessageId ?? null) : !!brief) throw new Error('The response did not confirm the approved writing brief.');
+        const packetLookup = result.packet.receipt.lookup;
+        if (request.lookup ? !sameLookupAllowance(request.lookup, packetLookup?.allowance) || !sameLookupAllowance(request.lookup, result.run.lookup?.allowance)
+          || packetLookup?.completedInvocations !== 0 : packetLookup || result.run.lookup) throw new Error('The response did not confirm the bounded story lookup allowance.');
         return result;
       });
       if (!isCurrent()) return;
       confirmed = true;
       setPending(null);
       setView(previous => previous ? { ...previous, threadId: result.threadId, messages: [...previous.messages.filter(item => item.id !== result.userMessage.id), result.userMessage], runs: [...previous.runs.filter(item => item.id !== result.run.id), result.run] } : previous);
-      const sentBody = request ? { text: request.instruction, intent: request.intent, basis: request.basis, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief } : submitted;
+      const sentBody = request ? { text: request.instruction, intent: request.intent, basis: request.basis, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, lookup: request.lookup } : submitted;
       if (submittedController.clearIfUnchanged(sentBody)) { setBody(structuredClone(submittedController.body)); await submittedController.save(); }
       if (!isCurrent()) return;
       await refresh();
@@ -275,6 +305,17 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   }
   const locked = sending || !!pending || scopeBusy || savingResponse;
   const latest = view?.runs.at(-1);
+  const latestPacketId = finalContextPacketIdForRun(view, latest);
+  const lookupInvocations = latest?.lookup?.invocations ?? [];
+  const [selectedLookupPacketId, setSelectedLookupPacketId] = useState<string | null>(null);
+  useEffect(() => {
+    setSelectedLookupPacketId(null);
+  }, [latest?.id, session.projectAccess.projectId, session.projectAccess.operationNamespace]);
+  const selectedLookup = selectedLookupPacketId ? lookupInvocations.find(item => item.packetId === selectedLookupPacketId) : undefined;
+  const contextPacketId = selectedLookup?.packetId ?? latestPacketId;
+  const contextDelivered = selectedLookup ? lookupPacketDelivered(selectedLookup.inputDelivered) : latest?.lookup && lookupInvocations.length > 0
+    ? lookupPacketDelivered(lookupInvocations.find(item => item.packetId === latestPacketId)?.inputDelivered ?? false)
+    : latest?.dispatchState === 'delivered';
   const latestIsCurrentProject = latest?.owner.projectId === session.projectAccess.projectId && latest?.owner.operationNamespace === session.projectAccess.operationNamespace;
   const pin = (id: string) => { if (!locked && controller.current && !controller.current.body.pinnedDocumentIds.includes(id)) update({ ...controller.current.body, pinnedDocumentIds: [...controller.current.body.pinnedDocumentIds, id] }); };
   const openBrief = (origin?: { id: string; content: string }) => {
@@ -307,7 +348,8 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
       })}
       {proposals.length > 0 && <ProposalPanel key={`${session.projectAccess.projectId}/${session.projectAccess.operationNamespace}/${documentId}`} access={session.projectAccess} proposals={proposals} disabled={!session.state.editable} onPrepareProposal={onPrepareProposal} onApplyProposal={onApplyProposal} onRefresh={refresh} />}
       {latest && !activeRun(latest) && latest.status !== 'completed' && <p className="discussion-state">This response is {latest.status}. {latest.stopReason === 'context_stale' ? 'The story changed before it could start.' : ''}<button disabled={locked || !latestIsCurrentProject} onClick={() => void prepareRetry(latest)}>Prepare another attempt</button></p>}
-      {latest && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={latest.packetId} delivered={latest.dispatchState === 'delivered'} refreshKey={`${state.head.version}/${guidanceEpoch}`} onPin={pin} pinDisabled={locked || sourcesPending} onKeepSource={id => { if (!locked && !sourcesPending) setSourceAdoption(previous => ({ documentId: id, nonce: (previous?.nonce ?? 0) + 1 })); }} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
+      {latest && lookupInvocations.length > 1 && <label className="context-call-selector" htmlFor="discussion-context-call"><span>Context for model call</span><select id="discussion-context-call" value={selectedLookupPacketId ?? contextPacketId ?? latest.packetId} disabled={locked} onChange={event => setSelectedLookupPacketId(event.target.value)}>{lookupInvocations.map((invocation, index) => <option key={invocation.packetId} value={invocation.packetId}>Call {index + 1} · {lookupStateLabel(invocation.state)}</option>)}</select></label>}
+      {latest && contextPacketId && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={contextPacketId} delivered={contextDelivered} refreshKey={`${state.head.version}/${guidanceEpoch}`} onPin={pin} pinDisabled={locked || sourcesPending} onKeepSource={id => { if (!locked && !sourcesPending) setSourceAdoption(previous => ({ documentId: id, nonce: (previous?.nonce ?? 0) + 1 })); }} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
     </div>
     <form className="feedback-form" onSubmit={event => { event.preventDefault(); void send(); }}>
       {body.previousRunId && <div className="retry-notice"><p>Another attempt at the same feedback. Uses current story sources and retains the original one-use guidance if it is still active. Editing the feedback, selection, or included sources starts a new request.</p><button type="button" className="text-button" disabled={locked} onClick={() => update({ ...body, previousRunId: null })}>Use as a new request</button></div>}
@@ -324,6 +366,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
       {currentIntent === 'proposeEdits' && !canSuggestEdits && <p className="small-copy proposal-requirement">{documentKind === 'chapter' ? 'Select a passage or choose Whole chapter to request suggested edits.' : 'Suggested edits are available for chapters. Discussion remains available here.'}</p>}
       {currentIntent === 'continue' && <div className="continuation-basis"><label htmlFor="continuation-basis">Story basis</label><select id="continuation-basis" value={body.basis ?? 'working'} disabled={locked} onChange={event => update({ ...body, basis: event.target.value as 'working' | 'reviewed' })}><option value="working">Working draft</option><option value="reviewed">Reviewed story</option></select><p className="small-copy">{body.basis === 'reviewed' ? 'Uses the reviewed chapters before this one. Every earlier chapter needs a current review.' : 'Uses the current draft, including unreviewed chapters.'} New paragraphs will be added at the end only after you review and apply them.</p></div>}
       {currentIntent !== 'discuss' && <div className="safe-brief-status"><span>{body.safeBrief ? body.safeBrief.confirmed ? 'Writing brief approved' : 'Writing brief needs approval' : 'Writing brief · optional'}</span><button ref={briefLauncher} className="text-button" type="button" disabled={locked} onClick={() => openBrief()}>{body.safeBrief ? 'Edit brief' : 'Add writing brief'}</button></div>}
+      {currentIntent === 'discuss' && <label className="lookup-opt-in" htmlFor="discussion-lookup"><input id="discussion-lookup" type="checkbox" aria-label="Look up story details when needed" checked={!!body.lookup} disabled={locked} onChange={event => update({ ...body, lookup: event.target.checked ? { ...DEFAULT_LOOKUP_ALLOWANCE } : undefined })} /><span><strong>Look up story details when needed</strong><small>Up to 3 model calls. Each call may use additional credits.</small></span></label>}
       <label htmlFor="discussion-composer">{currentIntent === 'continue' ? 'What should happen next?' : currentIntent === 'proposeEdits' ? body.scope?.kind === 'wholeDocument' ? 'Request edits for this chapter' : body.scope?.kind === 'blocks' ? 'Request edits for these paragraphs' : 'Request edits for this passage' : body.scope && body.scope.kind !== 'wholeDocument' ? 'Discuss this passage' : 'Discuss this document'}</label>
       <textarea id="discussion-composer" ref={composer} value={body.text} disabled={!view || locked} maxLength={16000} placeholder="Make this moment more emotional, but keep the ending…" onChange={event => update({ ...body, text: event.target.value })} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; compositionWaiters.current.splice(0).forEach(resolve => resolve()); }} />
       {error && <div className="discussion-error" role="alert">{error}{!pending && <button type="button" disabled={locked} onClick={() => void checkSavedResponse()}>Check saved discussion</button>}{!view && <button type="button" onClick={() => setReload(value => value + 1)}>Retry loading discussion</button>}{view && !pending && <button type="button" onClick={() => void save.current().then(() => setError('')).catch(reason => setError(detail(reason)))}>Retry saving discussion</button>}</div>}

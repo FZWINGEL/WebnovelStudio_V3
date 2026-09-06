@@ -316,6 +316,7 @@ fn guidance_is_copied_into_recovery_and_remains_editable_with_local_history() {
             budget: MockContextBudget::new("100000", "100", "100"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect("create provenance discussion");
     let original = project
@@ -378,6 +379,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let database = project.path.join("project.sqlite3");
     drop(project);
     let connection = Connection::open(&database).expect("open current database");
+    legacy_schema::remove_schema24_features(&connection).unwrap();
     legacy_schema::remove_schema19_features(&connection).unwrap();
     connection
         .execute_batch(
@@ -421,7 +423,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 23);
+    assert_eq!(version, 24);
     for table in [
         "author_guidance_versions",
         "author_guidance_heads",

@@ -162,6 +162,7 @@ fn freeze_persists_current_navigation_and_keeps_historical_payload_after_stale_e
     let packet = match fixture
         .project
         .prepare_context(PrepareContext {
+            lookup: None,
             access: fixture.access.clone(),
             operation_id: "packet-with-navigation".into(),
             snapshot_id: frozen.snapshot.snapshot_id.clone(),

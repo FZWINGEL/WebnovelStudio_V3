@@ -106,6 +106,7 @@ fn start_request(
         budget: budget(),
         provider_binding: None,
         previous_run_id: None,
+        lookup: None,
     }
 }
 
@@ -466,6 +467,7 @@ fn save_draft(
             pinned_document_ids: Vec::new(),
             safe_brief: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect("save discussion draft")
 }
@@ -1656,6 +1658,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             pinned_document_ids: Vec::new(),
             safe_brief: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect_err("draft operation payload is immutable");
     assert_eq!(error.code, "OperationIdReusedWithDifferentPayload");
@@ -1672,6 +1675,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
             pinned_document_ids: Vec::new(),
             safe_brief: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect_err("draft version is a CAS boundary");
     assert_eq!(error.code, "DraftVersionConflict");
@@ -2036,6 +2040,7 @@ fn retry_composer_link_is_durable_payload_bound_and_fenced_in_recovered_copies()
         pinned_document_ids: retry.pinned_document_ids,
         safe_brief: None,
         previous_run_id: Some(first.run.id.clone()),
+        lookup: None,
     };
     let saved = project.save_discussion_draft(request.clone()).unwrap();
     assert_eq!(
@@ -2126,6 +2131,13 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
              DROP TABLE import_id_map;
              DROP TABLE import_body_decisions;
              DROP TABLE import_legacy_records;
+             DROP TRIGGER discussion_lookup_results_no_update;
+             DROP TRIGGER discussion_lookup_results_no_delete;
+             DROP TRIGGER discussion_lookup_reads_no_update;
+             DROP TRIGGER discussion_lookup_reads_no_delete;
+             DROP TABLE discussion_lookup_reads;
+             DROP TABLE discussion_lookup_results;
+             DROP TABLE discussion_lookup_invocations;
              ALTER TABLE discussion_drafts DROP COLUMN safe_brief_json;
              DROP TRIGGER command_receipts_no_proposal_collision;
              DROP TABLE proposal_receipts; DROP TABLE proposal_decisions; DROP TABLE proposal_versions; DROP TABLE proposals;
@@ -2145,7 +2157,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema23-")
+            .starts_with("schema6-before-schema24-")
     }));
 }
 
@@ -2267,6 +2279,7 @@ fn proposal_retry_exposes_and_preserves_intent() {
             pinned_document_ids: retry.pinned_document_ids.clone(),
             safe_brief: None,
             previous_run_id: Some(first.run.id.clone()),
+            lookup: None,
         })
         .unwrap();
     assert_eq!(saved.intent, FeedbackIntent::ProposeEdits);
@@ -2282,6 +2295,7 @@ fn proposal_retry_exposes_and_preserves_intent() {
         pinned_document_ids: retry.pinned_document_ids.clone(),
         safe_brief: None,
         previous_run_id: Some(first.run.id.clone()),
+        lookup: None,
     };
     assert_eq!(
         project
@@ -2489,6 +2503,7 @@ fn safe_brief_draft_retains_unconfirmed_text_across_reopen() {
             pinned_document_ids: Vec::new(),
             safe_brief: Some(draft_brief.clone()),
             previous_run_id: None,
+            lookup: None,
         })
         .expect("save editable safe brief draft");
     assert_eq!(saved.safe_brief, Some(draft_brief.clone()));

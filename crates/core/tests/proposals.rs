@@ -66,6 +66,7 @@ impl Fixture {
                 budget: MockContextBudget::new("100000", "1000", "100"),
                 provider_binding: None,
                 previous_run_id: None,
+                lookup: None,
                 intent: FeedbackIntent::ProposeEdits,
                 basis: None,
             })

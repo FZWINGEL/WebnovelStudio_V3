@@ -375,6 +375,7 @@ fn staged_import_replays_by_operation_and_recovery_keeps_inert_evidence() {
             budget: MockContextBudget::new("100000", "100", "100"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect("start imported discussion");
     let running = imported_session

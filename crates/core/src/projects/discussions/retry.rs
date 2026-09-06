@@ -31,6 +31,7 @@ pub(super) fn guidance(
         || request.scope != original.scope
         || request.pinned_document_ids != original.pinned_document_ids
         || request.safe_brief != original.safe_brief
+        || request.lookup != original.lookup
     {
         return Err(CoreError::new(
             "RetryRequestChanged",
@@ -105,6 +106,7 @@ fn original(
             pinned_document_ids: pins,
             safe_brief: prepared.safe_brief,
             previous_run_id: run_id.to_owned(),
+            lookup: prepared.lookup.map(|lookup| lookup.allowance),
         },
         frozen,
     ))

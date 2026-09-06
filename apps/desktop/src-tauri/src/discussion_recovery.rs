@@ -4,6 +4,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+use webnovel_core::projects::discussion_lookup::{LookupHaltRequest, LookupInvocationReport};
 use webnovel_core::projects::discussions::*;
 use webnovel_core::projects::{CoreError, CoreResult, ProjectAccess, ProjectSession};
 
@@ -14,6 +15,8 @@ pub struct DiscussionRecovery(Arc<Mutex<HashMap<OwnerKey, PendingSave>>>);
 
 #[derive(Clone)]
 pub(super) enum SaveOutcome {
+    Lookup(Box<LookupInvocationReport>),
+    LookupHalt(String),
     Provider(Box<ProviderTerminalReport>),
     Complete(DiscussionFinish),
     Fail,
@@ -56,6 +59,24 @@ fn active(run: &DiscussionRun) -> bool {
     )
 }
 
+/// Repeating a rejected report cannot repair its immutable input or identity.
+/// Storage/commit uncertainty is handled separately through explicit local retry.
+pub(super) fn invalid_lookup_report(error: &CoreError) -> bool {
+    matches!(
+        error.code.as_str(),
+        "InvalidLookupResponse"
+            | "InvalidLookupCounter"
+            | "InvalidRequest"
+            | "InvalidProviderBinding"
+            | "ProviderBindingMismatch"
+            | "ProviderInputMismatch"
+            | "OutputTooLarge"
+            | "LookupAllowanceExceeded"
+            | "LookupResultConflict"
+            | "LookupInvocationNotClaimed"
+    )
+}
+
 impl PendingSave {
     pub(super) fn attempt(
         &self,
@@ -63,6 +84,34 @@ impl PendingSave {
         current: &DiscussionRun,
     ) -> CoreResult<()> {
         if !active(current) {
+            return Ok(());
+        }
+        if let SaveOutcome::Lookup(report) = &self.outcome {
+            let saved = match project.settle_lookup_invocation(report.as_ref().clone()) {
+                Ok(saved) => saved,
+                Err(error) if invalid_lookup_report(&error) => project.halt_lookup(LookupHaltRequest {
+                    owner: current.owner.clone(),
+                    reason: "The lookup response could not be accepted. Its external outcome remains unconfirmed; no model call was replayed.".into(),
+                })?,
+                Err(error) => return Err(error),
+            };
+            if active(&saved) {
+                project.halt_lookup(LookupHaltRequest {
+                    owner: current.owner.clone(),
+                    reason: "The response is saved. The remaining lookup was interrupted; no further model call was made.".into(),
+                })?;
+            }
+            return Ok(());
+        }
+        if current.lookup.is_some() {
+            let reason = match &self.outcome {
+                SaveOutcome::LookupHalt(reason) => reason.clone(),
+                _ => "The story lookup could not finish. No model call was replayed.".into(),
+            };
+            project.halt_lookup(LookupHaltRequest {
+                owner: current.owner.clone(),
+                reason,
+            })?;
             return Ok(());
         }
         if let SaveOutcome::Provider(report) = &self.outcome {

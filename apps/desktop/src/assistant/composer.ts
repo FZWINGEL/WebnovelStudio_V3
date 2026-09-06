@@ -4,7 +4,7 @@ import type { ProjectAccess } from '../ipc/projects';
 
 export const emptyComposer = (): ComposerBody => ({ text: '', scope: null, pinnedDocumentIds: [] });
 export function composerIntent(body: ComposerBody): FeedbackIntent { return body.intent ?? 'discuss'; }
-function key(body: ComposerBody): string { return canonicalJson({ text: body.text, scope: body.scope, pinnedDocumentIds: body.pinnedDocumentIds, intent: composerIntent(body), basis: body.basis ?? null, previousRunId: body.previousRunId ?? null, safeBrief: body.safeBrief ? { text: body.safeBrief.text, originMessageId: body.safeBrief.originMessageId ?? null, confirmed: body.safeBrief.confirmed } : null }); }
+function key(body: ComposerBody): string { return canonicalJson({ text: body.text, scope: body.scope, pinnedDocumentIds: body.pinnedDocumentIds, intent: composerIntent(body), basis: body.basis ?? null, previousRunId: body.previousRunId ?? null, safeBrief: body.safeBrief ? { text: body.safeBrief.text, originMessageId: body.safeBrief.originMessageId ?? null, confirmed: body.safeBrief.confirmed } : null, lookup: body.lookup ?? null }); }
 
 /** Immutable retry payloads and save watermarks for the unsent composer only. */
 export class ComposerSession {
@@ -14,7 +14,7 @@ export class ComposerSession {
   private pending: { request: SaveDiscussionDraft; signature: string } | null = null;
   private flight: Promise<void> | null = null;
   constructor(private documentId: string, draft: DiscussionDraft | null, private access: () => ProjectAccess, private write: (request: SaveDiscussionDraft) => Promise<DiscussionDraft>) {
-    this.body = structuredClone(draft ? { text: draft.text, scope: draft.scope, pinnedDocumentIds: draft.pinnedDocumentIds, intent: draft.intent, basis: draft.basis, previousRunId: draft.previousRunId, safeBrief: draft.safeBrief } : emptyComposer());
+    this.body = structuredClone(draft ? { text: draft.text, scope: draft.scope, pinnedDocumentIds: draft.pinnedDocumentIds, intent: draft.intent, basis: draft.basis, previousRunId: draft.previousRunId, safeBrief: draft.safeBrief, lookup: draft.lookup } : emptyComposer());
     this.version = draft?.version ?? '0'; this.saved = key(this.body);
   }
   update(body: ComposerBody): void { this.body = structuredClone(body); }

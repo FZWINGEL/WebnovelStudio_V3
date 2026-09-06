@@ -7,7 +7,7 @@
 
 The native development app supports persistent projects, free-order English writing, document discussion, exact context inspection, adopted guidance, saved discussion sources, optional approved writing briefs, selected-passage and structured block suggestions, saved versions, bounded Windows Codex assistance, independent V2 schema-8 import, and exact Markdown/TXT export. Author-only chapter review stages exact saved prose and its earlier reviewed basis for explicit acceptance. Story memory provides explicit source-linked chapter digests and reuses current views in working discussions when full prose does not fit. Continuation offers explicit Working/Reviewed basis, restricted append-only proposals, editable paragraph previews, and atomic Apply/Reject. The schema-20 package adds an explicit **Author-reviewed snapshot** export basis, exact immutable review provenance, and a final freshness check after the native destination dialog. Schema 21 now adds optional passage-backed reviewed evidence with immutable record sets and audience-filtered delivery. C5 adds partial project-entity reuse, one-pass current-evidence freeze, authenticated object history, and schema-23 promise observations/history. App-local model preferences remain library schema 2.
 
-C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, C5/C6, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
+C0–C2, parts of C3, the F2 review/context core, and C4-A/B/C development slices are implemented. The C6 bounded lookup implementation is now in progress, with focused protocol, packet, boundary, core, frontend, and local native development evidence. Its accepted wrapper checkpoint passes 493 core tests, 29 desktop tests, one existing ignored fixture, and 324 frontend tests in 26 files; review fixes cover crash/reopen outcomes, exact child-run provenance, terminal/result/assistant consistency, historical unavailable gaps, reproducible search metadata, and truthful delivery status. The accepted native build also passes the full local diagnostic at 45/46 checks with the known OS clipboard check excluded. Hosted C6 qualification and live-provider lookup have not run. Continuation is CI-qualified as a development slice with 36 strict native checks and one bounded live result. Reviewed export passes the integrated wrapper, local native diagnostic, and strict CI with all 38 native checks. The schema-21 reviewed-evidence package is implemented and passes the final local native diagnostic at 39/40 checks, omitting only the known local OS clipboard case; [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) passes Windows and Ubuntu contracts and all 40 strict native checks with zero errors. Full V3 remains unfinished: higher-level C4 digests, remaining C5 state views, C6 qualification, broader Apply, narrative evaluation, and broader provider/native/release qualification remain open.
 
 The explicit Settings connection check validates the exact supported Codex executable and login availability. A live request freezes GPT-5.6-Luna/Max/Fast and the exact packet, runs in an owned Windows process, and saves validated output plus delivery, usage, cleanup, and outcome evidence. Other models/configurations stay unavailable; the local test model works offline. Application byte caps are not provider token limits. See [ADR 0011](ADR_0011_LIVE_CODEX.md) and [qualification](CODEX_QUALIFICATION.md); this is development integration, not full W8 acceptance.
 
@@ -174,44 +174,55 @@ The source checkpoint `284625b6576540939f3dabb065f1e9320d0bb01e` passed [CI 3401
 
 Rust schema-21 persistence, canonical hashing, exact UTF-16 anchor validation, replacement/inheritance/clear semantics, historical authentication, frozen context provenance, reader-only restricted projection, bounded packet accounting, omission counts, and context inspection are implemented. The prior local wrapper (`.local/reviewed-evidence-check.log`) was green with **446 active Rust tests** (422 core and 24 desktop, one existing ignored fixture) and **271 frontend tests in 22 files**. The prior native evidence is retained in `.local/reviewed-evidence-native.log`; prior hosted evidence is `.local/ci-34012813796/report.json`. Review actions call no model and do not change prose. This checkpoint used the local test model; existing Codex requests can consume evidence through the shared packet path, but no new live generation was run. Total authorized live generations remains ten.
 
-### Next implementation focus
+### Current C6 bounded story lookup slice
 
-The next context step is a narrow C6 Author Room discussion slice: explicit
-opt-in, the initial invocation plus at most two further invocations, and Rust's
-existing frozen `search`/`read` operations. A shared usage allowance and exact
-child-packet/read receipts must be committed before submission. Every read and
-invocation rechecks ownership, policy, Stop, and stale-basis rules; crashes and
-lost acknowledgments must never automatically replay a model call.
+The implementation is a narrow opt-in route for Working, AuthorRoom, and
+Discuss conversations. It uses the strict application response envelope
+`story-lookup.v1`: the model may request bounded local search or exact source
+reads, and Rust resolves them against one frozen project snapshot. The initial
+invocation plus at most two fresh invocations are allowed. Each child packet,
+read, response, and final answer is durably recorded; schema 24 raises the
+reader floor for the new invocation/read records. The composer choice is off by
+default, persists with the request identity, clears when switching to Suggest
+edits or Continue, and is inspectable per packet. Intermediate protocol JSON
+remains evidence, not chat text.
 
-The current Codex profile disables tools and exposes assistant text only.
-A strict application-controlled lookup-response format therefore needs separate
-mock and live qualification before the UI advertises lookup support. This is
-not provider function calling. Existing one-invocation requests and historical
-provider results must remain unchanged; restricted writing and state/knowledge
-tools follow only after their disclosure-projected results are qualified.
-Reuse discussion and packet ownership where possible, adding only the missing
-read and invocation receipts. No paid autosave analysis, unlimited research,
-silent source widening, or manuscript writes belong in this step. The design
-is preparation for the next slice, not implemented C6 behavior.
+The route is application-controlled and does not claim provider-native function
+calling. It does not expose restricted-writing, state/knowledge, or thread
+tools, filesystem/session access, automatic canon, or manuscript edits. Byte
+allowances are application limits, separate from model token limits and billing.
+The ordinary one-packet discussion route remains available with lookup disabled.
 
-The current provider settlement seals the root run and writes its sole
-`provider_results` row. An intermediate lookup response must therefore use a
-separate invocation receipt while the existing root remains running; it must
-not masquerade as a completed discussion. Opted-in responses need bounded
-buffering until classified, so intermediate protocol JSON does not become an
-assistant message. Final C6 settlement must bind the visible answer to its
-actual invocation packet, and backup validation must verify the complete
-ordered invocation/read chain. Existing one-call rows and v1 packet bytes
-remain unchanged; expanded packets receive new v2 identities. The current
-Codex profile can enforce invocation counts, exact submitted input bytes, and
-retained output bytes. Optional reported usage does not establish a provider
-token or billing ceiling; that remains a distinct qualification requirement.
+The current focused evidence is seven pure lookup protocol tests, 34 packet
+compiler tests, nine independent boundary tests, four core lookup tests, four
+native-worker tests, and 324 frontend tests in 26 files. The accepted C6 wrapper
+checkpoint is `.local/lookup-wrapper-accepted.log` with exit code 0: 493 core
+tests, 29 desktop tests, one existing ignored fixture, 324 frontend tests in 26
+files, strict workspace Clippy, formatting, TypeScript, and the production
+build all passed. Its schema-23-to-24 regression coverage preserves legacy
+composer text, keeps lookup disabled, and verifies empty lookup tables. Review
+fixes cover crash/reopen outcomes, exact child-run provenance,
+terminal/result/assistant consistency, historical unavailable gaps,
+reproducible search metadata, and truthful delivery status. The focused native
+lookup journey passed with no page errors. The accepted executable SHA-256 is
+`4ad786861fecf58b3328c663e3c6874fe3aec7c783f59b7ca02c2b3fc2e2d746`; the
+full local diagnostic passed 45/46 checks with zero errors, excluding only the
+known local OS clipboard case, at `2026-09-06T10:20:49.825Z` on WebView2
+`152.0.4191.62`. Evidence is `.local/native-other-results/report.json` and
+`.local/lookup-native-accepted.log`; the focused lookup evidence remains in
+`.local/native-lookup-results/qualification.json`. Hosted C6 and the live
+lookup experiment remain pending.
+Existing one-invocation requests and historical provider-result bytes remain
+separate from the new invocation/read records. Crashes and lost
+acknowledgments must remain explicit unknown or retained outcomes and must not
+automatically replay a model call.
 
-Broader work remains: C5 relationship, knowledge/belief, rule, and multi-resolution
-digest views; C6 bounded model lookups; arbitrary partial multi-block editing,
-batch Apply, and manual rebinding; broader providers; native author trials; and
-narrative-quality and release qualification. Generated chapter memory remains
-an unreviewed navigation aid, and the full V3 goal remains open.
+Broader work remains: C5 relationship, knowledge/belief, rule, and
+multi-resolution digest views; restricted-writing lookup and state/thread tools;
+arbitrary partial multi-block editing, batch Apply, and manual rebinding;
+broader providers; native author trials; and narrative-quality and release
+qualification. Generated chapter memory remains an unreviewed navigation aid,
+and the full V3 goal remains open.
 
 The exact bundle/revision cache follow-up is measured in
 `.local/reviewed-evidence-freeze-benchmark/review-validation-cache-result.json`.
@@ -282,6 +293,7 @@ The full `scripts/desktop.ps1` check passed and is recorded in `.local/continuat
 | W6 saved versions and restore | Implemented development slice | Bounded metadata paging, exact inert comparison, atomic whole-document restore, shared Apply/restore reconciliation, before/after retention, process-interruption and rollback evidence | Remaining lifecycle/renderer-loss combinations and B trial |
 | W7 exports/package | Development slice and narrow installed lifecycle passed | Working and author-reviewed Markdown/TXT preview, exact native Save, immutable export records, reviewed freshness/record-failure native checks, stable release data, installed lifecycle CI33994616334 | Offline/no-runtime installation, true upgrade, physical/assistive native trials, full N gates |
 | W8 bounded Codex | Integrated development path | Explicit exact-binary connection check, immutable packet/model, Job-owned streaming, bounded output, durable provider results, Stop and explicit local save retry | Broader refusal/truncation/auth/cleanup matrix, isolation review, qualified token limits, complete W8/E3 |
+| C6 bounded story lookup | In-progress implementation slice | Opt-in `story-lookup.v1` search/read route for Working, AuthorRoom, and Discuss; schema-24 invocation/read persistence, fresh-call allowance, exact child packets, focused protocol/packet/boundary/core/frontend checks, accepted local native and wrapper evidence, and review fixes | Hosted C6, live-provider lookup, crash/Stop/lost-ack qualification, model-specific token accounting, and broader state/thread/restricted-writing support |
 | F1 V2 import | Implemented schema-8 development slice | Explicit working-body choices, independent staged installation, inert history, Library Check import, source-free receipt recovery, full pre-move validation, and seven-check synthetic native import journey | Broader pending-import native recovery and representative author-approved acceptance |
 | F2 author review | Prose review, reviewed-context core, continuation, and schema-21 possession evidence CI-qualified as a development slice | Exact stages/revisions/earlier prefix, explicit selected bundles, immutable reader-position pins, current validity, saved-stage resumption, independent recovered history, core/IPC freeze of reviewed prefix plus current target, schema-19 Working/Reviewed append preview with atomic Apply/Reject, and the first typed passage-backed record set with audience-filtered delivery | Broader records/summaries/exceptions, provider qualification, and full F2 qualification |
 | C4-A chapter memory | Implemented development slice; CI-covered | Explicit Refresh for one full current chapter; schema 16 job/result/view records; strict evidence validation; recovery/cleanup regressions; native CI and one live Codex memory request | C4-B extends packet integration; broader provider/native qualification and narrative quality remain open |
@@ -518,7 +530,7 @@ The first part stages an exact saved chapter and its complete earlier selected r
 
 ### F3 — context quality
 
-**Gate:** measured task-specific context evidence. **Status:** C4-A chapter navigation memory implemented with local tests, native diagnostic, and one live-provider result. Broader C4 derived-view packet integration and C5/C6 remain open; strict CI and full provider/release qualification remain separate.
+**Gate:** measured task-specific context evidence. **Status:** C4-A chapter navigation memory implemented with local tests, native diagnostic, and one live-provider result. Broader C4 derived-view packet integration, remaining C5 views, and C6 evaluation remain open; strict CI and full provider/release qualification remain separate.
 
 - [ ] Add source packing, author-room/prose-context separation, safe briefs, exact previous prose, aliases/search, and freshness checks.
 - [x] Implement the C4-A source-linked chapter navigation digest slice with explicit Refresh, exact source revision, strict evidence validation, separate job/result/view records, stale/revocation fencing, and local recovery boundaries. Generated views remain inspection-only and are not supplied to future model packets.
@@ -545,7 +557,7 @@ The first part stages an exact saved chapter and its complete earlier selected r
 
 ## Story Context extension completion ledger
 
-The maintained [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-slice plan](V3_STORY_CONTEXT_FIRST_SLICE.md) are an adopted design extension. Their C0–C6 packages are part of the full V3 goal and preserve the base save, Apply, lifecycle, and reviewed-authority ownership. C0 is implemented with pure contracts and 16 adversarial tests; C1 is implemented as a working-basis snapshot/retrieval slice; C2 is implemented and pushed as a Rust pure deterministic compiler with durable exact packet receipts and native IPC, and is covered by the current native development flow and earlier hosted checkpoints; C3 guidance persistence and packet binding are pushed, as are bounded recent discussion context and inspector display. Linked retry guidance and saved composer mode are implemented and pushed. Persistent discussion sources and optional approved writing briefs are implemented; richer relevance selection remains open. No full C0–C6 completion is claimed.
+The maintained [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-slice plan](V3_STORY_CONTEXT_FIRST_SLICE.md) are an adopted design extension. Their C0–C6 packages are part of the full V3 goal and preserve the base save, Apply, lifecycle, and reviewed-authority ownership. C0 is implemented with pure contracts and 16 adversarial tests; C1 is implemented as a working-basis snapshot/retrieval slice; C2 is implemented and pushed as a Rust pure deterministic compiler with durable exact packet receipts and native IPC, and is covered by the current native development flow and earlier hosted checkpoints; C3 guidance persistence and packet binding are pushed, as are bounded recent discussion context and inspector display. Linked retry guidance and saved composer mode are implemented and pushed. Persistent discussion sources and optional approved writing briefs are implemented; richer relevance selection remains open. C6 implementation is in progress with focused lookup protocol, packet, boundary, core, frontend, accepted local native, accepted wrapper, and review-fix evidence; hosted and live-provider qualification remain open. No full C0–C6 completion is claimed.
 
 | Package | Planned owner and scope | Status | Required evidence before completion |
 | --- | --- | --- | --- |
@@ -556,7 +568,7 @@ The maintained [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-sli
 | C4-A | F3; source-bound single-chapter navigation digest without automatic canon | Implemented development slice; local/native/live evidence recorded | Exact full-chapter revision, strict `navigation-digest.v1` UTF-16/evidence checks, separate job/result/view records, stale/revocation/recovery boundaries, native/provider evidence, and no paid autosave/open calls |
 | C4 | F3; derived-view packet integration and richer quality without automatic canon | Partial: C4-B frozen chapter-view reuse and C4-C chapter-only freshness implemented and CI-qualified; higher-level views and quality evaluation open | Broader contextual/arc digests and measured interpretation quality; chapter-only views retain their exact source, evidence, and disclosure limits |
 | C5 | F3 after F2; thin temporal, relationship, knowledge, and thread views | Partial: entity reuse, batched current-evidence freeze, authenticated object history, and schema-23 promise history implemented; current qualification recorded above | Build relationship/knowledge/rule views with source-bound retrieval, disclosure, uncertainty, and historical dependencies; add quality evidence for supported English tasks |
-| C6 | W8 additional qualification; bounded provider-side read loop | Planned | Stop/budget/duplicate-event/crash boundaries, visible unknown outcomes, and fresh invocation labeling |
+| C6 | W8 additional qualification; bounded provider-side read loop | In progress: opt-in `story-lookup.v1` search/read implementation for Working, AuthorRoom, and Discuss; schema-24 durable invocation/read records; focused protocol, packet, boundary, core, frontend, local native, and wrapper evidence | Final delivery-label qualification; hosted/live-provider qualification; Stop/budget/duplicate-event/crash boundaries; visible unknown outcomes; fresh invocation labeling; restricted-writing/state/thread extensions |
 
 The public promise is layered: stored evidence, permitted available sources, the packet actually delivered, and what a model understood are separate states; the last requires evaluation. C1 retains original source and does not make copied historical snapshots authoritative for a new project. Context work does not authorize automatic canon or replacement of source text with a large rolling summary.
 

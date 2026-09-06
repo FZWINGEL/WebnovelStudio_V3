@@ -9,6 +9,7 @@ pub mod continuation;
 mod contracts;
 mod eligibility;
 pub mod evidence_history;
+pub mod lookup;
 pub mod memory;
 pub mod navigation;
 pub mod packet;

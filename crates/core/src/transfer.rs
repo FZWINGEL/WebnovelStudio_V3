@@ -613,6 +613,12 @@ fn validate_project_connection_heads(
             format!("The provider results are invalid: {error}"),
         )
     })?;
+    crate::projects::discussion_lookup::validate_storage(connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The discussion lookup records are invalid: {error}"),
+        )
+    })?;
     crate::projects::guidance::validate_guidance_storage(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",

@@ -16,6 +16,9 @@ use webnovel_core::projects::{
 };
 use webnovel_core::transfer::{create_backup, recover_backup};
 
+#[path = "support/schema.rs"]
+mod legacy_schema;
+
 struct TempProject(PathBuf);
 
 impl TempProject {
@@ -869,6 +872,7 @@ fn schema20_archive_migrates_legacy_empty_evidence_rows() {
     let legacy_db = temp.child("schema20.sqlite3");
     fs::write(&legacy_db, database).unwrap();
     let connection = Connection::open(&legacy_db).unwrap();
+    legacy_schema::remove_schema24_features(&connection).unwrap();
     connection
         .execute_batch(
             "ALTER TABLE review_stages DROP COLUMN records_json;
@@ -911,7 +915,7 @@ fn schema20_archive_migrates_legacy_empty_evidence_rows() {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
-    assert_eq!(schema, 23);
+    assert_eq!(schema, 24);
     assert_eq!(migrated_bundle, bundle.id);
     assert_eq!(records_json, None);
     assert_eq!(records_hash, None);

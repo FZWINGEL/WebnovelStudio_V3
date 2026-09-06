@@ -232,6 +232,7 @@ fn discussion_uses_persistent_author_sources_but_restricted_edits_do_not() {
             budget: MockContextBudget::new("100000", "100", "100"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect("start discussion");
     assert_eq!(discussion.packet.receipt.mandatory_source_handles.len(), 1);
@@ -264,6 +265,7 @@ fn discussion_uses_persistent_author_sources_but_restricted_edits_do_not() {
             budget: MockContextBudget::new("100000", "100", "100"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect("start target-pinned discussion");
     // The compiler already includes the target as full text. A persistent
@@ -317,6 +319,7 @@ fn discussion_uses_persistent_author_sources_but_restricted_edits_do_not() {
             budget: MockContextBudget::new("100000", "100", "100"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect("start restricted discussion");
     assert!(
@@ -355,6 +358,7 @@ fn retry_keeps_transient_pins_and_refreshes_persistent_pins() {
             budget: MockContextBudget::new("100000", "100", "100"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect("start original");
     project
@@ -387,6 +391,7 @@ fn retry_keeps_transient_pins_and_refreshes_persistent_pins() {
             budget: MockContextBudget::new("100000", "100", "100"),
             provider_binding: None,
             previous_run_id: Some(retry.previous_run_id),
+            lookup: None,
         })
         .expect("start retry");
     assert!(second.packet.receipt.mandatory_source_handles.is_empty());
@@ -680,6 +685,7 @@ fn persistent_pin_budget_failure_does_not_start_a_discussion() {
             budget: MockContextBudget::new("1", "0", "0"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .unwrap_err();
     assert_eq!(error.code, "ContextPreparationFailed");
@@ -712,6 +718,7 @@ fn changing_persistent_pins_stales_an_existing_prepared_packet() {
             budget: MockContextBudget::new("100000", "100", "100"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .expect("prepare discussion");
     assert!(

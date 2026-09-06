@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FeedbackPanel } from './FeedbackPanel';
+import { FeedbackPanel, finalContextPacketIdForRun } from './FeedbackPanel';
 import * as discussions from '../ipc/discussions';
 import * as proposals from '../ipc/proposals';
 import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
@@ -29,7 +29,7 @@ vi.mock('../ipc/proposals', () => ({
   applyProposal: vi.fn(),
   rejectProposal: vi.fn(),
 }));
-vi.mock('./ContextInspector', () => ({ ContextInspector: () => <div data-testid="context-inspector" /> }));
+vi.mock('./ContextInspector', () => ({ ContextInspector: (props: { packetId: string; delivered: boolean }) => <div data-testid="context-inspector" data-packet-id={props.packetId} data-delivered={String(props.delivered)} /> }));
 vi.mock('./GuidancePanel', () => ({ GuidancePanel: () => <div data-testid="guidance-panel" /> }));
 vi.mock('./SourcePinsPanel', () => ({ SourcePinsPanel: () => <div data-testid="source-pins-panel" /> }));
 
@@ -115,6 +115,64 @@ afterEach(async () => {
 });
 
 describe('persistent FeedbackPanel safeguards', () => {
+  it('uses the final assistant packet for context inspection after a lookup', () => {
+    const run = { id: 'run', packetId: 'initial' } as discussions.DiscussionRun;
+    const view = { messages: [
+      { id: 'user', threadId: 'thread', runId: 'run', role: 'user' as const, content: 'Find it.', scope: null, packetId: 'initial', createdAt: 'now' },
+      { id: 'assistant', threadId: 'thread', runId: 'run', role: 'assistant' as const, content: 'Found it.', scope: null, packetId: 'final', createdAt: 'now' },
+    ] } as discussions.DiscussionView;
+    expect(finalContextPacketIdForRun(view, run)).toBe('final');
+    expect(finalContextPacketIdForRun({ messages: [view.messages[0]] }, run)).toBe('initial');
+  });
+
+  it('lets the author inspect each lookup packet and does not mark an unclaimed call delivered', async () => {
+    const session = await makeSession();
+    const response = startResult(session, 'lookup-run', 'lookup-operation');
+    response.run = {
+      ...response.run,
+      status: 'completed',
+      dispatchState: 'delivered',
+      lookup: {
+        allowance: { maxAdditionalInvocations: 2, totalInputBytes: '73728', totalOutputBytes: '196608' },
+        invocations: [
+          { ordinal: '0', packetId: 'initial-packet', state: 'needsContext', inputDelivered: false, response: null, error: null },
+          { ordinal: '1', packetId: 'prepared-packet', state: 'prepared', inputDelivered: false, response: null, error: null },
+          { ordinal: '2', packetId: 'final-packet', state: 'completed', inputDelivered: true, response: null, error: null },
+          { ordinal: '3', packetId: 'failed-packet', state: 'failed', inputDelivered: true, response: null, error: 'Malformed response' },
+          { ordinal: '4', packetId: 'stopped-packet', state: 'stopped', inputDelivered: true, response: null, error: null },
+        ],
+      },
+    };
+    response.run.packetId = 'initial-packet';
+    response.userMessage.packetId = 'initial-packet';
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({
+      ...emptyView('document'),
+      threadId: response.threadId,
+      runs: [response.run],
+      messages: [response.userMessage, { ...response.userMessage, id: 'answer', role: 'assistant', content: 'Final answer.', packetId: 'final-packet' }],
+    });
+    await renderPanel(session);
+    const selector = host.querySelector('#discussion-context-call') as HTMLSelectElement;
+    expect(selector).not.toBeNull();
+    expect(selector.value).toBe('final-packet');
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('final-packet');
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('true');
+    await act(async () => { selector.value = 'prepared-packet'; selector.dispatchEvent(new Event('change', { bubbles: true })); });
+    await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('prepared-packet'));
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('false');
+    expect(host.textContent).toContain('Call 2 · prepared · not sent');
+    await act(async () => { selector.value = 'failed-packet'; selector.dispatchEvent(new Event('change', { bubbles: true })); });
+    await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('failed-packet'));
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('true');
+    await act(async () => { selector.value = 'stopped-packet'; selector.dispatchEvent(new Event('change', { bubbles: true })); });
+    await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('stopped-packet'));
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('true');
+    await act(async () => { selector.value = 'initial-packet'; selector.dispatchEvent(new Event('change', { bubbles: true })); });
+    await waitFor(() => expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-packet-id')).toBe('initial-packet'));
+    expect(selector.value).toBe('initial-packet');
+    expect(host.querySelector('[data-testid="context-inspector"]')?.getAttribute('data-delivered')).toBe('false');
+  });
+
   it('sends continuation with its explicit basis and no passage scope, preserving a refused reviewed request', async () => {
     const session = await makeSession();
     vi.mocked(providerIpc.readProviderState).mockResolvedValue(providerState(false));

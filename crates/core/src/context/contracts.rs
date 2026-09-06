@@ -221,6 +221,10 @@ pub struct CoverageEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PacketReceipt {
+    /// Exact read requests/results supplied separately from ordinary packing.
+    /// Historical packets without lookups retain their original representation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lookup: Option<crate::context::lookup::LookupPacketInput>,
     pub packet_id: String,
     pub session_id: String,
     pub snapshot_id: String,

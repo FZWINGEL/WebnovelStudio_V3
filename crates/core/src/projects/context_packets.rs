@@ -30,6 +30,8 @@ pub struct PrepareContext {
     pub provider_binding: Option<ProviderBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_contract: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lookup: Option<crate::context::lookup::LookupPacketInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +106,12 @@ impl OwnedProject {
     fn prepare_context_packet(&mut self, request: PrepareContext) -> CoreResult<PreparationResult> {
         self.check_access(&request.access)?;
         check_id(&request.operation_id)?;
+        if request.lookup.is_some() {
+            return Err(CoreError::new(
+                "LookupRequiresDiscussion",
+                "Story lookups require an explicitly authorized discussion job.",
+            ));
+        }
         if request.safe_brief.is_some() {
             return Err(CoreError::new(
                 "SafeBriefRequiresDiscussion",
@@ -177,6 +185,7 @@ impl OwnedProject {
             budget: request.budget.clone(),
             provider_binding: request.provider_binding.clone(),
             response_contract: request.response_contract.clone(),
+            lookup: request.lookup.clone(),
         };
         let packet = match compile_packet(&compile_request) {
             Ok(packet) => packet,
@@ -394,6 +403,7 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
         budget: request.budget,
         provider_binding: request.provider_binding,
         response_contract: request.response_contract,
+        lookup: request.lookup,
     })
     .map_err(|error| {
         CoreError::new(

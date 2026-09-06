@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ComposerSession } from './composer';
-import type { DiscussionDraft, SaveDiscussionDraft } from '../ipc/discussions';
+import { DEFAULT_LOOKUP_ALLOWANCE, type DiscussionDraft, type SaveDiscussionDraft } from '../ipc/discussions';
 
 const access = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
-function ack(request: SaveDiscussionDraft): DiscussionDraft { return { documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, basis: request.basis, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, updatedAt: 'today' }; }
+function ack(request: SaveDiscussionDraft): DiscussionDraft { return { documentId: request.documentId, version: (BigInt(request.expectedVersion) + 1n).toString(), text: request.text, intent: request.intent, basis: request.basis, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, lookup: request.lookup, updatedAt: 'today' }; }
 describe('unsent discussion persistence', () => {
   it('keeps a continuation basis through lost save acknowledgment, later choice and reopening', async () => {
     const write = vi.fn(async (request: SaveDiscussionDraft) => ack(request));
@@ -31,6 +31,20 @@ describe('unsent discussion persistence', () => {
     expect(write.mock.calls[0][0]).toEqual(write.mock.calls[1][0]);
     const restored = new ComposerSession('document', ack(write.mock.calls[2][0]), () => access, write);
     expect(restored.body.safeBrief).toEqual({ text: 'He briefly recognizes the pendant.', originMessageId: 'private-message', confirmed: false });
+    expect(restored.dirty).toBe(false);
+  });
+  it('persists an opted-in lookup allowance through a lost reply and reopening', async () => {
+    const write = vi.fn(async (request: SaveDiscussionDraft) => ack(request));
+    write.mockRejectedValueOnce(new Error('lost reply'));
+    const session = new ComposerSession('document', null, () => access, write);
+    const body = { text: 'Check whether the pendant was mentioned earlier.', scope: null, pinnedDocumentIds: [], lookup: { ...DEFAULT_LOOKUP_ALLOWANCE } };
+    session.update(body);
+    await expect(session.save()).rejects.toThrow('lost reply');
+    await session.save();
+    expect(write.mock.calls[0][0]).toEqual(write.mock.calls[1][0]);
+    expect(write.mock.calls[0][0].lookup).toEqual(DEFAULT_LOOKUP_ALLOWANCE);
+    const restored = new ComposerSession('document', ack(write.mock.calls[1][0]), () => access, write);
+    expect(restored.body.lookup).toEqual(DEFAULT_LOOKUP_ALLOWANCE);
     expect(restored.dirty).toBe(false);
   });
   it('does not clear a retry choice when an unrelated send acknowledgment arrives', async () => {

@@ -214,6 +214,7 @@ fn request_with_sources(
         .map(|(descriptor, _)| descriptor.clone())
         .collect();
     PacketRequest {
+        lookup: None,
         packet_id: "packet-1".into(),
         session_id: "session-1".into(),
         invocation_ordinal: "1".into(),

@@ -131,6 +131,7 @@ impl<T> Pipe for T {}
 
 fn request(frozen: FrozenContext, reads: Vec<SourceRead>) -> PacketRequest {
     PacketRequest {
+        lookup: None,
         packet_id: "packet-1".into(),
         session_id: "session-1".into(),
         invocation_ordinal: "1".into(),
@@ -1160,4 +1161,273 @@ fn packet_message_and_options_serialization_is_stable() {
         packet_input_hash(&messages, &options).unwrap(),
         packet_input_hash(&messages, &options).unwrap()
     );
+}
+
+mod lookup_packets {
+    use super::*;
+    use webnovel_core::context::lookup::{
+        LookupAllowance, LookupExchange, LookupPacketInput, LookupRead, LookupReadResult,
+    };
+    use webnovel_core::context::packet::LOOKUP_RESPONSE_CONTRACT;
+    use webnovel_core::projects::story_context::{SearchHit, SearchMode, SearchResult};
+
+    fn initial() -> PacketRequest {
+        let target_body = body(&[("target-1", "Keep this ending.")]);
+        let old_body = body(&[
+            ("old-1", "Mei promised to return the brass key."),
+            ("old-2", "Her brother waited."),
+        ]);
+        let target = source("target", "target-doc", &target_body);
+        let old = source("old", "old-doc", &old_body);
+        let mut req = request(
+            frozen(
+                vec![target.clone(), old.clone()],
+                ContextPurpose::Discuss,
+                Audience::AuthorRoom,
+            ),
+            vec![read(&target, &target_body), read(&old, &old_body)],
+        );
+        req.invocation_ordinal = "0".into();
+        req.response_contract = Some(LOOKUP_RESPONSE_CONTRACT.into());
+        req.lookup = Some(LookupPacketInput {
+            allowance: LookupAllowance::default(),
+            completed_invocations: 0,
+            exchanges: vec![],
+        });
+        req
+    }
+
+    fn expanded() -> PacketRequest {
+        let mut req = initial();
+        req.invocation_ordinal = "1".into();
+        let old = &req.sources[1];
+        req.lookup.as_mut().unwrap().completed_invocations = 1;
+        req.lookup.as_mut().unwrap().exchanges.push(LookupExchange {
+            request: LookupRead::Read {
+                id: "read-1".into(),
+                handle: "old".into(),
+                block_ids: Some(vec!["old-1".into()]),
+            },
+            result: LookupReadResult::Read {
+                handle: "old".into(),
+                source: old.descriptor.source.clone(),
+                passages: vec![old.passages[0].clone()],
+                complete: false,
+            },
+        });
+        req
+    }
+
+    #[test]
+    fn explicit_lookup_contract_preserves_instruction_and_ordinary_wire_shape() {
+        let req = initial();
+        let packet = compile_packet(&req).unwrap();
+        assert_eq!(packet.messages.last().unwrap().content, req.instruction);
+        assert_eq!(packet.receipt.lookup, req.lookup);
+        assert!(packet.messages[0].content.contains("story-lookup.v1"));
+        let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
+        assert_eq!(envelope["lookup"]["completedInvocations"], 0);
+        let mut ordinary = req;
+        ordinary.lookup = None;
+        ordinary.response_contract = None;
+        let ordinary = compile_packet(&ordinary).unwrap();
+        assert!(
+            !serde_json::to_value(&ordinary.receipt)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .contains_key("lookup")
+        );
+        assert!(!ordinary.messages[1].content.contains("\"lookup\""));
+        assert!(!ordinary.messages[0].content.contains("story-lookup.v1"));
+    }
+
+    #[test]
+    fn old_lookup_evidence_is_mandatory_even_when_optional_prefix_cannot_fit() {
+        let mut req = expanded();
+        let filler = "Unrelated scenery. ".repeat(1800);
+        let filler_body = body(&[("filler-1", &filler)]);
+        let descriptor = source("filler", "filler-doc", &filler_body);
+        req.frozen.snapshot.sources.insert(1, descriptor.clone());
+        req.sources.insert(1, read(&descriptor, &filler_body));
+        let packet = compile_packet(&req).unwrap();
+        assert_eq!(packet.receipt.lookup, req.lookup);
+        assert!(
+            packet.messages[1]
+                .content
+                .contains("Mei promised to return the brass key.")
+        );
+        assert!(!packet.messages[1].content.contains(&filler));
+        assert!(
+            packet
+                .receipt
+                .source_handles
+                .iter()
+                .any(|handle| handle == "target")
+        );
+        assert_eq!(packet.messages.last().unwrap().content, req.instruction);
+
+        req.lookup.as_mut().unwrap().allowance.total_input_bytes = "100".into();
+        assert!(matches!(compile_packet(&req), Err(PacketError::Budget(_))));
+    }
+
+    #[test]
+    fn altered_passages_identity_order_and_completeness_are_refused() {
+        let req = expanded();
+        compile_packet(&req).unwrap();
+        for mutation in 0..7 {
+            let mut changed = req.clone();
+            let LookupReadResult::Read {
+                handle,
+                source,
+                passages,
+                complete,
+            } = &mut changed.lookup.as_mut().unwrap().exchanges[0].result
+            else {
+                unreachable!()
+            };
+            match mutation {
+                0 => passages[0].text.push_str(" The promise was fulfilled."),
+                1 => source.revision_id = "other-revision".into(),
+                2 => *handle = "other-project-source".into(),
+                3 => passages[0].block_order += 1,
+                4 => *complete = true,
+                5 => passages.clear(),
+                _ => passages.push(passages[0].clone()),
+            }
+            assert!(
+                matches!(compile_packet(&changed), Err(PacketError::SourceBinding { code, .. }) if code == "InvalidLookupEvidence"),
+                "mutation {mutation}"
+            );
+        }
+    }
+
+    #[test]
+    fn author_room_discussion_authorization_cannot_expand_to_writing_or_extra_calls() {
+        let req = expanded();
+        for mutation in 0..7 {
+            let mut changed = req.clone();
+            match mutation {
+                0 => changed.response_contract = None,
+                1 => changed.frozen.policy.audience = Audience::RestrictedWriting,
+                2 => changed.frozen.purpose = ContextPurpose::Continue,
+                3 => changed.invocation_ordinal = "2".into(),
+                4 => {
+                    changed
+                        .lookup
+                        .as_mut()
+                        .unwrap()
+                        .allowance
+                        .max_additional_invocations = 0
+                }
+                5 => {
+                    let duplicate = changed.lookup.as_ref().unwrap().exchanges[0].clone();
+                    changed.lookup.as_mut().unwrap().exchanges.push(duplicate);
+                }
+                _ => changed.lookup.as_mut().unwrap().exchanges.clear(),
+            }
+            assert!(compile_packet(&changed).is_err(), "mutation {mutation}");
+        }
+    }
+
+    #[test]
+    fn search_hits_are_bound_to_frozen_text_and_utf16_boundaries() {
+        let mut req = expanded();
+        let unicode_body = body(&[("unicode-1", "🔑 Mei kept the key.")]);
+        let unicode = source("unicode", "unicode-doc", &unicode_body);
+        let unicode_read = read(&unicode, &unicode_body);
+        req.frozen.snapshot.sources.push(unicode);
+        req.sources.push(unicode_read.clone());
+        req.lookup.as_mut().unwrap().exchanges = vec![LookupExchange {
+            request: LookupRead::Search { id: "search-1".into(), query: "🔑".into(), mode: SearchMode::Literal, limit: 3 },
+            result: LookupReadResult::Search { result: SearchResult {
+                snapshot_id: req.frozen.snapshot.snapshot_id.clone(),
+                hits: vec![SearchHit { passage: unicode_read.passages[0].clone(), start_utf16: 0, end_utf16: 2 }],
+                source_matches: vec![], searched_sources: 3, has_more: false,
+                coverage: "Searched the frozen sources; absence does not prove an event never occurred.".into(),
+            } },
+        }];
+        compile_packet(&req).unwrap();
+        for mutation in 0..9 {
+            let mut changed = req.clone();
+            let LookupReadResult::Search { result } =
+                &mut changed.lookup.as_mut().unwrap().exchanges[0].result
+            else {
+                unreachable!()
+            };
+            match mutation {
+                0 => result.hits[0].end_utf16 = 1,
+                1 => result.hits[0].passage.text = "invented".into(),
+                2 => result.snapshot_id = "other-snapshot".into(),
+                3 => result.searched_sources = 2,
+                4 => result.hits.push(result.hits[0].clone()),
+                5 => {
+                    result.hits[0].start_utf16 = 3;
+                    result.hits[0].end_utf16 = 6;
+                }
+                6 => result.has_more = true,
+                7 => result.hits.clear(),
+                _ => {
+                    let LookupRead::Search { query, .. } =
+                        &mut changed.lookup.as_mut().unwrap().exchanges[0].request
+                    else {
+                        unreachable!()
+                    };
+                    *query = "missing pendant".into();
+                }
+            }
+            assert!(compile_packet(&changed).is_err(), "mutation {mutation}");
+        }
+    }
+
+    #[test]
+    fn source_alias_lookup_rejects_unmatched_names_and_wrong_result_kinds() {
+        let mut req = expanded();
+        let old = req.sources[1].descriptor.clone();
+        req.frozen
+            .aliases
+            .insert(old.handle.clone(), vec!["The key vow".into()]);
+        req.lookup.as_mut().unwrap().exchanges = vec![LookupExchange {
+            request: LookupRead::Search {
+                id: "alias-1".into(),
+                query: "the KEY vow".into(),
+                mode: SearchMode::ExactAlias,
+                limit: 1,
+            },
+            result: LookupReadResult::Search {
+                result: SearchResult {
+                    snapshot_id: req.frozen.snapshot.snapshot_id.clone(),
+                    hits: vec![],
+                    source_matches: vec![old],
+                    searched_sources: 2,
+                    has_more: false,
+                    coverage: "Exact source aliases.".into(),
+                },
+            },
+        }];
+        compile_packet(&req).unwrap();
+        for mutation in 0..3 {
+            let mut changed = req.clone();
+            match mutation {
+                0 => changed.frozen.aliases.clear(),
+                1 => {
+                    let LookupRead::Search { mode, .. } =
+                        &mut changed.lookup.as_mut().unwrap().exchanges[0].request
+                    else {
+                        unreachable!()
+                    };
+                    *mode = SearchMode::Literal;
+                }
+                _ => {
+                    let LookupReadResult::Search { result } =
+                        &mut changed.lookup.as_mut().unwrap().exchanges[0].result
+                    else {
+                        unreachable!()
+                    };
+                    result.source_matches.clear();
+                }
+            }
+            assert!(compile_packet(&changed).is_err(), "mutation {mutation}");
+        }
+    }
 }

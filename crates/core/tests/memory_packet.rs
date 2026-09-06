@@ -113,6 +113,7 @@ fn valid_request(text: &str) -> PacketRequest {
     let body = body(text);
     let descriptor = source(&body, SourceKind::CurrentDraft);
     PacketRequest {
+        lookup: None,
         packet_id: "memory-packet-1".into(),
         session_id: "memory-session-1".into(),
         invocation_ordinal: "1".into(),

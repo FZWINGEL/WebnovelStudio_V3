@@ -93,6 +93,33 @@ export interface ConversationTurn { runId: string; packetId: string; sourceSnaps
 export interface FrozenConversation { projectId: string; operationNamespace: string; documentId: string; threadId: string; turns: ConversationTurn[]; omittedTurns: number }
 export interface SourcePassage { handle: string; source: SourceRef; blockId: string; blockOrder: number; text: string }
 export interface SourceRead { descriptor: SourceDescriptor; passages: SourcePassage[]; body: WnsDocument; usedValidatedProjection: boolean }
+export interface StorySearchResult {
+  snapshotId: string;
+  hits: Array<{ passage: SourcePassage; startUtf16: number; endUtf16: number }>;
+  sourceMatches: SourceDescriptor[];
+  searchedSources: number;
+  hasMore: boolean;
+  coverage: string;
+}
+export interface LookupAllowance {
+  maxAdditionalInvocations: number;
+  totalInputBytes: string;
+  totalOutputBytes: string;
+}
+export type LookupSearchMode = 'literal' | 'lexical' | 'exactAlias';
+export type LookupRequest =
+  | { kind: 'search'; id: string; query: string; mode: LookupSearchMode; limit: number }
+  | { kind: 'read'; id: string; handle: string; blockIds?: string[] };
+export type LookupResult =
+  | { kind: 'search'; result: StorySearchResult }
+  | { kind: 'read'; handle: string; source: SourceRef; passages: SourcePassage[]; complete: boolean }
+  | { kind: 'unavailable'; code: string; detail: string };
+export interface LookupExchange { request: LookupRequest; result: LookupResult }
+export interface LookupPacketInput {
+  allowance: LookupAllowance;
+  completedInvocations: number;
+  exchanges: LookupExchange[];
+}
 export interface ScopeGrant {
   kind: 'passage' | 'blocks' | 'wholeDocument' | 'append';
   start: Endpoint | null; end: Endpoint | null;
@@ -103,6 +130,7 @@ export interface MockContextBudget {
   reservedOutputTokens: string; reservedProtocolTokens: string;
 }
 export interface PacketReceipt {
+  lookup?: LookupPacketInput;
   packetId: string; sessionId: string; snapshotId: string; invocationOrdinal: string;
   sourceHandles: string[]; mandatorySourceHandles?: string[]; coverage: Array<{ handle: string; label: string; detail: CoverageDetail }>;
   guidanceHandles?: string[];
@@ -144,7 +172,7 @@ export const storyContextSnapshot = (access: ProjectAccess, snapshotId: string):
 export const readStoryContextSource = (access: ProjectAccess, snapshotId: string, handle: string): Promise<SourceRead> => invoke('read_story_context_source', { access, snapshotId, handle });
 export const searchStoryContext = (request: {
   access: ProjectAccess; snapshotId: string; query: string; mode: 'literal' | 'lexical' | 'exactAlias'; limit: number;
-}): Promise<{ snapshotId: string; hits: Array<{ passage: SourcePassage; startUtf16: number; endUtf16: number }>; sourceMatches: SourceDescriptor[]; searchedSources: number; hasMore: boolean; coverage: string }> => invoke('search_story_context', { request });
+}): Promise<StorySearchResult> => invoke('search_story_context', { request });
 export const captureStoryScope = (access: ProjectAccess, snapshotId: string, kind: ScopeGrant['kind'], start: Endpoint | null, end: Endpoint | null): Promise<ScopeGrant> => invoke('capture_story_scope', { access, snapshotId, kind, start, end });
 export const prepareStoryContext = (request: {
   access: ProjectAccess; operationId: string; snapshotId: string; instruction: string; mandatoryHandles: string[]; scope: ScopeGrant | null; budget: MockContextBudget;

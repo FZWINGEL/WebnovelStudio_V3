@@ -707,6 +707,7 @@ fn receipt_dependencies_are_dependency_first_and_include_non_cited_inputs() {
 #[test]
 fn packet_and_budget_contracts_keep_cross_boundary_counters_as_strings() {
     let receipt = webnovel_core::context::PacketReceipt {
+        lookup: None,
         packet_id: "packet".into(),
         session_id: "session".into(),
         snapshot_id: "snapshot".into(),

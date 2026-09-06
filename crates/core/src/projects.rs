@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 pub mod context_packets;
 mod conversation_context;
+pub mod discussion_lookup;
 pub mod discussions;
 pub mod evidence_queries;
 pub mod exports;
@@ -1970,6 +1971,7 @@ mod tests {
                 budget: MockContextBudget::new("100000", "1000", "100"),
                 provider_binding: None,
                 previous_run_id: None,
+                lookup: None,
             })
             .unwrap();
         project

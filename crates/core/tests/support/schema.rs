@@ -1,6 +1,8 @@
+#![allow(dead_code)]
+
 use rusqlite::{Connection, params};
 
-/// Strip schema-21, schema-20, and schema-19-only columns from a current fixture before it
+/// Strip schema-24, schema-21, schema-20, and schema-19-only columns from a current fixture before it
 /// is presented as an older database. The production migrations are
 /// intentionally one-way; this helper only makes synthetic legacy fixtures
 /// truthful.
@@ -46,6 +48,37 @@ pub fn remove_schema19_features(connection: &Connection) -> rusqlite::Result<()>
     Ok(())
 }
 
+/// Strip the schema-24 bounded story-lookup records from a current fixture.
+///
+/// The lookup tables are only present in the current schema, so legacy fixture
+/// builders must remove them before lowering `user_version`. Their foreign-key
+/// graph is intentionally dismantled from leaves to root, and their immutable
+/// triggers are removed before their tables. This helper is test-only; the
+/// production migration remains a one-way upgrade.
+pub fn remove_schema24_features(connection: &Connection) -> rusqlite::Result<()> {
+    for trigger in [
+        "discussion_lookup_results_no_update",
+        "discussion_lookup_results_no_delete",
+        "discussion_lookup_reads_no_update",
+        "discussion_lookup_reads_no_delete",
+    ] {
+        drop_trigger_if_present(connection, trigger)?;
+    }
+
+    // Reads and results reference invocations, so remove the child tables
+    // first even when a fixture happens to contain lookup rows.
+    for table in [
+        "discussion_lookup_reads",
+        "discussion_lookup_results",
+        "discussion_lookup_invocations",
+    ] {
+        drop_table_if_present(connection, table)?;
+    }
+
+    drop_column_if_present(connection, "discussion_drafts", "lookup_json")?;
+    Ok(())
+}
+
 /// Strip only schema-23 promise columns so a current fixture can truthfully be
 /// presented as a schema-22 database before migration coverage runs.
 pub fn remove_schema22_features(connection: &Connection) -> rusqlite::Result<()> {
@@ -82,6 +115,32 @@ fn drop_column_if_present(
 ) -> rusqlite::Result<()> {
     if table_has_column(connection, table, column)? {
         let sql = format!("ALTER TABLE {table} DROP COLUMN {column}");
+        connection.execute_batch(&sql)?;
+    }
+    Ok(())
+}
+
+fn drop_table_if_present(connection: &Connection, table: &str) -> rusqlite::Result<()> {
+    let exists: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+        [table],
+        |row| row.get(0),
+    )?;
+    if exists != 0 {
+        let sql = format!("DROP TABLE {table}");
+        connection.execute_batch(&sql)?;
+    }
+    Ok(())
+}
+
+fn drop_trigger_if_present(connection: &Connection, trigger: &str) -> rusqlite::Result<()> {
+    let exists: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name=?",
+        [trigger],
+        |row| row.get(0),
+    )?;
+    if exists != 0 {
+        let sql = format!("DROP TRIGGER {trigger}");
         connection.execute_batch(&sql)?;
     }
     Ok(())

@@ -79,6 +79,7 @@ impl Fixture {
                 budget: MockContextBudget::new("100000", "1000", "100"),
                 provider_binding: None,
                 previous_run_id: None,
+                lookup: None,
             })
             .unwrap()
     }
@@ -110,6 +111,7 @@ impl Fixture {
                 budget: MockContextBudget::new("100000", "1000", "100"),
                 provider_binding: None,
                 previous_run_id: None,
+                lookup: None,
             })
             .unwrap()
     }
@@ -239,6 +241,7 @@ fn make_schema18_archive(source: &Path, target: &Path, temp_root: &Path) {
     let legacy_path = temp_root.join("schema18.sqlite3");
     fs::write(&legacy_path, database_bytes).unwrap();
     let database = Connection::open(&legacy_path).unwrap();
+    legacy_schema::remove_schema24_features(&database).unwrap();
     legacy_schema::remove_schema19_features(&database).unwrap();
     database.execute_batch("PRAGMA user_version=18;").unwrap();
     drop(database);
@@ -513,6 +516,7 @@ fn reviewed_continuation_requires_a_real_reviewed_prefix_and_never_falls_back_to
             budget: MockContextBudget::new("100000", "1000", "100"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .unwrap();
     assert_eq!(start.run.basis, Some(BasisKind::Reviewed));
@@ -536,6 +540,7 @@ fn reviewed_continuation_requires_a_real_reviewed_prefix_and_never_falls_back_to
             budget: MockContextBudget::new("100000", "1000", "100"),
             provider_binding: None,
             previous_run_id: None,
+            lookup: None,
         })
         .unwrap_err();
     assert!(matches!(
@@ -564,6 +569,7 @@ fn continuation_draft_retry_and_stop_preserve_basis_without_retaining_a_candidat
             pinned_document_ids: Vec::new(),
             safe_brief: None,
             previous_run_id: None,
+            lookup: None,
         })
         .unwrap();
     assert_eq!(draft.intent, FeedbackIntent::Continue);
@@ -641,6 +647,7 @@ fn malformed_append_output_and_scope_input_never_create_a_candidate() {
         budget: MockContextBudget::new("100000", "1000", "100"),
         provider_binding: None,
         previous_run_id: None,
+        lookup: None,
     };
     let error = fixture.project().start_discussion(wrong_scope).unwrap_err();
     assert_eq!(error.code, "InvalidContinuationBasis");

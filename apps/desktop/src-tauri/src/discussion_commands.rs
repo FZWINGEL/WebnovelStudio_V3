@@ -313,6 +313,10 @@ fn has_saved_request(project: &ProjectSession, request: &StartDiscussion) -> Cor
 }
 
 fn run_mock(project: ProjectSession, recovery: DiscussionRecovery, dispatch: DiscussionDispatch) {
+    if dispatch.run.lookup.is_some() {
+        crate::lookup_discussion::run_mock(project, recovery, dispatch);
+        return;
+    }
     run_mock_with_pause(project, recovery, dispatch, || {
         std::thread::sleep(std::time::Duration::from_millis(150));
     });
@@ -584,6 +588,7 @@ mod tests {
         }).unwrap();
         let started = project
             .start_discussion(StartDiscussion {
+                lookup: None,
                 access: access.clone(),
                 operation_id: "start".into(),
                 expected: document.head,
@@ -655,6 +660,7 @@ mod tests {
         .unwrap();
         let started = project
             .start_discussion(StartDiscussion {
+                lookup: None,
                 access: access.clone(),
                 operation_id: "start".into(),
                 expected: document.head.clone(),
@@ -746,6 +752,7 @@ mod tests {
     fn model_selection_blocks_new_requests_without_rebinding_a_saved_request() {
         let (project, access, started) = started_project("model-binding");
         let request = StartDiscussion {
+            lookup: None,
             access: access.clone(),
             operation_id: "start".into(),
             expected: started.run.target.clone(),
@@ -1255,6 +1262,7 @@ mod tests {
             messages,
             options,
             receipt: PacketReceipt {
+                lookup: None,
                 packet_id: "packet".into(),
                 session_id: "session".into(),
                 snapshot_id: "snapshot".into(),

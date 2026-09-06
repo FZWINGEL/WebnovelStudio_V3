@@ -87,7 +87,7 @@ pub struct SourcePassage {
     pub text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceRead {
     pub descriptor: SourceDescriptor,
@@ -96,7 +96,7 @@ pub struct SourceRead {
     pub used_validated_projection: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SearchMode {
     Literal,
@@ -114,7 +114,7 @@ pub struct SearchStory {
     pub limit: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchHit {
     pub passage: SourcePassage,
@@ -122,7 +122,7 @@ pub struct SearchHit {
     pub end_utf16: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchResult {
     pub snapshot_id: String,
@@ -426,58 +426,7 @@ impl OwnedProject {
             ));
         }
         let frozen = self.context_snapshot(&request.access, &request.snapshot_id)?;
-        let mut hits = Vec::new();
-        let mut source_matches = Vec::new();
-        let normalized = query.to_lowercase();
-        let mut has_more = false;
-        for source in &frozen.snapshot.sources {
-            let alias = source.display_name.to_lowercase() == normalized
-                || frozen.aliases.get(&source.handle).is_some_and(|names| {
-                    names.iter().any(|name| name.to_lowercase() == normalized)
-                });
-            if matches!(request.mode, SearchMode::ExactAlias) {
-                if alias {
-                    if source_matches.len() == request.limit as usize {
-                        has_more = true;
-                    } else {
-                        source_matches.push(source.clone());
-                    }
-                }
-                continue;
-            }
-            let read = read_source(self.db()?, &frozen, &source.handle)?;
-            for passage in read.passages {
-                let spans = match request.mode {
-                    SearchMode::ExactAlias => {
-                        unreachable!("alias matching returns source descriptors")
-                    }
-                    SearchMode::Literal => literal_spans(&passage.text, &normalized),
-                    SearchMode::Lexical => {
-                        let terms: Vec<_> = normalized.split_whitespace().collect();
-                        if terms
-                            .iter()
-                            .all(|term| passage.text.to_lowercase().contains(term))
-                        {
-                            literal_spans(&passage.text, terms[0])
-                        } else {
-                            Vec::new()
-                        }
-                    }
-                };
-                for (start_utf16, end_utf16) in spans {
-                    if hits.len() == request.limit as usize {
-                        has_more = true;
-                        break;
-                    }
-                    hits.push(SearchHit {
-                        passage: passage.clone(),
-                        start_utf16,
-                        end_utf16,
-                    });
-                }
-            }
-        }
-        Ok(SearchResult { snapshot_id: request.snapshot_id, hits, source_matches, searched_sources: frozen.snapshot.sources.len() as u32, has_more, coverage: "Exact eligible saved sources; a missing match does not establish that an event never happened.".into() })
+        search_frozen(self.db()?, &frozen, query, request.mode, request.limit)
     }
 
     fn context_revoke(
@@ -1921,6 +1870,90 @@ fn passages(
             }
         })
         .collect())
+}
+
+/// Search only the already-authorized frozen sources. Both manual inspection
+/// and model lookups use this exact matcher and coverage contract.
+pub(super) fn search_frozen(
+    db: &Connection,
+    frozen: &FrozenContext,
+    query: &str,
+    mode: SearchMode,
+    limit: u32,
+) -> CoreResult<SearchResult> {
+    search_saved_passages(frozen, query, mode, limit, |handle| {
+        Ok(read_source(db, frozen, handle)?.passages)
+    })
+}
+
+/// Deterministic search over caller-validated frozen evidence. Packet
+/// validation uses the same matcher without opening a database or granting
+/// access to additional sources.
+pub(crate) fn search_saved_passages(
+    frozen: &FrozenContext,
+    query: &str,
+    mode: SearchMode,
+    limit: u32,
+    mut passages: impl FnMut(&str) -> CoreResult<Vec<SourcePassage>>,
+) -> CoreResult<SearchResult> {
+    if query.trim().is_empty() || !(1..=100).contains(&limit) {
+        return Err(CoreError::new(
+            "InvalidSearch",
+            "A bounded nonempty search is required.",
+        ));
+    }
+    let mut hits = Vec::new();
+    let mut source_matches = Vec::new();
+    let normalized = query.to_lowercase();
+    let mut has_more = false;
+    for source in &frozen.snapshot.sources {
+        let alias = source.display_name.to_lowercase() == normalized
+            || frozen
+                .aliases
+                .get(&source.handle)
+                .is_some_and(|names| names.iter().any(|name| name.to_lowercase() == normalized));
+        if matches!(mode, SearchMode::ExactAlias) {
+            if alias {
+                if source_matches.len() == limit as usize {
+                    has_more = true;
+                } else {
+                    source_matches.push(source.clone());
+                }
+            }
+            continue;
+        }
+        for passage in passages(&source.handle)? {
+            let spans = match mode {
+                SearchMode::ExactAlias => {
+                    unreachable!("alias matching returns source descriptors")
+                }
+                SearchMode::Literal => literal_spans(&passage.text, &normalized),
+                SearchMode::Lexical => {
+                    let terms: Vec<_> = normalized.split_whitespace().collect();
+                    if terms
+                        .iter()
+                        .all(|term| passage.text.to_lowercase().contains(term))
+                    {
+                        literal_spans(&passage.text, terms[0])
+                    } else {
+                        Vec::new()
+                    }
+                }
+            };
+            for (start_utf16, end_utf16) in spans {
+                if hits.len() == limit as usize {
+                    has_more = true;
+                    break;
+                }
+                hits.push(SearchHit {
+                    passage: passage.clone(),
+                    start_utf16,
+                    end_utf16,
+                });
+            }
+        }
+    }
+    Ok(SearchResult { snapshot_id: frozen.snapshot.snapshot_id.clone(), hits, source_matches, searched_sources: frozen.snapshot.sources.len() as u32, has_more, coverage: "Exact eligible saved sources; a missing match does not establish that an event never happened.".into() })
 }
 
 /// Unicode lowercase can expand a character, so retain an original UTF-16 map

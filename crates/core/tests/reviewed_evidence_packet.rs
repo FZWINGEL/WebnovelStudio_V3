@@ -140,6 +140,7 @@ fn request(
     reads: Vec<SourceRead>,
 ) -> PacketRequest {
     PacketRequest {
+        lookup: None,
         packet_id: "packet-evidence".into(),
         session_id: "session-evidence".into(),
         invocation_ordinal: "1".into(),
