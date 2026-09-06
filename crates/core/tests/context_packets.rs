@@ -992,6 +992,35 @@ fn packet_insert_failure_rolls_back_without_a_durable_packet_row() {
     connection
         .execute_batch("DROP TRIGGER fail_context_packet;")
         .expect("remove packet insertion fault");
+
+    // The failed insert left no durable receipt. Retrying the exact logical
+    // request is therefore allowed and creates exactly one packet; a changed
+    // payload cannot reuse that operation identity afterward.
+    let retry = project
+        .prepare_context(prepare_request(
+            &access,
+            &snapshot.snapshot.snapshot_id,
+            "packet-trigger-failure",
+            budget(),
+        ))
+        .expect("exact preparation retry after rollback");
+    let packet = prepared(retry);
+    assert_eq!(packet.receipt.input_hash.len(), 64);
+    assert_eq!(packet_count(&project), 1);
+    let mut changed = prepare_request(
+        &access,
+        &snapshot.snapshot.snapshot_id,
+        "packet-trigger-failure",
+        budget(),
+    );
+    changed.instruction.push_str(" changed");
+    assert_eq!(
+        project
+            .prepare_context(changed)
+            .expect_err("the successful retry must bind the operation payload")
+            .code,
+        "OperationIdReusedWithDifferentPayload"
+    );
 }
 
 #[test]

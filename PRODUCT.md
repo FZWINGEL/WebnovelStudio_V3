@@ -33,7 +33,7 @@ unavailable until the author repairs the choice. Settings also supports
 configurable OpenAI-compatible endpoint profiles, and the native HTTP worker
 handles their development transport. Story Memory has a separate CAS-backed
 provider preference with fixed Luna/xhigh settings: Codex uses priority, HTTP
-has no service tier, and mock is an explicit offline choice. HTTP context lookup
+has no service tier, and mock is an explicit offline choice.
 Claude author development exposes static Fable 5, Opus 5, and Sonnet 5 rows with
 low/medium/high/xhigh/max effort choices; its unchecked native connection keeps
 sending blocked, and Claude does not provide memory or lookup. HTTP context
@@ -53,6 +53,7 @@ broader live-provider support remain open. See the
 - **Author control:** an explicit edit request produces a reviewable suggestion. Apply changes the manuscript; Reject leaves it unchanged. Discussion is not canon and never silently authorizes a whole-chapter rewrite.
 - **Local ownership:** manual writing works offline; projects are portable and recoverable. A working manuscript is distinct from revisions, accepted story records, and export history.
 - **Save recovery:** if project saving fails, the author can save the current editor text as a new Markdown recovery copy in another folder. This separate document copy does not mark the project saved or include its discussions and history.
+- **Refresh protection:** browser refresh shortcuts and the native Reload menu item are disabled in the Windows app so they cannot discard a live editor buffer by bypassing save/close handling.
 - **Normal close:** closing saves current writing and offers Stop replies and close or Stay open when AI work is active. Completed results that still need a local save keep the application open. Closing never starts another model request.
 - **Explicit model choice:** recognizable model names and supported traits remain visible. Settings own credentials and configuration. There is no silent provider or model substitution.
 - **Accepted narrative summaries:** optional summaries join exact chapter review through an explicit author decision. Generated memory can be copied as editable starting text. Accepted summaries retain their original source and earlier reviewed basis, and appear separately from generated digests in context inspection.

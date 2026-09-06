@@ -199,6 +199,12 @@ impl OwnedProject {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         persist_compiled_packet_at(&tx, &request, &packet)?;
         tx.commit().map_err(CoreError::uncertain)?;
+        // Keep the test-only process-loss barrier aligned with the other
+        // durable author operations.  The barrier runs after COMMIT and
+        // before the caller receives the packet acknowledgment, so recovery
+        // must discover the exact operation by retrying its immutable request.
+        #[cfg(test)]
+        super::hold_context_after_commit_before_ack(&request.operation_id);
         Ok(PreparationResult::Prepared {
             packet: Box::new(packet),
             current: true,

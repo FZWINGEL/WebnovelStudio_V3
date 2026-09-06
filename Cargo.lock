@@ -4709,6 +4709,8 @@ dependencies = [
  "tauri",
  "tauri-build",
  "webnovel-core",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]

@@ -5,6 +5,76 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
+### W6 refresh protection and interruption checkpoint — 6 September
+
+A native OS Ctrl+R test reproduced loss of unsaved text in the preceding
+accepted-summary executable while its next save was held before Rust dispatch.
+The renderer restarted and the synthetic database still held its original
+version-zero body. Windows now consumes browser refresh accelerators in the
+WebView2 controller and removes only the native menu's invariant `reload` item.
+Other edit, zoom, and navigation shortcuts remain enabled. Registration failures
+stop startup; a menu-enumeration failure hides that menu. The policy follows
+[WebView2 browser features](https://github.com/MicrosoftDocs/edge-developer/blob/main/microsoft-edge/webview2/concepts/browser-features.md)
+and [selective native menu customization](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/context-menus).
+No schema changes are needed.
+
+Current local validation totals **685 active Rust tests** (616 core and 69
+desktop; one existing ignored child fixture) and **411 frontend tests in 32
+files**. The full wrapper passed before the four native policy tests were added;
+all 69 desktop tests, formatting, strict workspace Clippy, TypeScript and the
+native build passed afterward. Logs: `.local/interruption-workspace-check.log`,
+`.local/reload-desktop-tests.log`, and `.local/reload-native-build.log`.
+The context-preparation process-loss test terminates a child after commit but
+before acknowledgment, fences a new renderer session, and proves exact local
+retry returns the original packet row byte-for-byte. Failed insertion can be
+retried after rollback; changed payload reuse is rejected. The crash hook is
+compiled only into Rust tests.
+
+The new native interruption fixture passes its three durable-boundary groups:
+a lost Save acknowledgment followed by renderer reload and newer writing; a
+lost Apply acknowledgment followed by process termination/reopen; and a running
+anonymous HTTP reply across renderer replacement and native process loss. It
+checks retired writer leases, old receipt versus latest head, one Apply
+receipt/decision, both immutable revisions, exact frozen context, interrupted
+history, and no automatic model resend. The final three-group diagnostic after
+fixture cleanup passes at `.local/reload-interruption-diagnostic/qualification.json`.
+Its six-key refresh group retained the
+renderer in local attempts, including Ctrl+R, but extra KeyS/KeyD/KeyW events
+entered the focused fixture during two runs. The strict equality assertions
+correctly failed; these attempts are not a six-key pass. Hosted CI retains all
+six keys without a local omission. Native menu inspection remains unqualified:
+PID-targeted WM_RBUTTON input did not expose a popup through UI Automation.
+The initial CDP attempt found only the persistent System menu; the fixture now
+excludes that false positive. The separate experimental `test:native-menus`
+command retains strict assertions and a failed report at
+`.local/reload-menu-qualification/context-menu.json`; it is not a CI pass claim.
+
+The independent backup/recovery fixture passes **four checks**, one synthetic
+HTTP request, and zero page errors. It creates a source revision, backs up A
+and recovers it through PID-owned native dialogs while B owns a running reply,
+then verifies independent recovered identity, exact retained prose/history,
+and unchanged B source/packet/job ownership. Stop records one outcome against
+B's original packet. Report:
+`.local/native-results/project-recovery/qualification.json`.
+The broader main native diagnostic passes **49 of 50 checks**, with zero page
+errors; only the known local OS clipboard case is omitted. Report:
+`.local/reload-native-regression/report.json`, dated
+`2026-09-06T19:57:55.946Z`.
+
+This evidence uses WebView2 `152.0.4191.66` and the development executable
+SHA-256 `bbe6d2f2a053581ecfd9d176e387b7f9a95773351870d5ee202d2965f5f0db5d`,
+43,318,784 bytes, built `2026-09-06T19:46:42Z`. The new independent CI commands
+are `test:native-interruption` and `test:native-recovery`. Native registration
+and fixture assertions received separate source review. The pre-fix loss
+report is `.local/reload-before-fix-qualification.json`; local shortcut input
+interference is retained in `.local/reload-shortcuts-extra-input.json`.
+
+These checks do not establish a physical renderer crash, native process loss
+at every transaction statement, actual disk-full/ACL behavior, installed-release
+safety, or author understandability. W6/B/E4 and F5 remain open. No new live
+model request was made; the cumulative live CLI count remains 21. Full V3 is
+still in progress.
+
 ### Accepted narrative summary checkpoint — 6 September
 
 Schema 32 adds optional immutable narrative summaries to the existing staged
@@ -40,7 +110,10 @@ this is not a strict 50-check pass. Hosted CI retains that check. Report:
 `.local/accepted-summary-native-regression/report.json`. The native development
 executable is 43,271,680 bytes with SHA-256
 `e05272fbae3f4e42f1e1be79159ec0a3d8f62d7857407288da2306c7f9471fd8`.
-Current source CI and installed-release qualification remain separate.
+[CI 34053876032](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34053876032)
+for `1e1b44f` passed both Windows/Ubuntu contract jobs and the Windows native
+job, including the strict 50-check flow, HTTP fixture, and normal-close fixture.
+Installed-release qualification remains separate.
 
 No new live model call was made; the cumulative live CLI count remains 21. Full V3 and broader F2, narrative,
 provider, author-trial, and installed-release gates remain open.
@@ -934,11 +1007,14 @@ The checked items describe the selected-passage slice. Evidence includes `crates
 See [ADR 0005](ADR_0005_DOCUMENT_HISTORY.md). Restore preserves the current writing in a checkpoint and advances the story source epoch. The operation receipt is its immutable author decision; schema 8 needs no new decision table.
 
 - [x] Reconcile pending operation IDs and latest heads after lost acknowledgment.
-- [ ] Finish application-controlled reload qualification of the shared lifecycle guard; Apply, reconciliation, editor disposal, switching, and normal close use the guard.
+- [ ] Finish native refresh qualification: Windows now blocks browser refresh shortcuts and removes the native Reload item; the complete six-key/menu run remains to be qualified. Apply, reconciliation, editor disposal, switching, and normal close use the shared guard.
 - [x] Coordinate normal close across open-project AI work: admission fence, exact Stop, worker cleanup, retained-result blocking, same-editor Stay open, and final readiness before destruction. Core/frontend tests and two native close groups pass; forced OS shutdown and installed-release qualification remain separate.
 - [x] Add in-session history boundaries, significant undo/redo checkpoints, restart comparison, and explicit restore.
 - [ ] Cover forced renderer loss, process interruption, restore A while B runs, and old-or-new transaction outcomes.
+- [x] Exercise native forced renderer reload after a committed Save, process termination after committed Apply, and active HTTP ownership across reload/process loss; verify exact receipts, current heads and frozen context without replay. Physical renderer crash and finer native crash timing remain separate.
+- [x] Recover synthetic A through the real native backup/recovery dialogs while B has a running reply; retain independent identities, exact prose/history and B's original source/packet, then Stop B once without replay.
 - [ ] Include context snapshots, source epoch, policy, delivered packet, and receipt in restart/fence/Stop coverage; no late context operation may trigger an implicit paid retry.
+- [x] Add a context-preparation subprocess commit/acknowledgment-loss test and preserve exact frozen source/packet/receipt records in the new native interruption and recovery fixtures. Broader context/job combinations remain open.
 - [ ] Retain the live buffer on disk-full and permission errors; never hide external retries or paid restarts.
 - [x] Offer an explicit live-buffer Markdown recovery copy independent of project storage; native synthetic SQLite failure, Save/Cancel, retained unsaved state, blocked navigation, and Retry pass. Actual disk-full and ACL failures remain separate.
 - [ ] Run the E4 stale-proposal friction check and keep conservative staleness unless measured evidence supports a bounded alternative.

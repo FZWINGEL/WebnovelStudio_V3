@@ -31,6 +31,8 @@ mod project_commands;
 mod provider_commands;
 mod provider_runtime;
 mod recovery_commands;
+#[cfg(windows)]
+mod reload_accelerators;
 mod review_commands;
 mod source_pin_commands;
 mod v2_import_commands;
@@ -125,7 +127,9 @@ fn main() {
             } else {
                 window
             };
-            window.build()?;
+            let window = window.build()?;
+            #[cfg(windows)]
+            reload_accelerators::install(&window)?;
             #[cfg(debug_assertions)]
             eprintln!("WebView2 window created");
             Ok(())

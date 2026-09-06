@@ -1844,6 +1844,11 @@ fn insert_receipt(
 }
 
 #[cfg(test)]
+fn hold_context_after_commit_before_ack(operation_id: &str) {
+    tests::hold_after_commit_before_ack(operation_id);
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::process::{Command, Stdio};
@@ -1851,8 +1856,10 @@ mod tests {
 
     // Compiled only into the Rust unit-test binary, never the desktop/core library.
     pub(super) fn hold_after_commit_before_ack(operation_id: &str) {
-        if matches!(operation_id, "crash-save" | "crash-apply" | "crash-restore")
-            && let Some(root) = std::env::var_os("WNS_UNIT_CRASH_ROOT")
+        if matches!(
+            operation_id,
+            "crash-save" | "crash-apply" | "crash-restore" | "crash-context"
+        ) && let Some(root) = std::env::var_os("WNS_UNIT_CRASH_ROOT")
         {
             let mut marker = File::create_new(PathBuf::from(root).join("committed")).unwrap();
             marker
@@ -1883,6 +1890,11 @@ mod tests {
             let mut request: history::RestoreRevision = serde_json::from_slice(&json).unwrap();
             request.access = access;
             project.restore_revision(request).unwrap();
+        } else if value.get("snapshotId").is_some() {
+            let mut request: context_packets::PrepareContext =
+                serde_json::from_slice(&json).unwrap();
+            request.access = access;
+            project.prepare_context(request).unwrap();
         } else {
             let mut request: SaveSnapshot = serde_json::from_slice(&json).unwrap();
             request.access = access;
@@ -1967,6 +1979,174 @@ mod tests {
         assert_eq!(replay.head, snapshot.document.head);
         assert_eq!(replay.saved_generation, "9");
         assert_eq!(replay.session, "new-renderer");
+        drop(recovered);
+        assert!(root.starts_with(std::env::temp_dir()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn killed_context_prepare_after_commit_retries_the_same_packet_once() {
+        use crate::context::packet::MockContextBudget;
+        use crate::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
+        use crate::projects::context_packets::{PreparationResult, PrepareContext};
+        use crate::projects::story_context::FreezeStory;
+
+        let root = std::env::temp_dir().join(format!("wns-context-crash-{}", new_id()));
+        std::fs::create_dir(&root).unwrap();
+        let project =
+            ProjectSession::create(root.join("project"), "Context crash fixture").unwrap();
+        let access = project.attach("parent".into()).unwrap();
+        let document = project
+            .create_document(CreateDocument {
+                access: access.clone(),
+                operation_id: "create".into(),
+                document_id: "chapter".into(),
+                title: "A chapter".into(),
+                kind: "chapter".into(),
+                body: blank_document(),
+            })
+            .unwrap();
+        let policy = InformationPolicy {
+            version: project.context_epochs(access.clone()).unwrap().policy,
+            audience: Audience::AuthorRoom,
+            reader_frontier: None,
+            character_id: None,
+            character_grants: Vec::new(),
+            allow_alternatives: false,
+            allow_historical: false,
+        };
+        let frozen = project
+            .freeze_story(FreezeStory {
+                access: access.clone(),
+                operation_id: "freeze".into(),
+                expected: document.head.clone(),
+                basis: BasisKind::Working,
+                purpose: ContextPurpose::StoryQuestion,
+                policy,
+            })
+            .unwrap();
+        let request = PrepareContext {
+            access,
+            operation_id: "crash-context".into(),
+            snapshot_id: frozen.snapshot.snapshot_id,
+            instruction: "What detail survives the lost packet acknowledgment?".into(),
+            mandatory_handles: Vec::new(),
+            transient_mandatory_handles: None,
+            safe_brief: None,
+            scope: None,
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
+            response_contract: None,
+            lookup: None,
+        };
+        std::fs::write(
+            root.join("request.json"),
+            serde_json::to_vec(&request).unwrap(),
+        )
+        .unwrap();
+        drop(project);
+
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "projects::tests::crash_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("WNS_UNIT_CRASH_ROOT", &root)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        while !root.join("committed").exists() && started.elapsed() < Duration::from_secs(15) {
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "Child stopped before context COMMIT"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let committed = root.join("committed").exists();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(committed, "Child did not reach the context commit barrier");
+
+        let recovered = ProjectSession::open(root.join("project")).unwrap();
+        let reconciled = recovered
+            .reconcile(ReconcileRequest {
+                project_id: recovered.info.project_id.clone(),
+                operation_namespace: recovered.info.operation_namespace.clone(),
+                session: "new-renderer".into(),
+                document_id: "chapter".into(),
+                pending_operation_ids: Vec::new(),
+            })
+            .unwrap();
+        let before: (String, String, String, String, String, String, String, String) =
+            Connection::open(recovered.path.join("project.sqlite3"))
+                .unwrap()
+                .query_row(
+                    "SELECT id,payload_hash,request_json,snapshot_id,session_id,packet_json,packet_hash,input_hash FROM context_packets",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                        ))
+                    },
+                )
+                .unwrap();
+        let before_packet = recovered
+            .prepared_context(reconciled.access.clone(), before.0.clone())
+            .unwrap();
+        assert_eq!(serde_json::to_string(&before_packet).unwrap(), before.5);
+        let mut retry = request;
+        retry.access = reconciled.access.clone();
+        let packet = match recovered.prepare_context(retry).unwrap() {
+            PreparationResult::Prepared { packet, current } => {
+                assert!(current);
+                *packet
+            }
+            PreparationResult::BudgetRejected { .. } => {
+                panic!("the committed packet must be returned on an exact retry")
+            }
+        };
+        assert_eq!(
+            Connection::open(recovered.path.join("project.sqlite3"))
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM context_packets", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            1
+        );
+        let after: (String, String, String, String, String, String, String, String) =
+            Connection::open(recovered.path.join("project.sqlite3"))
+                .unwrap()
+                .query_row(
+                    "SELECT id,payload_hash,request_json,snapshot_id,session_id,packet_json,packet_hash,input_hash FROM context_packets",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                        ))
+                    },
+                )
+                .unwrap();
+        assert_eq!(after, before);
+        assert_eq!(serde_json::to_string(&packet).unwrap(), before.5);
         drop(recovered);
         assert!(root.starts_with(std::env::temp_dir()));
         std::fs::remove_dir_all(root).unwrap();

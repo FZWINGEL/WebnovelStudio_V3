@@ -20,6 +20,33 @@ Run `npm run test:native-close` from `apps/desktop` after the native build, or
 set `WNS_V3_NATIVE_EXE` to an owned development executable. CI runs this
 separately from the 50-check main flow and existing HTTP fixture.
 
+`npm run test:native-interruption` runs the separate interruption fixture. It
+holds real Save/Apply acknowledgments after Rust commits, replaces the renderer
+or terminates only the owned native process, and checks exact reopened prose,
+receipts, immutable revisions, source snapshots and packets. Its loopback HTTP
+reply survives renderer replacement and becomes interrupted after process loss
+without automatic dispatch. Its refresh group holds saving before Rust dispatch, verifies the native WebView input path, and sends six OS refresh shortcuts to the owned window. Run keyboard qualification on an otherwise idle test desktop; other keyboard input must not be treated as a pass. The report is
+`.local/native-results/interruption/qualification.json`. These are boundary
+tests after confirmed commits; statement-level rollback uses the core fixtures.
+
+`npm run test:native-menus` is a separate experimental qualification for the
+native browser/edit menus and selected-text feedback. It uses PID-targeted
+mouse messages and scoped UI Automation; it sends no global input. The current
+local run cannot expose the native popup and therefore fails its strict
+assertion. This command is not part of CI until that native inspection route is
+qualified; source/unit coverage does not establish native popup behavior.
+It writes `.local/native-results/context-menu/qualification.json`.
+
+`npm run test:native-recovery` backs up synthetic project A and recovers it
+through the actual PID-owned native dialogs while B has an active loopback
+reply. It checks independent recovered identity, exact prose/history, B's
+unchanged source/packet ownership, and explicit Stop without replay. The report
+is `.local/native-results/project-recovery/qualification.json`. Both commands
+use `target/debug/webnovel-desktop.exe` by default and accept `WNS_V3_NATIVE_EXE`
+for a chosen development build. CI runs them separately; installed-release,
+physical renderer crash, actual disk-full/ACL faults, and author trials remain
+separate qualifications.
+
 From the repository root, use the wrapper:
 
 ```powershell
@@ -88,6 +115,6 @@ Earlier standard run [33992126659](https://github.com/FZWINGEL/WebnovelStudio_V3
 
 The pushed W5 checkpoint [`a2a0163`](https://github.com/FZWINGEL/WebnovelStudio_V3/commit/a2a01632890a44efbe84bc526674fc9bf06d3d94) is covered by [CI run 33981203728](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33981203728), whose Windows-native strict21 job is green. The export-dialog/native-save correction is now pushed as [`78367cd`](https://github.com/FZWINGEL/WebnovelStudio_V3/commit/78367cd5d359b573daa32be1a32a8d6038520508); [CI run 33988660050](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33988660050) for `78367cd` passed Windows/Ubuntu contracts and the strict 24-check native flow on WebView2 `151.0.4129.101`, including clipboard, history recovery, exact chosen-path export, and focus restoration. The earlier package-source native attempt [`4a59a19`](https://github.com/FZWINGEL/WebnovelStudio_V3/commit/4a59a19) failed at `UIASetFocus`. Current results and fresh CI are maintained in [implementation status](../../docs/IMPLEMENTATION_STATUS.md). This flow remains mock-only; bounded live experiments are recorded separately in [Codex qualification](../../docs/CODEX_QUALIFICATION.md).
 
-The English native author trial, physical minimum-window/DPI behavior, external Word paste, screen-reader use, backup/recovery dialog journey, and broad installed-release qualification remain open. The narrow package lifecycle above does not qualify offline installation, upgrades, or the wider W7 matrix. The local export diagnostic covered exact Markdown/TXT preview, native Save cancellation, chosen-path byte equality, unchanged editor state, and focus restoration; it omitted only local clipboard coverage and does not establish strict/full-native qualification. An 800×600 CSS viewport capture is useful layout evidence but does not establish native resizing or multi-DPI behavior. See [Windows package qualification](../../docs/WINDOWS_PACKAGE_QUALIFICATION.md) for the separate release path.
+The English native author trial, physical minimum-window/DPI behavior, external Word paste, screen-reader use, and broad installed-release qualification remain open. The separate synthetic backup/recovery fixture above now covers its named dialog journey. The narrow package lifecycle above does not qualify offline installation, upgrades, or the wider W7 matrix. The local export diagnostic covered exact Markdown/TXT preview, native Save cancellation, chosen-path byte equality, unchanged editor state, and focus restoration; it omitted only local clipboard coverage and does not establish strict/full-native qualification. An 800×600 CSS viewport capture is useful layout evidence but does not establish native resizing or multi-DPI behavior. See [Windows package qualification](../../docs/WINDOWS_PACKAGE_QUALIFICATION.md) for the separate release path.
 
 The W0 sample trial has no disk-backed manuscript, provider, durable Apply, or author-data path; its sample text is cleared when the window closes. The default Library/Workspace has disk-backed project persistence, but this development flow is not an installed-release or native-qualification claim. Do not use a real manuscript for the W0 sample trial. The [W0 qualification record](../../docs/W0_QUALIFICATION.md) records the spike verdict and evidence without turning these checks into a release claim.
