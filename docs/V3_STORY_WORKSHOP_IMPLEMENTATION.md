@@ -4,6 +4,10 @@ This work implements [the Story Workshop specification](V3_STORY_WORKSHOP_UX_SPE
 fetched at `c83a127`, in the existing Rust/Tauri V3 application. The specification
 is the target; this ledger records implementation and evidence separately. The
 previous private 3.0.0 installer predates this work and does not qualify it.
+The fresh [Workshop installer](WINDOWS_PACKAGE_QUALIFICATION.md) passed its
+installed lifecycle, and [CI 34133645198](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34133645198)
+passed all 15 Workshop native checks plus the existing native suites. Full
+specification acceptance and author evaluation remain open.
 
 ## Boundaries
 
@@ -23,7 +27,7 @@ The Rust boundary validates project/session identity, expected versions,
 protected content, and adoption targets. Existing schema-35 storage, actor,
 adoption, provider-command integration, and the broadened same-packet
 relationship/impact path passed the current local standard check and focused
-storage checks, including exact endpoint and impact provenance. Native
+storage checks, including exact endpoint and impact provenance. Broader native
 execution remains pending. An uncertain save or Apply retains its immutable
 operation identity for receipt reconciliation. A provider response is intended
 to remain an alternative until an author uses it; it cannot replace a working
@@ -48,8 +52,8 @@ version edited after dispatch.
 
 ## Implementation and evidence checkpoint — 7 September 2026
 
-This ledger records the current implementation checkpoint; it does not close the
-three-slice specification or any native/author gate. The frontend implementation
+This ledger records the current implementation checkpoint and its bounded native
+pass; full three-slice acceptance and author gates remain open. The frontend implementation
 is represented by `apps/desktop/src/shell/Workshop.tsx`,
 `apps/desktop/src/workshop/`, `apps/desktop/src/shell/StoryBible.tsx`, and the
 Workshop IPC adapters. Rust persistence and actor/adoption work is represented by
@@ -132,10 +136,27 @@ The harness uses the correct role and asserts the People heading in commit
 passes collapsed-summary expansion and seed reading through the correct role,
 with the old role absent. Artifacts are under
 `.local/ci-workshop-34132271096/workshop`; the reproduction is
-`apps/desktop/node_modules/.cache/workshop-qa/reopen-brief.mjs`. New CI
-[34133645198](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34133645198)
-is running against exact source `47a50d9f230fe06c3f46eba700fbac57b03bff11`;
-broader native and Workshop-quality evidence remain pending.
+`apps/desktop/node_modules/.cache/workshop-qa/reopen-brief.mjs`.
+
+Latest hosted bounded-native checkpoint [CI 34133645198](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34133645198)
+on exact source `47a50d9f230fe06c3f46eba700fbac57b03bff11` finished at
+14:46:57 UTC on 7 September. Real Tauri 3.0.0/WebView2 `151.0.4129.101`
+checks were clean: Workshop 15/15 in about 14 seconds, main native 52, HTTP 6,
+close 2, interruption 4, recovery 4, and memory lookup 3. The Workshop report
+covers blank Develop/zero chapters, seed save, zero-generation World navigation,
+one explicit mock request with three directions, detail tray and local working
+edit, zero-write adoption preview, world adoption with an authorRoom decision,
+the Develop-to-Write barrier, directional relationships with both source heads, history and
+full Library reopen, linked atomic existing/new Unicode character relationship
+adoption with exact heads and impact provenance, Unicode title/body reopen, and
+a second explicit STYLE voice-guidance request whose sample stayed unchanged until
+Develop with no automatic documents, decisions, or adoption. Errors, page errors,
+and runtime observations were clean. This is bounded native evidence, not full
+specification or quality completion: physical keyboard/accessibility, broader
+late/stale/failure UI, live-provider behavior, and the author study remain open.
+The earlier harness failures are retained as historical evidence above.
+Artifacts are under `.local/ci-workshop-34133645198`; the suite reports and
+multi-target/history/voice screenshots were inspected.
 The 15:56:22 Berlin local checkpoint passed `desktop.ps1 -Command check`: 746 Rust
 tests (plus one intentional subprocess entry-point ignore), 474 frontend tests
 in 41 files, 11 tooling checks, formatting, strict workspace Clippy, TypeScript,
@@ -180,19 +201,19 @@ green mock/frontend run alone.
 
 | ID | Spec | Required behavior | Evidence / status |
 | --- | --- | --- | --- |
-| W01 | 4–5 | Develop/Write, optional title, lightweight blank-project choice; existing-project resume | Implemented in `apps/desktop/src/shell/Workshop.tsx` and `workshop/store.ts`; native resume/creation evidence pending. |
-| W02 | 4 | Overview, World, People, Themes & tone, Story possibilities, Notebook; free movement | Six-lens surface is implemented in `apps/desktop/src/workshop/catalog.ts` and `Workshop.tsx`; native navigation/quality evidence pending. |
+| W01 | 4–5 | Develop/Write, optional title, lightweight blank-project choice; existing-project resume | Implemented in Workshop/store. CI 34133645198 covers blank Develop, zero chapters, seed save, and Library reopen preserving seed/working/chosen/relationship/history without generation. Optional-title and other existing-project cases remain unqualified. |
+| W02 | 4 | Overview, World, People, Themes & tone, Story possibilities, Notebook; free movement | All six lenses are implemented in catalog/Workshop. CI 34133645198 starts in Overview and navigates World, People, and Themes & tone; World navigation caused zero generation. Story possibilities, Notebook, and broader navigation quality remain unqualified. |
 | W03 | 4, 16 | Dedicated three-zone workbench, collapsible context; full generic editor retained | Dedicated Workshop frontend and generic Write surface are present; three-zone/collapsible-context and native focus qualification remain pending. |
 | W04 | 4, 16 | Story Bible projects exact chosen document material and provenance | Implemented in `apps/desktop/src/shell/StoryBible.tsx` with Workshop IPC/source records; native and provenance qualification pending. |
 | W05 | 4, 15 | Responsive comparison/list/drawer, keyboard/focus, save feedback, composition-safe input | Comparison UI and save-watermark path are implemented; fixture has no overflow at four widths, while native keyboard/focus/composition evidence is pending. |
-| W06 | 5 | Fragment, direction help, existing notes; preserve originals; no genre/MC/ending gate | Editable brief/current direction/original notes are implemented in `Workshop.tsx` and `workshop/store.ts`; preservation and native quality evidence pending. |
+| W06 | 5 | Fragment, direction help, existing notes; preserve originals; no genre/MC/ending gate | The native checkpoint covers seed save and local working edit; broader brief/direction preservation and native quality evidence remain pending. |
 | W07 | 5, 12 | Editable You said / Possible direction / Still open; question, reason, free alternatives | Direction and open-question fields are present in the Workshop state/UI; full question/reason/free-alternative qualification is pending. |
-| W08 | 6 | Three concise typed candidates with explicit differing dimensions and expandable details | Implemented in `CandidateBoard.tsx` and `crates/core/src/projects/workshop_generation.rs`; frontend tests/fixture evidence exist, native/quality evidence pending. |
-| W09 | 6 | Develop, select details, save later; visible editable tray; preserved details in synthesis | Detail tray, working draft, and local history are implemented in Workshop/CandidateBoard/store; native persistence and synthesis qualification pending. |
+| W08 | 6 | Three concise typed candidates with explicit differing dimensions and expandable details | CI 34133645198 passed one explicit mock generation returning three directions; broader candidate comparison and quality evidence remain pending. |
+| W09 | 6 | Develop, select details, save later; visible editable tray; preserved details in synthesis | CI 34133645198 passed the detail tray and local working edit, with reopened working/chosen history preserved; broader synthesis and native quality evidence remain pending. |
 | W10 | 6, 13 | Scoped direct/natural-language edits protect unselected and Keep fixed material | Candidate steering/edit paths exist and paragraph-level protected-content boundaries are covered locally; full scope projection and native/quality evidence remain pending. |
 | W11 | 6 | Concrete, consequences, alternatives, challenge, ordinary life, moment actions | Workshop exploration actions are present in the development surface; requirement-specific behavior and quality evidence remain pending. |
-| W12 | 6, 16 | Use this version previews add/replace destination, exact source and complete packet | Adoption preview/read path and atomic multi-target add/replace are covered by the local Rust boundary tests; complete-packet and native evidence remain pending. |
-| W13 | 6, 13 | Recoverable alternatives, separate saved/chosen/archived/superseded and access | Schema-35 tests cover chosen/alternative resolution, supersession, authorRoom access, and replay; native/quality evidence remains pending. |
+| W12 | 6, 16 | Use this version previews add/replace destination, exact source and complete packet | CI 34133645198 passed an adoption preview with zero writes and a world adoption; complete-packet and broader adoption quality evidence remain pending. |
+| W13 | 6, 13 | Recoverable alternatives, separate saved/chosen/archived/superseded and access | Schema-35 tests cover chosen/alternative resolution, supersession, authorRoom access, and replay. CI 34133645198 adds an authorRoom decision and history/Library reopen preserving chosen material. Broader recoverability and access quality remain unqualified. |
 | W14 | 7 | Neutral/Want/Avoid, optional Must/Never; meaning, examples, temporal intent and scopes | Scoped preferences are implemented in `apps/desktop/src/workshop/Preferences.tsx` and core Workshop state; semantic/native quality evidence pending. |
 | W15 | 7 | Hard project/local conflicts explicit; unknown semantic conflicts never claimed solved | Rust and frontend local project-conflict handling, including neutral behavior, is covered; unknown semantic conflicts remain unclaimed and native/quality evidence remains pending. |
 | W16 | 7 | Contextual suggestions, search/Browse all, families, custom tags, editable presets | Custom tags, preset review, and import/export UI are implemented in `Preferences.tsx`, `catalog.ts`, and Tauri preset commands; native/quality evidence pending. |
@@ -201,28 +222,28 @@ green mock/frontend run alone.
 | W19 | 8 | World slices and four optional lenses; depth choice, ordinary life, open mysteries | Six-lens Workshop surface is implemented; depth, ordinary-life, and open-mystery quality evidence remains pending. |
 | W20 | 8 | Conditional consequences expose basis/assumptions; accept/reject/contrast | Consequence exploration is present in the Workshop path; basis/assumption and accept/reject/contrast qualification remains pending. |
 | W21 | 9 | Behavior-first people, optional spine and tentative situation responses | The people lens, behavior-first situation action, and durable session/decision fields provide the prompt-led path; no structured people database is required for this behavior. Focused/native quality evidence remains pending. |
-| W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | Existing/new document relationship UI/state is implemented in `Relationships.tsx`; focused Workshop tests cover exact endpoint heads, atomic new linked endpoints, stale endpoint rollback, and preserved relationship provenance. Native/quality evidence remains pending. |
-| W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | No executed qualification recorded; remains pending. |
+| W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | CI 34133645198 passed directional relationships with two exact heads and linked atomic existing-world/new-Unicode-character relationship adoption with exact heads; broader relationship quality remains pending. |
+| W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | CI 34133645198 passed a new Unicode `Érin — Qiao` character and exact English title/body reopen; broader names, aliases, transliteration, and native quality evidence remain pending. |
 | W24 | 10 | Themes as open questions; reader tone distinct from intensity | Themes & tone is represented by the six-lens Workshop surface; distinction/quality evidence remains pending. |
-| W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | Same-situation noncanon treatments and explicit `voiceGuidance` are implemented in the Workshop frontend/core paths. The voice-guidance source slice passes seven focused core tests and two focused desktop tests, including the native mock lifecycle; live/native quality evidence remains pending. |
+| W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | CI 34133645198 passed a second explicit STYLE voice-guidance request with five dimensions; the sample stayed unchanged until Develop, with no automatic documents, decisions, or adoption. Broader voice/noncanon quality remains pending. |
 | W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | The Story possibilities lens, optional arc action, prompt template fields, and durable session/decision hooks provide the prompt-led story-engine path without a structured engine database. Quality qualification remains pending. |
 | W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | Workshop question actions, durable statuses, unknown-to fields, and the local recap are implemented; the focused frontend question-cycle test passes. Native/quality evidence remains pending. |
-| W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | `WorkshopRecap.tsx` renders saved chosen decisions, rationale, exact version links, open questions, and next focus without a model call; native/quality evidence remains pending. |
+| W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | CI 34133645198 passed history UI and full Library reopen preserving seed, working, chosen, relationship, and history without generation; broader recap quality remains pending. |
 | W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Rationale and protected-content paths are implemented, with multiline/paragraph boundary checks covered locally; independent authority/access/evidence qualification remains pending. |
 | W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | What-if and existing-parent compare are implemented in the Workshop paths; reviewed acceptance and native/quality evidence remain pending. |
-| W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | `AdoptionImpacts.tsx` exposes reviewable reasons and four categories; the Rust adoption packet persists candidate and relationship provenance, defaults uncertain model claims to `possibleTension`, and keeps impacts at `needsReview` without automatic repair. Focused Workshop tests pass; native/quality evidence remains pending. |
+| W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | AdoptionImpacts exposes reasons and four categories. Core tests cover candidate/relationship provenance and uncertain claims defaulting to possibleTension/needsReview without repair. CI 34133645198 adds relationship-impact decision provenance with zero chapter writes. Broader category/review quality remains unqualified. |
 | W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Explicit read of saved packets is implemented in `RequestContext.tsx` and context IPC; queued wording now says “saved”. The bounded live smoke passed the unchanged-anchor/manual/no-chapter path, while complete delivered-context qualification remains pending. |
 | W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | No executed qualification recorded for this complete exclusion/rationale contract; remains pending. |
 | W34 | 14 | Outside-current-direction retains hard constraints; budget omissions visible | No executed qualification recorded; remains pending. |
 | W35 | 13–14 | Author secrets/intent cross into restricted writing only through explicit existing paths | Local Rust boundary coverage confirms a chosen author-room secret is excluded from a restricted snapshot/search; native/live writing qualification remains pending. |
-| W36 | 15 | One explicit request, visible model/scope/status, no generation on navigation or save | Provider-command integration is present in `workshop_generation_commands.rs` and passes the local standard check; one bounded headless live request completed, while native generation/lifecycle evidence remains pending. |
+| W36 | 15 | One explicit request, visible model/scope/status, no generation on navigation or save | CI 34133645198 passed one explicit mock request with three directions and the Develop-to-Write barrier; broader generation/lifecycle quality remains pending. |
 | W37 | 15 | Independent manual saves; late response stays alternative and requires explicit refresh | Offline manual editing/save, immutable lost-ack request replay, frozen selection scope, stale-result refusal, and late-response preservation are covered by focused Workshop tests and the current full check. Native late-response evidence remains pending. |
 | W38 | 15 | Partial/failed/stopped distinct; retry/recovery no blind provider replay; cost wording | Workshop UI/core paths distinguish failed, stopped, interrupted, and partial output, retain recoverable text, and offer explicit retry/local save reconciliation; focused frontend/provider checks and the current full check pass. Native/live/provider-quality qualification remains pending. |
-| W39 | 15 | Offline manual development, preferences/history/organization and restart resume | Manual Workshop UI and scoped preferences are implemented; schema-35 persistence, reopen, replay, and local history pass the standard check, while native/provider evidence remains pending. |
+| W39 | 15 | Offline manual development, preferences/history/organization and restart resume | CI 34133645198 passed manual seed/working persistence and full Library reopen preservation without generation; broader offline organization/restart quality remains pending. |
 | W40 | 16 | Source-bound facets, stale-source refusal, no second truth database | Existing-document source binding and stale multi-target refusal are covered in core Workshop tests; broader source-bound qualification remains pending. |
-| W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Schema-35 actor/adoption passes the current standard check; focused tests cover atomic existing/new linked endpoints with exact heads, stale refusal without partial writes, exact history, candidate/relationship impacts, and no chapter mutation. Native/quality evidence remains pending. |
+| W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Core tests cover linked atomic adoption, stale refusal without partial writes, exact history, and no chapter mutation. CI 34133645198 adds existing-world/new-character relationship adoption with exact heads, impact decision provenance, and zero chapter writes. Broader native stale/failure cases remain unqualified. |
 | W42 | 17 | Exportable/importable editable project presets with explicit adoption of preferences | Import/export UI and preset review are implemented; native adoption and quality evidence pending. |
-| W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | Frontend build/fixture evidence and five focused core boundary tests cover hard conflicts, neutral preferences, secret isolation, and multi-target adoption. The bounded live smoke exposed and then fixed internal-anchor/`affectedTargets` projection; no broad native run or full end-to-end quality qualification has been completed. |
+| W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | CI 34133645198 passed all 15 intended Workshop groups plus the listed auxiliary native suites with clean runtime observations; this is bounded native evidence, not full specification, physical keyboard/accessibility, late/stale/failure UI, quality, or author-study completion. |
 | W44 | 18 | Counterbalanced formative author study, same model/budget, ownership/coherence/usefulness | Pending observed author participation; protocol is prepared but no study evidence exists. |
 
 ## Qualification

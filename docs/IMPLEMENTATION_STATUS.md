@@ -10,8 +10,11 @@
 The new [Story Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md), fetched from
 `codex/v3-persistence` at `c83a127`, is being implemented across all three slices.
 The [requirement ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md) tracks the full
-scope. New source is not yet a qualified installer. The previous private 3.0.0
-package predates these changes.
+scope. [CI 34133645198](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34133645198)
+passed all 15 Workshop native checks and the existing native suites. The fresh
+[Workshop installer](WINDOWS_PACKAGE_QUALIFICATION.md) also passed its installed
+write/reopen and same-version retention lifecycle. Full specification acceptance,
+broader provider/native coverage, and author evaluation remain open.
 
 The Develop/Write shell and dedicated six-lens Workshop frontend are implemented
 with editable brief/current direction/original notes, typed three-candidate
@@ -34,8 +37,7 @@ candidate provenance, frozen selection scope, supersession, before/after
 revisions, protected additions and paragraph boundaries, immutable retries,
 and readable recovered alternatives. Five independent database boundary tests
 cover atomic stale refusal, exact history, chapter preservation, author-secret
-exclusion, hard preference conflicts, and multiline protection. Hosted native,
-broad live-provider, and requirement-specific quality checks remain pending.
+exclusion, hard preference conflicts, and multiline protection. Broader native, live-provider, and requirement-specific quality checks remain pending.
 
 The subsequent development changes add atomic relationship adoption with stable
 new endpoints, candidate-derived impact flags with author classifications,
@@ -60,7 +62,7 @@ anchor-override handling were then fixed while preserving raw responses and real
 flags. A separate read-only database reopen verified the saved packet, input
 hash, immutable receipt, response, and usage without another model call. This is
 one smoke, not broad live-provider or requirement-specific quality qualification.
-The hosted qualification remains pending below the earlier source checkpoint.
+Earlier hosted qualification history is retained below; the latest bounded native checkpoint is recorded after it.
 
 [CI 34124050562](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34124050562)
 on `a023511` passed the existing Windows native suite. Ubuntu frontend checks
@@ -134,10 +136,27 @@ The harness uses the correct role and asserts the People heading in commit
 passes collapsed-summary expansion and seed reading through the correct role,
 with the old role absent. Artifacts are under
 `.local/ci-workshop-34132271096/workshop`; the reproduction is
-`apps/desktop/node_modules/.cache/workshop-qa/reopen-brief.mjs`. New CI
-[34133645198](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34133645198)
-is running against exact source `47a50d9f230fe06c3f46eba700fbac57b03bff11`;
-broader native and Workshop-quality evidence remain pending.
+`apps/desktop/node_modules/.cache/workshop-qa/reopen-brief.mjs`.
+
+Latest hosted bounded-native checkpoint [CI 34133645198](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34133645198)
+on exact source `47a50d9f230fe06c3f46eba700fbac57b03bff11` finished at
+14:46:57 UTC on 7 September. Real Tauri 3.0.0/WebView2 `151.0.4129.101`
+checks were clean: Workshop 15/15 in about 14 seconds, main native 52, HTTP 6,
+close 2, interruption 4, recovery 4, and memory lookup 3. The Workshop report
+covers blank Develop/zero chapters, seed save, zero-generation World navigation,
+one explicit mock request with three directions, detail tray and local working
+edit, zero-write adoption preview, world adoption with an authorRoom decision,
+the Develop-to-Write barrier, directional relationships with both source heads, history and
+full Library reopen, linked atomic existing/new Unicode character relationship
+adoption with exact heads and impact provenance, Unicode title/body reopen, and
+a second explicit STYLE voice-guidance request whose sample stayed unchanged until
+Develop with no automatic documents, decisions, or adoption. Errors, page errors,
+and runtime observations were clean. This is bounded native evidence, not full
+specification or quality completion: physical keyboard/accessibility, broader
+late/stale/failure UI, live-provider behavior, and the author study remain open.
+The earlier harness failures are retained as historical evidence above.
+Artifacts are under `.local/ci-workshop-34133645198`; the suite reports and
+multi-target/history/voice screenshots were inspected.
 The [formative study protocol](STORY_WORKSHOP_AUTHOR_STUDY.md) is prepared; no
 observed human study is claimed.
 

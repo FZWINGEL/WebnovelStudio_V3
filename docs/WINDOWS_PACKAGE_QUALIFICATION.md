@@ -22,7 +22,7 @@ identical-version reinstall with project/document/text retained. The result has
 `.local/ci-package-34130743953/run-20260907-141852-540/result.json`; the
 same-version reinstall screenshot was visually inspected. This qualifies the
 installed lifecycle only: offline/no-runtime installation, true upgrade,
-live-provider behavior, author data, and full Workshop-native/quality
+live-provider behavior, author data, and broader native/quality
 qualification remain open.
 
 The current debug executable from source
@@ -30,10 +30,13 @@ The current debug executable from source
 `target/debug/webnovel-desktop.exe`, 48,414,720 bytes, built at
 `2026-09-07T14:02:46.9371672Z`, with SHA-256
 `ad0210a80bf8e83045906ae4d36d30662af96fcf076663f90e27a373cc830c85`.
-Current source
+The native qualification checkout
 `47a50d9f230fe06c3f46eba700fbac57b03bff11` differs only in Workshop native
 harness and documentation; [CI 34133645198](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34133645198)
-remains pending. Retained native harness-failure histories and broader evidence
+passed all 15 Workshop checks and the existing editor, HTTP, close,
+interruption, recovery, and memory-lookup suites. Workshop used the local mock
+and synthetic projects; its report has no page errors. Retained native
+harness-failure histories and broader evidence
 are recorded in the [implementation status](IMPLEMENTATION_STATUS.md) and
 [Story Workshop implementation ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
 

@@ -29,10 +29,11 @@ reopen/replay, atomic multi-target adoption, stale refusal without partial write
 chapter isolation, restricted-context secret exclusion, and local hard-preference
 conflicts. One bounded headless Codex request and its persisted reopen are
 verified, and the fresh installer passed its synthetic installed write/reopen
-and same-version retention lifecycle. The full Workshop specification, native
-Workshop flow, broader live-provider behavior, and author evaluation remain
-open; exact evidence and source identities are recorded in the qualification
-documents.
+and same-version retention lifecycle. The 15-check Workshop native flow also
+passed with the local mock, including atomic linked adoption, Unicode reopen,
+and voice guidance without automatic adoption. Full specification acceptance,
+broader native/provider coverage, and author evaluation remain open; exact
+evidence and source identities are recorded in the qualification documents.
 
 **Provider direction (development surface):** Codex compatibility is checked
 against the installed CLI at connection time and recorded per request; V3 must
