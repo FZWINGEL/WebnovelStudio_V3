@@ -5,6 +5,14 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
+The current product source is `7eb94fbff3380688786c54a78e2e3dcdaea815bc`.
+[CI 34156441884](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156441884)
+and [package run 34156451569](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156451569)
+both failed before any steps ran. GitHub's check annotations report an account
+billing or spending-limit issue preventing job startup. These runs provide no
+test or package evidence and were not retried. Their exact source and admission
+annotations are retained under `.local/workshop-context-samples-hosted/`.
+
 The current checkpoint improves recaps, keeps noncanon moments in a dedicated
 voice-sample flow, and adds an inspectable preview of the next exploration's
 context. Its full wrapper passed 767 Rust / 557 frontend / 11 tooling checks,
@@ -28,7 +36,7 @@ alias-loss evidence. Failure evidence is under
 `.local/ci-workshop-34153931657/native-spike-evidence/workshop/`.
 [Package run 34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
 passed the bounded installed lifecycle for that checkpoint; it does not qualify
-the current uncommitted recap/sample/context slice.
+the current recap/sample/context slice.
 
 The follow-up native harness adds read-only aliases readiness waits for the new
 blank project, Writer reopen, and project reopen checks. Those additions are

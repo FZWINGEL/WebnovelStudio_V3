@@ -1,11 +1,19 @@
 # Story Workshop implementation and acceptance
 
+**Current source:** `7eb94fbff3380688786c54a78e2e3dcdaea815bc`.
+The fresh [CI run 34156441884](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156441884)
+and [package run 34156451569](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156451569)
+were refused before job steps started. GitHub reports an account billing or
+spending-limit issue. No current hosted tests or installer build ran; the local
+evidence below remains distinct. Read-only run/annotation evidence is retained
+under `.local/workshop-context-samples-hosted/`. No automatic retry was started.
+
 This work implements [the Story Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md),
 fetched at `c83a127`, in the existing Rust/Tauri V3 application. The specification
 is the target; this ledger records implementation and evidence separately. The
 previous private 3.0.0 installer predates this work and does not qualify it.
-The current checkpoint is an uncommitted recap/sample/context slice with local
-headless evidence and a final debug build; fresh full-wrapper, native, and
+The current checkpoint is the recap/sample/context slice with local
+headless evidence and a final debug build; fresh hosted native and
 package qualification remain pending. The preceding candidate-alternatives
 checkpoint is pushed at
 `16540ea9f968e969f63b57817f36c2a187894516`. Its [Workshop
@@ -38,7 +46,7 @@ failure JSON, text, and screenshot are under
 `.local/ci-workshop-34153931657/native-spike-evidence/workshop/`.
 Package run [34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
 passed the bounded installed lifecycle for that preceding checkpoint; it does
-not qualify the current uncommitted recap/sample/context slice.
+not qualify the current recap/sample/context slice.
 
 The follow-up native harness adds read-only aliases readiness waits for the new
 blank project, Writer reopen, and project reopen checks. Those changes are
@@ -76,7 +84,7 @@ with no state change, AI/adoption calls, page errors, or overflow; the 800-pixel
 screenshot was inspected (`.local/workshop-next-context-qa/report.json`).
 The final debug rebuild after the protected-text correction is recorded in the
 Windows qualification document. It was not launched locally. Fresh
-full-wrapper, native, and package qualification for this current slice remain
+hosted native and package qualification for this current slice remain
 pending.
 
 The preceding controls checkpoint adds implication-specific keep, reject, and

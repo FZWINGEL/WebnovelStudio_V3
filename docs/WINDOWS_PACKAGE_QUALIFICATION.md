@@ -1,5 +1,14 @@
 # Windows package qualification
 
+The current recap/sample/context source is
+`7eb94fbff3380688786c54a78e2e3dcdaea815bc`. Fresh
+[CI 34156441884](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156441884)
+and [package run 34156451569](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156451569)
+failed at job admission with no steps executed. GitHub reports an account
+billing or spending-limit issue. No installer was built by that package run;
+the preceding successful installer below does not qualify these changes.
+Exact run/annotation evidence is in `.local/workshop-context-samples-hosted/`.
+
 The initial distribution target is Windows x64 with an NSIS installer. Package configuration is implementation work; a successful build alone does not establish offline installation, accessibility, recovery, or author-trial acceptance. Current executed evidence is recorded in [implementation status](IMPLEMENTATION_STATUS.md).
 
 ## Preceding candidate-alternatives checkpoint — 7 September 2026
@@ -28,9 +37,9 @@ Earlier save/DB/reopen checks passed, so this indicates a harness timing race;
 it provides no alias-loss evidence. `pageErrors=[]`, and the evidence under
 `.local/ci-workshop-34153931657/native-spike-evidence/workshop/` contains no
 alias-loss observation. This does not establish a broad native pass or qualify
-the current uncommitted recap/sample/context slice.
+the current recap/sample/context slice.
 
-## Current uncommitted recap/sample/context debug build — 7 September 2026
+## Current recap/sample/context debug build — 7 September 2026
 
 The current debug executable was rebuilt after the protected-text correction
 from the uncommitted recap/sample/context sources. It is
@@ -40,8 +49,8 @@ ProductVersion `3.0.0`, SHA-256
 It was not launched locally. The build log and identity are retained in
 `.local/workshop-context-samples-debug-build.log` and
 `.local/workshop-context-samples-debug-build.json`. This debug identity has no
-hosted native or package qualification yet; the new product commit and fresh
-qualification runs remain pending.
+hosted native or package qualification yet. Its source is committed at
+`7eb94fb`; the fresh runs above were refused at job admission.
 
 ## Preceding checkpoint installed package — 7 September 2026
 
@@ -57,10 +66,9 @@ and text. Installer and uninstall exit codes were 0, `errors=[]`, and no forced
 process stop occurred. The result records `upgradeQualification=false`.
 Build metadata and lifecycle evidence are retained under
 `.local/package-workshop-34153949693/`. This is bounded installed lifecycle
-evidence, not qualification of the current uncommitted recap/sample/context
+evidence, not qualification of the current recap/sample/context
 slice, Workshop-native acceptance, offline/no-runtime installation, a true
-upgrade, live-provider behavior, or author-study qualification. A fresh package
-is required after the current slice is committed.
+upgrade, live-provider behavior, or author-study qualification. A fresh package is required once hosted job admission is available again.
 
 ## Previous controls development build
 

@@ -4,6 +4,11 @@
 
 WebnovelStudio is an AI writing application with the author directing, reviewing, and accepting the work. The author manages several projects, develops story material in any order, asks the AI to draft chapters or develop ideas, and gives whole-document or selected-text feedback. Manual writing and editing remain available throughout.
 
+Current product source `7eb94fb` is pushed and the debug executable is rebuilt.
+Fresh hosted CI and packaging did not start because GitHub reported an account
+billing or spending-limit issue. Those attempts provide no new qualification;
+see the [current implementation status](docs/IMPLEMENTATION_STATUS.md).
+
 The current recap/sample/context slice improves recaps, noncanon voice samples,
 and the preview of an exploration's context. Its full wrapper passed 767 Rust,
 557 frontend, and 11 tooling checks. A final unprotected-text label correction
