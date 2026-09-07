@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompiledPacket } from '../ipc/context';
@@ -9,7 +9,7 @@ import type {
   WorkshopCandidate, WorkshopPreference, WorkshopRelationship, WorkshopResult, WorkshopSession, WorkshopSnapshot,
   WorkshopState, WorkshopView,
 } from '../ipc/workshop';
-import { Workshop } from './Workshop';
+import { Workshop, type WorkshopHandle } from './Workshop';
 
 const mocks = vi.hoisted(() => ({
   readWorkshop: vi.fn(),
@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   previewWorkshopAdoption: vi.fn(),
   adoptWorkshop: vi.fn(),
   readDocument: vi.fn(),
+  readDocumentAliases: vi.fn(),
+  setDocumentAliases: vi.fn(),
   retryDiscussionSave: vi.fn(),
   stopDiscussion: vi.fn(),
   providers: {
@@ -42,6 +44,7 @@ vi.mock('../ipc/workshop', () => ({
   adoptWorkshop: mocks.adoptWorkshop,
 }));
 vi.mock('../ipc/projects', () => ({ readDocument: mocks.readDocument }));
+vi.mock('../ipc/context', async importOriginal => ({ ...await importOriginal<typeof import('../ipc/context')>(), readDocumentAliases: mocks.readDocumentAliases, setDocumentAliases: mocks.setDocumentAliases }));
 vi.mock('../ipc/discussions', () => ({ retryDiscussionSave: mocks.retryDiscussionSave, stopDiscussion: mocks.stopDiscussion }));
 vi.mock('../providers/ProviderContext', () => ({ useProviders: () => mocks.providers }));
 vi.mock('../assistant/ContextInspector', () => ({ ContextInspector: () => null }));
@@ -153,6 +156,8 @@ let host: HTMLDivElement;
 let root: Root;
 let currentView: WorkshopView;
 let savedDocuments: DocumentRecord[];
+let workshopHandle = createRef<WorkshopHandle>();
+let aliasesByDocument: Record<string, string[]>;
 let onDocumentsChanged: ReturnType<typeof vi.fn<(documents: DocumentRecord[]) => void>>;
 
 function setValue(element: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -176,7 +181,7 @@ async function waitFor(check: () => void): Promise<void> {
 
 async function render(value = currentView, projectValue = project): Promise<void> {
   currentView = value;
-  await act(async () => root.render(<Workshop project={projectValue} onOpenDocument={vi.fn()} onDocumentsChanged={onDocumentsChanged} onError={vi.fn()} />));
+  await act(async () => root.render(<Workshop ref={workshopHandle} project={projectValue} onOpenDocument={vi.fn()} onDocumentsChanged={onDocumentsChanged} onError={vi.fn()} />));
   await waitFor(() => expect(host.textContent).toContain('Develop or edit directly'));
 }
 
@@ -184,6 +189,13 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   window.innerWidth = 1300;
   vi.clearAllMocks();
+  workshopHandle = createRef<WorkshopHandle>();
+  aliasesByDocument = {};
+  mocks.readDocumentAliases.mockImplementation(async (_access, documentId: string) => ({ documentId, aliases: [...(aliasesByDocument[documentId] ?? [])], sourceEpoch: '7' }));
+  mocks.setDocumentAliases.mockImplementation(async (_access, documentId: string, _epoch, aliases: string[]) => {
+    aliasesByDocument[documentId] = [...aliases];
+    return { source: '8', policy: '0' };
+  });
   mocks.providers.state = providerState(true);
   currentView = view();
   savedDocuments = [...project.documents];
@@ -213,6 +225,45 @@ afterEach(async () => {
 });
 
 describe('Story Workshop behavioral contracts', () => {
+  it('keeps unfinished names in the Workshop across lens changes and refuses leaving or another material until resolved', async () => {
+    const fixture = relationshipFixture();
+    await render(fixture.view, fixture.project);
+    await act(async () => selectValue('Saved person, place, or group', 'mei'));
+    const input = () => host.querySelector<HTMLTextAreaElement>('[aria-label="Names and aliases"] textarea')!;
+    await waitFor(() => expect(input()?.disabled).toBe(false));
+    await act(async () => setValue(input(), '林乔\nLin Qiao\nAsh Wren'));
+    await act(async () => expect(workshopHandle.current!.flush()).rejects.toThrow(/names/i));
+    await act(async () => selectValue('Saved person, place, or group', 'guild'));
+    expect(input().value).toContain('Ash Wren');
+    expect(host.querySelector<HTMLSelectElement>('.workshop-names select')!.value).toBe('mei');
+    await act(async () => exactButton('Themes & tone').click());
+    expect(input().value).toContain('Ash Wren');
+    await act(async () => exactButton('Discard changes').click());
+    await act(async () => workshopHandle.current!.flush());
+    await act(async () => selectValue('Saved person, place, or group', 'guild'));
+    await waitFor(() => expect(input().value).toBe(''));
+    expect(mocks.setDocumentAliases).not.toHaveBeenCalled();
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+  });
+
+  it('saves optional names for the chosen document and reads them again without generating or changing story material', async () => {
+    await render(view({ state: state({ sessions: [session({ lens: 'world' })] }) }));
+    await act(async () => selectValue('Saved person, place, or group', 'world-1'));
+    await waitFor(() => expect(host.querySelector<HTMLTextAreaElement>('[aria-label="Names and aliases"] textarea')?.disabled).toBe(false));
+    await act(async () => setValue(host.querySelector<HTMLTextAreaElement>('[aria-label="Names and aliases"] textarea')!, '林乔\nLin Qiao\nAsh Wren'));
+    await act(async () => exactButton('Save names').click());
+    await waitFor(() => expect(mocks.setDocumentAliases).toHaveBeenCalledOnce());
+    expect(mocks.setDocumentAliases.mock.calls[0].slice(0, 3)).toEqual([access, 'world-1', '7']);
+    expect(new Set(mocks.setDocumentAliases.mock.calls[0][3])).toEqual(new Set(['林乔', 'Lin Qiao', 'Ash Wren']));
+    await act(async () => exactButton('Close names').click());
+    await act(async () => selectValue('Saved person, place, or group', 'world-1'));
+    await waitFor(() => expect(host.querySelector<HTMLTextAreaElement>('[aria-label="Names and aliases"] textarea')?.value).toContain('林乔'));
+    await act(async () => workshopHandle.current!.flush());
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+  });
+
   it('forks an independent saved exploration and keeps the parent intact across reopen', async () => {
     const original = session({ title: 'Guild knowledge', workingTitle: 'Repair rules', workingText: 'The guild teaches only apprentices.',
       selectedDetails: [{ id: 'fixed-rule', candidateId: null, text: 'The guild', fixed: true }],

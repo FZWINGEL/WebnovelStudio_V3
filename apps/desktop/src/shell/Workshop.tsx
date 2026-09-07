@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState } from 'react';
 import { readDocument, type DocumentRecord, type OpenedProject } from '../ipc/projects';
 import { adoptWorkshop, previewWorkshopAdoption, startWorkshop, workshopHistory, type CandidateChoice, type WorkshopAdoptionPreview, type WorkshopAdoptionTarget, type WorkshopCandidate, type WorkshopImpactDraft, type WorkshopRelationship, type WorkshopResult, type WorkshopSession, type WorkshopSnapshot, type WorkshopState } from '../ipc/workshop';
 import { retryDiscussionSave, stopDiscussion } from '../ipc/discussions';
@@ -11,6 +11,7 @@ import { ACTIONS, LENSES, SUBVERSIONS, WORLD_QUESTIONS, type WorkshopLens } from
 import { describeWorkshopError, newSession, WorkshopStore } from '../workshop/store';
 import { appendText, plainText, textDocument } from '../workshop/text';
 import { Relationships } from '../workshop/Relationships';
+import { DocumentAliases } from '../story/DocumentAliases';
 import { AdoptionLinks, adoptionParticipants, validAdoptionLinks, type AdoptionMaterialDraft, type AdoptionLinkDraft } from '../workshop/AdoptionLinks';
 import { AdoptionImpacts, IMPACT_LABELS } from '../workshop/AdoptionImpacts';
 import { AdoptionPreview } from '../workshop/AdoptionPreview';
@@ -21,10 +22,10 @@ import { selectedBranchCandidates } from '../workshop/branchEvidence';
 import '../workshop/workshop.css';
 
 export interface WorkshopHandle { flush(): Promise<void> }
-interface Props { project: OpenedProject; onOpenDocument(documentId: string): void; onDocumentsChanged(documents: DocumentRecord[]): void; onError(message: string): void }
+interface Props { project: OpenedProject; navigationBusy?: boolean; onOpenDocument(documentId: string): void; onDocumentsChanged(documents: DocumentRecord[]): void; onError(message: string): void }
 type Capture = { from: number; to: number; text: string; generation: string };
 
-export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ project, onOpenDocument, onDocumentsChanged, onError }, ref) {
+export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ project, navigationBusy = false, onOpenDocument, onDocumentsChanged, onError }, ref) {
   const access = project.access;
   const store = useMemo(() => new WorkshopStore(access), [access.projectId, access.operationNamespace, access.session, access.writerLease]);
   const [, redraw] = useReducer(value => value + 1, 0);
@@ -40,6 +41,10 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
   const pendingRequest = useRef<{ operationId: string; exploration: Parameters<typeof startWorkshop>[2]; selection: ModelSelection } | null>(null);
   const [history, setHistory] = useState<WorkshopSnapshot[] | null>(null); const [notesOpen, setNotesOpen] = useState(false);
   const sourceRead = useRef(0);
+  const [namesDocumentId, setNamesDocumentId] = useState('');
+  const namesSelect = useRef<HTMLSelectElement>(null);
+  const namesGuard = useRef<(() => Promise<void>) | null>(null);
+  const registerNamesGuard = useCallback((guard: (() => Promise<void>) | null) => { namesGuard.current = guard; }, []);
   const composing = useRef(false); const workingEditor = useRef<HTMLTextAreaElement>(null); const heading = useRef<HTMLHeadingElement>(null);
   const providers = useProviders();
   const selectedModel = providers.state?.catalog.models.find(model => sameModel(model.key, providers.state!.settings.active));
@@ -51,6 +56,8 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
   const live = sessionResults.find(item => ['queued', 'running', 'stopping'].includes(item.run.status));
   const anyLive = store.results.some(item => ['queued', 'running', 'stopping'].includes(item.run.status));
   const material = project.documents.filter(document => document.kind !== 'chapter' && !document.head.documentId.startsWith('workshop-'));
+  const namedMaterial = material.filter(document => document.kind === 'character' || document.kind === 'world');
+  const namesDocument = namedMaterial.find(document => document.head.documentId === namesDocumentId);
   const activeRelationship = session?.relationshipId ? state.relationships.find(item => item.id === session.relationshipId) : null;
   const relationshipUnavailable = !!session?.relationshipId && (!activeRelationship || activeRelationship.status === 'archived');
   const reviewableImpacts = state.impacts.filter(impact => !impact.documentId.startsWith('workshop-'));
@@ -60,6 +67,7 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
   useImperativeHandle(ref, () => ({ flush: async () => {
     if (adoptionOperation.current) throw new Error('Finish checking the Workshop adoption before leaving this project.');
     if (pendingRequest.current) throw new Error('Check the pending Workshop request before leaving this project.');
+    await namesGuard.current?.();
     await store.flush();
   } }), [store]);
   useEffect(() => {
@@ -84,6 +92,13 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
 
   function edit(change: (session: WorkshopSession) => WorkshopSession, working = false) { if (session && !adopting) store.editSession(session.id, change, working); }
   function report(reason: unknown) { const message = describeWorkshopError(reason); setNotice(message); onError(message); }
+  async function chooseNamesDocument(documentId: string) {
+    const sequence = sourceRead.current;
+    try {
+      await namesGuard.current?.();
+      if (sequence === sourceRead.current) setNamesDocumentId(documentId);
+    } catch (reason) { if (sequence === sourceRead.current) report(reason); }
+  }
   async function saveRelationship(change: (state: WorkshopState) => WorkshopState) {
     if (store.locked) return;
     const readSequence = sourceRead.current;
@@ -357,6 +372,12 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
         {preview && <><AdoptionPreview preview={preview} documents={project.documents} /><div className="workshop-actions"><button disabled={adopting || !!adoptionOperation.current} onClick={() => setPreview(null)}>Keep exploring</button><button className="primary-button" disabled={adopting} onClick={() => { void commitAdoption(); }}>{adoptionOperation.current ? 'Check adoption result' : 'Confirm Use this version'}</button></div></>}
       </section>}
       {(session.lens === 'people' || session.lens === 'world') && <Relationships state={state} documents={material} session={session} onChange={change => { void saveRelationship(change); }} onOpenDocument={onOpenDocument} onExploreRelationship={relationship => { void exploreRelationship(relationship); }} disabled={adopting || !!adoptionOperation.current} />}
+      {(session.lens === 'people' || session.lens === 'world' || namesDocument) && <section className="workshop-names" aria-label="Names for saved people and places">
+        <h2>Names & aliases</h2>
+        <p className="small-copy">Keep alternate names and optional transliterations with a saved person, place, or group.</p>
+        {namedMaterial.length ? <label>Saved person, place, or group<select aria-label="Saved person, place, or group" ref={namesSelect} disabled={adopting || navigationBusy} value={namesDocumentId} onChange={event => { void chooseNamesDocument(event.target.value); }}><option value="">Choose saved material</option>{namedMaterial.map(document => <option key={document.head.documentId} value={document.head.documentId}>{document.title}</option>)}</select></label> : <p className="small-copy">Choose a working version for your story to give it saved names here.</p>}
+        {namesDocument && <DocumentAliases key={`${access.projectId}:${namesDocumentId}`} access={access} documentId={namesDocumentId} title={namesDocument.title} visible disabled={adopting || navigationBusy} registerGuard={registerNamesGuard} onClose={() => { setNamesDocumentId(''); namesSelect.current?.focus(); }} onSaved={() => { void store.refreshResults().catch(report); }} />}
+      </section>}
       {!!session.questions.length && <details><summary>Open questions and intentional unknowns</summary>{session.questions.map(question => <div className="workshop-question-record" key={question.id}><p>{question.text}</p><label>State<select value={question.status} onChange={event => edit(current => ({ ...current, questions: current.questions.map(item => item.id === question.id ? { ...item, status: event.target.value as typeof question.status } : item) }))}><option value="open">Open</option><option value="notNow">Not now</option><option value="notRelevant">Not relevant</option><option value="keepMysterious">Keep mysterious</option></select></label><label>Unknown to<select value={question.unknownTo} onChange={event => edit(current => ({ ...current, questions: current.questions.map(item => item.id === question.id ? { ...item, unknownTo: event.target.value as typeof question.unknownTo } : item) }))}><option value="author">Me, the author</option><option value="reader">The reader</option><option value="both">Both</option></select></label></div>)}</details>}
       <details className="workshop-recap"><summary>Your stopping point</summary><WorkshopRecap session={session} decisions={state.decisions} saved={store.generation === store.savedGeneration} onOpenDocument={onOpenDocument} /><button onClick={() => { void store.flush().then(() => workshopHistory(access)).then(setHistory).catch(report); }}>Saved exploration versions</button>{history && <ul>{history.slice(0, 30).map(snapshot => <li key={snapshot.version}><details><summary>Workshop version {snapshot.version}</summary>{snapshot.state.sessions.filter(item => item.id === session.id).map(item => <div key={item.id}><p className="workshop-prose">{item.workingText || item.brief}</p><button onClick={() => { const restored = { ...structuredClone(item), id: crypto.randomUUID(), title: `Recovered: ${item.title}`, parentSessionId: session.id, branchKind: 'whatIf' as const, activeRunId: null }; restored.anchorDocumentId = `workshop-${restored.id}`; store.edit(current => ({ ...current, currentSessionId: restored.id, sessions: [...current.sessions, restored] })); }}>Recover as a separate exploration</button></div>)}</details></li>)}</ul>}</details>
       {notice && <p className="workshop-notice" role="status">{notice}</p>}

@@ -190,6 +190,8 @@ fn main() {
             memory_commands::start_memory,
             memory_commands::stop_memory,
             context_commands::context_epochs,
+            context_commands::read_document_aliases,
+            context_commands::set_document_aliases,
             context_commands::freeze_story_context,
             context_commands::freeze_reviewed_continuation,
             context_commands::story_context_snapshot,

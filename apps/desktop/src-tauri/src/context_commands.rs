@@ -5,8 +5,8 @@ use webnovel_core::context::packet::CompiledPacket;
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
 use webnovel_core::projects::story_context::{
-    ContextEpochs, FreezeReviewedContinuation, FreezeStory, FrozenContext, SearchResult,
-    SearchStory, SourceRead,
+    ContextEpochs, DocumentAliases, FreezeReviewedContinuation, FreezeStory, FrozenContext,
+    SearchResult, SearchStory, SourceRead,
 };
 use webnovel_core::projects::{CoreResult, ProjectAccess};
 
@@ -17,6 +17,31 @@ pub async fn context_epochs(
 ) -> CoreResult<ContextEpochs> {
     let project = state.project(&access.project_id)?;
     execute(move || project.context_epochs(access)).await
+}
+
+#[tauri::command]
+pub async fn read_document_aliases(
+    access: ProjectAccess,
+    document_id: String,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<DocumentAliases> {
+    let project = state.project(&access.project_id)?;
+    execute(move || project.read_document_aliases(access, document_id)).await
+}
+
+#[tauri::command]
+pub async fn set_document_aliases(
+    access: ProjectAccess,
+    document_id: String,
+    expected_source_epoch: String,
+    aliases: Vec<String>,
+    state: State<'_, DesktopProjects>,
+) -> CoreResult<ContextEpochs> {
+    let project = state.project(&access.project_id)?;
+    execute(move || {
+        project.set_document_aliases(access, document_id, expected_source_epoch, aliases)
+    })
+    .await
 }
 
 #[tauri::command]

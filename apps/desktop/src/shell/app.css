@@ -152,6 +152,8 @@ h3 { font-size: 14px; margin: 0 0 10px; }
 .document-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 0 20px 14px; }
 .document-tools button { font-size: 11px; padding: 7px 8px; }
 .document-tools .draft-action { padding-inline: 12px; margin-right: 5px; }
+.document-names { padding: 0 20px 12px; max-height: 55vh; overflow-y: auto; }
+.document-names > button { font-size: 12px; }
 .persistent-workspace .formatbar { min-height: 42px; padding: 4px 18px; gap: 2px; }
 .persistent-workspace .formatbar button, .persistent-workspace .formatbar select { font-size: 11px; padding: 6px; }
 .persistent-workspace .manuscript-page { padding: 32px clamp(22px, 3vw, 48px) 80px; }

@@ -2,27 +2,48 @@
 
 The initial distribution target is Windows x64 with an NSIS installer. Package configuration is implementation work; a successful build alone does not establish offline installation, accessibility, recovery, or author-trial acceptance. Current executed evidence is recorded in [implementation status](IMPLEMENTATION_STATUS.md).
 
+## Current local development build — 7 September 2026
+
+The names/aliases source built successfully with `desktop.ps1 -Command spike`
+at `2026-09-07T17:24:48.8272045Z`. The executable is
+`D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`, 48,684,032 bytes,
+ProductVersion `3.0.0`, SHA-256
+`f171aa81b37e908b96b7d10d13b47d77054040fa35adad4dad67418a1022512e`.
+The build log and byte identity are retained in
+`.local/workshop-aliases-debug-build.log` and
+`.local/workshop-aliases-debug-build.json`. This build was not launched locally;
+its native and installer qualification requires the fresh hosted runs.
+
 ## Last qualified Workshop package — 7 September 2026
 
-Fresh [package run 34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
+Fresh [package run 34145254658](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145254658)
 passed on clean builder and qualification source
-`ff276eb5eecfec3b38da3af758ca1f6377add8a4`. ProductVersion is `3.0.0` and the
+`e61640a4738128b9744919275e362e402c7ed0d8`. ProductVersion is `3.0.0` and the
 installer SHA-256 is
-`954416c66c8982f03113b643550dda6d39539539cfaf3a608be4911f13d1cc01`.
-The synthetic installed lifecycle completed at `2026-09-07T16:27:38.9255979Z`:
+`59394f6903ff4cc633e47556cffc3e921a7784cfa32a3da4bd68fcfcaf3ea495`.
+The synthetic installed lifecycle completed at `2026-09-07T17:10:32.2696907Z`:
 project/document creation, text entry/readback, normal close/reopen, and
 same-version uninstall/reinstall retained the project, document, and text.
-The result reports no errors and no forced process stop. It does not qualify
-upgrades, offline/no-runtime installation, live providers, or author usability.
+The result reports `errors=[]`, no forced process stop,
+`sameVersionReinstallOnly=true`, and `upgradeQualification=false`. It does not
+qualify upgrades, offline/no-runtime installation, live providers, or author
+usability.
 
 Downloaded metadata, results, and screenshots are retained under
-`.local/package-workshop-34142007124/`. The installer itself remains in this
+`.local/package-workshop-34145254658/`. The installer itself remains in this
 run's `windows-installer` GitHub artifact; it has not been downloaded locally.
-The subsequent schema-36 relationship exploration changes require a fresh
-installer. Separately, native CI 34141998962 on this same source passed its
-contracts and 20 Workshop groups, then stopped when the still-open working-story
-sidebar covered the what-if button. That native run is not a complete pass;
-the harness now closes the sidebar through its visible control before proceeding.
+This is a previous product checkpoint and does not represent the current alias
+UI/IPC tree; no native alias qualification is claimed. Separately, native CI
+[34145255173](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145255173)
+passed its contracts and 21 Workshop checks, then stopped when the still-open
+working-story sidebar intercepted the W30 what-if control. That run is not a
+complete pass; the retained failure evidence is under
+`.local/ci-workshop-34145255173/workshop/`, and the harness now closes the
+sidebar through its visible in-sidebar control before proceeding.
+
+The immediately preceding package run [34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
+remains retained under `.local/package-workshop-34142007124/` with installer
+SHA-256 `954416c66c8982f03113b643550dda6d39539539cfaf3a608be4911f13d1cc01`.
 
 ## Earlier locally retained Workshop package — 7 September 2026
 

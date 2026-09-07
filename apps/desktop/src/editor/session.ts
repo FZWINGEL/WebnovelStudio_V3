@@ -15,6 +15,7 @@ type Capture = { request: SaveSnapshot; json: string; hash: string; payloadHash:
 /** Preflight is pure; commit dispatches the same prepared editor transaction. */
 export interface PreparedEditorChange { body: WnsDocument; commit(): WnsDocument; read?(): WnsDocument }
 type ViewSaver = () => Promise<void>;
+type LeaveGuard = () => Promise<void>;
 type AuthorCapture = { body: WnsDocument; json: string; payloadHash: string; change: PreparedEditorChange } &
   ({ kind: 'apply'; request: ApplyProposal } | { kind: 'restore'; request: RestoreRevision });
 type Listener = () => void;
@@ -65,6 +66,7 @@ export class DocumentSession {
   private conflict: ReconciledDocument | null = null;
   private viewSaver: ViewSaver | null = null;
   private viewSaverEpoch = 0;
+  private leaveGuard: LeaveGuard | null = null;
 
   constructor(access: ProjectAccess, document: DocumentRecord, private transport: ProjectTransport, private options: { autosave?: boolean; newId?: () => string } = {}) {
     this.access = clone(access); this.head = clone(document.head); version(this.head.version);
@@ -79,6 +81,7 @@ export class DocumentSession {
   }
   subscribe(listener: Listener): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   setViewSaver(save: ViewSaver | null): void { this.viewSaver = save; this.viewSaverEpoch += 1; }
+  setLeaveGuard(guard: LeaveGuard | null): void { this.leaveGuard = guard; }
   private async saveView(): Promise<void> {
     const save = this.viewSaver;
     if (!save) return;
@@ -96,7 +99,14 @@ export class DocumentSession {
       throw error;
     }
   }
-  async persistView(): Promise<void> { await this.withLifecycleGuard(async () => { await this.flush(); await this.saveView(); }); }
+  async persistView(): Promise<void> {
+    await this.withLifecycleGuard(async () => {
+      await this.flush();
+      await this.saveView();
+      const guard = this.leaveGuard;
+      if (guard) await guard();
+    });
+  }
   /**
    * Persist only the reading position while the saved document is idle.
    * This intentionally has no lifecycle owner or input barrier: authors can
@@ -278,6 +288,8 @@ export class DocumentSession {
       await this.flush();
       await this.writeCheckpoint(this.head, reason);
       await this.saveView();
+      const guard = this.leaveGuard;
+      if (guard) await guard();
       const destination = await prepareDestination();
       this.clearTimer(); this.phase = 'disposed';
       return destination;

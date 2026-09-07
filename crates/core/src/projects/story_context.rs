@@ -36,6 +36,14 @@ pub struct ContextEpochs {
     pub policy: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DocumentAliases {
+    pub document_id: String,
+    pub aliases: Vec<String>,
+    pub source_epoch: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FreezeStory {
@@ -148,6 +156,7 @@ pub struct SearchResult {
 
 pub(super) enum ContextCommand {
     Epochs(ProjectAccess, Reply<ContextEpochs>),
+    ReadAliases(ProjectAccess, String, Reply<DocumentAliases>),
     Freeze(FreezeStory, Reply<FrozenContext>),
     FreezeReviewed(FreezeReviewedContinuation, Reply<FrozenContext>),
     Snapshot(ProjectAccess, String, Reply<FrozenContext>),
@@ -168,6 +177,19 @@ pub(super) enum ContextCommand {
 impl ProjectSession {
     pub fn context_epochs(&self, access: ProjectAccess) -> CoreResult<ContextEpochs> {
         self.request(|reply| Command::Context(Box::new(ContextCommand::Epochs(access, reply))))
+    }
+    pub fn read_document_aliases(
+        &self,
+        access: ProjectAccess,
+        document_id: String,
+    ) -> CoreResult<DocumentAliases> {
+        self.request(|reply| {
+            Command::Context(Box::new(ContextCommand::ReadAliases(
+                access,
+                document_id,
+                reply,
+            )))
+        })
     }
     pub fn freeze_story(&self, request: FreezeStory) -> CoreResult<FrozenContext> {
         self.request(|reply| Command::Context(Box::new(ContextCommand::Freeze(request, reply))))
@@ -275,6 +297,9 @@ impl OwnedProject {
                 reply,
                 self.check_access(&access).and_then(|()| epochs(self.db()?))
             ),
+            ContextCommand::ReadAliases(access, id, reply) => {
+                respond!(reply, self.context_document_aliases(access, &id))
+            }
             ContextCommand::Freeze(request, reply) => respond!(reply, self.freeze_story(request)),
             ContextCommand::FreezeReviewed(request, reply) => {
                 respond!(reply, self.freeze_reviewed_continuation(request))
@@ -502,6 +527,21 @@ impl OwnedProject {
         let result = epochs(&tx)?;
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(result)
+    }
+
+    fn context_document_aliases(
+        &self,
+        access: ProjectAccess,
+        id: &str,
+    ) -> CoreResult<DocumentAliases> {
+        self.check_access(&access)?;
+        let connection = self.db()?;
+        let document = read_document(connection, id)?;
+        Ok(DocumentAliases {
+            document_id: document.head.document_id,
+            aliases: read_aliases(connection, id)?,
+            source_epoch: epochs(connection)?.source,
+        })
     }
 
     fn context_index(

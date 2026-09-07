@@ -89,6 +89,14 @@ function workshopState() {
   return row ? { version: String(row.version), state: JSON.parse(row.state_json) } : null;
 }
 
+function contextSourceEpoch() {
+  return Number(database.prepare('SELECT context_source_epoch AS value FROM project WHERE singleton=1').get().value);
+}
+
+function documentAliases(documentId) {
+  return database.prepare('SELECT alias FROM document_aliases WHERE document_id=? ORDER BY alias').all(documentId).map(row => row.alias);
+}
+
 function projectInside(projectPath) {
   const child = relative(toNamespacedPath(data), toNamespacedPath(projectPath));
   assert(child && !isAbsolute(child) && child !== '..' && !child.startsWith(`..${sep}`),
@@ -559,8 +567,100 @@ try {
   assert.equal(documents().filter(document => document.kind === 'chapter').length, 0);
   checks.push('The Unicode character title and exact body survive reopening the project');
 
+  // W23 names are explicit author metadata. Exercise both the Workshop lens
+  // picker and the Writer action, then verify the atomic source-epoch CAS
+  // without creating another provider run or changing the document itself.
+  const namesRunsBefore = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  const namesDocumentBefore = documents().find(document => document.id === newCharacter.id);
+  const namesEpochBefore = contextSourceEpoch();
+  const namesContextClose = page.getByRole('button', { name: 'Close working story', exact: true });
+  if (await namesContextClose.isVisible()) await namesContextClose.click();
+  await page.getByRole('button', { name: 'People', exact: true }).click();
+  await page.getByRole('heading', { name: 'People', exact: true }).waitFor();
+  const workshopNamesSection = page.getByRole('region', { name: 'Names for saved people and places', exact: true });
+  const workshopNamesSelect = workshopNamesSection.getByRole('combobox', { name: 'Saved person, place, or group', exact: true });
+  await workshopNamesSelect.selectOption(newCharacter.id);
+  const workshopNames = page.getByRole('region', { name: 'Names and aliases', exact: true });
+  await workshopNames.waitFor();
+  assert.equal(await workshopNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).inputValue(), '');
+  await workshopNames.getByRole('button', { name: 'Close names', exact: true }).click();
+
+  await page.getByRole('tab', { name: 'Write', exact: true }).click();
+  await page.getByRole('tab', { name: 'Characters', exact: true }).click();
+  await page.getByRole('button', { name: newCharacterTitle, exact: true }).click();
+  const writer = page.getByRole('main', { name: 'Writing desk', exact: true });
+  await writer.waitFor();
+  await writer.getByRole('button', { name: 'Names & aliases', exact: true }).click();
+  const writerNames = page.getByRole('region', { name: 'Names and aliases', exact: true });
+  await writerNames.waitFor();
+  const namesInput = writerNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true });
+  const savedNames = '林乔\nLin Qiao\nAsh Wren';
+  const savedNamesCanonical = 'Ash Wren\nLin Qiao\n林乔';
+  await namesInput.fill(savedNames);
+  await writerNames.getByRole('button', { name: 'Save names', exact: true }).click();
+  await waitForDatabase(() => contextSourceEpoch() === namesEpochBefore + 1 && JSON.stringify(documentAliases(newCharacter.id)) === JSON.stringify(['Ash Wren', 'Lin Qiao', '林乔']), 'saved aliases');
+  assert.deepEqual(documentAliases(newCharacter.id), ['Ash Wren', 'Lin Qiao', '林乔']);
+  assert.equal(contextSourceEpoch(), namesEpochBefore + 1);
+  const namesDocumentAfter = documents().find(document => document.id === newCharacter.id);
+  assert.equal(namesDocumentAfter.title, namesDocumentBefore.title);
+  assert.equal(namesDocumentAfter.body_json, namesDocumentBefore.body_json);
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, namesRunsBefore, 'Saving names must not generate');
+  await writerNames.getByRole('button', { name: 'Close names', exact: true }).click();
+  await writer.getByRole('button', { name: 'Names & aliases', exact: true }).click();
+  const reopenedWriterNames = page.getByRole('region', { name: 'Names and aliases', exact: true });
+  await reopenedWriterNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).waitFor();
+  assert.equal(await reopenedWriterNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).inputValue(), savedNamesCanonical);
+  await reopenedWriterNames.getByRole('button', { name: 'Close names', exact: true }).click();
+  checks.push('Writer Names & aliases saves Unicode names and transliterations atomically while preserving the character and avoiding generation');
+
+  // A project resume must reload the saved aliases, still without another run.
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();
+  await page.getByRole('tab', { name: 'Develop', exact: true }).waitFor();
+  await ensureDevelopMode();
+  const resumedNamesContextClose = page.getByRole('button', { name: 'Close working story', exact: true });
+  if (await resumedNamesContextClose.isVisible()) await resumedNamesContextClose.click();
+  await page.getByRole('button', { name: 'People', exact: true }).click();
+  await page.getByRole('heading', { name: 'People', exact: true }).waitFor();
+  const resumedNamesSection = page.getByRole('region', { name: 'Names for saved people and places', exact: true });
+  await resumedNamesSection.getByRole('combobox', { name: 'Saved person, place, or group', exact: true }).selectOption(newCharacter.id);
+  const resumedNames = page.getByRole('region', { name: 'Names and aliases', exact: true });
+  await resumedNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).waitFor();
+  assert.equal(await resumedNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).inputValue(), savedNamesCanonical);
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, namesRunsBefore, 'Reopening names must not generate');
+
+  // Unsaved names block both workspace navigation and project switching. The
+  // author can then save deliberately and continue to Write.
+  const unsavedNames = `${savedNamesCanonical}\nUnpersisted draft`;
+  await resumedNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).fill(unsavedNames);
+  await page.getByRole('tab', { name: 'Write', exact: true }).click();
+  await sleep(250);
+  assert.equal(await page.getByRole('tab', { name: 'Develop', exact: true }).getAttribute('aria-selected'), 'true', 'Unsaved names must refuse Develop to Write');
+  assert.equal(await page.getByRole('main', { name: 'Current exploration', exact: true }).count(), 1);
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await sleep(250);
+  assert.equal(await page.getByRole('heading', { name: 'Your stories', exact: true }).count(), 0, 'Unsaved names must refuse project switching');
+  const namesAfterRefusal = page.getByRole('region', { name: 'Names and aliases', exact: true });
+  const changedNames = `${savedNamesCanonical}\nThe Archive Keeper`;
+  await namesAfterRefusal.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).fill(changedNames);
+  await namesAfterRefusal.getByRole('button', { name: 'Save names', exact: true }).click();
+  const changedNamesCanonical = ['Ash Wren', 'Lin Qiao', 'The Archive Keeper', '林乔'];
+  await waitForDatabase(() => contextSourceEpoch() === namesEpochBefore + 2 && JSON.stringify(documentAliases(newCharacter.id)) === JSON.stringify(changedNamesCanonical), 'names save after navigation refusal');
+  assert.deepEqual(documentAliases(newCharacter.id), changedNamesCanonical);
+  assert.equal(contextSourceEpoch(), namesEpochBefore + 2);
+  await namesAfterRefusal.getByRole('button', { name: 'Close names', exact: true }).click();
+  await page.getByRole('tab', { name: 'Write', exact: true }).click();
+  await page.getByRole('tab', { name: 'Characters', exact: true }).click();
+  await page.getByRole('button', { name: newCharacterTitle, exact: true }).click();
+  await page.getByRole('main', { name: 'Writing desk', exact: true }).waitFor();
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, namesRunsBefore, 'Saved names flow must still avoid generation');
+  checks.push('Saved names reopen through project resume; unsaved aliases refuse Write and project switching until explicitly saved');
+
   // W23 voice guidance is an explicit second local-mock dispatch. It only
   // changes the saved Workshop request/result; it must not adopt the sample.
+  await page.getByRole('tab', { name: 'Develop', exact: true }).click();
+  await ensureDevelopMode();
   await page.getByRole('button', { name: 'Themes & tone', exact: true }).click();
   await page.getByRole('heading', { name: 'Themes & tone', exact: true }).waitFor();
   const voiceSample = 'Rain ticked against the workshop glass while she counted each drop.';
@@ -786,7 +886,7 @@ try {
   // Fork only through the product action.  The child must carry an isolated
   // identity and exploration-scoped preference while leaving the parent row
   // and story documents unchanged.
-  const w30ContextClose = page.getByRole('button', { name: 'Hide working story', exact: true });
+  const w30ContextClose = page.getByRole('button', { name: 'Close working story', exact: true });
   if (await w30ContextClose.isVisible()) await w30ContextClose.click();
   await page.getByRole('button', { name: 'Explore a what-if', exact: true }).click();
   await waitForDatabase(() => {

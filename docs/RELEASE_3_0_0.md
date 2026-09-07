@@ -51,15 +51,26 @@ The package command is the source of the NSIS installer evidence. The verified c
 
 | Evidence | Value |
 | --- | --- |
-| Build source | `63770b9122f598b3e32ea1b0f5f4020c4325115f` |
-| Standard CI | [34067931031](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067931031), both jobs passed |
-| Installer and lifecycle | [34067936098](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067936098), passed |
+| Build source | `e61640a4738128b9744919275e362e402c7ed0d8` |
+| Package CI | [34145255173](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145255173), contracts and 21 Workshop checks passed before the W30 sidebar-close interception failure |
+| Installer and lifecycle | [34145254658](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145254658), passed |
 | Installer | `WebnovelStudio V3_3.0.0_x64-setup.exe` |
-| Installer SHA-256 | `eef43925590d588f44e2e35978597e8aabc0b323f081c97f5092c45effc0fff2` |
+| Installer SHA-256 | `59394f6903ff4cc633e47556cffc3e921a7784cfa32a3da4bd68fcfcaf3ea495` |
 
-The installed release passed synthetic project/chapter creation, writing, save/reopen, normal close, in-place uninstall, and same-version reinstall with project, document, and exact text retained. The installed ProductVersion was `3.0.0`; there were no errors or forced process stops. Evidence is retained under `.local/ci-34067936098`.
+The installed release passed synthetic project/chapter creation, writing, save/reopen, normal close, in-place uninstall, and same-version reinstall with project, document, and exact text retained. The installed ProductVersion was `3.0.0`; there were no errors or forced process stops. Evidence is retained under `.local/package-workshop-34145254658`.
 
-The downloaded installer is retained locally at `.local/builds/3.0.0/WebnovelStudio V3_3.0.0_x64-setup.exe` with `artifact.json` and `build-metadata.json`. Its 269,146,426 bytes, SHA-256, ProductName, and ProductVersion were verified against the hosted artifact. Previous delivered builds remain available.
+The current package checkpoint evidence is retained under
+`.local/package-workshop-34145254658/`, with lifecycle results in
+`run-20260907-170921-823/result.json` and source identity in
+`build-metadata.json`. This package predates the current alias UI/IPC tree and
+does not qualify aliases natively. The separate native CI run recorded 21
+Workshop checks before the W30 working-story sidebar intercepted the harness
+control; it is not a complete native pass.
+
+The current installer remains in the hosted `windows-installer` artifact and was
+not downloaded locally. Its SHA-256, ProductName, and ProductVersion were
+verified from the downloaded package metadata. Previous delivered builds remain
+available.
 
 [Retest 34068729080](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34068729080) passed the same lifecycle using that exact installer and the later documentation-only qualification source `ded8f3d43e0a14589cfd6afbde866f39e61530ba`. Its metadata preserves the original installer build separately from the current harness source. It skipped dependency setup and compilation, finishing in 1 minute 59 seconds versus the fresh job's 16 minutes 20 seconds. Evidence is retained under `.local/ci-34068729080`.
 

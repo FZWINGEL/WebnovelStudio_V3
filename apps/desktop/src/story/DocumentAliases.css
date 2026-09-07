@@ -1,0 +1,18 @@
+.document-aliases { margin: 10px 0 14px; padding: 16px; border: 1px solid var(--line, #dce2e9); border-radius: 6px; background: #fff; color: #253344; }
+.document-aliases[hidden] { display: none; }
+.document-aliases-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.document-aliases-heading h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.document-aliases-copy { margin: 6px 0 0; color: var(--muted, #59687b); font-size: 12px; line-height: 1.55; }
+.document-aliases label { display: block; margin-top: 14px; font-size: 12px; font-weight: 600; }
+.document-aliases textarea { display: block; box-sizing: border-box; width: 100%; min-height: 96px; margin-top: 7px; padding: 9px 10px; border: 1px solid #aebccc; border-radius: 5px; color: inherit; background: #fff; line-height: 1.55; resize: vertical; }
+.document-aliases textarea:disabled { background: #f4f6f9; }
+.document-aliases-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.document-aliases-status, .document-aliases-error, .document-aliases-notice { margin: 10px 0 0; font-size: 12px; line-height: 1.55; }
+.document-aliases-error { color: #9a2d25; }
+.document-aliases-notice { color: var(--muted, #59687b); }
+.document-aliases-conflict { margin-top: 12px; padding: 10px 12px; border: 1px solid #d6dfeb; background: #f6f8fc; font-size: 12px; line-height: 1.55; }
+.document-aliases-conflict p { margin: 5px 0 0; overflow-wrap: anywhere; }
+.document-aliases .document-aliases-close { flex-shrink: 0; padding: 6px 8px; font-size: 12px; }
+@media (max-width: 620px) {
+  .document-aliases-heading { flex-wrap: wrap; }
+}

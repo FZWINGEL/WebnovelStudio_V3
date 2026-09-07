@@ -82,6 +82,8 @@ export interface FrozenContext {
   reviewedKnowledge?: ReviewedKnowledgeSet[];
   reviewedSummaries?: ReviewedSummarySet[];
 }
+export interface ContextEpochs { source: string; policy: string }
+export interface DocumentAliasesRead { documentId: string; aliases: string[]; sourceEpoch: string }
 export interface ReviewedSummarySet {
   projectId: string; operationNamespace: string; bundleId: string; summaryHash: string;
   sourceHandle: string; summary: SummaryRevision;
@@ -241,7 +243,9 @@ export interface ContextBudgetError {
 }
 export type PreparationResult = { status: 'prepared'; packet: CompiledPacket; current: boolean } | { status: 'budgetRejected'; error: ContextBudgetError };
 
-export const contextEpochs = (access: ProjectAccess): Promise<{ source: string; policy: string }> => invoke('context_epochs', { access });
+export const contextEpochs = (access: ProjectAccess): Promise<ContextEpochs> => invoke('context_epochs', { access });
+export const readDocumentAliases = (access: ProjectAccess, documentId: string): Promise<DocumentAliasesRead> => invoke('read_document_aliases', { access, documentId });
+export const setDocumentAliases = (access: ProjectAccess, documentId: string, expectedSourceEpoch: string, aliases: string[]): Promise<ContextEpochs> => invoke('set_document_aliases', { access, documentId, expectedSourceEpoch, aliases });
 export const freezeStoryContext = (request: {
   access: ProjectAccess; operationId: string; expected: Head; basis: ContextBasis; purpose: ContextPurpose; policy: InformationPolicy;
 }): Promise<FrozenContext> => invoke('freeze_story_context', { request });

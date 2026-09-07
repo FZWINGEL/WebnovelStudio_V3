@@ -17,6 +17,7 @@ import { HistoryPanel } from './HistoryPanel';
 import { ReviewPanel } from './ReviewPanel';
 import { ChapterMemory } from './ChapterMemory';
 import { RecoveryCopy } from './RecoveryCopy';
+import { DocumentAliases } from '../story/DocumentAliases';
 import type { SourceChoice } from '../ipc/sourcePins';
 
 const Manuscript = memo(({ editor }: { editor: Editor }) => <EditorContent editor={editor} />);
@@ -29,6 +30,18 @@ export function Writer({ active, sources, onError, onRename, navigation }: { act
   const [historyVisible, setHistoryVisible] = useState(false);
   const [reviewVisible, setReviewVisible] = useState(false);
   const [memoryVisible, setMemoryVisible] = useState(false);
+  const [namesVisible, setNamesVisible] = useState(false);
+  const namesButton = useRef<HTMLButtonElement>(null);
+  const namesGuard = useRef<(() => Promise<void>) | null>(null);
+  const registerNamesGuard = useCallback((guard: (() => Promise<void>) | null) => { namesGuard.current = guard; }, []);
+  const flushBeforeNames = useCallback(() => session.flush(), [session]);
+  useEffect(() => {
+    session.setLeaveGuard(async () => {
+      try { await namesGuard.current?.(); }
+      catch (reason) { setNamesVisible(true); throw reason; }
+    });
+    return () => session.setLeaveGuard(null);
+  }, [session]);
   const [assistantAction, setAssistantAction] = useState<{ kind: 'draft' | 'develop' | 'revise' | 'discuss'; nonce: number } | undefined>();
   function startAssistant(kind: 'draft' | 'develop' | 'revise' | 'discuss') {
     setHistoryVisible(false); setReviewVisible(false); setMemoryVisible(false); setDiscussionVisible(true);
@@ -253,6 +266,10 @@ export function Writer({ active, sources, onError, onRename, navigation }: { act
       {record.kind === 'chapter' && <button ref={reviewButton} aria-pressed={reviewVisible} disabled={!state.editable} onClick={() => { setHistoryVisible(false); setMemoryVisible(false); setReviewVisible(value => !value); }}>Story review</button>}
       {record.kind === 'chapter' && <button ref={memoryButton} aria-pressed={memoryVisible} disabled={!state.editable} onClick={() => { setHistoryVisible(false); setReviewVisible(false); setDiscussionVisible(false); setMemoryVisible(value => !value); }}>Story memory</button>}
       <button aria-label="Discussion" aria-pressed={discussionVisible && !historyVisible && !reviewVisible && !memoryVisible} disabled={(historyVisible || reviewVisible || memoryVisible) && !state.editable} onClick={() => { setHistoryVisible(false); setReviewVisible(false); setMemoryVisible(false); setDiscussionVisible(value => historyVisible || reviewVisible || memoryVisible || !value); }}>Writing assistant</button></div>
+    {(record.kind === 'character' || record.kind === 'world') && <div className="document-names">
+      <button ref={namesButton} aria-expanded={namesVisible} disabled={!state.editable} onClick={() => setNamesVisible(true)}>Names & aliases</button>
+      <DocumentAliases access={session.projectAccess} documentId={state.head.documentId} title={record.title} visible={namesVisible} disabled={!state.editable} registerGuard={registerNamesGuard} beforeSave={flushBeforeNames} onClose={() => { setNamesVisible(false); namesButton.current?.focus(); }} />
+    </div>}
     <div className="formatbar" role="toolbar" aria-label="Manuscript formatting">
       <select aria-label="Paragraph style" disabled={!state.editable} value={editor.isActive('heading') ? `h${editor.getAttributes('heading').level}` : 'p'} onChange={event => { if (event.target.value === 'p') editor.chain().focus().setNode('paragraph').run(); else editor.chain().focus().setNode('heading', { level: Number(event.target.value.slice(1)) }).run(); }}><option value="p">Paragraph</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option></select>
       <button className="format-button bold" aria-label="Bold" aria-pressed={editor.isActive('bold')} disabled={!state.editable} onMouseDown={event => event.preventDefault()} onClick={() => editor.chain().focus().toggleMark('bold').run()}>B</button>

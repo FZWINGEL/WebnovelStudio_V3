@@ -37,9 +37,30 @@ hosted rerun is recorded as a harness failure, so no broad native pass is
 claimed. Full specification acceptance,
 broader native/provider coverage, and author evaluation remain open; exact
 evidence and source identities are recorded in the qualification documents. The
-latest local slice adds no-call directional relationship exploration with exact
+The previous relationship slice adds no-call directional relationship exploration with exact
 endpoint heads and a two-or-three-treatment noncanon moment contract; schema 36
 preserves older Workshop state, context, packet bytes, and hashes.
+
+W23 adds optional Unicode names, aliases, and transliterations in the existing
+`document_aliases` metadata (no schema change) on character/world documents
+through the World/People saved-material picker and
+Writer **Names & aliases** surface. Saving is explicit, source-epoch CAS
+checked, reconciled by read after uncertainty, and protected against dirty
+navigation/close; title/body remain unchanged and aliases stay out of restricted
+context. Component focused checks pass 11, Workshop checks pass 28, and
+Writer/session checks pass 42. The aliases full wrapper passes 763 Rust tests
+(70 core unit, 620 grouped integration, 73 desktop; one intentional subprocess
+ignore), 534 frontend tests in 48 files, 11 tooling checks, formatting, strict
+Clippy, TypeScript, and production build; the pre-existing large-chunk warning
+is the only noted warning. The source-final headless fixture at
+`.local/workshop-aliases-qa/report.json` passed 1440 and 800 pixel checks for
+Unicode/transliterations, dirty navigation refusal, exactly one lost-ack
+current-read confirmation, close/reopen, and no AI or manuscript calls, errors,
+or overflow. The current native aliases harness awaits a fresh CI run. Full
+specification acceptance and author evaluation remain open. On source
+`e61640a4738128b9744919275e362e402c7ed0d8`, CI 34145255173 reached 21 groups
+before a W30 sidebar-close harness failure; later auxiliary suites were skipped,
+so no broad native pass is claimed.
 
 **Provider direction (development surface):** Codex compatibility is checked
 against the installed CLI at connection time and recorded per request; V3 must

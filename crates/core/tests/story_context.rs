@@ -363,6 +363,93 @@ fn repeated_unicode_quotes_keep_distinct_utf16_anchors_and_aliases_are_snapshot_
 }
 
 #[test]
+fn document_aliases_read_is_authorized_atomic_and_cas_bound() {
+    let f = Fixture::new();
+    let document = f.document("aliases", "character", "The body remains unchanged.");
+    let before = f.project.document(f.access.clone(), document.head.document_id.clone()).unwrap();
+    let initial = f
+        .project
+        .read_document_aliases(f.access.clone(), document.head.document_id.clone())
+        .unwrap();
+    assert_eq!(initial.document_id, document.head.document_id);
+    assert!(initial.aliases.is_empty());
+    assert_eq!(
+        initial.source_epoch,
+        f.project.context_epochs(f.access.clone()).unwrap().source
+    );
+
+    let changed = f
+        .project
+        .set_document_aliases(
+            f.access.clone(),
+            document.head.document_id.clone(),
+            initial.source_epoch.clone(),
+            vec!["  Méi  ".into(), "梅".into(), "Mei".into(), "Méi".into()],
+        )
+        .unwrap();
+    let current = f
+        .project
+        .read_document_aliases(f.access.clone(), document.head.document_id.clone())
+        .unwrap();
+    assert_eq!(current.aliases, vec!["Mei", "Méi", "梅"]);
+    assert_eq!(current.source_epoch, changed.source);
+    let after = f.project.document(f.access.clone(), document.head.document_id.clone()).unwrap();
+    assert_eq!(after.head, before.head);
+    assert_eq!(after.title, before.title);
+    assert_eq!(after.body, before.body);
+
+    assert_eq!(
+        f.project
+            .set_document_aliases(
+                f.access.clone(),
+                document.head.document_id.clone(),
+                initial.source_epoch,
+                vec!["stale write".into()],
+            )
+            .unwrap_err()
+            .code,
+        "ContextChanged"
+    );
+    assert_eq!(
+        f.project
+            .read_document_aliases(f.access.clone(), document.head.document_id.clone())
+            .unwrap()
+            .aliases,
+        current.aliases
+    );
+
+    let foreign = Fixture::new();
+    assert_eq!(
+        f.project
+            .read_document_aliases(foreign.access.clone(), document.head.document_id.clone())
+            .unwrap_err()
+            .code,
+        "WrongProjectSession"
+    );
+    let detached = f.access.clone();
+    f.project.attach("aliases-new-session".into()).unwrap();
+    assert_eq!(
+        f.project
+            .read_document_aliases(detached, document.head.document_id.clone())
+            .unwrap_err()
+            .code,
+        "WriterLeaseExpired"
+    );
+
+    let root = f.root.clone();
+    drop(f.project);
+    let reopened = ProjectSession::open(root.join("story")).unwrap();
+    let reopened_access = reopened.attach("aliases-reopened".into()).unwrap();
+    assert_eq!(
+        reopened
+            .read_document_aliases(reopened_access, document.head.document_id)
+            .unwrap()
+            .aliases,
+        vec!["Mei", "Méi", "梅"]
+    );
+}
+
+#[test]
 fn deleting_or_corrupting_projection_rows_cannot_hide_saved_evidence() {
     let f = Fixture::new();
     let document = f.document("chapter", "chapter", "An old promise remains.");

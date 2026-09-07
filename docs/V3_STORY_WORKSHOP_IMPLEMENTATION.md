@@ -23,7 +23,7 @@ read-versus-write boundaries; the UI reports an unavailable item if the exact
 retained revision itself cannot be read. Preference conflict detection is
 symmetric when the author adds the hard project rule after a softer preference.
 
-The latest bounded local slice adds schema-36 reader-floor handling for the
+The previous relationship slice added schema-36 reader-floor handling for the
 optional typed relationship packet fields. Existing Workshop state, context,
 packet bytes, and hashes remain unchanged through the migration. The World and
 People surfaces can prepare an independent relationship exploration without a
@@ -31,12 +31,12 @@ model call, display its named direction and uncertainty, and pin both endpoint
 heads; stale or late reads are refused or ignored. RequestContext reads the
 immutable relationship envelope. The taste-test contract now requires two or
 three moment treatments, while a one-treatment raw response remains recoverable.
-Focused UI checks pass (32 tests in 3 files); headless checks at 1440 and 800
+That previous relationship slice's focused UI checks passed (32 tests in 3 files); headless checks at 1440 and 800
 pixels covered keyboard use, two sources, an explicit destination, and frozen
 context with no errors or overflow. Two visual rounds were inspected under
-`.local/workshop-relationship-qa/`. After the UI wording correction, the
-standalone frontend build/check passed 514 tests in 46 files; this is not a full
-workspace check.
+`.local/workshop-relationship-qa/`. After the UI wording correction, that
+previous slice's standalone frontend build/check passed 514 tests in 46 files;
+this was not a full workspace check.
 
 The 17:19 Berlin standard check passed 749 Rust tests (69 core unit, 607 integration,
 73 desktop; one intentional subprocess entry-point ignore), 488 frontend tests in
@@ -307,7 +307,7 @@ green mock/frontend run alone.
 | W20 | 8 | Conditional consequences expose basis/assumptions; accept/reject/contrast | Consequence exploration is present in the Workshop path; basis/assumption and accept/reject/contrast qualification remains pending. |
 | W21 | 9 | Behavior-first people, optional spine and tentative situation responses | The people lens, behavior-first situation action, and durable session/decision fields provide the prompt-led path; no structured people database is required for this behavior. Focused/native quality evidence remains pending. |
 | W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | The World/People surfaces prepare an independent named-direction exploration, preserve uncertainty, and pin both exact endpoint heads; RequestContext shows the immutable relationship envelope. Focused UI/headless checks cover stale/late reads, two sources, and an explicit destination. Native relationship qualification remains pending after the bounded harness failure below. |
-| W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | CI 34133645198 passed a new Unicode `Érin — Qiao` character and exact English title/body reopen; broader names, aliases, transliteration, and native quality evidence remain pending. |
+| W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | Existing `document_aliases` metadata now has atomic read and source-epoch CAS write paths. World/People saved-material and Writer **Names & aliases** surfaces save Unicode aliases/transliterations explicitly, reconcile uncertain writes read-only, protect dirty navigation/close, preserve title/body, and exclude aliases from restricted context. Component focused checks pass 11, Workshop checks 28, and Writer/session checks 42. The 19:22 wrapper passes 763 Rust tests, 534 frontend tests in 48 files, 11 tooling checks, formatting, strict Clippy, TypeScript, and production build; the pinned 19:24 frontend-only check also passes 534/48 after the accessibility markup correction. Source-final headless evidence is in `.local/workshop-aliases-qa/report.json`; fresh native aliases CI, full specification, and author-study evidence remain pending. |
 | W24 | 10 | Themes as open questions; reader tone distinct from intensity | Themes & tone is represented by the six-lens Workshop surface; distinction/quality evidence remains pending. |
 | W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | Moment responses now require two or three same-situation treatments; a one-treatment raw response is rejected recoverably. The existing voice-guidance path remains explicitly reviewed before Develop/Use this version, with no automatic documents, decisions, or adoption. Broader voice/noncanon quality remains pending. |
 | W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | The Story possibilities lens, optional arc action, prompt template fields, and durable session/decision hooks provide the prompt-led story-engine path without a structured engine database. Quality qualification remains pending. |
@@ -412,11 +412,16 @@ Log: `.local/workshop-relationship-final-check.log`. A completed relationship
 response is refreshed in the UI after a deliberate relationship edit; a fresh
 proposal is required before adoption when the saved relationship scope changed.
 
-Published source is `e61640a4738128b9744919275e362e402c7ed0d8`. Fresh
+Published source is `e61640a4738128b9744919275e362e402c7ed0d8`.
 [CI 34145255173](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145255173)
-and [installer qualification 34145254658](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145254658)
-are in progress on that exact source. The local debug rebuild could not replace
-the running executable: Windows returned access denied for
+reached 21 groups, including relationship exploration and preset/lens/new-project
+flows, then failed at W30 when the sidebar-close control was intercepted;
+subsequent auxiliary suites were skipped. [Installer qualification 34145254658](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145254658)
+succeeded on that exact source with installer SHA-256
+`59394f6903ff4cc633e47556cffc3e921a7784cfa32a3da4bd68fcfcaf3ea495`.
+The current native harness includes the W23 names/aliases checks, but they are
+unexecuted, so this is not a broad native pass. That earlier relationship-slice
+debug rebuild could not replace the running executable: Windows returned access denied for
 `target/debug/webnovel-desktop.exe`, owned by process 55084 since 18:14:33 Berlin.
 No author application was closed. The executable still belongs to the earlier
 `ff276eb` build; the failed attempt is recorded in

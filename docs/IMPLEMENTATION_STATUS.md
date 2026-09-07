@@ -16,21 +16,40 @@ passed all 15 Workshop native checks and the existing native suites. The fresh
 write/reopen and same-version retention lifecycle. Full specification acceptance,
 broader provider/native coverage, and author evaluation remain open.
 
-The latest bounded local slice adds the schema-36 reader-floor migration for
+The previous relationship slice added the schema-36 reader-floor migration for
 typed relationship packet fields. It preserves existing Workshop state,
 context, packet bytes, and hashes. World/People relationship exploration now
 prepares an independent session without a model call, pins both endpoint heads,
 shows named direction and uncertainty, and ignores or refuses stale/late reads;
 RequestContext projects the immutable relationship envelope. Moment responses
 require two or three treatments, while a one-treatment raw response remains
-recoverable. Focused UI checks pass (32 tests in 3 files); headless checks at
+recoverable. That previous relationship slice's focused UI checks passed (32 tests in 3 files); headless checks at
 1440 and 800 pixels covered keyboard use, two sources, an explicit destination,
 and frozen context with no errors or overflow. Two visual rounds were inspected
-under `.local/workshop-relationship-qa/`. After the UI wording correction, the
-standalone frontend build/check passed 514 tests in 46 files; this is not a full
-workspace check.
+under `.local/workshop-relationship-qa/`. After the UI wording correction, that
+previous slice's standalone frontend build/check passed 514 tests in 46 files;
+this was not a full workspace check.
 
-The final 18:51 Berlin standard wrapper passes 762 Rust tests (70 core unit,
+The current W23 local slice adds optional Unicode names, aliases, and
+transliterations to existing character/world documents without a schema change.
+The World/People saved-material picker and Writer **Names & aliases** surface use
+an explicit source-epoch CAS save, read-only reconciliation after an uncertain
+write, and dirty navigation/close protection. Component focused checks pass 11,
+Workshop checks pass 28, and Writer/session checks pass 42; they verify
+unchanged title/body and restricted-context alias exclusion. The aliases full
+wrapper passes 763 Rust tests (70 core unit, 620 grouped integration, 73
+desktop; one intentional subprocess ignore), 534 frontend tests in 48 files,
+11 tooling checks, formatting, strict Clippy, TypeScript, and production build;
+the pre-existing large-chunk warning is the only noted warning. The pinned
+frontend-only check at `.local/workshop-aliases-final-frontend.log` also passed
+534 tests in 48 files after the accessibility markup correction. The source-final
+headless fixture at `.local/workshop-aliases-qa/report.json` passed 1440 and 800
+pixel checks for Unicode/transliterations, dirty navigation refusal, exactly one
+lost-ack current-read confirmation, close/reopen, and no AI or manuscript calls,
+errors, or overflow. The fresh native aliases CI run, full specification, and
+author study remain pending.
+
+The previous relationship-slice 18:51 Berlin standard wrapper passed 762 Rust tests (70 core unit,
 619 grouped integration, 73 desktop; one intentional subprocess fixture ignore),
 515 frontend tests in 46 files, 11 tooling checks, formatting, strict Clippy,
 TypeScript, and production build. Log: `.local/workshop-relationship-final-check.log`.
@@ -41,14 +60,23 @@ refuse mismatched candidate authority. Unrelated relationship edits leave indepe
 requests fresh; the UI refreshes completed-result status after a relationship save.
 
 This slice is pushed as `e61640a4738128b9744919275e362e402c7ed0d8`.
-Fresh [CI 34145255173](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145255173)
-and [package run 34145254658](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145254658)
-are confirmed in progress on that exact source. No installer reuse was requested.
-The local debug rebuild failed because Windows could not replace the open
-`target/debug/webnovel-desktop.exe` (process 55084, started 18:14:33 Berlin).
-The author application was not closed or controlled; its executable remains the
-earlier `ff276eb` build. Rebuild after it is closed; current log:
-`.local/workshop-relationship-debug-build.log`.
+[CI 34145255173](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145255173)
+reached 21 groups, including relationship exploration and preset/lens/new-project
+flows, then failed at W30 when the sidebar-close control was intercepted;
+subsequent auxiliary suites were skipped. [Package run 34145254658](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145254658)
+succeeded on that exact source with installer SHA-256
+`59394f6903ff4cc633e47556cffc3e921a7784cfa32a3da4bd68fcfcaf3ea495`.
+The current native harness includes names/aliases checks, but they are not yet
+executed. No broad native pass is claimed.
+The aliases debug build completed successfully with
+`.\scripts\desktop.ps1 -Command spike` at 19:24 UTC (17:24:48 local). The
+binary is `D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`,
+48,684,032 bytes, ProductVersion 3.0.0, SHA-256
+`f171aa81b37e908b96b7d10d13b47d77054040fa35adad4dad67418a1022512e`.
+The build log is `.local/workshop-aliases-debug-build.log` and its manifest is
+`.local/workshop-aliases-debug-build.json`. A fresh process read found no prior
+author application process; no application was closed and the rebuilt app was
+not launched.
 
 The preceding hosted what-if run [CI 34141998962](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34141998962)
 on exact source `ff276eb5eecfec3b38da3af758ca1f6377add8a4` ended after 20

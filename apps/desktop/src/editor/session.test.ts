@@ -189,6 +189,62 @@ describe('DocumentSession', () => {
     expect(events).toEqual(['flush', 'checkpoint', 'view', 'destination']);
     expect(session.state.phase).toBe('disposed');
   });
+  it('keeps an optional-alias draft editable when a leave guard refuses, then detaches after it clears', async () => {
+    const { session } = await makeHarness({ autosave: false });
+    const retained = makeBody('optional alias draft');
+    const destination = vi.fn(async () => 'project-b');
+    const refusing = vi.fn(async () => { throw new SessionError('AliasDraftRejected', 'Review the alias draft before leaving.'); });
+    session.update(retained);
+    session.setLeaveGuard(refusing);
+
+    await expect(session.detachAfter(destination)).rejects.toSatisfy(error => {
+      expectSessionError(error, 'AliasDraftRejected');
+      return true;
+    });
+    expect(refusing).toHaveBeenCalledOnce();
+    expect(destination).not.toHaveBeenCalled();
+    expect(session.state.phase).toBe('editing');
+    expect(session.state.editable).toBe(true);
+    expect(session.state.error).toBe(null);
+    expect(session.body).toEqual(retained);
+
+    session.setLeaveGuard(null);
+    await expect(session.detachAfter(destination)).resolves.toBe('project-b');
+    expect(destination).toHaveBeenCalledOnce();
+    expect(session.state.phase).toBe('disposed');
+    expect(session.body).toEqual(retained);
+  });
+  it('waits for an in-flight leave guard before preparing a destination', async () => {
+    const { session } = await makeHarness({ autosave: false });
+    const gate = defer<void>();
+    const events: string[] = [];
+    session.setLeaveGuard(vi.fn(async () => { events.push('guard'); await gate.promise; events.push('guard-released'); }));
+    const destination = vi.fn(async () => { events.push('destination'); return 'project-b'; });
+
+    const leaving = session.detachAfter(destination);
+    await vi.waitFor(() => expect(events).toEqual(['guard']));
+    expect(destination).not.toHaveBeenCalled();
+    gate.resolve();
+    await expect(leaving).resolves.toBe('project-b');
+    expect(events).toEqual(['guard', 'guard-released', 'destination']);
+  });
+  it('runs the leave guard for foreground view persistence but never for a background position save', async () => {
+    const { session } = await makeHarness({ autosave: false });
+    const guard = vi.fn(async () => {});
+    const foreground = vi.fn(async () => {});
+    const background = vi.fn(async () => {});
+    session.setLeaveGuard(guard);
+    session.setViewSaver(foreground);
+
+    await session.persistView();
+    expect(foreground).toHaveBeenCalledOnce();
+    expect(guard).toHaveBeenCalledOnce();
+
+    guard.mockClear();
+    await expect(session.persistViewBackground(background)).resolves.toBe(true);
+    expect(background).toHaveBeenCalledOnce();
+    expect(guard).not.toHaveBeenCalled();
+  });
   it.each([
     ['definite', 'PersistenceUnavailable', 'saveFailed', true],
     ['uncertain', 'UncertainOutcome', 'reconciling', false],
