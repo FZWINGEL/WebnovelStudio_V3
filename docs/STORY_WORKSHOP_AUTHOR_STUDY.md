@@ -1,9 +1,14 @@
 # Story Workshop formative author study
 
 **Status: prepared protocol; no author-study results collected.** This is the
-human evaluation required by [the specification](V3_STORY_WORKSHOP_UX_SPEC.md#18-evaluation).
+human evaluation required by [the specification](V3_STORY_WORKSHOP_UX_SPEC.md#18-evaluation-and-acceptance).
 Automated tests establish software behavior, not author ownership or narrative
 quality. Conduct this after the exact native build passes its contract checks.
+
+Use the operational [Story Workshop author-study kit](studies/workshop/README.md)
+for facilitator cards, the worksheet comparator, independent allocation,
+anonymous observation/manifest forms, and the separate blinded human review.
+This protocol remains the study contract; the kit supplies blank working forms.
 
 ## Participants and conditions
 
@@ -15,15 +20,21 @@ anyone's unpublished material.
 Compare three conditions: the existing generic Develop editor/action, a
 tag-heavy preference worksheet followed by the same generation route, and the
 Story Workshop workbench. The worksheet is a study control, not a proposed
-production setup gate. Use the same provider, model, reasoning effort, service
-tier, request count allowance, and comparable input/output allowances for each
-participant's conditions. Record actual usage when available; unknown usage
-stays unknown.
+production setup gate. Use the same active provider, model, reasoning effort,
+service tier, request count allowance, and comparable input/output allowances
+for each participant's conditions. The default allowance is one initial request
+plus up to three author-initiated follow-ups, with the same author-chosen
+timebox per condition. Record actual usage when available; unknown usage stays
+unknown. Requests remain author initiated and manually sent; do not add
+automatic analysis to the generic or worksheet condition.
 
-Rotate condition order across participants (ABC, BCA, CAB; reverse sequences
-where the group size permits). Rotate comparable seed tasks independently of
-condition. Do not give one condition a developed world while another begins
-with a fragment. Allow direct edits and rejection in all conditions.
+Rotate condition order across participants (ABC, BCA, CAB, then reversed
+sequences) and rotate seed order separately. The six-row allocation in the
+[study kit](studies/workshop/allocation.md) balances condition/seed pairings and
+task positions; report assigned, completed, and missing counts when the sample
+is smaller or incomplete. Do not
+give one condition a developed world while another begins with a fragment.
+Allow direct edits and rejection in all conditions.
 
 ## Comparable tasks
 
@@ -37,11 +48,14 @@ with a fragment. Allow direct edits and rejection in all conditions.
    or share that craft, keep two details, and choose one world decision. Leave
    protagonist and ending undecided.
 
-After the initial task, ask the author to develop a competent rival or a
-relationship, reject an assumption, revise one selected detail while preserving
-another, and change a foundational decision. Ask them to find the alternatives,
-explain what is currently chosen, identify what drafting may use, and resume
-after reopening. Use the same follow-up demands in each condition.
+After the initial task, use the same three grouped follow-up demands in every
+condition: propose a competent rival or relationship; propose a revision that
+rejects one author-identified assumption and changes one selected detail while
+preserving another; propose consequences of changing a foundational decision.
+After each response the author identifies alternatives, decides what to adopt,
+and explains what drafting may use. Reopening and resuming are observation
+tasks that require no extra generation. The exact wording is on the
+[condition cards](studies/workshop/condition-cards.md).
 
 ## Observe and ask
 
@@ -69,8 +83,17 @@ For each observation keep: anonymous participant ID, planning habits, exact buil
 condition, order, seed, provider/model/traits, request allowance and observed use,
 endorsed decisions with rationale, correction/navigation burden, ownership notes,
 human coherence/specificity notes, and later usefulness. Preserve raw observations
-and separate them from interpretation. Do not label a mock transcript or a model's
+and separate them from interpretation. Store raw material only under the ignored
+`.local/workshop-author-study/<study-id>/` path. Do not label a mock transcript or a model's
 self-review as an author observation.
+
+For the default Codex comparison, the read-only provider audit records that
+generic Develop and Workshop bind 24,576 UTF-8 serialized packet input bytes and
+65,536 UTF-8 retained output bytes. These are application allowances, not token
+limits or billed usage. No explicit Codex output-token cap was observed; record
+provider usage afterward when available and leave it unknown otherwise. Codex
+CLI is unpinned, so record the actual installed version. Do not use the mock
+provider as a narrative evaluation substitute because its defaults differ.
 
 The outcome is a list of supported findings, uncertainties, and concrete UX
 changes. A small formative study cannot establish universal preference or that

@@ -5,20 +5,40 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
+The latest slice adds **Give alternatives** to the candidate refinement menu,
+retains its exact candidate/dimension scope, and asks to preserve chosen
+invariants. Native coverage now includes stale exploration-preview refusal and
+explicit recovery. Local checks pass 766 Rust / 546 frontend / 11 tooling tests,
+and the debug build is refreshed. The author-study kit is ready; no author
+observations have been collected. Exact evidence is in the
+[Workshop ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
+
 The current Workshop controls checkpoint preserves provisional consequence
 comparisons, includes relationship endpoint preferences, keeps protection
 independent of decision status, respects question dispositions, and guards
 navigation while a request is being prepared or reconciled. The standard
 wrapper passes 766 Rust / 544 frontend / 11 tooling checks; the final frontend
 check also passes 544 tests after the last UI corrections. Exact local,
-headless and pending native/package evidence is recorded in the
+headless and native/package evidence is recorded in the
 [Workshop ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
 
 Product source is `fc3468829e037588458a05204c0ef92ddbea9cc2`. Its debug build
-succeeded, and fresh [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
-and [package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
-are pending on that exact source. The preceding package does not qualify these
-product changes.
+succeeded. [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
+passed contracts and 17 Workshop groups, then failed on a character-row harness
+selector; later native suites were skipped. Both row selectors are corrected,
+and new native checks cover omitted preferences and hard project conflicts.
+The full local wrapper still passes 766 Rust / 544 frontend / 11 tooling checks.
+[Package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
+passed the bounded installed lifecycle on the exact product source. Complete
+Workshop native acceptance and observed author evaluation remain open.
+
+The harness correction is pushed at `c7c1c6a`; [CI
+34152622887](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34152622887)
+passed 25 Workshop groups, then failed on a SQLite-row versus structured-clone
+prototype mismatch in the what-if fixture. The row normalization is corrected
+without relaxing document field comparisons. The [author-study kit](studies/workshop/README.md) prepares the
+three comparison conditions and blank observation/review forms; it is not
+evidence that authors have completed the study.
 
 The preceding names/aliases implementation is pushed at
 `b801ae9cfc00203a37c7de05da8de801a0214af1`. Fresh
@@ -26,7 +46,7 @@ The preceding names/aliases implementation is pushed at
 and [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
 ran on that exact source. CI passed the contract steps, then failed after 16
 Workshop groups on a count-bearing `Characters 2` tab selector; the harness
-correction is awaiting a fresh native run. The installer job passed its
+correction passed that point in CI 34150860150. The installer job passed its
 synthetic installed write/reopen and same-version retention lifecycle.
 No prior installer was reused for this product change. The current corrections
 and exact qualification boundaries are recorded in the

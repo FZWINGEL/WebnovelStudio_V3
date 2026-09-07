@@ -4,6 +4,18 @@ The initial distribution target is Windows x64 with an NSIS installer. Package c
 
 ## Current local development build — 7 September 2026
 
+The candidate-alternatives refinement built with `desktop.ps1 -Command spike`
+at `2026-09-07T18:54:27.2716088Z`. The executable is
+`D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`, 48,686,592 bytes,
+ProductVersion `3.0.0`, SHA-256
+`e2f73f3f1b66a360deac4f7add25ceace9942bb48f9f4041768fe3bfb76b3d8f`.
+It was not launched locally. The build log and identity are
+`.local/workshop-alternatives-debug-build.log` and
+`.local/workshop-alternatives-debug-build.json`. It needs a fresh package run;
+the preceding installed lifecycle does not qualify this product change.
+
+## Previous controls development build
+
 The Workshop controls source `fc3468829e037588458a05204c0ef92ddbea9cc2`
 built successfully with `desktop.ps1 -Command spike` at
 `2026-09-07T18:15:05.5439967Z`. The executable is
@@ -12,10 +24,34 @@ ProductVersion `3.0.0`, SHA-256
 `10de871c7e2fb7d90ba2f4ee7c40c995c74a19678661422248c2a22534828d1e`.
 The log and identity are retained in `.local/workshop-controls-debug-build.log`
 and `.local/workshop-controls-debug-build.json`. It was not launched locally.
-Fresh [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
-and [package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
-are checking this exact product source. Both results remain pending; no older
-installer was reused for these changes.
+[CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
+passed its contracts and 17 Workshop groups, then failed on a character-row
+harness selector. Later native suites were skipped. Both row selectors are
+corrected, and native requalification in [CI
+34152622887](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34152622887)
+on harness source `c7c1c6a` reached 25 groups before a what-if fixture prototype
+mismatch. The strict document comparisons now normalize SQLite row shapes;
+later native suites were skipped in that run. Fresh
+[package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
+passed the lifecycle recorded below; no older installer was reused.
+
+## Latest qualified Workshop package — 7 September 2026
+
+[Package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
+passed on clean builder and qualification source
+`fc3468829e037588458a05204c0ef92ddbea9cc2`. ProductVersion is `3.0.0`; installer
+SHA-256 is `4c506a51da20a189a31d7d738786401024457307c637bb188acdeea49443aec6`.
+It completed at `2026-09-07T18:32:13.4292995Z` with no errors. UIAutomation
+verified synthetic project/document creation, text entry/readback, reopen, and
+retained project/document/text after the identical installer was uninstalled
+and reinstalled. Normal close succeeded without forced process stop.
+
+Metadata and lifecycle evidence are retained under
+`.local/package-workshop-34150884037/`. The installer remains the hosted
+`windows-installer` artifact (10029642333), not a local download. This is bounded
+installed lifecycle evidence, not full Workshop, true upgrade, offline runtime,
+live-provider, or author-study qualification. It predates the latest
+candidate-alternatives refinement above.
 
 ## Previous names/aliases development build
 
@@ -32,11 +68,11 @@ Source `b801ae9cfc00203a37c7de05da8de801a0214af1` was checked by
 [CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
 and fresh [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364).
 CI is terminal: contract steps passed, then the Workshop harness failed after
-16 groups because the tab selector omitted the visible character count. Its
-correction awaits a fresh native run. The installer job passed the bounded
+16 groups because the tab selector omitted the visible character count. That
+selector passed in CI 34150860150. The installer job passed the bounded
 installed lifecycle below; it does not exercise the aliases controls.
 
-## Last qualified Workshop package — 7 September 2026
+## Previous names/aliases package — 7 September 2026
 
 Fresh [package run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
 passed on clean builder and qualification source

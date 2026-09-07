@@ -9,6 +9,25 @@ installed lifecycle, and [CI 34133645198](https://github.com/FZWINGEL/WebnovelSt
 passed all 15 Workshop native checks plus the existing native suites. Full
 specification acceptance and author evaluation remain open.
 
+The latest refinement adds candidate-level **Give alternatives** under **Explore
+another angle**. It freezes that candidate's title/text and the displayed
+comparison dimension, asks to preserve author-chosen invariants, and leaves the
+tray, choices, working text, and story documents untouched. The two focused UI
+files pass 46 tests; the complete wrapper passes 766 Rust, 546 frontend, and
+11 tooling checks, formatting, strict Clippy, TypeScript, and production build
+(`.local/workshop-alternatives-check.log`). The existing large-chunk warning
+remains. The refreshed debug build and its exact identity are recorded in
+[Windows qualification](WINDOWS_PACKAGE_QUALIFICATION.md).
+
+The native harness now also attempts adoption after an author saves a working
+edit after preview. It checks visible refusal, unchanged documents/decisions/
+receipts, retained later prose, and a fresh preview after deliberate editing.
+Headless Chromium at 1440 and 800 pixels verifies the new candidate request
+scope and the actual stale-preview notice/recovery path without a real provider
+or adoption call (`.local/workshop-alternatives-qa/` and
+`.local/workshop-stale-preview-qa/`). This is local exploration-version evidence,
+not a substitute for concurrent target-document CAS qualification.
+
 The current controls checkpoint adds implication-specific keep, reject, and
 contrast actions. Reject/contrast preparation preserves the author composer,
 choices, selected tray, and working text; the exact questioned candidate,
@@ -40,11 +59,37 @@ navigation and deliberate question reopening, and archived protection/unfix
 under `.local/workshop-consequences-qa/`, `.local/workshop-navigation-qa/`, and
 `.local/workshop-protection-qa/`. No page errors or horizontal overflow occurred.
 The checkpoint is pushed at `fc3468829e037588458a05204c0ef92ddbea9cc2`.
-Fresh [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
-and [package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
-are checking that exact source; their results remain pending. The current
+On that exact source, [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
+passed the contracts and 17 Workshop native groups, then stopped because the
+character-row selector omitted the kind text in its accessible name. There were
+no page errors; subsequent native suites were skipped. Both row selectors now
+scope to the Documents navigation and match the exact title child. The retained
+failure report and screenshot are under `.local/ci-workshop-34150860150/`.
+[Package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
+passed its installed write/reopen, normal-close, and same-version retention
+lifecycle. It does not exercise the full Workshop controls. The current
 debug executable was rebuilt successfully without launching it locally; its
 byte identity is recorded in [Windows qualification](WINDOWS_PACKAGE_QUALIFICATION.md).
+
+The acceptance harness also checks that an unselected preference stays absent
+from the delivered packet and that a local Want cannot replace a hard project
+Never. The exact conflict form and alert selectors passed against the real
+Preferences component in headless Chromium at 1440 and 800 pixels, with unchanged
+preferences and no IPC calls, page errors, or overflow
+(`.local/workshop-preferences-qa/report.json`). The current full wrapper again
+passed 766 Rust, 544 frontend, and 11 tooling checks, formatting, strict Clippy,
+TypeScript, and production build (`.local/workshop-acceptance-check.log`). Native
+execution of the corrected and expanded harness reached 25 passing groups in
+[CI 34152622887](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34152622887)
+on `c7c1c6a99db9f408d3e421f176c920c0ecf557d9`, then failed in the what-if
+unchanged-document assertion. All document values were identical; SQLite rows
+had null prototypes while their structured-clone snapshots were plain objects.
+The harness now normalizes rows before snapshotting, retaining strict comparison
+of every selected field. A local SQLite reproduction confirms that unchanged
+snapshots compare equal and changes to each field still fail. Artifacts are in
+`.local/ci-workshop-34152622887/native-spike-evidence-direct/workshop/`; there were
+no page errors. Contracts passed; later native suites were skipped. The new
+candidate action and stale-preview check above require fresh qualification.
 
 The preceding names/aliases source is
 `b801ae9cfc00203a37c7de05da8de801a0214af1`. Fresh
@@ -55,7 +100,8 @@ groups because the aliases harness searched for the exact tab name
 `Characters`, while the native accessible name was `Characters 2`. The retained
 failure report and screenshot are in `.local/ci-workshop-34147701184/workshop/`;
 there were no page errors. Both affected selectors now match the existing
-count-bearing tab convention, but the correction awaits a fresh native run.
+count-bearing tab convention; CI 34150860150 passed that point before the
+separate character-row mismatch described above.
 The installer run passed its synthetic installed write/reopen, normal-close,
 and same-version uninstall/reinstall retention lifecycle. It does not exercise
 the aliases controls or the newer corrections below; see the exact package
@@ -346,21 +392,21 @@ green mock/frontend run alone.
 
 | ID | Spec | Required behavior | Evidence / status |
 | --- | --- | --- | --- |
-| W01 | 4–5 | Develop/Write, optional title, lightweight blank-project choice; existing-project resume | Implemented in Workshop/store. CI 34133645198 covers blank Develop, zero chapters, seed save, and Library reopen preserving seed/working/chosen/relationship/history without generation. Optional-title and other existing-project cases remain unqualified. |
-| W02 | 4 | Overview, World, People, Themes & tone, Story possibilities, Notebook; free movement | All six lenses are implemented in catalog/Workshop. CI 34133645198 starts in Overview and navigates World, People, and Themes & tone; World navigation caused zero generation. Story possibilities, Notebook, and broader navigation quality remain unqualified. |
+| W01 | 4–5 | Develop/Write, optional title, lightweight blank-project choice; existing-project resume | CI 34133645198 covers blank Develop, zero chapters, seed save, and Library reopen preservation without generation. CI 34152622887 additionally passed untitled second-project development and return to the first project's saved Workshop/preferences. Broader existing-project and author usability evidence remains open. |
+| W02 | 4 | Overview, World, People, Themes & tone, Story possibilities, Notebook; free movement | All six lenses are implemented in catalog/Workshop. CI 34152622887 passed navigation through all six with saved position, unchanged documents, and zero generation. Broader navigation usability remains unqualified. |
 | W03 | 4, 16 | Dedicated three-zone workbench, collapsible context; full generic editor retained | Dedicated Workshop frontend and generic Write surface are present; three-zone/collapsible-context and native focus qualification remain pending. |
-| W04 | 4, 16 | Story Bible projects exact chosen document material and provenance | Six direct Story Bible regressions cover exact current/historical sources, unavailable or mismatched revisions, deleted sources, project switching, source callbacks and focus. Valid material remains readable when another item is unavailable. Headless fixture inspected; expanded native history check pending. |
+| W04 | 4, 16 | Story Bible projects exact chosen document material and provenance | Six direct regressions cover exact current/historical sources, unavailable or mismatched revisions, deleted sources, project switching, source callbacks and focus. CI 34152622887 passed exact chosen history, superseded exclusion, preserved historical text after a manual source edit, and focus return without generation. Broader native unavailable-source cases remain open. |
 | W05 | 4, 15 | Responsive comparison/list/drawer, keyboard/focus, save feedback, composition-safe input | Comparison UI and save-watermark path are implemented; fixture has no overflow at four widths, while native keyboard/focus/composition evidence is pending. |
 | W06 | 5 | Fragment, direction help, existing notes; preserve originals; no genre/MC/ending gate | The native checkpoint covers seed save and local working edit; broader brief/direction preservation and native quality evidence remain pending. |
 | W07 | 5, 12 | Editable You said / Possible direction / Still open; question, reason, free alternatives | Direction and open-question fields are present in the Workshop state/UI; full question/reason/free-alternative qualification is pending. |
 | W08 | 6 | Three concise typed candidates with explicit differing dimensions and expandable details | CI 34133645198 passed one explicit mock generation returning three directions; broader candidate comparison and quality evidence remain pending. |
 | W09 | 6 | Develop, select details, save later; visible editable tray; preserved details in synthesis | CI 34133645198 passed the detail tray and local working edit, with reopened working/chosen history preserved; broader synthesis and native quality evidence remain pending. |
 | W10 | 6, 13 | Scoped direct/natural-language edits protect unselected and Keep fixed material | Candidate steering/edit paths exist and paragraph-level protected-content boundaries are covered locally; full scope projection and native/quality evidence remain pending. |
-| W11 | 6 | Concrete, consequences, alternatives, challenge, ordinary life, moment actions | Workshop exploration actions are present in the development surface; requirement-specific behavior and quality evidence remain pending. |
+| W11 | 6 | Concrete, consequences, alternatives, challenge, ordinary life, moment actions | All named actions are available from candidate cards. The candidate-alternatives UI tests and headless checks prove exact candidate/dimension scope and unchanged selection/working material; broader native and narrative-quality evidence remains pending. |
 | W12 | 6, 16 | Use this version previews add/replace destination, exact source and complete packet | CI 34133645198 passed an adoption preview with zero writes and a world adoption; complete-packet and broader adoption quality evidence remain pending. |
 | W13 | 6, 13 | Recoverable alternatives, separate saved/chosen/archived/superseded and access | Schema-36 tests cover chosen/alternative resolution, supersession, authorRoom access, replay, and atomic refusal of a saved state re-promoting an older decision while another version is chosen. Archived history is retained. CI 34133645198 adds an authorRoom decision and history/Library reopen. Broader recoverability and access quality remain unqualified. |
 | W14 | 7 | Neutral/Want/Avoid, optional Must/Never; meaning, examples, temporal intent and scopes | Scoped preferences are implemented in `apps/desktop/src/workshop/Preferences.tsx` and core Workshop state; semantic/native quality evidence pending. |
-| W15 | 7 | Hard project/local conflicts explicit; unknown semantic conflicts never claimed solved | Rust and frontend check confirmed hard-project conflicts with trimmed Unicode case normalization, including other project preferences. Local tests cover unconfirmed/neutral behavior and atomic refusal. Unknown semantic conflicts remain unclaimed; native/quality evidence remains pending. |
+| W15 | 7 | Hard project/local conflicts explicit; unknown semantic conflicts never claimed solved | Rust/frontend tests cover normalized confirmed hard-project conflicts, unconfirmed/neutral behavior, and atomic refusal. CI 34152622887 passed visible local Want refusal with unchanged hard project Never and no generation. Unknown semantic conflicts and narrative compliance remain unclaimed. |
 | W16 | 7 | Contextual suggestions, search/Browse all, families, custom tags, editable presets | Custom tags, preset review, and import/export UI are implemented in `Preferences.tsx`, `catalog.ts`, and Tauri preset commands; native/quality evidence pending. |
 | W17 | 7 | Optional local rejection rationale, explicit promotion; no hidden global learning | A rejection can be reviewed into a scoped, editable preference in `Preferences.tsx`; `Preferences.test.tsx` covers author editing and scope selection. Native and quality evidence remains pending. |
 | W18 | 7 | Subversion distinct from inclusion/exclusion and explicitly selected transformation | `catalog.ts` exposes explicit convention-transformation operations and `Workshop.test.tsx` covers the required convention and selected operation; core/native and quality evidence remain pending. |
@@ -368,7 +414,7 @@ green mock/frontend run alone.
 | W20 | 8 | Conditional consequences expose basis/assumptions; accept/reject/contrast | Implication-specific keep/reject/contrast actions preserve provisional evidence and author choices. Focused tests and 1440/800 headless flows pass; the native harness now covers local rejection/contrast. Native and creative-quality qualification remain pending. |
 | W21 | 9 | Behavior-first people, optional spine and tentative situation responses | The people lens, behavior-first situation action, and durable session/decision fields provide the prompt-led path; no structured people database is required for this behavior. Focused/native quality evidence remains pending. |
 | W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | The World/People surfaces prepare an independent named-direction exploration, preserve uncertainty, and pin both exact endpoint heads; RequestContext shows the immutable relationship envelope. Focused UI/headless checks cover stale/late reads, two sources, and an explicit destination. Native relationship qualification remains pending after the bounded harness failure below. |
-| W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | Existing `document_aliases` metadata now has atomic read and source-epoch CAS write paths. World/People saved-material and Writer **Names & aliases** surfaces save Unicode aliases/transliterations explicitly, reconcile uncertain writes read-only, protect dirty navigation/close, preserve title/body, and exclude aliases from restricted context. Component focused checks pass 11, Workshop checks 28, and Writer/session checks 42. The 19:22 wrapper passes 763 Rust tests, 534 frontend tests in 48 files, 11 tooling checks, formatting, strict Clippy, TypeScript, and production build; the pinned 19:24 frontend-only check also passes 534/48 after the accessibility markup correction. Source-final headless evidence is in `.local/workshop-aliases-qa/report.json`; fresh native aliases CI, full specification, and author-study evidence remain pending. |
+| W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | Existing `document_aliases` uses atomic source-epoch CAS saves and read-only uncertainty reconciliation. Focused and headless checks cover dirty navigation, title/body preservation, and restricted-context exclusion. CI 34152622887 passed Writer Unicode/transliteration save, project reopen, and unsaved-name navigation refusal until explicit saving, without generation. Broader author/provider evidence remains open. |
 | W24 | 10 | Themes as open questions; reader tone distinct from intensity | Themes & tone is represented by the six-lens Workshop surface; distinction/quality evidence remains pending. |
 | W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | Moment responses now require two or three same-situation treatments; a one-treatment raw response is rejected recoverably. The existing voice-guidance path remains explicitly reviewed before Develop/Use this version, with no automatic documents, decisions, or adoption. Broader voice/noncanon quality remains pending. |
 | W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | The Story possibilities lens, optional arc action, prompt template fields, and durable session/decision hooks provide the prompt-led story-engine path without a structured engine database. Quality qualification remains pending. |
@@ -387,9 +433,9 @@ green mock/frontend run alone.
 | W39 | 15 | Offline manual development, preferences/history/organization and restart resume | CI 34133645198 passed manual seed/working persistence and full Library reopen preservation without generation; broader offline organization/restart quality remains pending. |
 | W40 | 16 | Source-bound facets, stale-source refusal, no second truth database | Existing-document source binding and stale multi-target refusal are covered in core Workshop tests; broader source-bound qualification remains pending. |
 | W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Core tests cover linked atomic adoption, stale refusal without partial writes, exact history, and no chapter mutation. CI 34133645198 adds existing-world/new-character relationship adoption with exact heads, impact decision provenance, and zero chapter writes. Broader native stale/failure cases remain unqualified. |
-| W42 | 17 | Exportable/importable editable project presets with explicit adoption of preferences | Ten preference tests cover JSON/name synchronization, reopened saved definitions, explicit definition edits and reuse without duplicate definitions, adoption boundaries, invalid input and native file error handling. Headless review/reuse passed; native persistence/reuse and file-dialog qualification remain pending. |
+| W42 | 17 | Exportable/importable editable project presets with explicit adoption of preferences | Local tests cover JSON/name synchronization, saved definition edits/reuse, adoption boundaries, invalid input and file errors. CI 34152622887 passed JSON review, explicit preference adoption, Library reopen, definition editing/reuse without duplication or automatic adoption. Native file-dialog qualification remains pending. |
 | W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | CI 34133645198 passed all 15 intended Workshop groups plus the listed auxiliary native suites with clean runtime observations; this is bounded native evidence, not full specification, physical keyboard/accessibility, late/stale/failure UI, quality, or author-study completion. |
-| W44 | 18 | Counterbalanced formative author study, same model/budget, ownership/coherence/usefulness | Pending observed author participation; protocol is prepared but no study evidence exists. |
+| W44 | 18 | Counterbalanced formative author study, same model/budget, ownership/coherence/usefulness | A [facilitator kit](studies/workshop/README.md) supplies condition/seed allocation, an optional tag-heavy worksheet, comparable live Codex allowances, anonymous observation and human review forms, and a later revisit record. No author observations exist; W44 remains pending. |
 
 ## Qualification
 

@@ -8,7 +8,11 @@ The current Workshop controls keep consequence comparisons provisional, include
 relationship endpoint preferences, preserve protection when a choice is
 archived, and honor deliberate question dispositions. Request reconciliation
 stays with its originating exploration. Local checks pass 766 Rust and 544
-frontend tests; fresh native/package and author qualification remain open.
+frontend tests at that checkpoint. The latest candidate-level Give alternatives
+action retains the comparison dimension and asks to preserve chosen invariants;
+its full check passes 766 Rust and 546 frontend tests. The preceding package
+passes its bounded installed lifecycle; this refinement needs a fresh package.
+Complete Workshop native acceptance and author qualification remain open.
 The [Workshop ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md) records the exact
 evidence and remaining specification gates.
 

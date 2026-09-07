@@ -12,11 +12,20 @@ the original source for current development without turning these historical
 installer checks into evidence for newer application code.
 
 The current Workshop controls source `fc3468829e037588458a05204c0ef92ddbea9cc2`
-has passed local checks and a debug build. Fresh
+has passed local checks and a debug build.
 [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
-and [package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
-are pending. The prior installer results below retain their original source
-identities and do not qualify these newer changes.
+passed its contracts and 17 Workshop groups, then failed on a character-row
+harness selector. [CI 34152622887](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34152622887)
+passed 25 Workshop groups at `c7c1c6a`, then failed on a SQLite-row prototype
+mismatch in the what-if fixture. The corrected normalization preserves every
+document field comparison. The latest candidate-alternatives refinement has
+passed the 766 Rust / 546 frontend / 11 tooling local check and a fresh debug
+build; it still needs a fresh native/package run.
+[Package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
+passed the installed write/reopen, normal-close, and same-version retention
+lifecycle. Exact package identity and limits are in
+[Windows qualification](WINDOWS_PACKAGE_QUALIFICATION.md). Full Workshop and
+author-study acceptance remain open.
 
 The preceding aliases source `b801ae9cfc00203a37c7de05da8de801a0214af1`
 has a successful local debug build. Fresh
@@ -24,7 +33,7 @@ has a successful local debug build. Fresh
 and [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
 ran on that source. CI failed after 16 Workshop groups on the aliases harness's
 exact `Characters` selector (the native tab is `Characters 2`); contract steps
-passed, and the harness correction still needs native qualification. The
+passed, and that tab selector passed in CI 34150860150. The
 installer run passed its synthetic installed write/reopen and same-version
 retention lifecycle. That lifecycle does not exercise the names/aliases controls
 or qualify the subsequent product corrections.

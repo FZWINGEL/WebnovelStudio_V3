@@ -69,6 +69,27 @@ describe('CandidateBoard', () => {
     await click('Select selected text'); expect(select).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), exact);
   });
 
+  it('requests candidate alternatives with the original candidate and leaves selection and adoption inert', async () => {
+    const target = candidate('target');
+    const explore = vi.fn();
+    const select = vi.fn();
+    const develop = vi.fn();
+    const choice = vi.fn();
+    const steer = vi.fn();
+    render({ result: result([target]), onExplore: explore, onSelectDetail: select, onDevelop: develop, onChoice: choice, onSteer: steer });
+    await click('Select details');
+    await click('Give alternatives');
+
+    expect(explore).toHaveBeenCalledTimes(1);
+    expect(explore.mock.calls[0][0]).toBe('directions');
+    expect(explore.mock.calls[0][1]).toBe(target);
+    expect(select).not.toHaveBeenCalled();
+    expect(develop).not.toHaveBeenCalled();
+    expect(choice).not.toHaveBeenCalled();
+    expect(steer).not.toHaveBeenCalled();
+    expect(host.querySelectorAll('.candidate-card')).toHaveLength(1);
+  });
+
   it('keeps implication basis visible and offers explicit accept, reject, and contrast actions', async () => {
     const implicationOnly = { ...candidate('implication-only'), assumptions: [], implications: [{
       text: 'Repair cooperatives spread beyond the guild.', basis: 'restricted guild teaching', assumption: 'residents can perform limited repairs safely with shared instruction',

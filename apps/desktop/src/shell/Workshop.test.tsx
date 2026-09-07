@@ -550,14 +550,18 @@ describe('Story Workshop behavioral contracts', () => {
     expect(savedDocuments).toEqual(project.documents);
   });
 
-  it('targets a candidate for exploration without adding it to the tray or changing the working body', async () => {
+  it.each([['consequences', 'Show consequences'], ['directions', 'Give alternatives']])('targets a candidate for %s without adding it to the tray or changing the working body', async (action, label) => {
     const source = session({ workingText: 'The author draft stays intact.' });
     await render(view({ state: state({ sessions: [source] }), results: [result()] }));
     await act(async () => exactButton('Select details').click());
-    await act(async () => exactButton('Show consequences').click());
+    await act(async () => exactButton(label).click());
     await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
     expect(currentView.state.sessions[0]).toMatchObject({ workingText: source.workingText, selectedDetails: [], choices: [] });
-    expect(mocks.startWorkshop.mock.calls[0][2]).toMatchObject({ action: 'consequences', selectedScope: 'Direction a', selectedText: candidate('a').content });
+    expect(mocks.startWorkshop.mock.calls[0][2]).toMatchObject({ action, selectedScope: 'Direction a', selectedText: candidate('a').content });
+    if (action === 'directions') {
+      expect(mocks.startWorkshop.mock.calls[0][2].instruction).toContain('Compare alternatives along the existing dimension: Core mechanism.');
+      expect(mocks.startWorkshop.mock.calls[0][2].instruction).toContain('Preserve author-chosen invariants and Keep fixed details');
+    }
     expect(savedDocuments).toEqual(project.documents);
   });
 

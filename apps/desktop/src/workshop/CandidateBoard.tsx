@@ -18,6 +18,7 @@ export interface CandidateBoardProps {
 const explorationActions = [
   ['concrete', 'Make it concrete'],
   ['consequences', 'Show consequences'],
+  ['directions', 'Give alternatives'],
   ['challenge', 'Challenge it'],
   ['ordinaryLife', 'Add ordinary life'],
   ['moment', 'Try a moment'],

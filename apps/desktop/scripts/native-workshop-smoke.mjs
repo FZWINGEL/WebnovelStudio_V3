@@ -76,7 +76,9 @@ async function waitForDatabase(predicate, label, timeout = 15_000) {
 }
 
 function documents() {
-  return database.prepare('SELECT id,kind,title,body_json FROM documents WHERE trashed=0 ORDER BY position').all();
+  // SQLite rows have null prototypes; structuredClone snapshots do not.
+  // Compare every persisted field while keeping the same plain record shape.
+  return database.prepare('SELECT id,kind,title,body_json FROM documents WHERE trashed=0 ORDER BY position').all().map(row => ({ ...row }));
 }
 
 function documentText(document) {
@@ -312,6 +314,33 @@ try {
     'Adoption preview must not create a chapter',
   );
   await page.screenshot({ path: resolve(output, 'adoption-preview.png') });
+  const receiptsBeforeStalePreview = database.prepare('SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind=\'adoptWorkshop\'').get().n;
+  const decisionsBeforeStalePreview = workshopState().state.decisions;
+  const runsBeforeStalePreview = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  const stalePreviewDraft = `${authorEdit}\n\nA later author note: the public archive closes at dusk.`;
+  await working.fill(stalePreviewDraft);
+  await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.workingText === stalePreviewDraft), 'working edit after adoption preview');
+  await adoption.getByRole('button', { name: 'Confirm Use this version', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: 'Your exploration changed after preview. Prepare the adoption again.' }).waitFor();
+  assert.deepEqual(documents(), documentsBeforeAdoption, 'A stale exploration preview must not write any document or create a chapter');
+  assert.deepEqual(workshopState().state.decisions, decisionsBeforeStalePreview, 'A stale preview must not adopt a decision');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind=\'adoptWorkshop\'').get().n, receiptsBeforeStalePreview, 'A stale preview must not produce an adoption receipt');
+  assert.equal(await working.inputValue(), stalePreviewDraft, 'Refusal must preserve the later author draft');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, runsBeforeStalePreview, 'Stale preview refusal must not generate');
+  await page.screenshot({ path: resolve(output, 'stale-exploration-preview-refused.png') });
+  checks.push('A working edit after preview visibly refuses adoption while preserving the later draft, all documents, decisions, and receipts without generation');
+
+  await adoption.getByRole('button', { name: 'Keep exploring', exact: true }).click();
+  await working.fill(authorEdit);
+  await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.workingText === authorEdit), 'intentional working version restored');
+  await page.getByRole('button', { name: 'Use this version', exact: true }).click();
+  await adoption.getByRole('heading', { name: 'Where should this version go?', exact: true }).waitFor();
+  await adoption.getByRole('textbox', { name: 'Title', exact: true }).fill('The Ember Archive');
+  await adoption.getByRole('combobox', { name: 'Kind', exact: true }).selectOption('world');
+  await adoption.getByRole('textbox', { name: 'Content to choose', exact: true }).fill(authorEdit);
+  await adoption.getByRole('textbox', { name: 'Why this version?', exact: true }).fill('Keep the archive ordinary and the uncertainty deliberate.');
+  await adoption.getByRole('button', { name: 'Preview all changes', exact: true }).click();
+  await adoption.getByRole('heading', { name: 'Choose this version for your story', exact: true }).waitFor();
   await adoption.getByRole('button', { name: 'Confirm Use this version', exact: true }).click();
   await page.getByText('Version chosen. Its source and rationale are saved; writing access remains author only.', { exact: true }).waitFor();
   await waitForDatabase(() => documents().filter(document => document.kind === 'world').length === 1, 'world adoption');

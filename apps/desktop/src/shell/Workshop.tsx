@@ -243,7 +243,9 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
       const current = store.state.sessions.find(item => item.id === session.id)!;
       if (!pendingRequest.current && !candidate && capture && (capture.generation !== current.workingGeneration || current.workingText.slice(capture.from, capture.to) !== capture.text)) throw new Error('The selected passage changed. Select it again before exploring.');
       const selectedAction = ACTIONS.find(item => item.id === nextAction) ?? ACTIONS[0];
-      const instruction = [selectedAction.instruction, nextAction === 'subvert' ? `Convention to transform: ${current.selectedScope}.\nTransformation: ${subversion}.` : '', current.composer].filter(Boolean).join('\n\n');
+      const candidateDimension = nextAction === 'directions' && candidate && result?.output
+        ? `Compare alternatives along the existing dimension: ${result.output.dimension}.\nUse the selected candidate as an unaccepted starting point. Preserve author-chosen invariants and Keep fixed details; vary this dimension rather than replacing the whole idea.` : '';
+      const instruction = [selectedAction.instruction, candidateDimension, nextAction === 'subvert' ? `Convention to transform: ${current.selectedScope}.\nTransformation: ${subversion}.` : '', current.composer].filter(Boolean).join('\n\n');
       pendingRequest.current ??= { operationId: crypto.randomUUID(), exploration: {
         sessionId: current.id, expectedVersion: store.version, workingGeneration: current.workingGeneration,
         action: nextAction, instruction, selectedScope: nextAction === 'voiceGuidance' ? 'Voice qualities from the sample' : candidate?.title ?? (capture ? 'Selected passage in working version' : current.selectedScope), selectedText: candidate?.content ?? capture?.text ?? (nextAction === 'voiceGuidance' ? current.workingText : ''),
