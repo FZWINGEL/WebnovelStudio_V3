@@ -13,6 +13,11 @@ and the debug build is refreshed. The author-study kit is ready; no author
 observations have been collected. Exact evidence is in the
 [Workshop ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
 
+Current product source is `16540ea9f968e969f63b57817f36c2a187894516`. Fresh
+[CI 34153931657](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153931657)
+and [package run 34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
+are in progress on that exact source; no prior installer was reused.
+
 The current Workshop controls checkpoint preserves provisional consequence
 comparisons, includes relationship endpoint preferences, keeps protection
 independent of decision status, respects question dispositions, and guards

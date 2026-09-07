@@ -20,7 +20,10 @@ passed 25 Workshop groups at `c7c1c6a`, then failed on a SQLite-row prototype
 mismatch in the what-if fixture. The corrected normalization preserves every
 document field comparison. The latest candidate-alternatives refinement has
 passed the 766 Rust / 546 frontend / 11 tooling local check and a fresh debug
-build; it still needs a fresh native/package run.
+build. It is pushed at `16540ea`; fresh
+[CI 34153931657](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153931657)
+and [package run 34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
+are in progress. The previous installer is not reused for that product change.
 [Package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
 passed the installed write/reopen, normal-close, and same-version retention
 lifecycle. Exact package identity and limits are in

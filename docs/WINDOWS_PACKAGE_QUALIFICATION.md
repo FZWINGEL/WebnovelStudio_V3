@@ -13,6 +13,11 @@ It was not launched locally. The build log and identity are
 `.local/workshop-alternatives-debug-build.log` and
 `.local/workshop-alternatives-debug-build.json`. It needs a fresh package run;
 the preceding installed lifecycle does not qualify this product change.
+The committed product source is `16540ea9f968e969f63b57817f36c2a187894516`;
+fresh [CI 34153931657](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153931657)
+and [package run 34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
+are in progress against it. No product files changed between the successful
+local build and that commit.
 
 ## Previous controls development build
 

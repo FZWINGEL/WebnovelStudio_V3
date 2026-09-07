@@ -19,6 +19,12 @@ files pass 46 tests; the complete wrapper passes 766 Rust, 546 frontend, and
 remains. The refreshed debug build and its exact identity are recorded in
 [Windows qualification](WINDOWS_PACKAGE_QUALIFICATION.md).
 
+This refinement is pushed at `16540ea9f968e969f63b57817f36c2a187894516`.
+Fresh [CI 34153931657](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153931657)
+and [package run 34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
+are checking that exact source. Their results remain pending; the previous
+installer is not reused for this product change.
+
 The native harness now also attempts adoption after an author saves a working
 edit after preview. It checks visible refusal, unchanged documents/decisions/
 receipts, retained later prose, and a fresh preview after deliberate editing.
