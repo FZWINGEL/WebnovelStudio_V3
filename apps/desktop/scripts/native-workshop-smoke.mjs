@@ -340,9 +340,10 @@ try {
   await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();
   await page.getByRole('tab', { name: 'Develop', exact: true }).waitFor();
   await ensureDevelopMode();
+  await page.getByRole('heading', { name: 'People', exact: true }).waitFor();
   const reopenedIdea = page.locator('details.workshop-brief');
   if (await reopenedIdea.getAttribute('open') === null) await reopenedIdea.locator('summary').click();
-  const reopenedBrief = reopenedIdea.getByRole('textbox', { name: 'Your idea, image, dialogue, or attraction', exact: true });
+  const reopenedBrief = reopenedIdea.getByRole('textbox', { name: 'What you want to explore', exact: true });
   await reopenedBrief.waitFor();
   assert.equal(await reopenedBrief.inputValue(), seed);
   assert.equal(await page.getByRole('textbox', { name: 'Develop or edit directly', exact: true }).inputValue(), authorEdit);
