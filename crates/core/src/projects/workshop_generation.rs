@@ -8,8 +8,9 @@
 
 use super::discussions::{FeedbackIntent, StartDiscussion};
 use super::workshop::{
-    CandidateChoiceStatus, Lens, WorkshopDepth, WorkshopPreference, WorkshopQuestion,
-    WorkshopRelationship, WorkshopSession, WorkshopState,
+    CandidateChoiceStatus, Lens, StoryPossibility, StoryPossibilityStatus, WorkshopDepth,
+    WorkshopPreference, WorkshopQuestion, WorkshopRelationship, WorkshopSession, WorkshopState,
+    validate_story_possibilities,
 };
 pub use super::workshop::{WorkshopCandidate, WorkshopOutput};
 use super::{CoreError, CoreResult, Head, ProjectAccess};
@@ -119,6 +120,8 @@ pub struct WorkshopContext {
     pub included_alternatives: Vec<String>,
     pub rejected_rationales: Vec<String>,
     pub questions: Vec<WorkshopQuestion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub story_possibilities: Vec<StoryPossibility>,
     pub original_notes: String,
     pub outside_direction: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -148,6 +151,8 @@ pub struct WorkshopPacketMetadata {
     pub included_alternatives: Vec<String>,
     pub rejected_rationales: Vec<String>,
     pub questions: Vec<WorkshopQuestion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub story_possibilities: Vec<StoryPossibility>,
     pub original_notes: String,
     pub outside_direction: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,6 +206,7 @@ impl WorkshopPacketMetadata {
                 "workshop question reason",
             )?;
         }
+        validate_story_possibilities(&context.story_possibilities)?;
         validate_string_list(&context.chosen_details, MAX_TEXT_BYTES, "chosen details")?;
         validate_string_list(&context.fixed_details, MAX_TEXT_BYTES, "fixed details")?;
         validate_string_list(
@@ -271,6 +277,15 @@ impl WorkshopPacketMetadata {
             included_alternatives: context.included_alternatives.clone(),
             rejected_rationales: context.rejected_rationales.clone(),
             questions: context.questions.clone(),
+            story_possibilities: context
+                .story_possibilities
+                .iter()
+                .filter(|possibility| {
+                    possibility.status == StoryPossibilityStatus::Open
+                        && !possibility.text.trim().is_empty()
+                })
+                .cloned()
+                .collect(),
             original_notes: context.original_notes.clone(),
             outside_direction: context.outside_direction,
             relationship: context.relationship.clone(),
@@ -528,6 +543,15 @@ pub fn from_session_with_material(
         included_alternatives: resolved_material.included_alternatives,
         rejected_rationales,
         questions: session.questions.clone(),
+        story_possibilities: session
+            .story_possibilities
+            .iter()
+            .filter(|possibility| {
+                possibility.status == StoryPossibilityStatus::Open
+                    && !possibility.text.trim().is_empty()
+            })
+            .cloned()
+            .collect(),
         original_notes: session.original_notes.clone(),
         outside_direction: session.outside_direction,
         relationship,
@@ -598,6 +622,14 @@ pub fn metadata_from_instruction(instruction: &str) -> CoreResult<WorkshopPacket
     let metadata: WorkshopPacketMetadata = serde_json::from_value(metadata.clone())
         .map_err(|error| invalid(&format!("The workshop metadata is invalid: {error}")))?;
     validate_exploration(&metadata.exploration)?;
+    validate_story_possibilities(&metadata.story_possibilities)?;
+    if metadata.story_possibilities.iter().any(|possibility| {
+        possibility.status != StoryPossibilityStatus::Open || possibility.text.trim().is_empty()
+    }) {
+        return Err(invalid(
+            "Frozen workshop story possibilities must be open and nonempty.",
+        ));
+    }
     validate_voice_guidance_metadata(&metadata)?;
     for (field, outer, embedded) in [
         (
@@ -985,8 +1017,8 @@ fn format_preference(preference: &WorkshopPreference) -> String {
         super::workshop::PreferenceStrength::Hard => "hard",
     };
     let mut value = format!(
-        "{polarity} {} [{}; scope={scope}; strength={strength}]",
-        preference.label, preference.meaning
+        "{polarity} {} [{}; family={}; scope={scope}; strength={strength}]",
+        preference.label, preference.meaning, preference.family
     );
     if !preference.examples.trim().is_empty() {
         value.push_str(&format!("; examples={}", preference.examples));
@@ -1231,6 +1263,7 @@ mod tests {
                 status: super::super::workshop::WorkshopQuestionStatus::KeepMysterious,
                 unknown_to: super::super::workshop::UnknownTo::Both,
             }],
+            story_possibilities: Vec::new(),
             original_notes: "A note the author intentionally brought into this exploration.".into(),
             outside_direction: false,
             relationship: None,
@@ -1566,6 +1599,7 @@ mod tests {
             original_notes: String::new(),
             active_run_id: None,
             relationship_id: None,
+            story_possibilities: Vec::new(),
         };
         let state = WorkshopState {
             schema_version: 1,
@@ -1725,6 +1759,7 @@ mod tests {
             original_notes: "An intentionally preserved note.".into(),
             active_run_id: None,
             relationship_id: None,
+            story_possibilities: Vec::new(),
         };
         let mut state = WorkshopState::default();
         state.sessions.push(session.clone());
@@ -1780,6 +1815,7 @@ mod tests {
             original_notes: String::new(),
             active_run_id: None,
             relationship_id: None,
+            story_possibilities: Vec::new(),
         };
         let mut state = WorkshopState::default();
         state.sessions.push(session.clone());

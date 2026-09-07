@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 36;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 37;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -195,6 +195,12 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         // migration deliberately performs no rewrite.
         if version < 36 {
             tx.execute_batch(include_str!("036_workshop_relationship_context.sql"))?;
+        }
+        // Schema 37 raises the reader floor for typed story possibilities
+        // carried by Workshop session/context JSON. The optional field is
+        // absent from old rows and empty sessions serialize byte-identically.
+        if version < 37 {
+            tx.execute_batch(include_str!("037_workshop_story_possibilities.sql"))?;
         }
         // Schema 30 adds the nullable Claude terminal model claim. NULL keeps
         // historical Codex and HTTP receipts byte-compatible while the reader

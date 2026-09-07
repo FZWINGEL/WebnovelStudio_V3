@@ -457,6 +457,7 @@ mod windows {
             original_notes: "Synthetic qualification fixture; no author material.".into(),
             active_run_id: None,
             relationship_id: None,
+            story_possibilities: Vec::new(),
         }
     }
 

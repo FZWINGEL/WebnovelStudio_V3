@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { exportWorkshopPreset, importWorkshopPreset, type WorkshopPreference, type WorkshopPreset, type WorkshopSession, type WorkshopState } from '../ipc/workshop';
 import { describeWorkshopError } from './store';
 import { FAMILIES, PREFERENCE_SUGGESTIONS, PRESET_SUGGESTIONS, type PreferenceSuggestion } from './catalog';
+import { themePreferenceChoices, type ThemePreferenceAxis, type ThemePreferenceChoice } from './themePreferences';
 
 const PRESET_SCHEMA_VERSION = 'workshop-preset.v1' as const;
 
@@ -50,6 +51,7 @@ export function preferenceLabel(preference: WorkshopPreference) { return prefere
 export function Preferences({ state, session, onChange }: { state: WorkshopState; session: WorkshopSession; onChange(change: (state: WorkshopState) => WorkshopState): void }) {
   const [browse, setBrowse] = useState(false); const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<WorkshopPreference | null>(null); const [error, setError] = useState('');
+  const [themeAxis, setThemeAxis] = useState<ThemePreferenceAxis | null>(null);
   const [presetText, setPresetText] = useState(''); const [presetOpen, setPresetOpen] = useState(false); const [presetName, setPresetName] = useState('My starting preferences');
   const [presetNotice, setPresetNotice] = useState(''); const [reviewedPresetId, setReviewedPresetId] = useState<string | null>(null);
   const endpoints = relationshipEndpointIds(state, session);
@@ -58,6 +60,19 @@ export function Preferences({ state, session, onChange }: { state: WorkshopState
   const suggestions = PREFERENCE_SUGGESTIONS.filter(item => (!query || `${item.label} ${item.meaning} ${item.family}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) && (browse || item.lenses.includes(session.lens))).slice(0, browse ? 30 : 3);
   function draft(suggestion?: PreferenceSuggestion): WorkshopPreference {
     return { id: crypto.randomUUID(), label: suggestion?.label ?? '', family: suggestion?.family ?? FAMILIES[0], meaning: suggestion?.meaning ?? '', examples: '', timing: '', polarity: 'want', strength: 'soft', scope: 'exploration', targetId: session.id, confirmed: true };
+  }
+  function themeDraft(choice: ThemePreferenceChoice): WorkshopPreference {
+    return {
+      ...draft(),
+      label: choice.label,
+      family: choice.family,
+      meaning: choice.meaning,
+      examples: choice.examples,
+      polarity: 'neutral',
+    };
+  }
+  function openThemeChoices(axis: ThemePreferenceAxis) {
+    setThemeAxis(axis); setEditing(null); setError('');
   }
   function save(preference: WorkshopPreference) {
     const conflict = preferenceConflict(state.preferences, preference);
@@ -153,9 +168,14 @@ export function Preferences({ state, session, onChange }: { state: WorkshopState
     <div className="workshop-section-heading"><h3>Creative preferences</h3><button onClick={() => { setEditing(draft()); setError(''); }}>Add preference</button></div>
     <p className="small-copy">Unspecified stays open. Your wording is the instruction.</p>
     {session.lens === 'themes' && <div className="workshop-actions">
-      <button onClick={() => setEditing({ ...draft(), label: 'Reader experience', family: 'Reader experience', meaning: '', polarity: 'neutral' })}>Choose reader experience</button>
-      <button onClick={() => setEditing({ ...draft(), label: 'Content intensity', family: 'Content boundaries', meaning: '', polarity: 'neutral' })}>Choose content intensity</button>
+      <button type="button" onClick={() => openThemeChoices('reader-experience')}>Choose reader experience</button>
+      <button type="button" onClick={() => openThemeChoices('content-intensity')}>Choose content intensity</button>
       <p className="small-copy">Warmth and hope can coexist with danger. Describe the feeling separately from limits on explicit detail or distress.</p>
+      {themeAxis && <div role="group" aria-label={themeAxis === 'reader-experience' ? 'Reader experience choices' : 'Content intensity choices'}>
+        <p className="small-copy">Choose an optional starting point. Nothing is saved until you review and save the editable preference.</p>
+        {themePreferenceChoices(themeAxis).map(choice => <button type="button" key={choice.id} onClick={() => { setEditing(themeDraft(choice)); setThemeAxis(null); setError(''); }}>{choice.label}</button>)}
+        <button type="button" onClick={() => setThemeAxis(null)}>Cancel choices</button>
+      </div>}
     </div>}
     {applicable.map(preference => <button className="workshop-preference" key={preference.id} onClick={() => { setEditing({ ...preference }); setError(''); }}><strong>{preferenceLabel(preference)}</strong> {preference.label}<small>{preference.scope === 'project' ? 'Project' : preference.scope === 'element' ? 'This element' : 'This exploration'}</small></button>)}
     {!applicable.length && <p className="small-copy">No preferences chosen. Any genre or direction is still possible.</p>}

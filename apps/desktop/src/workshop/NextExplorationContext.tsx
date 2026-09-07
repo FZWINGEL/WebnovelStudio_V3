@@ -1,6 +1,7 @@
 import type { DocumentRecord } from '../ipc/projects';
 import type { WorkshopDecision, WorkshopResult, WorkshopSession, WorkshopState } from '../ipc/workshop';
 import { sessionLineage } from './branchEvidence';
+import { POSSIBILITY_KINDS } from './StoryPossibilities';
 
 export interface NextExplorationContextProps {
   state: WorkshopState;
@@ -148,6 +149,7 @@ export function NextExplorationContext({ state, session, results, documents, onO
 
   return <section className="workshop-context-preview" aria-label="Planned context">
     <h3>Planned context</h3>
+    {!!session.storyPossibilities?.some(item => item.status === 'open' && item.text.trim()) && <details aria-label="Story possibilities in planned context"><summary>Open story possibilities</summary><p className="small-copy">These are author questions and future intentions, not established events. Set-aside and empty entries are excluded.</p><ul>{session.storyPossibilities.filter(item => item.status === 'open' && item.text.trim()).map(item => <li key={item.id} className="workshop-preserve-lines"><strong>{POSSIBILITY_KINDS.find(group => group.kind === item.kind)!.label}:</strong> {item.text}</li>)}</ul></details>}
     <p className="small-copy">This is the current preview for the next exploration. Sources and available space are checked when you send. Inspect the saved request to see exactly what was supplied.</p>
 
     <details aria-label="Direction and current element">

@@ -86,6 +86,8 @@
 .workshop-notice { padding: 14px; border: 1px solid #bbcbe0; background: #f2f6fd; line-height: 1.6; }
 .workshop-recap { border-top: 1px solid #d6dfeb; padding-top: 16px; }
 .workshop-recap ul { list-style: none; padding: 0; }
+.workshop-possibilities > section { margin-block: 24px; }
+.workshop-possibility + .workshop-possibility { margin-top: 18px; padding-top: 12px; border-top: 1px solid #d6dfeb; }
 .workshop-relationships article { padding-block: 14px; border-bottom: 1px solid #d6dfeb; }
 .workshop-relationships h3 span { font-weight: 400; }
 .workshop-loading { padding: 40px; }
@@ -100,7 +102,8 @@
 @media (max-width: 1190px) {
   .story-workshop { grid-template-columns: 155px minmax(0,1fr); position: relative; }
   .story-workshop.context-hidden { grid-template-columns: 155px minmax(0,1fr); }
-  .workshop-context { position: absolute; z-index: 8; top: 0; right: 0; bottom: 0; width: min(340px, 90%); box-sizing: border-box; box-shadow: -8px 0 24px rgb(22 44 74 / 12%); }
+  .workshop-context-drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(400px, calc(100vw - 24px)); height: 100%; max-height: none; max-width: none; box-sizing: border-box; border: 0; border-left: 1px solid #d6dfeb; box-shadow: -8px 0 24px rgb(22 44 74 / 12%); color: #172d48; }
+  .workshop-context-drawer::backdrop { background: rgb(17 34 58 / 24%); }
   .workshop-context-close { display: block; margin-bottom: 20px; }
   .workshop-heading h1 { font-size: 25px; }
 }

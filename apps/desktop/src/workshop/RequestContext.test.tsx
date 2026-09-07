@@ -36,6 +36,22 @@ let host: HTMLDivElement;
 let root: Root;
 const prepared = vi.mocked(preparedStoryContext);
 
+it('shows exact typed story intentions from the frozen request without converting them to events', async () => {
+  prepared.mockResolvedValue(packetWithMessages([{ role: 'user', content: JSON.stringify({ schemaVersion: 'story-workshop-request.v1', workshop: {
+    currentElement: 'A possible voyage', storyPossibilities: [
+      { id: 'question', kind: 'unresolvedQuestion', text: 'Who sent the map?', status: 'open' },
+      { id: 'payoff', kind: 'intendedPayoff', text: 'A reunion might repay the old promise.', status: 'open' },
+      { id: 'arc', kind: 'possibleArc', text: 'One possible route leads through the coast.', status: 'open' },
+    ],
+  } }) }]));
+  await act(async () => root.render(<RequestContext access={access} packetId="frozen-intentions" />));
+  const panel = host.querySelector('[aria-label="Story possibilities in this request"]');
+  expect(panel?.textContent).toContain('Unresolved question: Who sent the map?');
+  expect(panel?.textContent).toContain('Intended payoff: A reunion might repay the old promise.');
+  expect(panel?.textContent).toContain('Possible arc: One possible route leads through the coast.');
+  expect(panel?.textContent).toContain('not established events');
+});
+
 async function settle() {
   await act(async () => {
     await Promise.resolve();

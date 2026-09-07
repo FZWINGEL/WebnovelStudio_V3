@@ -107,6 +107,79 @@ it('keeps rejection local until an edited preference and scope are explicitly sa
   expect(saved.sessions[0].choices).toEqual(session.choices);
 });
 
+it('offers independent reader-experience and content-intensity choices without adopting either axis', async () => {
+  const session = newSession('themes');
+  const state = { ...emptyWorkshop(), sessions: [session], currentSessionId: session.id };
+  const onChange = vi.fn();
+  act(() => root.render(<Preferences state={state} session={session} onChange={onChange} />));
+
+  await act(async () => button('Choose reader experience').click());
+  expect(host.textContent).toContain('Warmth');
+  expect(host.textContent).toContain('Hope');
+  expect(host.textContent).not.toContain('Restrained violence');
+  expect(onChange).not.toHaveBeenCalled();
+  await act(async () => button('Warmth').click());
+  expect(control('Name').value).toBe('Warmth');
+  expect(control('What it means to you').value).toContain('care');
+  expect(control('Direction').value).toBe('neutral');
+  expect(onChange).not.toHaveBeenCalled();
+
+  await act(async () => button('Cancel').click());
+  await act(async () => button('Choose content intensity').click());
+  expect(host.textContent).toContain('Restrained violence');
+  expect(host.textContent).toContain('Explicit injury detail');
+  expect(host.querySelector('[aria-label="Content intensity choices"]')?.textContent).not.toContain('Warmth');
+  expect(onChange).not.toHaveBeenCalled();
+  await act(async () => button('Restrained violence').click());
+  expect(control('Name').value).toBe('Restrained violence');
+  expect(control('What it means to you').value).toContain('non-graphic');
+  expect(control('Direction').value).toBe('neutral');
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+it('requires an explicit save and preserves the selected family, details, polarity, strength, scope, and timing', async () => {
+  const session = newSession('themes');
+  session.focusDocumentId = 'theme-document';
+  const state = { ...emptyWorkshop(), sessions: [session], currentSessionId: session.id };
+  const onChange = vi.fn();
+  act(() => root.render(<Preferences state={state} session={session} onChange={onChange} />));
+
+  await act(async () => button('Choose reader experience').click());
+  await act(async () => button('Hope').click());
+  await change('Direction', 'want');
+  await change('Applies to', 'element');
+  await act(async () => host.querySelector('details summary')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await change('When it should matter', 'After the first major setback');
+  const strongerConstraint = host.querySelector('input[type="checkbox"]') as HTMLInputElement;
+  await act(async () => strongerConstraint.click());
+  await act(async () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+
+  expect(onChange).toHaveBeenCalledTimes(1);
+  const saved = (onChange.mock.calls[0][0] as (state: WorkshopState) => WorkshopState)(state);
+  expect(saved.preferences).toHaveLength(1);
+  expect(saved.preferences[0]).toMatchObject({
+    label: 'Hope', family: 'Reader experience', polarity: 'want', strength: 'hard',
+    scope: 'element', targetId: 'theme-document', timing: 'After the first major setback', confirmed: true,
+  });
+  expect(saved.preferences[0].meaning).toContain('repair');
+  expect(saved.preferences[0].examples).toContain('costly choice');
+});
+
+it('leaves an unselected theme axis neutral and preserves existing preferences', async () => {
+  const session = newSession('themes');
+  const existing = projectPreference({ id: 'existing', label: 'Existing guidance', family: 'Themes' });
+  const state = { ...emptyWorkshop(), sessions: [session], currentSessionId: session.id, preferences: [existing] };
+  const onChange = vi.fn();
+  act(() => root.render(<Preferences state={state} session={session} onChange={onChange} />));
+
+  expect(host.textContent).toContain('Existing guidance');
+  await act(async () => button('Choose content intensity').click());
+  await act(async () => button('Cancel choices').click());
+  expect(host.querySelector('form')).toBeNull();
+  expect(onChange).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('Existing guidance');
+});
+
 it('cancels promotion without storing a preference or including rejected prose', async () => {
   const session = newSession();
   session.choices = [{ candidateId: 'no', status: 'rejected', rationale: 'Wrong mood', includeInContext: false }];

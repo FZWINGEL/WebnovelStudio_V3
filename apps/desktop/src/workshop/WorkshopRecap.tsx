@@ -1,4 +1,5 @@
 import type { WorkshopDecision, WorkshopSession } from '../ipc/workshop';
+import { POSSIBILITY_KINDS } from './StoryPossibilities';
 
 /** A local projection of the author's work; opening or closing never calls a model. */
 export function WorkshopRecap({ session, decisions, saved, onOpenDocument }: {
@@ -18,5 +19,6 @@ export function WorkshopRecap({ session, decisions, saved, onOpenDocument }: {
       <dt>Still worth exploring</dt><dd>{session.stillOpen && <p>{session.stillOpen}</p>}{open.length ? <ul>{open.map(question => <li key={question.id}>{question.text} · {question.status === 'keepMysterious' ? 'Intentionally mysterious' : question.status === 'notNow' ? 'For later' : 'Open'} · unknown to {question.unknownTo === 'author' ? 'you' : question.unknownTo === 'reader' ? 'the reader' : 'you and the reader'}</li>)}</ul> : !session.stillOpen && 'Follow another question whenever you want.'}</dd>
       <dt>Next time</dt><dd>{nextQuestion || resumeLabel}{nextQuestion && session.focusReason && <p>{session.focusReason}</p>}</dd>
     </dl>
+    {!!session.storyPossibilities?.some(item => item.status === 'open' && item.text.trim()) && <section aria-label="Open possibilities to revisit"><h3>Possibilities to revisit</h3><p className="small-copy">Plans and questions, not established events.</p><ul>{session.storyPossibilities.filter(item => item.status === 'open' && item.text.trim()).map(item => <li key={item.id}><strong>{POSSIBILITY_KINDS.find(group => group.kind === item.kind)!.label}:</strong> {item.text}</li>)}</ul></section>}
   </>;
 }

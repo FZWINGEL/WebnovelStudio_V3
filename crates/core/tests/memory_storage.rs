@@ -554,7 +554,7 @@ fn queued_stop_without_terminal_result_is_valid_backup_history() {
     assert_eq!(stopped.status, MemoryJobStatus::Stopped);
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 36);
+    assert_eq!(manifest.database_schema_version, 37);
     let _ = fs::remove_file(backup);
 }
 
@@ -845,7 +845,7 @@ fn backup_validation_accepts_retained_memory_history() {
     project.install_memory(job.owner).unwrap();
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 36);
+    assert_eq!(manifest.database_schema_version, 37);
     let _ = fs::remove_file(backup);
 }
 

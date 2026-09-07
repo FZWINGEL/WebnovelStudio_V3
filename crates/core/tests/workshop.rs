@@ -1,4 +1,6 @@
 use serde_json::{Value, json};
+use rusqlite::{Connection, params};
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use uuid::Uuid;
 use webnovel_core::context::packet::MockContextBudget;
@@ -61,6 +63,7 @@ fn session(id: &str) -> WorkshopSession {
         original_notes: String::new(),
         active_run_id: None,
         relationship_id: None,
+        story_possibilities: Vec::new(),
     }
 }
 
@@ -1082,7 +1085,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
 }
 
 #[test]
-fn relationship_session_reopens_and_legacy_bytes_omit_optional_id() {
+fn unknown_relationship_reference_is_rejected_and_legacy_bytes_omit_optional_id() {
     let temp = TempProject::new();
     let project = temp.project();
     let access = project.attach("workshop-relationship-reopen".into()).unwrap();
@@ -1093,33 +1096,30 @@ fn relationship_session_reopens_and_legacy_bytes_omit_optional_id() {
     let mut workshop_session = session("relationship-session");
     workshop_session.relationship_id = Some("relationship-one".into());
     state.sessions.push(workshop_session.clone());
-    let saved = project
+    let error = project
         .save_workshop(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-reopen-state".into(),
             expected_version: "0".into(),
             state,
         })
+        .unwrap_err();
+    assert_eq!(error.code, "InvalidRequest");
+    assert!(error.detail.contains("unknown relationship"));
+
+    let baseline_state = WorkshopState {
+        current_session_id: Some("reopened-session".into()),
+        sessions: vec![session("reopened-session")],
+        ..WorkshopState::default()
+    };
+    project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "relationship-reopen-baseline".into(),
+            expected_version: "0".into(),
+            state: baseline_state,
+        })
         .unwrap();
-    assert_eq!(
-        project
-            .read_workshop(access.clone())
-            .unwrap()
-            .state
-            .sessions[0]
-            .relationship_id
-            .as_deref(),
-        Some("relationship-one")
-    );
-    drop(project);
-    let reopened = ProjectSession::open(&temp.0).unwrap();
-    let reopened_access = reopened.attach("workshop-relationship-reopen-2".into()).unwrap();
-    let reopened_view = reopened.read_workshop(reopened_access).unwrap();
-    assert_eq!(reopened_view.version, saved.version);
-    assert_eq!(
-        reopened_view.state.sessions[0].relationship_id.as_deref(),
-        Some("relationship-one")
-    );
 
     let legacy = session("legacy-session");
     let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
@@ -1128,6 +1128,155 @@ fn relationship_session_reopens_and_legacy_bytes_omit_optional_id() {
     let reopened_legacy: WorkshopSession = serde_json::from_slice(&legacy_bytes).unwrap();
     assert_eq!(reopened_legacy.relationship_id, None);
     assert_eq!(serde_json::to_vec(&reopened_legacy).unwrap(), legacy_bytes);
+
+    drop(project);
+    let database_path = temp.0.join("project.sqlite3");
+    let database = Connection::open(&database_path).unwrap();
+    let state_json: String = database
+        .query_row(
+            "SELECT state_json FROM workshop_state WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut persisted_state: Value = serde_json::from_str(&state_json).unwrap();
+    persisted_state["sessions"] = json!([{
+        "id": "reopened-session",
+        "title": "Reopened",
+        "lens": "overview",
+        "parentSessionId": null,
+        "branchKind": "working",
+        "brief": "",
+        "direction": "",
+        "stillOpen": "",
+        "focusQuestion": "",
+        "focusReason": "",
+        "focusDocumentId": null,
+        "anchorDocumentId": null,
+        "depth": "sketch",
+        "outsideDirection": false,
+        "includedDocumentIds": [],
+        "workingText": "",
+        "workingTitle": "",
+        "workingGeneration": "0",
+        "selectedDetails": [],
+        "choices": [],
+        "questions": [],
+        "composer": "",
+        "selectedScope": "",
+        "originalNotes": "",
+        "activeRunId": null,
+        "relationshipId": "missing-relationship"
+    }]);
+    let tampered_state = serde_json::to_string(&persisted_state).unwrap();
+    let state_hash = Sha256::digest(tampered_state.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    database
+        .execute(
+            "UPDATE workshop_state SET state_json=?,state_hash=? WHERE singleton=1",
+            params![tampered_state, state_hash],
+        )
+        .unwrap();
+    drop(database);
+
+    let reopened = ProjectSession::open(&temp.0).unwrap();
+    let reopened_access = reopened.attach("workshop-relationship-reopened".into()).unwrap();
+    let error = reopened.read_workshop(reopened_access).unwrap_err();
+    assert_eq!(error.code, "InvalidRequest");
+    assert!(error.detail.contains("unknown relationship"));
+}
+
+#[test]
+fn adoption_refuses_independently_mutated_frozen_request_json() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-preview-integrity".into()).unwrap();
+    let document = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "workshop-preview-integrity-document".into(),
+            document_id: "workshop-preview-integrity-document".into(),
+            title: "Integrity target".into(),
+            kind: "world".into(),
+            body: body("Before adoption"),
+        })
+        .unwrap();
+    let mut state = WorkshopState {
+        current_session_id: Some("workshop-preview-integrity-session".into()),
+        ..WorkshopState::default()
+    };
+    state
+        .sessions
+        .push(session("workshop-preview-integrity-session"));
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "workshop-preview-integrity-state".into(),
+            expected_version: "0".into(),
+            state,
+        })
+        .unwrap();
+    let preview = project
+        .preview_workshop_adoption(PreviewWorkshopAdoption {
+            access: access.clone(),
+            session_id: "workshop-preview-integrity-session".into(),
+            expected_version: saved.version,
+            candidate_ids: Vec::new(),
+            targets: vec![WorkshopAdoptionTarget {
+                document_id: document.head.document_id.clone(),
+                expected: Some(document.head.clone()),
+                title: document.title.clone(),
+                kind: document.kind.clone(),
+                body: body("After adoption"),
+                mode: AdoptionMode::Replace,
+            }],
+            rationale: "Adopt the frozen target".into(),
+            protected_text: Vec::new(),
+            relationships: Vec::new(),
+            impact_drafts: Vec::new(),
+        })
+        .unwrap();
+
+    let database = Connection::open(temp.0.join("project.sqlite3")).unwrap();
+    let request_json: String = database
+        .query_row(
+            "SELECT request_json FROM workshop_adoption_previews WHERE id=?",
+            [&preview.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut request: Value = serde_json::from_str(&request_json).unwrap();
+    request["rationale"] = Value::String("Tampered after preview".into());
+    let tampered_json = serde_json::to_string(&request).unwrap();
+    database
+        .execute_batch("DROP TRIGGER workshop_previews_no_update;")
+        .unwrap();
+    database
+        .execute(
+            "UPDATE workshop_adoption_previews SET request_json=? WHERE id=?",
+            params![tampered_json, preview.id],
+        )
+        .unwrap();
+    drop(database);
+
+    let error = project
+        .adopt_workshop(
+            access.clone(),
+            "workshop-preview-integrity-adopt".into(),
+            preview.id,
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "InvalidProject");
+    assert!(error.detail.contains("request failed its fingerprint"));
+    assert_eq!(
+        project
+            .document(access, "workshop-preview-integrity-document".into())
+            .unwrap()
+            .body["body"]["content"][0]["content"][0]["text"],
+        "Before adoption"
+    );
 }
 
 #[test]
@@ -1208,10 +1357,10 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
             operation_id: operation_id.into(),
             expected_version: expected_version.into(),
             state,
-        }).unwrap()
+        })
     };
 
-    let missing = save_state(
+    let missing_error = save_state(
         &project,
         access.clone(),
         "relationship-refusal-missing-state",
@@ -1221,15 +1370,10 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
         WorkshopRelationshipStatus::Tentative,
         from.head.clone(),
         to.head.clone(),
-    );
-    let missing_error = start(
-        &project,
-        access.clone(),
-        &missing.version,
-        "relationship-refusal-missing-start",
     )
     .unwrap_err();
-    assert_eq!(missing_error.code, "InvalidWorkshopRelationship");
+    assert_eq!(missing_error.code, "InvalidRequest");
+    assert!(missing_error.detail.contains("unknown relationship"));
     assert!(project
         .document(access.clone(), "workshop-refusal-session".into())
         .is_err());
@@ -1239,12 +1383,13 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
         access.clone(),
         "relationship-refusal-archived-state",
         "archived-relationship",
-        &missing.version,
+        "0",
         true,
         WorkshopRelationshipStatus::Archived,
         from.head.clone(),
         to.head.clone(),
-    );
+    )
+    .unwrap();
     let archived_error = start(
         &project,
         access.clone(),
@@ -1267,7 +1412,8 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
         WorkshopRelationshipStatus::Tentative,
         from.head.clone(),
         to.head.clone(),
-    );
+    )
+    .unwrap();
     project
         .save(SaveSnapshot {
             access: access.clone(),

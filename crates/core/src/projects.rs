@@ -988,7 +988,9 @@ impl OwnedProject {
     /// the reader floor for reviewed-memory lookup packets, and schema 35
     /// adds Story Workshop storage. Schema 36 raises the floor for the
     /// optional typed relationship identity carried by immutable Workshop
-    /// state and context packet JSON. A database can be manually copied or
+    /// state and context packet JSON. Schema 37 raises the floor for typed
+    /// story possibilities carried by the same existing JSON records. A
+    /// database can be manually copied or
     /// have its user_version altered without running the migration, so opening
     /// it must verify the physical floor before any retained rows are read.
     fn validate_schema_floor(connection: &Connection) -> CoreResult<()> {
@@ -1080,7 +1082,7 @@ impl OwnedProject {
                 if !present {
                     return Err(CoreError::new(
                         "UnsupportedSchema",
-                        "This project claims schema 36 but is missing typed Workshop relationship storage.",
+                        "This project claims schema 36 or newer but is missing typed Workshop relationship storage.",
                     ));
                 }
             }

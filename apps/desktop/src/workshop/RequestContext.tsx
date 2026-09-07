@@ -3,6 +3,7 @@ import { preparedStoryContext } from '../ipc/context';
 import type { ProjectAccess } from '../ipc/projects';
 import type { WorkshopRelationship } from '../ipc/workshop';
 import { describeWorkshopError } from './store';
+import { POSSIBILITY_KINDS } from './StoryPossibilities';
 
 type Envelope = Record<string, unknown>;
 const WORKSHOP_REQUEST_SCHEMA = 'story-workshop-request.v1';
@@ -70,6 +71,12 @@ export function RequestContext({ access, packetId }: { access: ProjectAccess; pa
     {voice && <section><h4>Voice sample in this request</h4><blockquote className="workshop-preserve-lines">{string(voice.sample)}</blockquote><p>{string(voice.authorInstruction)}</p><ul>{texts(voice.dimensions).map(dimension => <li key={dimension}>{dimension}</li>)}</ul><p>Source for style guidance only. The sample’s events are not adopted by this request.</p></section>}
     <p>Lens: {string(context.lens)} · Depth: {string(context.depth)}</p>
     <h4>Still open</h4><p className="workshop-preserve-lines">{string(context.stillOpen)}</p>
+    {Array.isArray(context.storyPossibilities) && context.storyPossibilities.length > 0 && <section aria-label="Story possibilities in this request"><h4>Story possibilities</h4><p className="small-copy">Frozen author questions and future intentions, not established events.</p><ul>{context.storyPossibilities.map((value, index) => {
+      if (!value || typeof value !== 'object') return null;
+      const item = value as Envelope;
+      const group = POSSIBILITY_KINDS.find(group => group.kind === item.kind);
+      return group && typeof item.text === 'string' ? <li key={index} className="workshop-preserve-lines"><strong>{group.label}:</strong> {item.text}</li> : null;
+    })}</ul></section>}
     {string(context.originalNotes) && <details><summary>Original notes in this request</summary><p className="workshop-preserve-lines">{string(context.originalNotes)}</p></details>}
     <h4>Direction</h4><p>{context.outsideDirection === true ? 'This request permits alternatives outside the current direction while keeping hard constraints.' : string(context.direction) || 'No direction was chosen.'}</p>
     <h4>Question and reason</h4><p>{string(context.focusQuestion)}</p><p>{string(context.focusReason)}</p>

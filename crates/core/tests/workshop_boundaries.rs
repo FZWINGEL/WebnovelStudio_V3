@@ -10,8 +10,8 @@ use webnovel_core::projects::story_context::{FreezeStory, SearchMode, SearchStor
 use webnovel_core::projects::workshop::{
     AdoptionMode, CandidateChoice, CandidateChoiceStatus, Lens, PreferencePolarity,
     PreferenceScope, PreferenceStrength, PreviewWorkshopAdoption, SaveWorkshop, SelectedDetail,
-    WorkshopAdoptionTarget, WorkshopBranchKind, WorkshopDepth, WorkshopPreference, WorkshopSession,
-    WorkshopState,
+    StoryPossibility, StoryPossibilityKind, StoryPossibilityStatus, WorkshopAdoptionTarget,
+    WorkshopBranchKind, WorkshopDepth, WorkshopPreference, WorkshopSession, WorkshopState,
 };
 use webnovel_core::projects::workshop_generation::{
     StartWorkshop, WorkshopExploration, from_session, metadata_from_instruction,
@@ -78,6 +78,7 @@ fn session(id: &str) -> WorkshopSession {
         original_notes: String::new(),
         active_run_id: None,
         relationship_id: None,
+        story_possibilities: Vec::new(),
     }
 }
 
@@ -1061,7 +1062,7 @@ fn hard_project_conflict_is_reported_and_neutral_local_preference_is_not_an_avoi
             family: "story".into(),
             meaning: "Prefer a patient build".into(),
             examples: String::new(),
-            timing: String::new(),
+            timing: "Across the first arc".into(),
             polarity: PreferencePolarity::Want,
             strength: PreferenceStrength::Hard,
             scope: PreferenceScope::Project,
@@ -1074,7 +1075,7 @@ fn hard_project_conflict_is_reported_and_neutral_local_preference_is_not_an_avoi
             family: "exploration".into(),
             meaning: "Do not rush this scene".into(),
             examples: String::new(),
-            timing: String::new(),
+            timing: "In this scene".into(),
             polarity: PreferencePolarity::Avoid,
             strength: PreferenceStrength::Soft,
             scope: PreferenceScope::Exploration,
@@ -1136,6 +1137,12 @@ fn hard_project_conflict_is_reported_and_neutral_local_preference_is_not_an_avoi
             .iter()
             .any(|preference| preference.starts_with("neutral Pacing"))
     );
+    assert!(generated
+        .context
+        .preferences
+        .iter()
+        .any(|preference| preference.contains("family=exploration")
+            && preference.contains("timing=In this scene")));
     assert!(
         !generated
             .context
@@ -1150,6 +1157,12 @@ fn hard_project_conflict_is_reported_and_neutral_local_preference_is_not_an_avoi
             .iter()
             .any(|constraint| constraint.starts_with("hard constraint: want Pacing"))
     );
+    assert!(generated
+        .context
+        .hard_constraints
+        .iter()
+        .any(|constraint| constraint.contains("family=story")
+            && constraint.contains("timing=Across the first arc")));
     assert!(
         !generated
             .context
@@ -1157,4 +1170,153 @@ fn hard_project_conflict_is_reported_and_neutral_local_preference_is_not_an_avoi
             .iter()
             .any(|constraint| constraint.contains("neutral Pacing"))
     );
+}
+
+#[test]
+fn story_possibilities_save_reopen_and_project_only_open_nonempty_context() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("story-possibilities-renderer".into()).unwrap();
+    let (mut state, mut workshop_session) = state_with_session("story-possibilities-session");
+    workshop_session.anchor_document_id = Some("workshop-story-possibilities".into());
+    workshop_session.working_text = "A sealed door waits beneath the station.".into();
+    workshop_session.story_possibilities = vec![
+        StoryPossibility {
+            id: "question-one".into(),
+            kind: StoryPossibilityKind::UnresolvedQuestion,
+            text: "Who sealed the door, and what are they protecting?".into(),
+            status: StoryPossibilityStatus::Open,
+        },
+        StoryPossibility {
+            id: "payoff-one".into(),
+            kind: StoryPossibilityKind::IntendedPayoff,
+            text: "The door may answer the station's oldest promise.".into(),
+            status: StoryPossibilityStatus::Archived,
+        },
+        StoryPossibility {
+            id: "arc-one".into(),
+            kind: StoryPossibilityKind::PossibleArc,
+            text: String::new(),
+            status: StoryPossibilityStatus::Open,
+        },
+    ];
+    state.sessions = vec![workshop_session.clone()];
+    let request = SaveWorkshop {
+        access: access.clone(),
+        operation_id: "story-possibilities-save".into(),
+        expected_version: "0".into(),
+        state: state.clone(),
+    };
+    let saved = project.save_workshop(request.clone()).unwrap();
+    assert_eq!(project.save_workshop(request).unwrap(), saved);
+    let stored = project.read_workshop(access.clone()).unwrap();
+    assert_eq!(stored.state.sessions[0].story_possibilities.len(), 3);
+    assert_eq!(stored.state.sessions[0].story_possibilities[2].text, "");
+
+    let chapter = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "story-possibilities-chapter".into(),
+            document_id: "story-possibilities-chapter".into(),
+            title: "Chapter one".into(),
+            kind: "chapter".into(),
+            body: body("chapter-block", "Chapter remains untouched."),
+        })
+        .unwrap();
+    let started = project
+        .start_workshop(StartWorkshop {
+            access: access.clone(),
+            operation_id: "story-possibilities-start".into(),
+            exploration: WorkshopExploration {
+                session_id: workshop_session.id.clone(),
+                expected_version: saved.version.clone(),
+                working_generation: workshop_session.working_generation.clone(),
+                action: "directions".into(),
+                instruction: "Explore the open possibilities.".into(),
+                selected_scope: "Whole working version".into(),
+                selected_text: String::new(),
+                working_selection: None,
+            },
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
+        })
+        .unwrap();
+    let metadata = metadata_from_instruction(
+        &started.packet.messages.last().unwrap().content,
+    )
+    .unwrap();
+    assert_eq!(metadata.story_possibilities.len(), 1);
+    assert_eq!(metadata.story_possibilities[0].id, "question-one");
+    assert!(started.packet.messages[0]
+        .content
+        .contains("tentative author questions and future author intentions"));
+    assert_eq!(
+        project
+            .document(access.clone(), chapter.head.document_id.clone())
+            .unwrap()
+            .head,
+        chapter.head
+    );
+
+    drop(project);
+    let reopened = ProjectSession::open(&temp.0).unwrap();
+    let reopened_access = reopened.attach("story-possibilities-reopened".into()).unwrap();
+    let reopened_state = reopened.read_workshop(reopened_access).unwrap().state;
+    assert_eq!(reopened_state.sessions[0].story_possibilities, workshop_session.story_possibilities);
+}
+
+#[test]
+fn story_possibilities_reject_duplicate_ids_and_oversized_text_but_allow_clear_rows() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("story-possibilities-validation".into()).unwrap();
+    let (mut state, _) = state_with_session("story-possibilities-validation-session");
+    let base = StoryPossibility {
+        id: "duplicate".into(),
+        kind: StoryPossibilityKind::PossibleArc,
+        text: "A possible direction".into(),
+        status: StoryPossibilityStatus::Open,
+    };
+    state.sessions[0].story_possibilities = vec![base.clone(), base];
+    let duplicate = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "story-possibilities-duplicate".into(),
+            expected_version: "0".into(),
+            state: state.clone(),
+        })
+        .unwrap_err();
+    assert!(duplicate.detail.contains("unique"));
+
+    state.sessions[0].story_possibilities = vec![StoryPossibility {
+        id: "oversized".into(),
+        kind: StoryPossibilityKind::IntendedPayoff,
+        text: "x".repeat(4001),
+        status: StoryPossibilityStatus::Open,
+    }];
+    let oversized = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "story-possibilities-oversized".into(),
+            expected_version: "0".into(),
+            state: state.clone(),
+        })
+        .unwrap_err();
+    assert!(oversized.detail.contains("4000"));
+
+    state.sessions[0].story_possibilities = vec![StoryPossibility {
+        id: "clearable".into(),
+        kind: StoryPossibilityKind::UnresolvedQuestion,
+        text: String::new(),
+        status: StoryPossibilityStatus::Open,
+    }];
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access,
+            operation_id: "story-possibilities-clearable".into(),
+            expected_version: "0".into(),
+            state,
+        })
+        .unwrap();
+    assert_eq!(saved.state.sessions[0].story_possibilities[0].text, "");
 }

@@ -13,6 +13,9 @@ export interface WorkshopPreference {
 export interface SelectedDetail { id: string; candidateId: string | null; text: string; fixed: boolean }
 export interface CandidateChoice { candidateId: string; status: 'saved' | 'rejected' | 'archived'; rationale: string; includeInContext: boolean }
 export interface WorkshopQuestion { id: string; text: string; reason: string; status: 'open' | 'notNow' | 'notRelevant' | 'keepMysterious'; unknownTo: 'author' | 'reader' | 'both' }
+export interface StoryPossibility {
+  id: string; kind: 'unresolvedQuestion' | 'intendedPayoff' | 'possibleArc'; text: string; status: 'open' | 'archived';
+}
 export interface WorkshopSession {
   id: string; title: string; lens: Lens; parentSessionId: string | null; branchKind: 'working' | 'whatIf';
   brief: string; direction: string; stillOpen: string; focusQuestion: string; focusReason: string;
@@ -21,6 +24,7 @@ export interface WorkshopSession {
   outsideDirection: boolean; includedDocumentIds: string[]; workingText: string; workingTitle: string;
   workingGeneration: string; selectedDetails: SelectedDetail[]; choices: CandidateChoice[]; questions: WorkshopQuestion[];
   composer: string; selectedScope: string; originalNotes: string; activeRunId: string | null;
+  storyPossibilities?: StoryPossibility[];
 }
 export interface WorkshopDecision {
   id: string; sessionId: string; title: string; documentId: string; revisionId: string; head: Head;

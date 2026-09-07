@@ -229,6 +229,28 @@ afterEach(async () => {
 });
 
 describe('Story Workshop behavioral contracts', () => {
+  it('persists planned story material separately and prepares exploration without generating or adopting events', async () => {
+    const intended = { id: 'planned-payoff', kind: 'intendedPayoff' as const, text: 'The broken compass may eventually lead them home.', status: 'open' as const };
+    const original = session({ lens: 'possibilities', workingText: 'Current prose stays intact.', storyPossibilities: [intended] });
+    await render(view({ state: state({ sessions: [original] }) }));
+    const panel = () => host.querySelector<HTMLElement>('[aria-label="Open story possibilities"]')!;
+    await act(async () => setValue(panel().querySelector('textarea')!, 'They may decide that home is somewhere new.'));
+    await act(async () => workshopHandle.current!.flush());
+    expect(currentView.state.sessions[0].storyPossibilities).toEqual([{ ...intended, text: 'They may decide that home is somewhere new.' }]);
+    expect(currentView.state.sessions[0].workingText).toBe(original.workingText);
+    expect(currentView.state.sessions[0].workingGeneration).toBe('1');
+    await act(async () => root.unmount()); root = createRoot(host);
+    await render(currentView);
+    await act(async () => exactButton('Prepare to explore').click());
+    await act(async () => workshopHandle.current!.flush());
+    expect(currentView.state.sessions[0].composer).toContain('intended payoff as an author intention, not an established event');
+    expect(currentView.state.sessions[0].composer).toContain('They may decide that home is somewhere new.');
+    expect(currentView.state.sessions[0].workingText).toBe(original.workingText);
+    expect(currentView.state.decisions).toEqual([]);
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
+  });
+
   it('keeps protection visible and removable after archiving a fixed story choice', async () => {
     const decision: WorkshopState['decisions'][number] = { id: 'fixed-choice', sessionId: 'session-1', title: 'Mixed motives', documentId: 'world-1', revisionId: 'protected-revision', head: project.documents[0].head, candidateIds: [], rationale: 'Preserve credible safety concerns.', status: 'chosen', fixed: true, protectedText: ['The guild tests dangerous repairs.'], access: 'authorRoom', supersedesId: null };
     await render(view({ state: state({ sessions: [session({ focusDocumentId: 'world-1' })], decisions: [decision] }) }));

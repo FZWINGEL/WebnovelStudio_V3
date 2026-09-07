@@ -95,6 +95,7 @@ export function CandidateBoard({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [detailOpen, setDetailOpen] = useState<Set<string>>(() => new Set());
   const [reviewed, setReviewed] = useState<Set<string>>(() => new Set());
+  const [detailReviewNeeded, setDetailReviewNeeded] = useState<Set<string>>(() => new Set());
   const [showRecovered, setShowRecovered] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [rationales, setRationales] = useState<Record<string, string>>({});
@@ -108,11 +109,15 @@ export function CandidateBoard({
     setExpanded(new Set());
     setDetailOpen(new Set());
     setReviewed(new Set());
+    setDetailReviewNeeded(new Set());
     setShowMore(false);
     setSelectionRanges({});
     setChoiceOverrides({});
   }, [runKey]);
-  useEffect(() => { setReviewed(new Set()); }, [reviewKey]);
+  useEffect(() => {
+    setReviewed(new Set());
+    setDetailReviewNeeded(new Set());
+  }, [reviewKey]);
 
   const output = result?.output;
   const candidateCards = useMemo(() => {
@@ -157,10 +162,20 @@ export function CandidateBoard({
     emitChoice(candidate, 'saved', existing?.status === 'saved' ? existing.includeInContext : false);
   }
 
+  function markReviewed(candidate: WorkshopCandidate) {
+    setReviewed(previous => new Set(previous).add(candidate.id));
+    setDetailReviewNeeded(previous => {
+      if (!previous.has(candidate.id)) return previous;
+      const next = new Set(previous);
+      next.delete(candidate.id);
+      return next;
+    });
+  }
+
   function developCandidate(candidate: WorkshopCandidate) {
     if (disabled || result?.action === 'moment') return;
     if (result?.stale && !reviewed.has(candidate.id)) {
-      setReviewed(previous => new Set(previous).add(candidate.id));
+      markReviewed(candidate);
       return;
     }
     onDevelop(candidate);
@@ -170,6 +185,10 @@ export function CandidateBoard({
     if (result?.action === 'moment') return;
     const exact = text;
     if (!exact) return;
+    if (result?.stale && !reviewed.has(candidate.id)) {
+      setDetailReviewNeeded(previous => new Set(previous).add(candidate.id));
+      return;
+    }
     onSelectDetail(candidate, exact);
   }
 
@@ -235,11 +254,12 @@ export function CandidateBoard({
         range={selectionRanges[candidate.id]}
         selectedDetails={selectedDetails}
         stale={result.stale}
+        detailReviewNeeded={detailReviewNeeded.has(candidate.id)}
         moment={moment}
         disabled={disabled}
         onToggleExpanded={() => setExpanded(previous => { const next = new Set(previous); next.has(candidate.id) ? next.delete(candidate.id) : next.add(candidate.id); return next; })}
         onToggleDetails={() => setDetailOpen(previous => { const next = new Set(previous); next.has(candidate.id) ? next.delete(candidate.id) : next.add(candidate.id); return next; })}
-        onReview={() => setReviewed(previous => new Set(previous).add(candidate.id))}
+        onReview={() => markReviewed(candidate)}
         onDevelop={() => developCandidate(candidate)}
         onSave={() => saveCandidate(candidate)}
         onReject={() => emitChoice(candidate, 'rejected')}
@@ -288,6 +308,7 @@ interface CandidateCardProps {
   range?: { start: number; end: number };
   selectedDetails: SelectedDetail[];
   stale: boolean;
+  detailReviewNeeded: boolean;
   moment: boolean;
   disabled: boolean;
   onToggleExpanded(): void;
@@ -311,7 +332,7 @@ interface CandidateCardProps {
 
 function CandidateCard({
   candidate, outputDimension, choice, expanded, detailsOpen, reviewed, rationale, range,
-  selectedDetails, stale, moment, disabled, onToggleExpanded, onToggleDetails, onReview, onDevelop,
+  selectedDetails, stale, detailReviewNeeded, moment, disabled, onToggleExpanded, onToggleDetails, onReview, onDevelop,
   onSave, onReject, onArchive, onRestore, onRationaleChange, onIncludeChange,
   onRememberSelection, onSelectRange, onSelectFull, onSelectParagraph, onExplore, onVoiceSample, onSteer,
 }: CandidateCardProps) {
@@ -332,7 +353,7 @@ function CandidateCard({
     <div className="candidate-card-actions">
       {moment
         ? <button type="button" className="primary-button" disabled={disabled} onClick={() => onVoiceSample(candidate.content)}>Propose voice guidance</button>
-        : <button type="button" className="primary-button" disabled={disabled} onClick={onDevelop}>{stale && !reviewed ? 'Review against current work' : 'Develop this'}</button>}
+        : <button type="button" className="primary-button" disabled={disabled} onClick={stale && !reviewed ? onReview : onDevelop}>{stale && !reviewed ? 'Review against current work' : 'Develop this'}</button>}
       <button type="button" className="secondary-button" disabled={disabled} aria-expanded={detailsOpen} onClick={onToggleDetails}>{moment ? 'Select a sample passage' : 'Select details'}</button>
       <button type="button" className="secondary-button" disabled={disabled} onClick={onSave}>Save for later</button>
     </div>
@@ -358,6 +379,7 @@ function CandidateCard({
     {detailsOpen && !moment && <section className="candidate-details" aria-label={`${candidate.title} details`}>
       <h4>Select exact details</h4>
       <p className="candidate-detail-note">Choose a whole paragraph or select an exact substring in the text area. The selected text is forwarded exactly as shown; expanding this section makes no model request.</p>
+      {detailReviewNeeded && <p className="candidate-detail-review" role="status">Use “Review against current work” above, then try selecting details again.</p>}
       <CandidateEvidence candidate={candidate} disabled={disabled} onSelectDetail={onSelectParagraph} onSteer={onSteer} />
       {onSteer && !!candidate.assumptions.length && <div className="candidate-assumption-actions"><h4>Decide which assumptions to explore</h4>{candidate.assumptions.map(assumption => <div key={assumption}><p>{assumption}</p><button disabled={disabled} onClick={() => onSelectParagraph(assumption)}>Keep this assumption in my tray</button><button disabled={disabled} onClick={() => onSteer(provisionalConsequenceInstruction(candidate, assumption, null, 'reject'))}>Reject this assumption</button><button disabled={disabled} onClick={() => onSteer(provisionalConsequenceInstruction(candidate, assumption, null, 'contrast'))}>Prepare a contrasting implication</button></div>)}</div>}
       <textarea className="candidate-exact-text" aria-label={`Exact text from ${candidate.title}`} readOnly value={candidate.content} onSelect={onRememberSelection} onKeyUp={onRememberSelection} onMouseUp={onRememberSelection} />

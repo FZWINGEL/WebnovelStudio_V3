@@ -71,6 +71,7 @@ fn session(id: &str) -> WorkshopSession {
         original_notes: String::new(),
         active_run_id: None,
         relationship_id: None,
+        story_possibilities: Vec::new(),
     }
 }
 

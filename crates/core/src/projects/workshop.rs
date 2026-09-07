@@ -19,9 +19,12 @@ const MAX_RELATIONSHIPS: usize = 512;
 const MAX_IMPACTS: usize = 1024;
 const MAX_PRESETS: usize = 128;
 const MAX_LIST: usize = 512;
+const MAX_STORY_POSSIBILITIES: usize = 64;
+const MAX_STORY_POSSIBILITY_TEXT_CHARS: usize = 4000;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_DETAIL_BYTES: usize = 32 * 1024;
 type WorkshopCandidateRecord = (String, String, Option<WorkshopRelationship>);
+type WorkshopAdoptionPreviewRecord = (String, String, String, i64, String, String, String, String);
 type WorkshopCandidateOutput = (String, WorkshopCandidate, Option<WorkshopRelationship>);
 
 fn storage_valid_id(value: &str) -> bool {
@@ -183,6 +186,30 @@ pub struct WorkshopQuestion {
     pub unknown_to: UnknownTo,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StoryPossibilityKind {
+    UnresolvedQuestion,
+    IntendedPayoff,
+    PossibleArc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StoryPossibilityStatus {
+    Open,
+    Archived,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoryPossibility {
+    pub id: String,
+    pub kind: StoryPossibilityKind,
+    pub text: String,
+    pub status: StoryPossibilityStatus,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopSession {
@@ -213,6 +240,8 @@ pub struct WorkshopSession {
     pub active_run_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relationship_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub story_possibilities: Vec<StoryPossibility>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -567,6 +596,33 @@ fn validate_id_list(values: &[String], label: &str) -> CoreResult<()> {
     Ok(())
 }
 
+pub(crate) fn validate_story_possibilities(values: &[StoryPossibility]) -> CoreResult<()> {
+    if values.len() > MAX_STORY_POSSIBILITIES {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A workshop session contains too many story possibilities.",
+        ));
+    }
+    let mut ids = HashSet::new();
+    for possibility in values {
+        check_id(&possibility.id)?;
+        if !ids.insert(&possibility.id) {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "Story possibility IDs must be unique within a workshop session.",
+            ));
+        }
+        if possibility.text.chars().count() > MAX_STORY_POSSIBILITY_TEXT_CHARS {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "Story possibility text must be at most 4000 characters.",
+            ));
+        }
+        validate_text(&possibility.text, "story possibility", MAX_TEXT_BYTES)?;
+    }
+    Ok(())
+}
+
 fn validate_kind(kind: &str) -> CoreResult<()> {
     if !["note", "character", "world", "theme", "hook", "scene"].contains(&kind) {
         return Err(CoreError::new(
@@ -826,6 +882,7 @@ fn validate_state_shape(state: &WorkshopState) -> CoreResult<()> {
                 "A workshop session contains too many entries.",
             ));
         }
+        validate_story_possibilities(&session.story_possibilities)?;
         let mut details = HashSet::new();
         for detail in &session.selected_details {
             check_id(&detail.id)?;
@@ -1007,6 +1064,25 @@ fn validate_state_shape(state: &WorkshopState) -> CoreResult<()> {
     Ok(())
 }
 
+fn validate_session_relationship_references(state: &WorkshopState) -> CoreResult<()> {
+    let relationship_ids: HashSet<&str> = state
+        .relationships
+        .iter()
+        .map(|relationship| relationship.id.as_str())
+        .collect();
+    for session in &state.sessions {
+        if let Some(relationship_id) = &session.relationship_id
+            && !relationship_ids.contains(relationship_id.as_str())
+        {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A workshop session references an unknown relationship.",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_state_references(
     connection: &Connection,
     state: &WorkshopState,
@@ -1047,6 +1123,7 @@ fn validate_state_references(
             ));
         }
     }
+    validate_session_relationship_references(state)?;
     for preference in &state.preferences {
         match preference.scope {
             PreferenceScope::Project => {
@@ -2827,6 +2904,7 @@ impl OwnedProject {
     pub(super) fn read_workshop(&self, access: ProjectAccess) -> CoreResult<WorkshopView> {
         self.check_access(&access)?;
         let (version, state) = read_state(self.db()?)?;
+        validate_session_relationship_references(&state)?;
         let source_epoch = current_context_epoch(self.db()?)?;
         Ok(WorkshopView {
             version: parse_stored_version(version)?,
@@ -3088,11 +3166,11 @@ impl OwnedProject {
             tx.commit().map_err(CoreError::uncertain)?;
             return Ok(ack);
         }
-        let preview_row: Option<(String, String, String, i64, String, String, String)> = tx
+        let preview_row: Option<WorkshopAdoptionPreviewRecord> = tx
             .query_row(
-                "SELECT project_id,operation_namespace,session_id,expected_version,request_json,preview_json,preview_hash FROM workshop_adoption_previews WHERE id=?",
+                "SELECT project_id,operation_namespace,session_id,expected_version,payload_hash,request_json,preview_json,preview_hash FROM workshop_adoption_previews WHERE id=?",
                 [preview_id.as_str()],
-                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?)),
+                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)),
             )
             .optional()?;
         let (
@@ -3100,6 +3178,7 @@ impl OwnedProject {
             namespace,
             session_id,
             expected,
+            request_payload_hash,
             request_json,
             preview_json,
             preview_hash,
@@ -3122,7 +3201,18 @@ impl OwnedProject {
             ));
         }
         let stored_request: PreviewWorkshopAdoption = serde_json::from_str(&request_json)?;
+        let canonical_request = serde_json::to_string(&crate::canonicalize_value(
+            serde_json::to_value(&stored_request)?,
+        ))?;
+        if sha256_hex(canonical_request.as_bytes()) != request_payload_hash {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "The adoption preview request failed its fingerprint check.",
+            ));
+        }
         if stored_request.session_id != session_id
+            || stored_request.expected_version != expected.to_string()
+            || stored_request.access.project_id != preview_project_id
             || stored_request.access.operation_namespace != namespace
         {
             return Err(CoreError::new(
@@ -3141,6 +3231,19 @@ impl OwnedProject {
             return Err(CoreError::new(
                 "InvalidProject",
                 "The adoption preview version is invalid.",
+            ));
+        }
+        let mut request_targets = stored_request.targets.clone();
+        validate_adoption_targets(
+            &tx,
+            &state,
+            &stored_request.session_id,
+            &mut request_targets,
+        )?;
+        if request_targets != preview.targets {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "The adoption preview targets no longer match its frozen request.",
             ));
         }
         let mut targets = preview.targets.clone();

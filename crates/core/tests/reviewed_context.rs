@@ -680,7 +680,7 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
     let schema: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 36);
+    assert_eq!(schema, 37);
     let retained_json: String = connection
         .query_row(
             "SELECT manifest_json FROM story_snapshots WHERE id=?",

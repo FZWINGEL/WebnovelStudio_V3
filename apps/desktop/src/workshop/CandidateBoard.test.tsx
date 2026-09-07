@@ -82,6 +82,30 @@ describe('CandidateBoard', () => {
     await click('Review against current work'); expect(develop).not.toHaveBeenCalled();
     await click('Develop this'); expect(develop).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }));
   });
+  it('gates stale detail selection behind the same explicit current-work review', async () => {
+    const select = vi.fn(); const stale = result([candidate('a')], { stale: true });
+    render({ result: stale, onSelectDetail: select });
+    await click('Select details');
+    await click('Select full direction');
+    expect(select).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Use “Review against current work” above');
+    await click('Review against current work');
+    await click('Select full direction');
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), stale.output!.candidates[0].content);
+  });
+  it('gates stale exact substring selection until the direction is reviewed', async () => {
+    const select = vi.fn(); render({ result: result([candidate('a')], { stale: true }), onSelectDetail: select });
+    await click('Select details');
+    const area = host.querySelector('.candidate-exact-text') as HTMLTextAreaElement;
+    const exact = 'direction for a'; const start = area.value.indexOf(exact);
+    area.setSelectionRange(start, start + exact.length);
+    await act(async () => area.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })));
+    await click('Select selected text');
+    expect(select).not.toHaveBeenCalled();
+    await click('Review against current work');
+    await click('Select selected text');
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), exact);
+  });
   it('requires another review after current author work changes', async () => {
     const stale = result([candidate('a')], { stale: true });
     const develop = vi.fn();
@@ -91,6 +115,25 @@ describe('CandidateBoard', () => {
     expect(button('Develop this')).toBeUndefined();
     expect(develop).not.toHaveBeenCalled();
     expect(button('Review against current work')).toBeDefined();
+  });
+  it('requires another detail review after current author work changes', async () => {
+    const stale = result([candidate('a')], { stale: true });
+    const select = vi.fn();
+    render({ result: stale, reviewKey: '1', onSelectDetail: select });
+    await click('Select details');
+    await click('Select full direction');
+    expect(select).not.toHaveBeenCalled();
+    await click('Review against current work');
+    await click('Select full direction');
+    expect(select).toHaveBeenCalledTimes(1);
+
+    render({ result: stale, reviewKey: '2', onSelectDetail: select });
+    await click('Select full direction');
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Use “Review against current work” above');
+    await click('Review against current work');
+    await click('Select full direction');
+    expect(select).toHaveBeenCalledTimes(2);
   });
 
   it('forwards the exact selected substring from the read-only text area', async () => {
