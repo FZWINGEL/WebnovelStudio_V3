@@ -25,6 +25,11 @@ const MAX_DETAIL_BYTES: usize = 8 * 1024;
 const MAX_CANDIDATE_BYTES: usize = 128 * 1024;
 const MAX_CANDIDATES: usize = 3;
 const VOICE_GUIDANCE_ACTION: &str = "voiceGuidance";
+// Situation packets created before the three-choice contract used the
+// generic refinement cardinality. Their immutable packet metadata is still
+// readable, so keep that exact instruction prefix as a compatibility marker
+// when projecting historical stored results.
+const LEGACY_SITUATION_INSTRUCTION_PREFIX: &str = "Use one concrete situation to offer three contrasting tentative choices by this person or relationship. Show commitments and pressure through behavior, not a required trauma or biography.";
 const VOICE_GUIDANCE_DIMENSIONS: [&str; 5] = [
     "Sentence density",
     "Viewpoint distance",
@@ -389,6 +394,11 @@ pub fn from_session_with_material(
             "The workshop working version changed before generation.",
         ));
     }
+    if is_legacy_situation_instruction(&exploration) {
+        return Err(invalid(
+            "This situation prompt is outdated. Refresh the situation prompt before starting a new request.",
+        ));
+    }
     validate_working_selection(&exploration, &session.working_text)?;
     let relationship = resolved_material.relationship;
     match (session.relationship_id.as_deref(), relationship.as_ref()) {
@@ -680,6 +690,13 @@ pub fn validate_workshop_output(
             3..=3,
             "A direction or voice-guidance workshop response must contain exactly three candidates.",
         )
+    } else if metadata.exploration.action == "situation"
+        && !is_legacy_situation_instruction(&metadata.exploration)
+    {
+        (
+            3..=3,
+            "A situation workshop response must contain exactly three tentative choices.",
+        )
     } else if metadata.exploration.action == "moment" {
         (
             2..=MAX_CANDIDATES,
@@ -843,6 +860,14 @@ fn is_direction_action(action: &str) -> bool {
 
 fn is_voice_guidance_action(action: &str) -> bool {
     action == VOICE_GUIDANCE_ACTION
+}
+
+fn is_legacy_situation_instruction(exploration: &WorkshopExploration) -> bool {
+    exploration.action == "situation"
+        && exploration
+            .instruction
+            .trim_start()
+            .starts_with(LEGACY_SITUATION_INSTRUCTION_PREFIX)
 }
 
 fn is_supported_action(action: &str) -> bool {
@@ -1364,6 +1389,119 @@ mod tests {
             .len(),
             1
         );
+    }
+
+    #[test]
+    fn situation_output_requires_three_choices_without_rejecting_legacy_stored_results() {
+        let response = |dimensions: &[&str]| {
+            serde_json::json!({
+                "schemaVersion": WORKSHOP_SCHEMA_VERSION,
+                "requestKind": "refinement",
+                "question": "What will they do under pressure?",
+                "questionReason": "Compare how the same situation reveals commitments.",
+                "dimension": "Choice",
+                "interpretation": {
+                    "youSaid": "A situation to test",
+                    "possibleDirection": "A tentative response",
+                    "stillOpen": "The author decides what fits"
+                },
+                "candidates": dimensions.iter().map(|dimension| candidate(dimension)).collect::<Vec<_>>()
+            })
+            .to_string()
+        };
+        let current = metadata("situation");
+        assert_eq!(
+            validate_workshop_output(
+                &response(&["withdraw", "negotiate", "confront"]),
+                &current,
+                "run-situation-three"
+            )
+            .unwrap()
+            .candidates
+            .len(),
+            3
+        );
+        for (dimensions, run_id) in [
+            (&["withdraw"][..], "run-situation-one"),
+            (&["withdraw", "negotiate"][..], "run-situation-two"),
+            (
+                &["withdraw", "negotiate", "confront", "leave"][..],
+                "run-situation-four",
+            ),
+        ] {
+            let error =
+                validate_workshop_output(&response(dimensions), &current, run_id).unwrap_err();
+            assert!(error.detail.contains("exactly three"));
+        }
+
+        let mut legacy = exploration("situation");
+        legacy.instruction = LEGACY_SITUATION_INSTRUCTION_PREFIX.into();
+        let legacy_context = context();
+        let legacy_instruction = workshop_instruction(&legacy, &legacy_context).unwrap();
+        let legacy_metadata = metadata_from_instruction(&legacy_instruction).unwrap();
+        assert_eq!(
+            validate_workshop_output(
+                &response(&["withdraw"]),
+                &legacy_metadata,
+                "run-situation-legacy"
+            )
+            .unwrap()
+            .candidates
+            .len(),
+            1
+        );
+
+        let session = WorkshopSession {
+            id: "session-1".into(),
+            title: "Situation test".into(),
+            lens: Lens::Possibilities,
+            parent_session_id: None,
+            branch_kind: WorkshopBranchKind::Working,
+            brief: "A bounded test exploration".into(),
+            direction: String::new(),
+            still_open: String::new(),
+            focus_question: String::new(),
+            focus_reason: String::new(),
+            focus_document_id: None,
+            anchor_document_id: Some("workshop-session-1".into()),
+            depth: WorkshopDepth::Develop,
+            outside_direction: false,
+            included_document_ids: Vec::new(),
+            working_text: String::new(),
+            working_title: String::new(),
+            working_generation: "generation-1".into(),
+            selected_details: Vec::new(),
+            choices: Vec::new(),
+            questions: Vec::new(),
+            composer: String::new(),
+            selected_scope: "Whole working version".into(),
+            original_notes: String::new(),
+            active_run_id: None,
+            relationship_id: None,
+        };
+        let state = WorkshopState {
+            schema_version: 1,
+            current_session_id: Some(session.id.clone()),
+            sessions: vec![session.clone()],
+            ..WorkshopState::default()
+        };
+        let mut new_request = start_request("situation");
+        new_request.exploration.instruction = LEGACY_SITUATION_INSTRUCTION_PREFIX.into();
+        new_request.exploration.selected_text.clear();
+        let error = from_session_with_material(
+            new_request,
+            &session,
+            &state,
+            Head {
+                document_id: "workshop-session-1".into(),
+                version: "7".into(),
+                body_hash: "hash".into(),
+            },
+            WorkshopResolvedMaterial::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "InvalidWorkshop");
+        assert!(error.detail.contains("Refresh the situation prompt"));
     }
 
     #[test]

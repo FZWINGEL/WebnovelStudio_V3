@@ -4,17 +4,36 @@
 
 WebnovelStudio is an AI writing application with the author directing, reviewing, and accepting the work. The author manages several projects, develops story material in any order, asks the AI to draft chapters or develop ideas, and gives whole-document or selected-text feedback. Manual writing and editing remain available throughout.
 
-The current Workshop controls keep consequence comparisons provisional, include
-relationship endpoint preferences, preserve protection when a choice is
-archived, and honor deliberate question dispositions. Request reconciliation
-stays with its originating exploration. Local checks pass 766 Rust and 544
-frontend tests at that checkpoint. The latest candidate-level Give alternatives
-action retains the comparison dimension and asks to preserve chosen invariants;
-its full check passes 766 Rust and 546 frontend tests. The preceding package
-passes its bounded installed lifecycle; this refinement needs a fresh package.
+The current recap/sample/context slice improves recaps, noncanon voice samples,
+and the preview of an exploration's context. Its full wrapper passed 767 Rust,
+557 frontend, and 11 tooling checks. A final unprotected-text label correction
+then passed 41 focused checks and TypeScript, followed by a fresh debug build.
+Hosted native and package qualification remain pending. The preceding controls checkpoint keeps
+consequence comparisons provisional, includes relationship endpoint preferences,
+preserves protection when a choice is archived, and honors deliberate question
+dispositions. The preceding candidate-level Give alternatives action retains
+its comparison dimension and asks to preserve chosen invariants; its full
+wrapper passed 766 Rust, 546 frontend, and 11 tooling checks. The preceding
+candidate checkpoint's package passes its bounded installed lifecycle.
 Complete Workshop native acceptance and author qualification remain open.
 The [Workshop ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md) records the exact
 evidence and remaining specification gates.
+
+The preceding candidate checkpoint's hosted native run passed 19 Workshop
+groups, including stale-preview refusal and author recovery, then stopped at an
+aliases textbox assertion that read before waiting for alias-load readiness;
+earlier save/DB/reopen checks passed, so it provides no alias-loss evidence.
+That checkpoint's package passed its bounded installed write/reopen, normal-close,
+and same-version retention lifecycle. Current local component headless checks at 1440 and 800 pixels pass with
+no overflow, page errors, model calls, or adoption calls. The integrated
+NextContext preview is covered by 57 focused UI checks across four files, and
+the preceding full wrapper passes 767 Rust / 557 frontend / 11 tooling checks
+plus formatting, strict Clippy, TypeScript, and production build. After the
+final protected-text condition correction, focused component and Workshop
+checks pass 41 tests and TypeScript. The final debug rebuild after that
+correction is recorded in the Windows qualification document and was not
+launched locally. Fresh full-wrapper, native, and package qualification for the
+current slice remain pending.
 
 **Workspace direction, 7 September 2026:** each project has persistent Chapters,
 Worldbuilding, Characters, Plot & themes, and Notes tabs. Chapters share one
@@ -67,8 +86,10 @@ is the only noted warning. The source-final headless fixture at
 `.local/workshop-aliases-qa/report.json` passed 1440 and 800 pixel checks for
 Unicode/transliterations, dirty navigation refusal, exactly one lost-ack
 current-read confirmation, close/reopen, and no AI or manuscript calls, errors,
-or overflow. The current native aliases harness awaits a fresh CI run. Full
-specification acceptance and author evaluation remain open. On source
+or overflow. The latest hosted native run reached 19 Workshop groups before the
+aliases textbox timing assertion described in the current evidence above; no
+alias-loss evidence or broad native pass is claimed. Full specification
+acceptance and author evaluation remain open. On source
 `e61640a4738128b9744919275e362e402c7ed0d8`, CI 34145255173 reached 21 groups
 before a W30 sidebar-close harness failure; later auxiliary suites were skipped,
 so no broad native pass is claimed.

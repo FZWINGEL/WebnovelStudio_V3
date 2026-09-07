@@ -5,27 +5,67 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-The latest slice adds **Give alternatives** to the candidate refinement menu,
-retains its exact candidate/dimension scope, and asks to preserve chosen
-invariants. Native coverage now includes stale exploration-preview refusal and
-explicit recovery. Local checks pass 766 Rust / 546 frontend / 11 tooling tests,
-and the debug build is refreshed. The author-study kit is ready; no author
-observations have been collected. Exact evidence is in the
+The current checkpoint improves recaps, keeps noncanon moments in a dedicated
+voice-sample flow, and adds an inspectable preview of the next exploration's
+context. Its full wrapper passed 767 Rust / 557 frontend / 11 tooling checks,
+formatting, strict Clippy, TypeScript, and production build. A final correction
+to the unprotected-text label then passed 41 focused component/Workshop checks
+and TypeScript; the debug executable was rebuilt afterward. Fresh hosted native
+and package qualification remain pending. The author-study kit is ready; no
+author observations have been collected. Exact evidence is in the
 [Workshop ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
 
-Current product source is `16540ea9f968e969f63b57817f36c2a187894516`. Fresh
-[CI 34153931657](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153931657)
-and [package run 34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
-are in progress on that exact source; no prior installer was reused.
+The preceding candidate-alternatives checkpoint is pushed at
+`16540ea9f968e969f63b57817f36c2a187894516`. [CI
+34153931657](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153931657)
+is terminal on that checkpoint: 19 Workshop groups passed, including stale
+exploration-preview refusal and author recovery, with `pageErrors=[]`; the run
+then stopped at aliases line 676 after reading the mounted textbox before
+waiting for alias-load readiness. The expected value was
+`Ash Wren\nLin Qiao\n林乔`; the observed value was empty. Earlier save/DB/reopen
+checks passed, so the evidence indicates a harness timing race and provides no
+alias-loss evidence. Failure evidence is under
+`.local/ci-workshop-34153931657/native-spike-evidence/workshop/`.
+[Package run 34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
+passed the bounded installed lifecycle for that checkpoint; it does not qualify
+the current uncommitted recap/sample/context slice.
 
-The current Workshop controls checkpoint preserves provisional consequence
+The follow-up native harness adds read-only aliases readiness waits for the new
+blank project, Writer reopen, and project reopen checks. Those additions are
+syntax-checked only; no fresh hosted native result qualifies them.
+
+The preceding Workshop controls checkpoint preserves provisional consequence
 comparisons, includes relationship endpoint preferences, keeps protection
 independent of decision status, respects question dispositions, and guards
-navigation while a request is being prepared or reconciled. The standard
+navigation while a request is being prepared or reconciled. That preceding
 wrapper passes 766 Rust / 544 frontend / 11 tooling checks; the final frontend
 check also passes 544 tests after the last UI corrections. Exact local,
 headless and native/package evidence is recorded in the
 [Workshop ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
+
+The current UI evidence also covers the recap's deliberate question reopening,
+untouched-draft label, and distinction between chosen historical material and
+current navigation. The noncanon moment card uses a dedicated voice-guidance
+route for whole samples and exact selections, with no Develop, tray, or generic
+include action; its saved sample is recoverable. Actual component headless checks
+at 1440 and 800 pixels pass with no overflow, page errors, model calls, or
+adoption calls. The integrated NextContext preview exposes current-element,
+selected details, chosen historical version/rationale, relevant fixed and
+archived material, and explicitly included alternative/source/stale metadata;
+it does not reconstruct a full historical body ahead of delivery. Focused UI
+checks pass 57 tests in four files (Recap 4, CandidateBoard 12, Workshop 37,
+NextContext 4). The preceding full wrapper passes 767 Rust tests (71 core unit,
+623 integration, 73 desktop; one intentional ignore), 557 frontend tests in 50
+files, and 11 tooling checks, plus formatting, strict Clippy, TypeScript, and
+production build. After the final protected-text condition correction, the
+focused component and Workshop checks pass 41 tests and TypeScript. The actual
+component headless fixture passes at 1440 and
+800 pixels with no state change, AI/adoption calls, page errors, or overflow;
+the 800-pixel screenshot was inspected (`.local/workshop-next-context-qa/report.json`).
+The final debug rebuild after the protected-text correction is recorded in the
+Windows qualification document; it was not launched locally. Fresh
+full-wrapper, native, and package qualification for this current slice remain
+pending.
 
 Product source is `fc3468829e037588458a05204c0ef92ddbea9cc2`. Its debug build
 succeeded. [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)

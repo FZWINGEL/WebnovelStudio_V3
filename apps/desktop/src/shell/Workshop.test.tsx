@@ -693,6 +693,24 @@ describe('Story Workshop behavioral contracts', () => {
     expect(onDocumentsChanged).not.toHaveBeenCalled();
   });
 
+  it('derives voice guidance from a noncanon result without moving its events into the working version or tray', async () => {
+    const source = session({ lens: 'themes', workingText: 'The author keeps this scene unchanged.' });
+    const sample = candidate('sample');
+    sample.content = 'A noncanon messenger reveals the ending.';
+    const moment = result({ action: 'moment', output: { ...result().output!, candidates: [sample, candidate('other')] } });
+    await render(view({ state: state({ sessions: [source] }), results: [moment] }));
+    expect([...host.querySelectorAll('.candidate-card button')].some(button => button.textContent === 'Develop this')).toBe(false);
+    await act(async () => exactButton('Propose voice guidance').click());
+    await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
+    expect(mocks.startWorkshop.mock.calls[0][2]).toMatchObject({ action: 'voiceGuidance', selectedText: sample.content, selectedScope: 'Voice qualities from the sample', workingSelection: null });
+    expect(mocks.startWorkshop.mock.calls[0][2].instruction).toContain('STYLE instructions only');
+    expect(currentView.state.sessions[0].workingText).toBe(source.workingText);
+    expect(currentView.state.sessions[0].selectedDetails).toEqual([]);
+    expect(currentView.state.decisions).toEqual([]);
+    expect(mocks.previewWorkshopAdoption).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+  });
+
   it('requires a convention and an explicit transformation before subversion generates', async () => {
     await render(view({ results: [result()] }));
     await act(async () => exactButton('Select details').click());

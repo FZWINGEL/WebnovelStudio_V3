@@ -29,6 +29,38 @@ beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('CandidateBoard', () => {
+  it('keeps noncanon moments as samples and sends only an explicitly selected passage for voice guidance', async () => {
+    const sample = candidate('sample', 'The bell rang twice. Mei hid the stolen key.');
+    const props = render({ result: result([sample], { action: 'moment' }) });
+    expect(button('Develop this')).toBeUndefined();
+    expect(button('Select details')).toBeUndefined();
+    await click('Save for later');
+    expect(props.onChoice).toHaveBeenLastCalledWith(expect.objectContaining({ candidateId: sample.id, status: 'saved', includeInContext: false }));
+    expect(host.querySelector('.candidate-include')).toBeNull();
+    await click('Select a sample passage');
+    expect(props.onExplore).not.toHaveBeenCalled();
+    expect(button('Select full direction')).toBeUndefined();
+    expect(button('Keep this implication in my tray')).toBeUndefined();
+    const area = host.querySelector<HTMLTextAreaElement>('.candidate-exact-text')!;
+    area.setSelectionRange(0, 'The bell rang twice.'.length);
+    await act(async () => area.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })));
+    await click('Propose voice guidance from selected text');
+    expect(props.onExplore).toHaveBeenCalledExactlyOnceWith('voiceGuidance', { ...sample, content: 'The bell rang twice.' });
+    expect(props.onSelectDetail).not.toHaveBeenCalled();
+    expect(props.onDevelop).not.toHaveBeenCalled();
+  });
+
+  it('does not reinstate context inclusion when a historical noncanon sample is saved again', async () => {
+    const sample = candidate('sample');
+    const props = render({ result: result([sample], { action: 'moment', stale: true }), choices: [{ candidateId: sample.id, status: 'saved', includeInContext: true, rationale: 'Keep the rhythm' }] });
+    expect(button('Review against current work')).toBeUndefined();
+    await click('Save for later');
+    expect(props.onChoice).toHaveBeenLastCalledWith({ candidateId: sample.id, status: 'saved', includeInContext: false, rationale: 'Keep the rhythm' });
+    await click('Propose voice guidance');
+    expect(props.onExplore).toHaveBeenCalledExactlyOnceWith('voiceGuidance', sample);
+    expect(props.onDevelop).not.toHaveBeenCalled();
+  });
+
   it('shows an active request as progress without treating it as a failed result', () => {
     render({ result: result([], { run: run({ status: 'running', dispatchState: 'delivered' }), output: null }) });
     expect(host.textContent).toContain('Exploration in progress');

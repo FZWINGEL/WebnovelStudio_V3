@@ -628,6 +628,7 @@ try {
   await workshopNamesSelect.selectOption(newCharacter.id);
   const workshopNames = page.getByRole('region', { name: 'Names and aliases', exact: true });
   await workshopNames.waitFor();
+  await workshopNames.locator('textarea:not([disabled])').waitFor();
   assert.equal(await workshopNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).inputValue(), '');
   await workshopNames.getByRole('button', { name: 'Close names', exact: true }).click();
 
@@ -655,6 +656,7 @@ try {
   await writer.getByRole('button', { name: 'Names & aliases', exact: true }).click();
   const reopenedWriterNames = page.getByRole('region', { name: 'Names and aliases', exact: true });
   await reopenedWriterNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).waitFor();
+  await reopenedWriterNames.locator('textarea:not([disabled])').waitFor();
   assert.equal(await reopenedWriterNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).inputValue(), savedNamesCanonical);
   await reopenedWriterNames.getByRole('button', { name: 'Close names', exact: true }).click();
   checks.push('Writer Names & aliases saves Unicode names and transliterations atomically while preserving the character and avoiding generation');
@@ -673,6 +675,9 @@ try {
   await resumedNamesSection.getByRole('combobox', { name: 'Saved person, place, or group', exact: true }).selectOption(newCharacter.id);
   const resumedNames = page.getByRole('region', { name: 'Names and aliases', exact: true });
   await resumedNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).waitFor();
+  // The textbox mounts before the asynchronous saved-alias read finishes.
+  // Waiting for the field to be editable observes that read, not just its DOM.
+  await resumedNames.locator('textarea:not([disabled])').waitFor();
   assert.equal(await resumedNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).inputValue(), savedNamesCanonical);
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, namesRunsBefore, 'Reopening names must not generate');
 
@@ -754,6 +759,43 @@ try {
   await page.screenshot({ path: resolve(output, 'voice-guidance-alternatives.png') });
   checks.push('Themes & tone sends a second explicit local-mock voice-guidance request, renders three STYLE alternatives, preserves the sample until author development, and keeps guidance out of adoption');
 
+  // Noncanon feel tests have their own sample route; their event text must
+  // never enter the working version just to ask for voice guidance.
+  const momentWorkingBefore = workshopState().state.sessions.find(session => session.id === voiceSessionId).workingText;
+  const momentDetailsBefore = structuredClone(workshopState().state.sessions.find(session => session.id === voiceSessionId).selectedDetails);
+  const momentRunsBefore = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  await voiceAction.selectOption('moment');
+  await page.getByRole('button', { name: 'Explore', exact: true }).click();
+  await waitForDatabase(() => database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n === momentRunsBefore + 1
+    && database.prepare('SELECT status FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get()?.status === 'completed', 'noncanon moment mock run');
+  await page.getByText('Noncanon experiment', { exact: true }).waitFor();
+  const momentCards = page.locator('.candidate-card');
+  assert([2, 3].includes(await momentCards.count()), 'A moment must provide two or three treatments');
+  assert.equal(await momentCards.getByRole('button', { name: 'Develop this', exact: true }).count(), 0);
+  const momentCard = momentCards.first();
+  await momentCard.getByRole('button', { name: 'Save for later', exact: true }).click();
+  await momentCard.getByRole('button', { name: 'Select a sample passage', exact: true }).click();
+  assert.equal(await momentCard.locator('.candidate-include').count(), 0);
+  assert.equal(await momentCard.getByRole('button', { name: 'Select full direction', exact: true }).count(), 0);
+  const momentSample = await momentCard.getByRole('textbox', { name: 'Noncanon sample', exact: true }).inputValue();
+  await page.screenshot({ path: resolve(output, 'noncanon-sample-actions.png') });
+  await momentCard.getByRole('button', { name: 'Propose voice guidance', exact: true }).click();
+  await waitForDatabase(() => database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n === momentRunsBefore + 2
+    && database.prepare('SELECT status FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get()?.status === 'completed', 'explicit moment-to-voice-guidance request');
+  await page.getByRole('heading', { name: 'Compare voice guidance', exact: true }).waitFor();
+  const momentVoiceRun = database.prepare('SELECT packet_id FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+  const momentVoiceMessages = JSON.parse(database.prepare('SELECT packet_json FROM context_packets WHERE id=?').get(momentVoiceRun.packet_id).packet_json).messages;
+  const momentVoiceEnvelope = momentVoiceMessages.map(message => { try { return JSON.parse(message.content).workshop; } catch { return null; } }).find(Boolean);
+  assert.equal(momentVoiceEnvelope.voiceGuidance.sample, momentSample);
+  assert.equal(momentVoiceEnvelope.voiceGuidance.adoptEvents, false);
+  const momentSessionAfter = workshopState().state.sessions.find(session => session.id === voiceSessionId);
+  assert.equal(momentSessionAfter.workingText, momentWorkingBefore);
+  assert.deepEqual(momentSessionAfter.selectedDetails, momentDetailsBefore);
+  assert.deepEqual(documents(), voiceDocumentsBefore);
+  assert.equal(workshopState().state.decisions.length, voiceDecisionsBefore);
+  assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, adoptionReceiptsBeforeVoice);
+  checks.push('Noncanon moments save as samples, expose no Develop/tray/context-include shortcut, and send the exact chosen sample only on an explicit voice-guidance request without changing the working version, selected details, documents, or decisions');
+
   const runsBeforeBible = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
   await page.getByRole('button', { name: 'Story Bible', exact: true }).click();
   const bible = page.getByRole('dialog', { name: 'Story Bible', exact: true });
@@ -796,6 +838,25 @@ try {
   assert.deepEqual(documents(), navigationDocuments, 'Lens navigation must leave all documents untouched');
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, navigationRuns);
   checks.push('All six development lenses are reachable and save their position without changing documents or generating');
+
+  const recapSessionId = workshopState().state.currentSessionId;
+  const recapQuestion = workshopState().state.sessions.find(session => session.id === recapSessionId).focusQuestion;
+  await page.getByRole('button', { name: 'Keep mysterious', exact: true }).click();
+  await waitForDatabase(() => workshopState()?.state.sessions.find(session => session.id === recapSessionId)?.questions.some(question => question.text === recapQuestion && question.status === 'keepMysterious'), 'intentional mystery save');
+  const stoppingRecap = page.locator('.workshop-recap');
+  if (!await stoppingRecap.evaluate(node => node.open)) await stoppingRecap.locator(':scope > summary').click();
+  const recapNextTime = stoppingRecap.locator('dt:has-text("Next time") + dd');
+  assert(!(await recapNextTime.innerText()).includes(recapQuestion), 'A stopping point must not recommend answering an intentional mystery');
+  assert((await stoppingRecap.innerText()).includes('Intentionally mysterious'), 'The mystery remains visible with its deliberate status');
+  await page.screenshot({ path: resolve(output, 'recap-preserves-intentional-mystery.png') });
+  await page.getByText('Open questions and intentional unknowns', { exact: true }).click();
+  const recapQuestionRecord = page.locator('.workshop-question-record').filter({ has: page.getByText(recapQuestion, { exact: true }) });
+  await recapQuestionRecord.getByRole('combobox', { name: /^State/ }).selectOption('open');
+  await waitForDatabase(() => workshopState()?.state.sessions.find(session => session.id === recapSessionId)?.questions.some(question => question.text === recapQuestion && question.status === 'open'), 'deliberate question reopening');
+  assert((await recapNextTime.innerText()).includes(recapQuestion), 'Explicit reopening makes the question available for the next session');
+  assert.deepEqual(documents(), navigationDocuments, 'Recap inspection and question dispositions must leave documents untouched');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, navigationRuns, 'Recaps and question reopening must not generate');
+  checks.push('The saved stopping point preserves an intentional mystery without recommending it, then restores the next question only after explicit reopening, with no generation or document writes');
 
   async function openPreferenceShelf() {
     const reveal = page.getByRole('button', { name: 'Working story & context', exact: true });

@@ -2,22 +2,65 @@
 
 The initial distribution target is Windows x64 with an NSIS installer. Package configuration is implementation work; a successful build alone does not establish offline installation, accessibility, recovery, or author-trial acceptance. Current executed evidence is recorded in [implementation status](IMPLEMENTATION_STATUS.md).
 
-## Current local development build — 7 September 2026
+## Preceding candidate-alternatives checkpoint — 7 September 2026
 
-The candidate-alternatives refinement built with `desktop.ps1 -Command spike`
-at `2026-09-07T18:54:27.2716088Z`. The executable is
+The candidate-alternatives refinement was built locally with
+`desktop.ps1 -Command spike` at `2026-09-07T18:54:27.2716088Z`. The retained
+local executable identity is
 `D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`, 48,686,592 bytes,
 ProductVersion `3.0.0`, SHA-256
 `e2f73f3f1b66a360deac4f7add25ceace9942bb48f9f4041768fe3bfb76b3d8f`.
 It was not launched locally. The build log and identity are
 `.local/workshop-alternatives-debug-build.log` and
-`.local/workshop-alternatives-debug-build.json`. It needs a fresh package run;
-the preceding installed lifecycle does not qualify this product change.
-The committed product source is `16540ea9f968e969f63b57817f36c2a187894516`;
-fresh [CI 34153931657](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153931657)
-and [package run 34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
-are in progress against it. No product files changed between the successful
-local build and that commit.
+`.local/workshop-alternatives-debug-build.json`. It is an earlier local build
+identity; hosted qualification below covers the exact committed source.
+The preceding committed product source is
+`16540ea9f968e969f63b57817f36c2a187894516`.
+[CI 34153931657](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153931657)
+is terminal after 19 Workshop groups passed and the aliases immediate-read
+failure at line 676; [package run
+34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
+passed its bounded installed lifecycle on that preceding source.
+
+The native failure read the aliases textbox immediately at mount, before waiting
+for alias-load readiness: expected `Ash Wren\nLin Qiao\n林乔`, actual empty.
+Earlier save/DB/reopen checks passed, so this indicates a harness timing race;
+it provides no alias-loss evidence. `pageErrors=[]`, and the evidence under
+`.local/ci-workshop-34153931657/native-spike-evidence/workshop/` contains no
+alias-loss observation. This does not establish a broad native pass or qualify
+the current uncommitted recap/sample/context slice.
+
+## Current uncommitted recap/sample/context debug build — 7 September 2026
+
+The current debug executable was rebuilt after the protected-text correction
+from the uncommitted recap/sample/context sources. It is
+`D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`, 48,690,688 bytes,
+ProductVersion `3.0.0`, SHA-256
+`360e4e9d1e2614dc1cd2887b714ebb1785d8e65148f25b917bded40e0bc86abe`.
+It was not launched locally. The build log and identity are retained in
+`.local/workshop-context-samples-debug-build.log` and
+`.local/workshop-context-samples-debug-build.json`. This debug identity has no
+hosted native or package qualification yet; the new product commit and fresh
+qualification runs remain pending.
+
+## Preceding checkpoint installed package — 7 September 2026
+
+Package run [34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
+passed on the clean preceding source
+`16540ea9f968e969f63b57817f36c2a187894516`. ProductVersion
+is `3.0.0`; installer SHA-256 is
+`f0a1ca379a1239d89c92fcc0b0155ba613e7c96f90ccb5187700093ee32057f0`.
+The hosted Windows Server 2025 runner installed the release, created and wrote
+a synthetic project/document, read the text after reopen, and closed normally.
+Default uninstall and same-version reinstall retained the project, document,
+and text. Installer and uninstall exit codes were 0, `errors=[]`, and no forced
+process stop occurred. The result records `upgradeQualification=false`.
+Build metadata and lifecycle evidence are retained under
+`.local/package-workshop-34153949693/`. This is bounded installed lifecycle
+evidence, not qualification of the current uncommitted recap/sample/context
+slice, Workshop-native acceptance, offline/no-runtime installation, a true
+upgrade, live-provider behavior, or author-study qualification. A fresh package
+is required after the current slice is committed.
 
 ## Previous controls development build
 

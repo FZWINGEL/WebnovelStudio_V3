@@ -146,7 +146,7 @@ export function CandidateBoard({
       status,
       rationale: rationales[candidate.id]?.trim() ?? existing?.rationale ?? '',
       // A rejection or archive can never enter a future context packet.
-      includeInContext: status === 'saved' ? includeInContext : false,
+      includeInContext: status === 'saved' && result?.action !== 'moment' ? includeInContext : false,
     };
     setChoiceOverrides(previous => ({ ...previous, [candidate.id]: choice }));
     onChoice(choice);
@@ -158,7 +158,7 @@ export function CandidateBoard({
   }
 
   function developCandidate(candidate: WorkshopCandidate) {
-    if (disabled) return;
+    if (disabled || result?.action === 'moment') return;
     if (result?.stale && !reviewed.has(candidate.id)) {
       setReviewed(previous => new Set(previous).add(candidate.id));
       return;
@@ -167,6 +167,7 @@ export function CandidateBoard({
   }
 
   function selectExact(candidate: WorkshopCandidate, text: string) {
+    if (result?.action === 'moment') return;
     const exact = text;
     if (!exact) return;
     onSelectDetail(candidate, exact);
@@ -216,7 +217,7 @@ export function CandidateBoard({
     </header>
 
     {(result.stale || moment) && <div className="candidate-board-notice" role="status">
-      {result.stale ? 'This result used earlier context or a different working version. Review each direction against current work before developing it; changed sources or relationship scope require a fresh proposal before adoption.' : 'This is a feel test only. Its events stay outside the story until you explicitly adopt them.'}
+      {result.stale ? 'This result used earlier context or a different working version. Review each direction against current work before developing it; changed sources or relationship scope require a fresh proposal before adoption.' : 'This is a feel test only. Save a sample or select a passage to propose voice guidance. Its events stay outside your working version and story context.'}
     </div>}
 
     <div className="candidate-dimension" aria-label="Comparison dimension"><span>Comparing on</span><strong>{output.dimension}</strong><span>{output.interpretation.possibleDirection}</span></div>
@@ -234,6 +235,7 @@ export function CandidateBoard({
         range={selectionRanges[candidate.id]}
         selectedDetails={selectedDetails}
         stale={result.stale}
+        moment={moment}
         disabled={disabled}
         onToggleExpanded={() => setExpanded(previous => { const next = new Set(previous); next.has(candidate.id) ? next.delete(candidate.id) : next.add(candidate.id); return next; })}
         onToggleDetails={() => setDetailOpen(previous => { const next = new Set(previous); next.has(candidate.id) ? next.delete(candidate.id) : next.add(candidate.id); return next; })}
@@ -253,6 +255,7 @@ export function CandidateBoard({
         onSelectFull={() => selectExact(candidate, candidate.content)}
         onSelectParagraph={text => selectExact(candidate, text)}
         onExplore={action => onExplore(action, candidate)}
+        onVoiceSample={text => onExplore('voiceGuidance', { ...candidate, content: text })}
         onSteer={onSteer ? instruction => onSteer(candidate, instruction) : undefined}
       />)}
     </div>
@@ -285,6 +288,7 @@ interface CandidateCardProps {
   range?: { start: number; end: number };
   selectedDetails: SelectedDetail[];
   stale: boolean;
+  moment: boolean;
   disabled: boolean;
   onToggleExpanded(): void;
   onToggleDetails(): void;
@@ -301,14 +305,15 @@ interface CandidateCardProps {
   onSelectFull(): void;
   onSelectParagraph(text: string): void;
   onExplore(action: string): void;
+  onVoiceSample(text: string): void;
   onSteer?(instruction: string): void;
 }
 
 function CandidateCard({
   candidate, outputDimension, choice, expanded, detailsOpen, reviewed, rationale, range,
-  selectedDetails, stale, disabled, onToggleExpanded, onToggleDetails, onReview, onDevelop,
+  selectedDetails, stale, moment, disabled, onToggleExpanded, onToggleDetails, onReview, onDevelop,
   onSave, onReject, onArchive, onRestore, onRationaleChange, onIncludeChange,
-  onRememberSelection, onSelectRange, onSelectFull, onSelectParagraph, onExplore, onSteer,
+  onRememberSelection, onSelectRange, onSelectFull, onSelectParagraph, onExplore, onVoiceSample, onSteer,
 }: CandidateCardProps) {
   const preview = shortContent(candidate.content);
   const selectedText = range ? candidate.content.slice(range.start, range.end) : '';
@@ -325,12 +330,15 @@ function CandidateCard({
     {expanded && !detailsOpen && <CandidateEvidence candidate={candidate} compact />}
 
     <div className="candidate-card-actions">
-      <button type="button" className="primary-button" disabled={disabled} onClick={onDevelop}>{stale && !reviewed ? 'Review against current work' : 'Develop this'}</button>
-      <button type="button" className="secondary-button" disabled={disabled} aria-expanded={detailsOpen} onClick={onToggleDetails}>Select details</button>
+      {moment
+        ? <button type="button" className="primary-button" disabled={disabled} onClick={() => onVoiceSample(candidate.content)}>Propose voice guidance</button>
+        : <button type="button" className="primary-button" disabled={disabled} onClick={onDevelop}>{stale && !reviewed ? 'Review against current work' : 'Develop this'}</button>}
+      <button type="button" className="secondary-button" disabled={disabled} aria-expanded={detailsOpen} onClick={onToggleDetails}>{moment ? 'Select a sample passage' : 'Select details'}</button>
       <button type="button" className="secondary-button" disabled={disabled} onClick={onSave}>Save for later</button>
     </div>
 
-    {status === 'saved' && <label className="candidate-include"><input type="checkbox" checked={!!choice?.includeInContext} disabled={disabled} onChange={event => onIncludeChange(event.target.checked)} />Include this saved direction in the next exploration</label>}
+    {status === 'saved' && !moment && <label className="candidate-include"><input type="checkbox" checked={!!choice?.includeInContext} disabled={disabled} onChange={event => onIncludeChange(event.target.checked)} />Include this saved direction in the next exploration</label>}
+    {status === 'saved' && moment && <p className="small-copy">Saved as a noncanon voice sample. It is available here for an explicit voice-guidance request.</p>}
 
     <details className="candidate-rationale"><summary>Add a reason for this choice</summary>
       <label htmlFor={`candidate-rationale-${candidate.id}`}>Optional reason for saving or rejecting</label>
@@ -340,7 +348,14 @@ function CandidateCard({
 
     <details className="candidate-more-actions"><summary>More actions</summary><div className="candidate-more-actions-list"><button type="button" disabled={disabled} onClick={onReject}>Reject</button><button type="button" disabled={disabled} onClick={onArchive}>Archive</button>{status && status !== 'saved' && <button type="button" disabled={disabled} onClick={onRestore}>Restore for exploration</button>}</div></details>
 
-    {detailsOpen && <section className="candidate-details" aria-label={`${candidate.title} details`}>
+    {detailsOpen && moment && <section className="candidate-details" aria-label={`Voice sample from ${candidate.title}`}>
+      <p>Highlight the exact passage whose voice you want to explore. The request proposes style guidance for your review.</p>
+      <label htmlFor={`candidate-sample-${candidate.id}`}>Noncanon sample</label>
+      <textarea id={`candidate-sample-${candidate.id}`} className="candidate-exact-text" readOnly value={candidate.content} onSelect={onRememberSelection} onMouseUp={onRememberSelection} onKeyUp={onRememberSelection} />
+      {selectedText && <blockquote>{selectedText}</blockquote>}
+      <button type="button" disabled={disabled || !selectedText} onClick={() => onVoiceSample(selectedText)}>Propose voice guidance from selected text</button>
+    </section>}
+    {detailsOpen && !moment && <section className="candidate-details" aria-label={`${candidate.title} details`}>
       <h4>Select exact details</h4>
       <p className="candidate-detail-note">Choose a whole paragraph or select an exact substring in the text area. The selected text is forwarded exactly as shown; expanding this section makes no model request.</p>
       <CandidateEvidence candidate={candidate} disabled={disabled} onSelectDetail={onSelectParagraph} onSteer={onSteer} />
