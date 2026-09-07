@@ -16,17 +16,21 @@ const relationship = {
   sourceHeads: [{ documentId: 'historical-from-id', version: '3', bodyHash: 'from-hash' }, { documentId: 'historical-to-id', version: '7', bodyHash: 'to-hash' }],
 };
 
-function packet(element: string, frozenRelationship?: typeof relationship): Packet {
+type PacketMessageOptions = { schemaVersion?: string; authorBrief?: string; stillOpen?: string };
+function packetMessage(element: string, frozenRelationship?: typeof relationship, options: PacketMessageOptions = {}) {
+  const value: Record<string, unknown> = {
+    schemaVersion: options.schemaVersion ?? 'story-workshop-request.v1',
+    workshop: { currentElement: element, stillOpen: options.stillOpen ?? '', relationship: frozenRelationship },
+  };
+  if (options.authorBrief !== undefined) value.authorBrief = options.authorBrief;
+  return { role: 'user', content: JSON.stringify(value) };
+}
+function packet(element: string, frozenRelationship?: typeof relationship, options: PacketMessageOptions = {}): Packet {
   return {
-    messages: [{
-      role: 'user',
-      content: JSON.stringify({
-        schemaVersion: 'story-workshop-request.v1',
-        workshop: { currentElement: element, relationship: frozenRelationship },
-      }),
-    }],
+    messages: [packetMessage(element, frozenRelationship, options)],
   } as Packet;
 }
+function packetWithMessages(messages: Array<{ role: string; content: string }>): Packet { return { messages } as Packet; }
 
 let host: HTMLDivElement;
 let root: Root;
@@ -78,6 +82,40 @@ describe('RequestContext', () => {
     expect(host.textContent).not.toContain('Relationship in this request');
   });
 
+  it('prefers the final recognized request envelope and keeps its author brief and still-open metadata separate', async () => {
+    const earlier = packetMessage('Earlier context envelope', undefined, { schemaVersion: 'story-workshop-context.v1', authorBrief: 'Earlier brief', stillOpen: 'Earlier open question' });
+    const final = packetMessage('Final request element', undefined, { authorBrief: 'Exact final author brief', stillOpen: 'Final open question' });
+    const messages = [earlier, final];
+    const original = structuredClone(messages);
+    prepared.mockResolvedValue(packetWithMessages(messages));
+    act(() => root.render(<RequestContext access={access} packetId="packet-final-request" />));
+    await settle();
+
+    expect(host.textContent).toContain('Exact final author brief');
+    expect(host.textContent).toContain('Final request element');
+    expect(host.textContent).toContain('Final open question');
+    expect(host.textContent).not.toContain('Earlier context envelope');
+    expect(host.textContent).not.toContain('Earlier brief');
+    expect(host.textContent).not.toContain('Earlier open question');
+    expect(messages).toEqual(original);
+  });
+
+  it('omits an explicitly empty author brief and identifies an absent legacy brief without rebuilding it', async () => {
+    prepared.mockResolvedValue(packet('Current element with an empty brief', undefined, { authorBrief: '', stillOpen: 'Nothing else is decided.' }));
+    act(() => root.render(<RequestContext access={access} packetId="packet-empty-brief" />));
+    await settle();
+    expect(host.textContent).toContain('Current element with an empty brief');
+    expect(host.textContent).toContain('Nothing else is decided.');
+    expect(host.textContent).not.toContain('Author brief');
+
+    prepared.mockResolvedValue(packet('Legacy element without a brief field', undefined, { stillOpen: 'Legacy open question.' }));
+    act(() => root.render(<RequestContext access={access} packetId="packet-absent-brief" />));
+    await settle();
+    expect(host.textContent).toContain('Author brief was not separately recorded in this request.');
+    expect(host.textContent).toContain('Legacy element without a brief field');
+    expect(host.textContent).toContain('Legacy open question.');
+  });
+
   it('ignores a late immutable read after switching to another packet', async () => {
     let resolveFirst!: (value: Packet) => void;
     let resolveSecond!: (value: Packet) => void;
@@ -88,13 +126,17 @@ describe('RequestContext', () => {
 
     act(() => root.render(<RequestContext access={access} packetId="packet-first" />));
     act(() => root.render(<RequestContext access={access} packetId="packet-second" />));
-    await act(async () => resolveSecond(packet('The current packet has no relationship.')));
+    await act(async () => resolveSecond(packet('The current packet has no relationship.', undefined, { authorBrief: 'Current packet brief', stillOpen: 'Current packet open question.' })));
     await settle();
-    await act(async () => resolveFirst(packet('Stale packet', relationship)));
+    await act(async () => resolveFirst(packet('Stale packet', relationship, { authorBrief: 'Stale packet brief', stillOpen: 'Stale packet open question.' })));
     await settle();
 
     expect(host.textContent).toContain('The current packet has no relationship.');
+    expect(host.textContent).toContain('Current packet brief');
+    expect(host.textContent).toContain('Current packet open question.');
     expect(host.textContent).not.toContain('Relationship in this request');
     expect(host.textContent).not.toContain('Mira trusts the archive with the map.');
+    expect(host.textContent).not.toContain('Stale packet brief');
+    expect(host.textContent).not.toContain('Stale packet open question.');
   });
 });

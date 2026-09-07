@@ -170,6 +170,72 @@ fn context_candidates(kind: &str, contents: &[&str]) -> String {
 }
 
 #[test]
+fn corrected_brief_reaches_new_requests_without_rewriting_prose_or_historical_packets() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("interpretation".into()).unwrap();
+    let (mut state, _) = state_with_session("interpretation-session");
+    state.sessions[0].anchor_document_id = Some("workshop-interpretation".into());
+    state.sessions[0].brief = "First author brief".into();
+    state.sessions[0].working_text = "Before. Editable passage. After.".into();
+    state.sessions[0].original_notes = "Original notes stay as evidence.".into();
+    save_state(&project, &access, "interpretation-state", "0", state);
+    let mut first_request = context_request(&project, &access, "interpretation-first", "concrete", "100000");
+    first_request.exploration.selected_text = "Editable passage.".into();
+    first_request.exploration.selected_scope = "Selected passage".into();
+    first_request.exploration.working_selection = Some(
+        webnovel_core::projects::workshop_generation::WorkshopWorkingSelection {
+            from: 8,
+            to: 25,
+            text: "Editable passage.".into(),
+        },
+    );
+    let first = project.start_workshop(first_request.clone()).unwrap();
+    let first_packet = serde_json::to_value(&first.packet).unwrap();
+    let first_instruction = first.packet.messages.last().unwrap().content.clone();
+    let first_envelope: Value = serde_json::from_str(&first_instruction).unwrap();
+    assert_eq!(first_envelope["authorBrief"], "First author brief");
+    assert_eq!(first_envelope["currentElement"], "Before. Editable passage. After.");
+    complete_context_fixture(&project, &first, context_candidates("refinement", &["A revised passage."]));
+
+    let mut view = project.read_workshop(access.clone()).unwrap();
+    view.state.sessions[0].brief = "Corrected author attraction, independent of the prose.".into();
+    view.state.sessions[0].direction = "Shared skills rather than a chosen savior.".into();
+    view.state.sessions[0].still_open = "Who pays the cost remains open.".into();
+    save_state(&project, &access, "interpretation-correction", &view.version, view.state);
+    let replay = project.start_workshop(first_request.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&replay.packet).unwrap(), first_packet);
+
+    drop(project);
+    let reopened = ProjectSession::open(&temp.0).unwrap();
+    let access = reopened.attach("interpretation-reopened".into()).unwrap();
+    let view = reopened.read_workshop(access.clone()).unwrap();
+    assert_eq!(view.state.sessions[0].working_text, "Before. Editable passage. After.");
+    assert_eq!(view.state.sessions[0].working_generation, "0");
+    assert_eq!(view.state.sessions[0].original_notes, "Original notes stay as evidence.");
+    assert!(view.results[0].output.is_some());
+    first_request.access = access.clone();
+    assert_eq!(serde_json::to_value(&reopened.start_workshop(first_request).unwrap().packet).unwrap(), first_packet);
+
+    let corrected = reopened.start_workshop(context_request(&reopened, &access, "interpretation-corrected", "concrete", "100000")).unwrap();
+    let corrected_envelope: Value = serde_json::from_str(&corrected.packet.messages.last().unwrap().content).unwrap();
+    assert_eq!(corrected_envelope["authorBrief"], "Corrected author attraction, independent of the prose.");
+    assert_eq!(corrected_envelope["direction"], "Shared skills rather than a chosen savior.");
+    assert_eq!(corrected_envelope["stillOpen"], "Who pays the cost remains open.");
+    assert_eq!(corrected_envelope["currentElement"], first_envelope["currentElement"]);
+    complete_context_fixture(&reopened, &corrected, context_candidates("refinement", &["Another possibility."]));
+
+    let mut view = reopened.read_workshop(access.clone()).unwrap();
+    view.state.sessions[0].brief.clear();
+    save_state(&reopened, &access, "interpretation-clear", &view.version, view.state);
+    let cleared = reopened.start_workshop(context_request(&reopened, &access, "interpretation-cleared", "concrete", "100000")).unwrap();
+    let cleared_envelope: Value = serde_json::from_str(&cleared.packet.messages.last().unwrap().content).unwrap();
+    assert_eq!(cleared_envelope["authorBrief"], "");
+    assert_eq!(cleared_envelope["currentElement"], first_envelope["currentElement"]);
+    assert_eq!(metadata_from_instruction(&first_instruction).unwrap().exploration.working_selection.unwrap().text, "Editable passage.");
+}
+
+#[test]
 fn one_candidate_moment_is_retained_as_invalid_raw_output() {
     let temp = TempProject::new();
     let project = temp.project();

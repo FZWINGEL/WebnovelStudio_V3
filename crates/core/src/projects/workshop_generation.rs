@@ -100,6 +100,11 @@ pub struct WorkshopContext {
     pub lens: Lens,
     pub depth: WorkshopDepth,
     pub current_element: String,
+    /// Author-corrected interpretation, separate from the exact editable prose.
+    /// This travels in the extensible final instruction, not the strict
+    /// metadata projection used to validate historical candidate scopes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_brief: Option<String>,
     pub direction: String,
     pub still_open: String,
     pub focus_question: String,
@@ -181,6 +186,9 @@ impl WorkshopPacketMetadata {
             validate_text(text, MAX_TEXT_BYTES, "workshop context")?;
         }
         validate_text(&context.original_notes, MAX_TEXT_BYTES, "original notes")?;
+        if let Some(brief) = &context.author_brief {
+            validate_text(brief, MAX_TEXT_BYTES, "author brief")?;
+        }
         if context.questions.len() > 256 {
             return Err(invalid("The workshop question list is too large."));
         }
@@ -505,6 +513,7 @@ pub fn from_session_with_material(
         lens: session.lens,
         depth: session.depth,
         current_element,
+        author_brief: Some(session.brief.clone()),
         direction: session.direction.clone(),
         still_open: session.still_open.clone(),
         focus_question: session.focus_question.clone(),
@@ -537,7 +546,7 @@ fn workshop_instruction(
     exploration: &WorkshopExploration,
     context: &WorkshopContext,
 ) -> CoreResult<String> {
-    let value = serde_json::json!({
+    let mut value = serde_json::json!({
         "schemaVersion": "story-workshop-request.v1",
         "workshop": WorkshopPacketMetadata::from_context(exploration.clone(), context)?,
         "action": exploration.action,
@@ -551,6 +560,16 @@ fn workshop_instruction(
         "focusReason": context.focus_reason,
         "outsideDirection": context.outside_direction,
     });
+    if let Some(brief) = &context.author_brief {
+        // The final instruction is frozen and hash-bound verbatim. Keeping this
+        // author text outside the strict scope metadata preserves old readers
+        // and historical packet bytes without a new storage format.
+        value["authorBrief"] = Value::String(brief.clone());
+        value["authorBriefInstruction"] = Value::String(
+            "Use authorBrief as the author's current description of the starting idea; it may correct an earlier AI interpretation. Keep it separate from currentElement (editable prose), originalNotes (preserved evidence), and confirmed preferences. An empty brief means the author cleared it; do not restore an earlier interpretation. This brief does not establish canon or permanent preferences."
+                .into(),
+        );
+    }
     let encoded = serde_json::to_string(&value)?;
     if encoded.len() > MAX_TEXT_BYTES {
         return Err(invalid("The workshop request instruction is too large."));
@@ -566,6 +585,12 @@ pub fn metadata_from_instruction(instruction: &str) -> CoreResult<WorkshopPacket
         .map_err(|error| invalid(&format!("The workshop instruction is not JSON: {error}")))?;
     if value.get("schemaVersion").and_then(Value::as_str) != Some("story-workshop-request.v1") {
         return Err(invalid("The workshop instruction has an unknown schema."));
+    }
+    if let Some(brief) = value.get("authorBrief") {
+        let brief = brief
+            .as_str()
+            .ok_or_else(|| invalid("The workshop author brief must be text."))?;
+        validate_text(brief, MAX_TEXT_BYTES, "author brief")?;
     }
     let metadata = value
         .get("workshop")
@@ -1182,6 +1207,7 @@ mod tests {
             lens: Lens::Possibilities,
             depth: WorkshopDepth::Develop,
             current_element: "The current story element".into(),
+            author_brief: None,
             direction: "An editable direction".into(),
             still_open: "Its consequences remain open".into(),
             focus_question: "What changes next?".into(),
@@ -1286,6 +1312,68 @@ mod tests {
         tampered["selectedText"] = Value::String("renderer tamper".into());
         let error = metadata_from_instruction(&tampered.to_string()).unwrap_err();
         assert_eq!(error.code, "InvalidWorkshop");
+    }
+
+    #[test]
+    fn author_brief_is_frozen_separately_without_changing_legacy_scope_metadata() {
+        let exploration = exploration("concrete");
+        let legacy_context = context();
+        let legacy = workshop_instruction(&exploration, &legacy_context).unwrap();
+        let legacy_metadata = metadata_from_instruction(&legacy).unwrap();
+        assert!(
+            serde_json::from_str::<Value>(&legacy)
+                .unwrap()
+                .get("authorBrief")
+                .is_none()
+        );
+
+        for brief in ["An author correction that is not replacement prose.", ""] {
+            let mut corrected = legacy_context.clone();
+            corrected.author_brief = Some(brief.into());
+            let instruction = workshop_instruction(&exploration, &corrected).unwrap();
+            let envelope: Value = serde_json::from_str(&instruction).unwrap();
+            assert_eq!(envelope["authorBrief"], brief);
+            assert_eq!(envelope["currentElement"], legacy_context.current_element);
+            assert_eq!(
+                metadata_from_instruction(&instruction).unwrap(),
+                legacy_metadata
+            );
+            // Older readers validate the same strict projection and retain the
+            // entire final instruction string, including its extra author text.
+            assert_eq!(
+                envelope["workshop"],
+                metadata_value(&legacy_metadata).unwrap()
+            );
+        }
+        assert_eq!(
+            workshop_instruction(&exploration, &legacy_context).unwrap(),
+            legacy
+        );
+    }
+
+    #[test]
+    fn malformed_or_oversized_author_brief_is_refused_without_truncation() {
+        let exploration = exploration("concrete");
+        let mut envelope: Value =
+            serde_json::from_str(&workshop_instruction(&exploration, &context()).unwrap()).unwrap();
+        for brief in [
+            Value::Null,
+            serde_json::json!({"text": "not a string"}),
+            Value::String("x".repeat(MAX_TEXT_BYTES + 1)),
+        ] {
+            envelope["authorBrief"] = brief;
+            assert_eq!(
+                metadata_from_instruction(&envelope.to_string())
+                    .unwrap_err()
+                    .code,
+                "InvalidWorkshop"
+            );
+        }
+        let mut oversized = context();
+        oversized.author_brief = Some("x".repeat(MAX_TEXT_BYTES));
+        // Even a valid single field must fit alongside all mandatory context.
+        let error = workshop_instruction(&exploration, &oversized).unwrap_err();
+        assert!(error.detail.contains("instruction is too large"));
     }
 
     #[test]

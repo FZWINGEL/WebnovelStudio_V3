@@ -214,9 +214,38 @@ try {
   await page.screenshot({ path: resolve(output, 'three-mock-directions.png') });
   checks.push('One UI Explore request completes on the deterministic mock and renders exactly three alternatives');
 
+  const interpretation = page.locator('.workshop-interpretation');
+  assert.equal(await interpretation.getAttribute('open'), '', 'A new result should reveal its editable interpretation');
+  const interpretationBefore = workshopState().state.sessions.find(session => session.id === workshopState().state.currentSessionId);
+  const interpretationFields = ['You said', 'Possible direction', 'Still open'];
+  const correctedInterpretation = ['A neighborhood archive, with no chosen savior.', 'Shared care for difficult memories.', 'Who pays the cost remains open.'];
+  const savedInterpretation = [interpretationBefore.brief, interpretationBefore.direction, interpretationBefore.stillOpen];
+  for (const [index, field] of interpretationFields.entries()) {
+    await interpretation.getByRole('textbox', { name: `Current interpretation · ${field}`, exact: true }).fill(correctedInterpretation[index]);
+  }
+  await waitForDatabase(() => {
+    const current = workshopState().state.sessions.find(session => session.id === interpretationBefore.id);
+    return JSON.stringify([current.brief, current.direction, current.stillOpen]) === JSON.stringify(correctedInterpretation);
+  }, 'corrected interpretation save');
+  const interpretationAfter = workshopState().state.sessions.find(session => session.id === interpretationBefore.id);
+  assert.equal(interpretationAfter.workingGeneration, interpretationBefore.workingGeneration);
+  assert.equal(interpretationAfter.workingText, interpretationBefore.workingText);
+  assert.equal(interpretationAfter.originalNotes, interpretationBefore.originalNotes);
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, 1);
+  await page.screenshot({ path: resolve(output, 'editable-interpretation.png') });
+  for (const [index, field] of interpretationFields.entries()) {
+    await interpretation.getByRole('textbox', { name: `Current interpretation · ${field}`, exact: true }).fill(savedInterpretation[index]);
+  }
+  await waitForDatabase(() => {
+    const current = workshopState().state.sessions.find(session => session.id === interpretationBefore.id);
+    return JSON.stringify([current.brief, current.direction, current.stillOpen]) === JSON.stringify(savedInterpretation);
+  }, 'interpretation baseline restored, including cleared fields');
+  checks.push('The new result reveals three editable interpretation fields; changes and clears persist without replacing prose, original notes, or starting generation');
+
   const firstRun = database.prepare('SELECT packet_id,dispatch_state FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
   assert.equal(firstRun.dispatch_state, 'delivered');
   const firstPacket = JSON.parse(database.prepare('SELECT packet_json FROM context_packets WHERE id=?').get(firstRun.packet_id).packet_json);
+  assert.equal(JSON.parse(firstPacket.messages.at(-1).content).authorBrief, seed, 'The final request must freeze the author brief separately');
   const firstEnvelope = firstPacket.messages.flatMap(message => {
     try { return JSON.parse(message.content).workshop ?? []; } catch { return []; }
   })[0];
@@ -226,7 +255,9 @@ try {
   if (await revealContext.isVisible()) await revealContext.click();
   const frozenCreativeContext = page.locator('.workshop-frozen-context');
   await frozenCreativeContext.locator('summary').click();
-  await frozenCreativeContext.getByText(firstEnvelope.currentElement, { exact: true }).waitFor();
+  const inspectedCurrentElement = frozenCreativeContext.locator('h4').filter({ hasText: /^Current element$/ }).locator('+ p');
+  await inspectedCurrentElement.waitFor();
+  assert.equal(await inspectedCurrentElement.innerText(), firstEnvelope.currentElement);
   const sourceContext = page.locator('.context-inspector');
   await sourceContext.locator(':scope > summary').click();
   await sourceContext.getByText('Sources supplied for this response. Opening a source reads its saved version.', { exact: true }).waitFor();

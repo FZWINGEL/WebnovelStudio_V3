@@ -245,6 +245,80 @@ describe('Story Workshop behavioral contracts', () => {
     expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
     expect(mocks.startWorkshop).not.toHaveBeenCalled();
   });
+
+  it('edits all interpretation fields as controlled session values and preserves them, clears, and source metadata across reopen', async () => {
+    const source = session({ brief: 'The author’s starting attraction.', direction: 'An earlier working direction.', stillOpen: 'A deliberate unknown.',
+      originalNotes: 'Keep these original notes.', focusDocumentId: 'world-1', anchorDocumentId: 'stable-anchor', includedDocumentIds: ['world-1'],
+      workingText: 'The working version remains separate.', workingGeneration: '7', selectedDetails: [{ id: 'selected-detail', candidateId: null, text: 'Keep this detail.', fixed: true }] });
+    const preference: WorkshopPreference = { id: 'preference-1', label: 'Measured wonder', family: 'Tone', meaning: 'Keep the tone restrained.', examples: '', timing: '', polarity: 'want', strength: 'soft', scope: 'project', targetId: null, confirmed: true };
+    const decision: WorkshopState['decisions'][number] = { id: 'decision-1', sessionId: source.id, title: 'Chosen direction', documentId: 'world-1', revisionId: 'revision-1', head: project.documents[0].head,
+      candidateIds: [], rationale: 'Preserve this choice.', status: 'chosen', fixed: true, protectedText: ['Keep this detail.'], access: 'authorRoom', supersedesId: null };
+    await render(view({ state: state({ sessions: [source], preferences: [preference], decisions: [decision] }), results: [result()] }));
+    const panel = host.querySelector<HTMLDetailsElement>('.workshop-interpretation')!;
+    expect(panel.open).toBe(true);
+    const fields = () => [...host.querySelectorAll<HTMLTextAreaElement>('.workshop-interpretation textarea')];
+    expect(fields().map(field => field.value)).toEqual([source.brief, source.direction, source.stillOpen]);
+
+    await act(async () => setValue(fields()[0], 'The author’s revised attraction.'));
+    await act(async () => setValue(fields()[1], 'A direction the author can reshape.'));
+    await act(async () => setValue(fields()[2], 'The cost is still intentionally open.'));
+    await act(async () => workshopHandle.current!.flush());
+    expect(currentView.state.sessions[0]).toMatchObject({ brief: 'The author’s revised attraction.', direction: 'A direction the author can reshape.', stillOpen: 'The cost is still intentionally open.',
+      originalNotes: source.originalNotes, focusDocumentId: source.focusDocumentId, anchorDocumentId: source.anchorDocumentId, includedDocumentIds: source.includedDocumentIds,
+      workingText: source.workingText, workingGeneration: source.workingGeneration, selectedDetails: source.selectedDetails });
+    expect(currentView.state.preferences).toEqual([preference]);
+    expect(currentView.state.decisions).toEqual([decision]);
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await render(currentView);
+    expect(fields().map(field => field.value)).toEqual(['The author’s revised attraction.', 'A direction the author can reshape.', 'The cost is still intentionally open.']);
+    expect(host.textContent).toContain('A place');
+    expect(host.textContent).toContain('A specific practice');
+    expect(host.textContent).toContain('Its consequences');
+
+    await act(async () => setValue(fields()[0], ''));
+    await act(async () => setValue(fields()[1], ''));
+    await act(async () => setValue(fields()[2], ''));
+    await act(async () => workshopHandle.current!.flush());
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await render(currentView);
+    expect(fields().map(field => field.value)).toEqual(['', '', '']);
+    expect(currentView.state.sessions[0]).toMatchObject({ originalNotes: source.originalNotes, focusDocumentId: source.focusDocumentId,
+      anchorDocumentId: source.anchorDocumentId, includedDocumentIds: source.includedDocumentIds, workingText: source.workingText, workingGeneration: source.workingGeneration, selectedDetails: source.selectedDetails });
+    expect(currentView.state.preferences).toEqual([preference]);
+    expect(currentView.state.decisions).toEqual([decision]);
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
+  });
+
+  it('copies exactly one selected AI suggestion only after an explicit click and does not seed fields from a newer result', async () => {
+    const source = session({ brief: 'Author brief', direction: 'Author direction', stillOpen: 'Author unknown' });
+    const first = result();
+    const newer = result({ run: run({ id: 'run-2', threadId: 'thread-2', operationId: 'operation-2', packetId: 'packet-2', sequence: '2' }), output: {
+      ...first.output!, interpretation: { youSaid: 'New model reading', possibleDirection: 'New model direction', stillOpen: 'New model unknown' },
+    } });
+    await render(view({ state: state({ sessions: [source] }), results: [first, newer] }));
+    const panel = () => host.querySelector<HTMLDetailsElement>('.workshop-interpretation')!;
+    const fields = () => [...host.querySelectorAll<HTMLTextAreaElement>('.workshop-interpretation textarea')];
+    expect(panel().open).toBe(true);
+    expect(fields().map(field => field.value)).toEqual([source.brief, source.direction, source.stillOpen]);
+
+    await act(async () => { panel().open = false; panel().dispatchEvent(new Event('toggle', { bubbles: true })); });
+    expect(panel().open).toBe(false);
+    await act(async () => selectValue('Saved requests', 'run-1'));
+    expect(panel().open).toBe(true);
+    await act(async () => selectValue('Saved requests', 'run-2'));
+    expect(panel().open).toBe(true);
+    expect(fields().map(field => field.value)).toEqual([source.brief, source.direction, source.stillOpen]);
+    await act(async () => exactButton('Use suggested Possible direction').click());
+    await act(async () => workshopHandle.current!.flush());
+    expect(currentView.state.sessions[0]).toMatchObject({ brief: source.brief, direction: 'New model direction', stillOpen: source.stillOpen });
+    expect(fields().map(field => field.value)).toEqual([source.brief, 'New model direction', source.stillOpen]);
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
+
   it('blocks leaving while Explore is saving its request basis before a run identity exists', async () => {
     await render();
     let releaseSave!: () => void;
@@ -398,6 +472,27 @@ describe('Story Workshop behavioral contracts', () => {
     await act(async () => exactButton('Confirm Use this version').click());
     await waitFor(() => expect(mocks.adoptWorkshop).toHaveBeenCalledOnce());
     expect(onDocumentsChanged).toHaveBeenCalledOnce();
+  });
+
+  it('locks duplicate interpretation and original-note controls while adoption acknowledgment is uncertain', async () => {
+    const source = session({ brief: 'Author brief', direction: 'Author direction', stillOpen: 'Author unknown', originalNotes: 'Original notes', workingText: 'A working version.' });
+    await render(view({ state: state({ sessions: [source] }), results: [result()] }));
+    await act(async () => exactButton('Use this version').click());
+    await waitFor(() => expect(host.textContent).toContain('Where should this version go?'));
+    await act(async () => exactButton('Preview all changes').click());
+    await waitFor(() => expect(mocks.previewWorkshopAdoption).toHaveBeenCalledOnce());
+    mocks.adoptWorkshop.mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'Adoption acknowledgment was lost.' });
+    await act(async () => exactButton('Confirm Use this version').click());
+    await waitFor(() => expect(host.textContent).toContain('Adoption acknowledgment was lost.'));
+
+    expect(exactButton('Check adoption result').disabled).toBe(false);
+    expect(host.querySelector<HTMLDetailsElement>('.workshop-interpretation')?.open).toBe(true);
+    expect([...host.querySelectorAll<HTMLTextAreaElement>('.workshop-interpretation textarea')].every(field => field.disabled)).toBe(true);
+    expect([...host.querySelectorAll<HTMLButtonElement>('.workshop-interpretation button')].filter(button => button.textContent?.startsWith('Use suggested')).every(button => button.disabled)).toBe(true);
+
+    await act(async () => exactButton('Bring existing notes').click());
+    expect([...host.querySelectorAll<HTMLTextAreaElement>('.workshop-brief textarea')].every(field => field.disabled)).toBe(true);
+    expect([...host.querySelectorAll<HTMLTextAreaElement>('.workshop-context textarea')].every(field => field.disabled)).toBe(true);
   });
 
   it('reconciles an uncertain request with the same identity even after going offline', async () => {
