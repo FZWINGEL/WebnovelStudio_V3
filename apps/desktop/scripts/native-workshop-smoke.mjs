@@ -592,7 +592,7 @@ try {
     const reveal = page.getByRole('button', { name: 'Working story & context', exact: true });
     if (await reveal.isVisible()) await reveal.click();
     const preferences = page.getByRole('region', { name: 'Creative preferences', exact: true });
-    const summary = preferences.getByText('Find a preference or preset', { exact: true });
+    const summary = preferences.locator(':scope > details > summary').filter({ hasText: 'Find a preference or preset' });
     if (!await summary.evaluate(node => node.closest('details').open)) await summary.click();
     return preferences;
   }
@@ -641,6 +641,8 @@ try {
   await preferences.locator('.workshop-saved-preset').filter({ hasText: revisedPreset.name }).getByRole('button', { name: 'Review saved preset', exact: true }).click();
   await presetReview.getByRole('button', { name: 'Add these project preferences', exact: true }).click();
   await waitForDatabase(() => workshopState()?.state.preferences.length === adoptedPreferences.length + 1, 'explicit saved preset reuse');
+  await preferences.getByText('1 project preference added.', { exact: true }).waitFor();
+  assert.equal(await preferences.getByText('Saved preset opened for review. No preferences have been added yet.', { exact: true }).count(), 0);
   assert.equal(workshopState().state.presets.length, presetsBefore + 1, 'Reusing a saved preset must not duplicate its definition');
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, presetRunsBefore, 'Review, save, reuse, and reopen do not generate');
   assert.deepEqual(documents(), navigationDocuments, 'Preset operations do not alter story documents');
@@ -673,6 +675,156 @@ try {
   assert.deepEqual(workshopState().state, firstProjectState, 'A separate blank project must not alter the original Workshop state');
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, presetRunsBefore);
   checks.push('An untitled second project can begin development without story prerequisites or generation; returning restores the first project’s Workshop and preferences');
+
+  // W30: create a real parent exploration, fork it through the visible UI,
+  // save and reopen the alternate, then prove that only an explicit adoption
+  // preview/confirmation can change an existing story document.
+  const w30ExistingWorld = documents().find(document => document.kind === 'world');
+  assert(w30ExistingWorld, 'W30 comparison requires an existing chosen world source');
+  const w30PreviousSessionId = workshopState().state.currentSessionId;
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const w30Brief = 'A what-if archive makes repair knowledge public.';
+  const w30ParentText = 'The archive keeps repair knowledge restricted to apprentices.';
+  const w30AlternateText = 'What if repair knowledge becomes public, while the archive still records who can safely use it?';
+  const w30BriefDetails = page.locator('details.workshop-brief');
+  if (await w30BriefDetails.getAttribute('open') === null) await w30BriefDetails.locator(':scope > summary').click();
+  await w30BriefDetails.getByRole('button', { name: 'Bring existing notes', exact: true }).click();
+  await w30BriefDetails.getByRole('combobox', { name: 'Saved material', exact: true }).selectOption(w30ExistingWorld.id);
+  await waitForDatabase(() => {
+    const current = workshopState()?.state.currentSessionId;
+    return current && current !== w30PreviousSessionId;
+  }, 'W30 new exploration');
+  const w30NewSessionId = workshopState().state.currentSessionId;
+  await waitForDatabase(() => workshopState()?.state.sessions.find(session => session.id === w30NewSessionId)?.focusDocumentId === w30ExistingWorld.id, 'W30 focus chosen world');
+  await w30BriefDetails.getByRole('textbox', { name: 'What you want to explore', exact: true }).fill(w30Brief);
+  await page.getByRole('textbox', { name: 'Working title', exact: true }).fill('Repair knowledge baseline');
+  await page.getByRole('textbox', { name: 'Develop or edit directly', exact: true }).fill(w30ParentText);
+  await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
+  await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.brief === w30Brief && session.workingText === w30ParentText), 'W30 parent baseline save');
+
+  let w30Preferences = await openPreferenceShelf();
+  await w30Preferences.getByRole('button', { name: 'Add preference', exact: true }).click();
+  await w30Preferences.getByRole('textbox', { name: 'Name', exact: true }).fill('Public repair knowledge');
+  await w30Preferences.getByRole('textbox', { name: 'What it means to you', exact: true }).fill('Explore who benefits when useful repair knowledge is available outside the archive.');
+  await w30Preferences.getByRole('button', { name: 'Save preference', exact: true }).click();
+  await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
+  const w30ParentSnapshot = workshopState();
+  const w30ParentId = w30ParentSnapshot.state.currentSessionId;
+  const w30Parent = w30ParentSnapshot.state.sessions.find(session => session.id === w30ParentId);
+  assert(w30Parent, 'W30 parent exploration must be saved');
+  const w30ParentPreference = w30ParentSnapshot.state.preferences.find(preference => preference.targetId === w30ParentId && preference.label === 'Public repair knowledge');
+  assert(w30ParentPreference, 'W30 parent exploration preference must be saved');
+  const w30ParentRecordBeforeFork = structuredClone(w30Parent);
+  const w30ParentAnchor = w30Parent.anchorDocumentId;
+  const w30DocumentsBeforeFork = structuredClone(documents());
+  const w30ChaptersBeforeFork = w30DocumentsBeforeFork.filter(document => document.kind === 'chapter').map(document => ({ id: document.id, body_json: document.body_json }));
+  const w30RunsBeforeFork = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+
+  // Fork only through the product action.  The child must carry an isolated
+  // identity and exploration-scoped preference while leaving the parent row
+  // and story documents unchanged.
+  await page.getByRole('button', { name: 'Explore a what-if', exact: true }).click();
+  await waitForDatabase(() => {
+    const current = workshopState();
+    return current?.state.currentSessionId !== w30ParentId && current?.state.sessions.some(session => session.parentSessionId === w30ParentId && session.branchKind === 'whatIf');
+  }, 'W30 what-if fork');
+  let w30ForkState = workshopState();
+  const w30ChildId = w30ForkState.state.currentSessionId;
+  const w30Child = w30ForkState.state.sessions.find(session => session.id === w30ChildId);
+  assert(w30Child && w30Child.parentSessionId === w30ParentId && w30Child.branchKind === 'whatIf');
+  assert.notEqual(w30Child.anchorDocumentId, w30ParentAnchor, 'What-if must have an independent workshop anchor');
+  assert.equal(w30Child.workingText, w30ParentText, 'What-if starts from the parent working version');
+  const w30ChildPreference = w30ForkState.state.preferences.find(preference => preference.targetId === w30ChildId && preference.label === w30ParentPreference.label);
+  assert(w30ChildPreference, 'What-if must carry an exploration preference targeted to the child');
+  assert.notEqual(w30ChildPreference.id, w30ParentPreference.id, 'What-if preference must have an independent identity');
+  assert.deepEqual(w30ForkState.state.sessions.find(session => session.id === w30ParentId), w30ParentRecordBeforeFork, 'Forking must preserve the complete parent exploration record');
+  assert.deepEqual(documents(), w30DocumentsBeforeFork, 'Forking must not write story documents');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, w30RunsBeforeFork, 'Forking must not call a provider');
+
+  await page.getByRole('textbox', { name: 'Develop or edit directly', exact: true }).fill(w30AlternateText);
+  await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
+  await waitForDatabase(() => workshopState()?.state.sessions.find(session => session.id === w30ChildId)?.workingText === w30AlternateText, 'W30 alternate save');
+  w30ForkState = workshopState();
+  assert.deepEqual(w30ForkState.state.sessions.find(session => session.id === w30ParentId), w30ParentRecordBeforeFork, 'Editing what-if must preserve the complete parent exploration record');
+  const w30SessionsBeforeNavigation = structuredClone(w30ForkState.state.sessions);
+
+  const w30Compare = page.locator('.workshop-branch-comparison');
+  const w30CompareSummary = w30Compare.locator(':scope > summary');
+  if (await w30CompareSummary.count() && await w30Compare.getAttribute('open') === null) await w30CompareSummary.click();
+  await w30Compare.getByText(w30ParentText, { exact: true }).waitFor();
+  await w30Compare.getByText(w30AlternateText, { exact: true }).waitFor();
+  await w30Compare.getByRole('heading', { name: 'Chosen source revisions', exact: true }).waitFor();
+  await w30Compare.getByRole('region', { name: 'Chosen source revisions', exact: true }).getByText(w30ExistingWorld.title, { exact: true }).waitFor();
+  await w30Compare.getByText('The archive keeper trusts the archive to preserve what people cannot yet say.', { exact: true }).waitFor();
+  await w30Compare.getByRole('heading', { name: 'Likely affected material', exact: true }).waitFor();
+  assert((await w30Compare.innerText()).includes('review whether it still holds.'), 'Comparison must surface the saved relationship impact reason');
+  await page.screenshot({ path: resolve(output, 'what-if-comparison.png') });
+
+  // Reopen the saved parent, then switch back to the saved child through the
+  // exploration navigation.  This exercises persistence without app state
+  // injection and verifies neither session overwrites the other.
+  const w30SavedExplorations = page.getByRole('navigation', { name: 'Saved explorations', exact: true });
+  await w30SavedExplorations.getByRole('button').nth((await w30SavedExplorations.getByRole('button').count()) - 2).click();
+  await waitForDatabase(() => workshopState()?.state.currentSessionId === w30ParentId, 'W30 switch back to parent');
+  assert.equal(await page.getByRole('textbox', { name: 'Develop or edit directly', exact: true }).inputValue(), w30ParentText);
+  assert.deepEqual(workshopState().state.sessions, w30SessionsBeforeNavigation, 'Switching explorations must change only currentSessionId');
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();
+  await ensureDevelopMode();
+  await waitForDatabase(() => workshopState()?.state.currentSessionId === w30ParentId, 'W30 parent reopen');
+  assert.deepEqual(workshopState().state.sessions, w30SessionsBeforeNavigation, 'Reopening the parent must preserve every saved exploration record');
+  await page.getByRole('navigation', { name: 'Saved explorations', exact: true }).getByRole('button').last().click();
+  await waitForDatabase(() => workshopState()?.state.currentSessionId === w30ChildId, 'W30 child reopen');
+  assert.equal(await page.getByRole('textbox', { name: 'Develop or edit directly', exact: true }).inputValue(), w30AlternateText, 'Reopening must retain the alternate');
+  assert.deepEqual(workshopState().state.sessions.find(session => session.id === w30ParentId), w30ParentRecordBeforeFork, 'Reopening must retain the complete parent exploration record');
+
+  const w30DocumentsBeforeAdoption = structuredClone(documents());
+  const w30StateBeforeAdoption = structuredClone(workshopState());
+  const w30ChaptersBeforeAdoption = w30DocumentsBeforeAdoption.filter(document => document.kind === 'chapter').map(document => ({ id: document.id, body_json: document.body_json }));
+  const w30RunsBeforeAdoption = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  await page.getByRole('button', { name: 'Use this version', exact: true }).click();
+  const w30Adoption = page.getByRole('region', { name: 'Adoption preview', exact: true });
+  await w30Adoption.getByRole('heading', { name: 'Where should this version go?', exact: true }).waitFor();
+  await w30Adoption.getByRole('combobox', { name: 'Destination', exact: true }).selectOption(w30ExistingWorld.id);
+  await w30Adoption.getByRole('combobox', { name: 'Change', exact: true }).selectOption('add');
+  await w30Adoption.getByRole('textbox', { name: 'Content to choose', exact: true }).fill(w30AlternateText);
+  await w30Adoption.getByRole('textbox', { name: 'Why this version?', exact: true }).fill('Test the public repair knowledge what-if explicitly.');
+  assert.deepEqual(documents(), w30DocumentsBeforeAdoption, 'Opening what-if adoption must not write documents');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, w30RunsBeforeAdoption, 'Opening what-if adoption must not call a provider');
+  await w30Adoption.getByRole('button', { name: 'Preview all changes', exact: true }).click();
+  await w30Adoption.getByRole('heading', { name: 'Choose this version for your story', exact: true }).waitFor();
+  assert.deepEqual(documents(), w30DocumentsBeforeAdoption, 'What-if preview must not write documents');
+  assert.deepEqual(workshopState(), w30StateBeforeAdoption, 'What-if preview must not change the saved Workshop state');
+  assert.deepEqual(w30ChaptersBeforeAdoption, documents().filter(document => document.kind === 'chapter').map(document => ({ id: document.id, body_json: document.body_json })), 'What-if preview must not write chapters');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, w30RunsBeforeAdoption, 'What-if preview must not call a provider');
+  const w30PreviewRow = database.prepare('SELECT preview_json FROM workshop_adoption_previews ORDER BY rowid DESC LIMIT 1').get();
+  assert(w30PreviewRow?.preview_json, 'What-if adoption preview must be durable');
+  const w30Preview = JSON.parse(w30PreviewRow.preview_json);
+  assert.equal(w30Preview.sessionId, w30ChildId, 'Preview must identify the what-if session');
+  assert.equal(w30Preview.targets[0].documentId, w30ExistingWorld.id);
+  await page.screenshot({ path: resolve(output, 'what-if-adoption-preview.png') });
+
+  await w30Adoption.getByRole('button', { name: 'Confirm Use this version', exact: true }).click();
+  await page.getByText('Version chosen. Its source and rationale are saved; writing access remains author only.', { exact: true }).waitFor();
+  await waitForDatabase(() => {
+    const updated = documents().find(document => document.id === w30ExistingWorld.id);
+    return updated && updated.body_json !== w30ExistingWorld.body_json;
+  }, 'W30 explicit what-if adoption');
+  const w30AfterAdoptionDocuments = documents();
+  const w30AfterParent = workshopState().state.sessions.find(session => session.id === w30ParentId);
+  assert.deepEqual(w30AfterParent, w30ParentRecordBeforeFork, 'What-if adoption must not rewrite the complete parent exploration record');
+  assert.deepEqual(
+    w30AfterAdoptionDocuments.filter(document => document.id !== w30ExistingWorld.id),
+    w30DocumentsBeforeAdoption.filter(document => document.id !== w30ExistingWorld.id),
+    'What-if adoption must not rewrite non-target story documents',
+  );
+  assert.deepEqual(w30ChaptersBeforeAdoption, w30AfterAdoptionDocuments.filter(document => document.kind === 'chapter').map(document => ({ id: document.id, body_json: document.body_json })), 'What-if adoption must not write chapters');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, w30RunsBeforeAdoption, 'What-if adoption must not call a provider');
+  const w30Decision = workshopState().state.decisions.find(decision => decision.sessionId === w30ChildId && decision.documentId === w30ExistingWorld.id && decision.status === 'chosen');
+  assert(w30Decision && w30Decision.access === 'authorRoom', 'Explicit what-if adoption must create an author-room decision');
+  await page.screenshot({ path: resolve(output, 'what-if-adoption-committed.png') });
+  checks.push('W30 forks an independent what-if with its own anchor and exploration preference, preserves the parent across save/reopen and comparison, leaves story documents and providers untouched through preview, and changes only the existing world after explicit adoption while chapters remain unchanged');
 
   assert.deepEqual(pageErrors, [], `Native Workshop page errors: ${pageErrors.join('; ')}`);
   await writeFile(resolve(output, 'report.json'), JSON.stringify({

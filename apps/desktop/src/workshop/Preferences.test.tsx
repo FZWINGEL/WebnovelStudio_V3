@@ -151,6 +151,8 @@ it('adopts an edited saved preset only after the review confirmation', async () 
   expect(saved.preferences[0].id).not.toBe('preference-1');
   expect(saved.presets).toHaveLength(1);
   expect(saved.presets[0]).toMatchObject({ id: 'preset-reuse', name: 'JSON reusable vocabulary', preferences: [{ id: saved.preferences[0].id, label: 'Edited texture' }] });
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('1 project preference added.');
+  expect(host.textContent).not.toContain('No preferences have been added yet.');
 });
 
 it('rejects a blank JSON preset name without creating a preset or preferences', async () => {

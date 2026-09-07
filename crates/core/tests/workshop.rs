@@ -63,6 +63,13 @@ fn session(id: &str) -> WorkshopSession {
     }
 }
 
+fn what_if_session(id: &str, parent_session_id: &str) -> WorkshopSession {
+    let mut child = session(id);
+    child.parent_session_id = Some(parent_session_id.into());
+    child.branch_kind = WorkshopBranchKind::WhatIf;
+    child
+}
+
 #[test]
 fn workshop_state_reopens_and_save_is_cas_idempotent() {
     let temp = TempProject::new();
@@ -92,6 +99,518 @@ fn workshop_state_reopens_and_save_is_cas_idempotent() {
     let view = reopened.read_workshop(access).unwrap();
     assert_eq!(view.version, saved.version);
     assert_eq!(view.state, saved.state);
+}
+
+#[test]
+fn workshop_branch_graph_rejects_invalid_shapes_atomically() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-branches".into()).unwrap();
+    let mut state = WorkshopState {
+        current_session_id: Some("working-root".into()),
+        ..WorkshopState::default()
+    };
+    state.sessions.push(session("working-root"));
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "branch-root".into(),
+            expected_version: "0".into(),
+            state,
+        })
+        .unwrap();
+
+    let reject = |operation_id: &str, candidate: WorkshopState, detail: &str| {
+        let error = project
+            .save_workshop(SaveWorkshop {
+                access: access.clone(),
+                operation_id: operation_id.into(),
+                expected_version: saved.version.clone(),
+                state: candidate,
+            })
+            .unwrap_err();
+        assert_eq!(error.code, "InvalidRequest");
+        assert!(error.detail.contains(detail), "{}", error.detail);
+        let current = project.read_workshop(access.clone()).unwrap();
+        assert_eq!(current.version, saved.version);
+        assert_eq!(current.state, saved.state);
+    };
+
+    let mut working_with_parent = saved.state.clone();
+    working_with_parent.sessions[0].parent_session_id = Some("working-root".into());
+    reject(
+        "branch-working-parent",
+        working_with_parent,
+        "working workshop session cannot have a parent",
+    );
+
+    let mut what_if_without_parent = saved.state.clone();
+    let mut orphan = session("orphan-what-if");
+    orphan.branch_kind = WorkshopBranchKind::WhatIf;
+    what_if_without_parent.sessions.push(orphan);
+    reject(
+        "branch-what-if-without-parent",
+        what_if_without_parent,
+        "what-if workshop session must have a parent",
+    );
+
+    let mut missing_parent = saved.state.clone();
+    missing_parent
+        .sessions
+        .push(what_if_session("missing-parent", "does-not-exist"));
+    reject(
+        "branch-missing-parent",
+        missing_parent,
+        "what-if workshop session has an unknown parent",
+    );
+
+    let mut self_parent = saved.state.clone();
+    self_parent
+        .sessions
+        .push(what_if_session("self-parent", "self-parent"));
+    reject(
+        "branch-self-parent",
+        self_parent,
+        "what-if workshop session cannot parent itself",
+    );
+
+    let mut long_cycle = saved.state.clone();
+    for index in 0..8 {
+        let parent = if index == 0 {
+            "working-root".to_string()
+        } else {
+            format!("fork-{}", index - 1)
+        };
+        long_cycle
+            .sessions
+            .push(what_if_session(&format!("fork-{index}"), &parent));
+    }
+    long_cycle.sessions[1].parent_session_id = Some("fork-7".into());
+    reject(
+        "branch-long-cycle",
+        long_cycle,
+        "session parents cannot contain a cycle",
+    );
+}
+
+#[test]
+fn nested_what_if_branches_persist_and_parent_edits_do_not_rewrite_ancestors() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-nested-branches".into()).unwrap();
+    let mut state = WorkshopState {
+        current_session_id: Some("working-root".into()),
+        ..WorkshopState::default()
+    };
+    state.sessions.push(session("working-root"));
+    state
+        .sessions
+        .push(what_if_session("fork-one", "working-root"));
+    state.sessions.push(what_if_session("fork-two", "fork-one"));
+    state
+        .sessions
+        .push(what_if_session("fork-three", "fork-two"));
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "nested-branches-save".into(),
+            expected_version: "0".into(),
+            state,
+        })
+        .unwrap();
+
+    drop(project);
+    let reopened = ProjectSession::open(&temp.0).unwrap();
+    let reopened_access = reopened.attach("workshop-nested-reopened".into()).unwrap();
+    let reopened_view = reopened.read_workshop(reopened_access.clone()).unwrap();
+    assert_eq!(reopened_view.version, saved.version);
+    for (id, parent) in [
+        ("working-root", None),
+        ("fork-one", Some("working-root")),
+        ("fork-two", Some("fork-one")),
+        ("fork-three", Some("fork-two")),
+    ] {
+        let branch = reopened_view
+            .state
+            .sessions
+            .iter()
+            .find(|session| session.id == id)
+            .unwrap();
+        assert_eq!(branch.parent_session_id.as_deref(), parent);
+        assert_eq!(
+            branch.branch_kind,
+            if parent.is_some() {
+                WorkshopBranchKind::WhatIf
+            } else {
+                WorkshopBranchKind::Working
+            }
+        );
+    }
+
+    let mut edited = reopened_view.state.clone();
+    edited
+        .sessions
+        .iter_mut()
+        .find(|session| session.id == "fork-three")
+        .unwrap()
+        .direction = "Only the deepest branch changes".into();
+    let edited_snapshot = reopened
+        .save_workshop(SaveWorkshop {
+            access: reopened_access.clone(),
+            operation_id: "nested-branches-edit".into(),
+            expected_version: reopened_view.version,
+            state: edited,
+        })
+        .unwrap();
+    for id in ["working-root", "fork-one", "fork-two"] {
+        let before = reopened_view
+            .state
+            .sessions
+            .iter()
+            .find(|session| session.id == id)
+            .unwrap();
+        let after = edited_snapshot
+            .state
+            .sessions
+            .iter()
+            .find(|session| session.id == id)
+            .unwrap();
+        assert_eq!(before, after);
+    }
+    assert_eq!(edited_snapshot.version, "2");
+}
+
+#[test]
+fn existing_branch_identity_cannot_be_reparented_or_flipped_but_navigation_is_allowed() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-branch-identity".into()).unwrap();
+    let mut state = WorkshopState {
+        current_session_id: Some("working-root".into()),
+        ..WorkshopState::default()
+    };
+    state.sessions.push(session("working-root"));
+    state
+        .sessions
+        .push(what_if_session("fork-child", "working-root"));
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "branch-identity-save".into(),
+            expected_version: "0".into(),
+            state,
+        })
+        .unwrap();
+
+    let mut reparented = saved.state.clone();
+    reparented
+        .sessions
+        .push(what_if_session("fork-sibling", "working-root"));
+    reparented
+        .sessions
+        .iter_mut()
+        .find(|session| session.id == "fork-child")
+        .unwrap()
+        .parent_session_id = Some("fork-sibling".into());
+    let reparent_error = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "branch-identity-reparent".into(),
+            expected_version: saved.version.clone(),
+            state: reparented,
+        })
+        .unwrap_err();
+    assert_eq!(reparent_error.code, "InvalidRequest");
+    assert!(
+        reparent_error
+            .detail
+            .contains("branch identity is immutable")
+    );
+
+    let mut flipped = saved.state.clone();
+    let child = flipped
+        .sessions
+        .iter_mut()
+        .find(|session| session.id == "fork-child")
+        .unwrap();
+    child.parent_session_id = None;
+    child.branch_kind = WorkshopBranchKind::Working;
+    let flip_error = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "branch-identity-flip".into(),
+            expected_version: saved.version.clone(),
+            state: flipped,
+        })
+        .unwrap_err();
+    assert_eq!(flip_error.code, "InvalidRequest");
+    assert!(flip_error.detail.contains("branch identity is immutable"));
+
+    let mut navigated = saved.state.clone();
+    navigated.current_session_id = Some("fork-child".into());
+    let navigation = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "branch-identity-navigation".into(),
+            expected_version: saved.version,
+            state: navigated,
+        })
+        .unwrap();
+    assert_eq!(navigation.version, "2");
+    assert_eq!(
+        navigation.state.current_session_id.as_deref(),
+        Some("fork-child")
+    );
+    let after = project.read_workshop(access).unwrap();
+    assert_eq!(
+        after.state.sessions[1].parent_session_id.as_deref(),
+        Some("working-root")
+    );
+    assert_eq!(
+        after.state.sessions[1].branch_kind,
+        WorkshopBranchKind::WhatIf
+    );
+}
+
+#[test]
+fn fixed_selected_details_are_scoped_to_the_adoption_session() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-fixed-branches".into()).unwrap();
+    let document = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "create-fixed-target".into(),
+            document_id: "fixed-target".into(),
+            title: "Fixed target".into(),
+            kind: "world".into(),
+            body: body("Parent phrase"),
+        })
+        .unwrap();
+    let mut state = WorkshopState {
+        current_session_id: Some("working-root".into()),
+        ..WorkshopState::default()
+    };
+    state.sessions.push(session("working-root"));
+    let mut child = what_if_session("fork-child", "working-root");
+    child
+        .selected_details
+        .push(webnovel_core::projects::workshop::SelectedDetail {
+            id: "child-fixed-detail".into(),
+            candidate_id: None,
+            text: "Parent phrase".into(),
+            fixed: true,
+        });
+    state.sessions.push(child);
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "fixed-branch-state".into(),
+            expected_version: "0".into(),
+            state,
+        })
+        .unwrap();
+
+    let parent_preview = project
+        .preview_workshop_adoption(PreviewWorkshopAdoption {
+            access: access.clone(),
+            session_id: "working-root".into(),
+            expected_version: saved.version.clone(),
+            candidate_ids: Vec::new(),
+            targets: vec![WorkshopAdoptionTarget {
+                document_id: "fixed-target".into(),
+                expected: Some(document.head.clone()),
+                title: "Fixed target".into(),
+                kind: "world".into(),
+                body: body("Changed by parent"),
+                mode: AdoptionMode::Replace,
+            }],
+            rationale: "Change the parent story only".into(),
+            protected_text: Vec::new(),
+            relationships: Vec::new(),
+            impact_drafts: Vec::new(),
+        })
+        .unwrap();
+    assert_eq!(parent_preview.targets[0].document_id, "fixed-target");
+
+    let child_error = project
+        .preview_workshop_adoption(PreviewWorkshopAdoption {
+            access: access.clone(),
+            session_id: "fork-child".into(),
+            expected_version: saved.version,
+            candidate_ids: Vec::new(),
+            targets: vec![WorkshopAdoptionTarget {
+                document_id: "fixed-target".into(),
+                expected: Some(document.head),
+                title: "Fixed target".into(),
+                kind: "world".into(),
+                body: body("Changed by child"),
+                mode: AdoptionMode::Replace,
+            }],
+            rationale: "Try to remove the fixed detail".into(),
+            protected_text: Vec::new(),
+            relationships: Vec::new(),
+            impact_drafts: Vec::new(),
+        })
+        .unwrap_err();
+    assert_eq!(child_error.code, "ProtectedContentChanged");
+    let adopted = project
+        .adopt_workshop(
+            access.clone(),
+            "fixed-parent-adopt".into(),
+            parent_preview.id,
+        )
+        .unwrap();
+    assert_eq!(adopted.documents[0].head.document_id, "fixed-target");
+    let changed = project
+        .document(access.clone(), "fixed-target".into())
+        .unwrap();
+    assert_eq!(
+        changed.body["body"]["content"][0]["content"][0]["text"],
+        "Changed by parent"
+    );
+    let after = project.read_workshop(access).unwrap();
+    let child_after = after
+        .state
+        .sessions
+        .iter()
+        .find(|session| session.id == "fork-child")
+        .unwrap();
+    assert_eq!(child_after.selected_details[0].text, "Parent phrase");
+    assert!(child_after.selected_details[0].fixed);
+}
+
+#[test]
+fn child_generation_includes_chosen_ancestor_material_but_excludes_siblings() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-branch-context".into()).unwrap();
+    let parent_document = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "create-parent-canon".into(),
+            document_id: "parent-canon".into(),
+            title: "Parent canon".into(),
+            kind: "world".into(),
+            body: body("Parent canon body"),
+        })
+        .unwrap();
+    let sibling_document = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "create-sibling-canon".into(),
+            document_id: "sibling-canon".into(),
+            title: "Sibling canon".into(),
+            kind: "world".into(),
+            body: body("Sibling canon body"),
+        })
+        .unwrap();
+    let mut state = WorkshopState {
+        current_session_id: Some("working-root".into()),
+        ..WorkshopState::default()
+    };
+    state.sessions.push(session("working-root"));
+    let mut child = what_if_session("fork-child", "working-root");
+    child.anchor_document_id = Some("workshop-fork-child".into());
+    state.sessions.push(child);
+    state
+        .sessions
+        .push(what_if_session("fork-sibling", "working-root"));
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "branch-context-state".into(),
+            expected_version: "0".into(),
+            state,
+        })
+        .unwrap();
+    let parent_preview = project
+        .preview_workshop_adoption(PreviewWorkshopAdoption {
+            access: access.clone(),
+            session_id: "working-root".into(),
+            expected_version: saved.version,
+            candidate_ids: Vec::new(),
+            targets: vec![WorkshopAdoptionTarget {
+                document_id: "parent-canon".into(),
+                expected: Some(parent_document.head.clone()),
+                title: "Parent canon".into(),
+                kind: "world".into(),
+                body: body("Parent canon adopted body"),
+                mode: AdoptionMode::Replace,
+            }],
+            rationale: "Adopt the parent canon".into(),
+            protected_text: Vec::new(),
+            relationships: Vec::new(),
+            impact_drafts: Vec::new(),
+        })
+        .unwrap();
+    project
+        .adopt_workshop(
+            access.clone(),
+            "branch-context-parent-adopt".into(),
+            parent_preview.id,
+        )
+        .unwrap();
+    let after_parent = project.read_workshop(access.clone()).unwrap();
+    let sibling_preview = project
+        .preview_workshop_adoption(PreviewWorkshopAdoption {
+            access: access.clone(),
+            session_id: "fork-sibling".into(),
+            expected_version: after_parent.version,
+            candidate_ids: Vec::new(),
+            targets: vec![WorkshopAdoptionTarget {
+                document_id: "sibling-canon".into(),
+                expected: Some(sibling_document.head.clone()),
+                title: "Sibling canon".into(),
+                kind: "world".into(),
+                body: body("Sibling canon adopted body"),
+                mode: AdoptionMode::Replace,
+            }],
+            rationale: "Adopt the sibling canon".into(),
+            protected_text: Vec::new(),
+            relationships: Vec::new(),
+            impact_drafts: Vec::new(),
+        })
+        .unwrap();
+    project
+        .adopt_workshop(
+            access.clone(),
+            "branch-context-sibling-adopt".into(),
+            sibling_preview.id,
+        )
+        .unwrap();
+    let after_sibling = project.read_workshop(access.clone()).unwrap();
+    let started = project
+        .start_workshop(StartWorkshop {
+            access,
+            operation_id: "branch-context-start".into(),
+            exploration: WorkshopExploration {
+                session_id: "fork-child".into(),
+                expected_version: after_sibling.version,
+                working_generation: "0".into(),
+                action: "directions".into(),
+                instruction: "Compare child directions".into(),
+                selected_scope: "Whole working version".into(),
+                selected_text: String::new(),
+                working_selection: None,
+            },
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
+        })
+        .unwrap();
+    let metadata = webnovel_core::projects::workshop_generation::metadata_from_instruction(
+        &started.packet.messages.last().unwrap().content,
+    )
+    .unwrap();
+    assert!(metadata.chosen_details.iter().any(|detail| {
+        detail.contains("Parent canon") && detail.contains("Parent canon adopted body")
+    }));
+    assert!(
+        !metadata
+            .chosen_details
+            .iter()
+            .any(|detail| detail.contains("Sibling canon"))
+    );
 }
 
 #[test]

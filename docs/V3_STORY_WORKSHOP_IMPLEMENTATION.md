@@ -56,12 +56,26 @@ reproduction confirms the old two matches and the corrected unique match.
 Later native suites were skipped, so this run is not a complete native pass.
 Evidence is under `.local/ci-workshop-34138626172/workshop/`. Fresh installer run
 [34138625419](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34138625419)
-uses the same application source and remains in progress. The local debug build
+used the same application source and was intentionally cancelled before lifecycle
+qualification finished. Native screenshots exposed a stale preset-adoption
+notice, now corrected with frontend and native regression assertions. The 17:46
+Berlin standard check passed 750 Rust, 488 frontend, and 11 tooling checks plus
+formatting, strict Clippy, TypeScript, and build. This product correction and the
+what-if changes need a fresh installer. The local debug build
 from that source is 48,421,376 bytes, ProductVersion 3.0.0, SHA-256
 `894008b51e800008fa3751c99d9d380056a6deac0d7bb8cf3ced47e31599a961`, built at
 `2026-09-07T15:32:16.7406333Z`; see `.local/workshop-hardening-debug-build.json`.
 
 ## Boundaries
+
+The corrected hosted run [CI 34139777354](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34139777354)
+passed on exact head `27d1ef1a1b6571b84174e9210e0bc546fcbdaeda`: both jobs,
+20 Workshop groups, 52 main native checks, HTTP 6, normal-close 2, interruption 4,
+project recovery 4, and memory lookup 3. Downloaded reports under
+`.local/ci-workshop-34139777354/` confirm clean runtime observations and WebView2
+`151.0.4129.101`. This qualifies the preset/history/context/new-project harness
+correction. It predates the preset-notice and what-if changes, which require
+their own run; it is not installer or full-specification acceptance.
 
 Documents remain the saved story material. Workshop sessions retain exploration
 briefs, alternatives, selections, and working versions; decisions refer to exact
@@ -282,7 +296,7 @@ green mock/frontend run alone.
 | W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | Workshop question actions, durable statuses, unknown-to fields, and the local recap are implemented; the focused frontend question-cycle test passes. Native/quality evidence remains pending. |
 | W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | CI 34133645198 passed history UI and full Library reopen preserving seed, working, chosen, relationship, and history without generation; broader recap quality remains pending. |
 | W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Rationale and protected-content paths are implemented, with multiline/paragraph boundary checks covered locally; independent authority/access/evidence qualification remains pending. |
-| W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | Partial: the local fork copies the session and scoped preferences, and acceptance still uses explicit preview/adopt. The comparison shows prose only; changed decisions and likely affected material are missing. Core checks parent existence but still needs branch-kind, self-parent, and cycle validation. Dedicated branch creation/isolation/compare/adoption regressions and native qualification remain open. |
+| W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | Implemented locally, native qualification pending: branch graph and immutable ancestry checks; branch-local draft protection; inherited chosen context; parent/alternate text, fields, decision revisions and linked impact evidence; explicit preview/adopt. Focused core, component and shell tests pass. A 21st hosted Workshop group now covers real fork/reopen/compare/preview/adoption. Broader creative-quality and author evidence remain open. |
 | W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | AdoptionImpacts exposes reasons and four categories. Core tests cover candidate/relationship provenance and uncertain claims defaulting to possibleTension/needsReview without repair. CI 34133645198 adds relationship-impact decision provenance with zero chapter writes. Broader category/review quality remains unqualified. |
 | W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Explicit read of saved packets is implemented in `RequestContext.tsx` and context IPC; queued wording now says “saved”. The bounded live smoke passed the unchanged-anchor/manual/no-chapter path, while complete delivered-context qualification remains pending. |
 | W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | A persisted core request test excludes unrelated note/chat text, rejected and archived prose, and an unadopted vignette; only the explicitly included saved alternative and rejection rationale remain. Raw excluded results stay recoverable and the exact packet survives reopen. Native delivered-context qualification remains pending. |
@@ -300,18 +314,54 @@ green mock/frontend run alone.
 
 ## Qualification
 
-### Next implementation slice: complete what-if comparison
+### What-if comparison and isolation implementation
 
-1. Validate that working sessions have no parent and what-if sessions have a
-   valid distinct parent; reject cycles before persisting or preparing adoption.
-   Retain legitimate nested alternatives and existing source ownership checks.
-2. Extend comparison to identify the relevant chosen decisions, changed working
-   material, and evidence-backed likely impacts with reasons and source links.
-   Unknown effects stay unknown; opening comparison must not generate or write
-   story documents. Acceptance continues through the existing reviewed adoption.
-3. Add focused branch creation/reopen, parent-preservation, invalid-parent,
-   comparison, and explicit acceptance regressions, then a hosted native branch
-   flow. The current native check does not qualify these missing behaviors.
+Working sessions have no parent; what-if sessions have an existing, distinct
+parent and no ancestry cycles. Existing session identities cannot be reparented
+or changed between working and what-if. New and nested forks remain supported,
+as does ordinary navigation. Validation applies to durable reads, saves and
+adoption; invalid saves leave the prior state intact.
+
+Keep fixed details in an exploration protect that exploration's adoption.
+They cannot block a parent or sibling's independent work. Chosen decision
+protections still apply to the project. The child's explicit generation inherits
+chosen ancestor material and its forked preference/tray data, while sibling
+choices are excluded from that session-specific context.
+
+`BranchComparison.tsx` compares the current parent with the alternate; nested
+branches name their direct parent. It shows changed fields, proposed changes
+to the chosen focus, latest relevant decision versions (including superseded
+parent choices), and likely affected material with saved reasons and source
+links. Only active selected details resolve candidate claims from the valid
+lineage. Removing a copied detail removes its candidate from that comparison;
+rejected/incomplete results do not contribute claims. Stale claims and changed
+relationship sources are labelled, and missing evidence does not imply no effect.
+
+Exact saved source revisions load when the comparison is opened. Their identity
+and body hashes are checked; an unavailable source does not substitute current
+prose or hide readable sources. Updating a rationale does not repeat revision
+reads. Opening comparison and following its source callback do not generate or
+adopt. Use this version still prepares destinations and a durable preview before
+the existing explicit confirmation. Inherited candidate impacts now appear in
+that review instead of being omitted by the old current-session-only scan.
+
+Focused evidence comprises 24 core Workshop tests, 18 shell tests, and 9 new
+comparison/evidence tests. A synthetic headless Chromium fixture passed at 1440
+and 800 pixels, including keyboard opening, exact source reads, source callbacks,
+and no overflow/page errors; two batched visual passes were inspected under
+`.local/workshop-branch-qa/`. This does not establish native desktop behavior.
+The new 21st hosted group drives fork, editing, Library reopen, comparison,
+adoption preview and explicit confirmation through the real UI, asserting full
+parent preservation, no provider calls, and unchanged non-target documents.
+It still needs execution on the new source.
+
+The 18:09 Berlin full standard check passed 755 Rust tests (69 core unit,
+613 grouped integration, 73 desktop; one intentional subprocess fixture ignore),
+499 frontend tests in 44 files, 11 tooling checks, formatting, strict Clippy,
+TypeScript, and production build. The existing large-chunk build warning remains.
+Log: `.local/workshop-branch-final-check.log`. No local native app or global
+keyboard automation was used. A fresh installer must be built from these product
+changes rather than reusing the previously qualified package.
 
 Use synthetic temporary projects for contracts and native fixtures. Preserve
 existing writing and provider regression coverage; register core integration

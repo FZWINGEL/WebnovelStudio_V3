@@ -121,6 +121,7 @@ export function Preferences({ state, session, onChange }: { state: WorkshopState
         return { ...current, preferences: [...current.preferences, ...preferences], presets: hasReviewedPreset ? current.presets.map(preset => preset.id === reviewedPresetId ? savedPreset : preset) : [...current.presets, savedPreset] };
       });
       setPresetName(name);
+      setPresetNotice(preferences.length ? `${preferences.length} project preference${preferences.length === 1 ? '' : 's'} added.` : 'Preset saved with no preferences to add.');
       setPresetOpen(false); setReviewedPresetId(null); setError('');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not read this preset.'); }
   }

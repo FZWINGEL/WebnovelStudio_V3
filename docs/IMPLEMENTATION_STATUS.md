@@ -39,8 +39,30 @@ groups with zero page errors. It stopped on an ambiguous heading selector in the
 final untitled-project group; the harness correction is locally reproduced.
 The later native suites were skipped. Fresh package run
 [34138625419](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34138625419)
-is still building the same application source. `target/debug/webnovel-desktop.exe`
+was intentionally cancelled before lifecycle qualification finished; a product
+notice fix and the what-if changes require a fresh build. The 17:46 Berlin full
+check of the notice fix passed 750 Rust, 488 frontend, and 11 tooling checks,
+including formatting, Clippy, TypeScript, and build. The notice now confirms
+explicit preset adoption instead of still saying no preferences were added.
+`target/debug/webnovel-desktop.exe`
 has been rebuilt from `0cd1c95`; exact identity is recorded in the Workshop ledger.
+
+The corrected [CI 34139777354](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34139777354)
+passed both jobs at `27d1ef1a1b6571b84174e9210e0bc546fcbdaeda`. Downloaded evidence
+confirms 20 Workshop groups, 52 main native checks, HTTP 6, normal-close 2,
+interruption 4, project recovery 4, and memory lookup 3, with clean runtime
+observations on WebView2 `151.0.4129.101`. It predates the preset-notice and
+what-if changes and does not qualify a new installer.
+
+The next what-if slice implements branch graph validation and immutable existing
+ancestry, isolates draft protection, inherits chosen ancestor context, and adds
+source-bound decision/impact comparison with explicit adoption. Inherited candidate
+impacts appear in adoption review. The 18:09 Berlin standard check passes 755 Rust
+tests (613 grouped integration), 499 frontend tests in 44 files, 11 tooling checks,
+formatting, strict Clippy, TypeScript, and build. Synthetic headless keyboard/source
+and visual checks pass at 1440 and 800 pixels. The hosted Workshop harness now has
+21 groups; this source still needs its own native run and fresh installer. See the
+[what-if contracts and evidence](V3_STORY_WORKSHOP_IMPLEMENTATION.md#what-if-comparison-and-isolation-implementation).
 
 The Develop/Write shell and dedicated six-lens Workshop frontend are implemented
 with editable brief/current direction/original notes, typed three-candidate

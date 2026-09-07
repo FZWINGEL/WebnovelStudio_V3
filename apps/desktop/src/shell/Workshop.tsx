@@ -16,6 +16,8 @@ import { AdoptionImpacts, IMPACT_LABELS } from '../workshop/AdoptionImpacts';
 import { AdoptionPreview } from '../workshop/AdoptionPreview';
 import { WorkshopRecap } from '../workshop/WorkshopRecap';
 import { RequestContext } from '../workshop/RequestContext';
+import { BranchComparison } from '../workshop/BranchComparison';
+import { selectedBranchCandidates } from '../workshop/branchEvidence';
 import '../workshop/workshop.css';
 
 export interface WorkshopHandle { flush(): Promise<void> }
@@ -176,10 +178,8 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
     const kind = session.lens === 'world' ? 'world' : session.lens === 'people' ? 'character' : session.lens === 'themes' ? 'theme' : session.lens === 'possibilities' ? 'hook' : 'note';
     setTargets([{ id: crypto.randomUUID(), documentId: session.focusDocumentId ?? '', title: session.workingTitle || session.title, kind, mode: 'add', text: session.workingText }]);
     setAdoptionLinks([]);
-    const selectedIds = new Set(session.selectedDetails.flatMap(detail => detail.candidateId ? [detail.candidateId] : []));
     const affected = new Map<string, WorkshopImpactDraft>();
-    for (const saved of sessionResults) for (const candidate of saved.output?.candidates ?? []) {
-      if (!selectedIds.has(candidate.id)) continue;
+    for (const { candidate } of selectedBranchCandidates(state, session, store.results)) {
       for (const target of candidate.affectedTargets) {
         // The blank request anchor is internal bookkeeping, not story material.
         if (target.documentId.startsWith('workshop-')) continue;
@@ -259,7 +259,6 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
 
   if (loadingError) return <main className="workshop-loading"><h1>Workshop could not open</h1><p role="alert">{loadingError}</p><button onClick={() => { setLoadingError(''); void store.load().catch(reason => setLoadingError(describeWorkshopError(reason))); }}>Try again</button></main>;
   if (!store.loaded || !session) return <main className="workshop-loading" role="status">Opening your Workshop…</main>;
-  const parent = state.sessions.find(item => item.id === session.parentSessionId);
   const fixed = session.selectedDetails.filter(detail => detail.fixed);
   const visibleResult = result ? { ...result, stale: result.stale || result.workingGeneration !== session.workingGeneration } : null;
 
@@ -298,7 +297,7 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
         {session.lens === 'themes' && <p className="small-copy">You can paste or edit your own short sample here and explain its qualities in Your direction. Reader experience and content intensity are separate choices in Creative preferences.</p>}
         {result?.action === 'moment' && <p className="small-copy">Noncanon experiment. Review any voice guidance separately; a pleasing passage does not adopt its events.</p>}
       </section>
-      {parent && <details className="workshop-branch-compare"><summary>Compare with the working exploration</summary><div><section><h3>Working exploration now</h3><p className="workshop-prose">{parent.workingText || parent.direction || parent.brief}</p></section><section><h3>This what-if</h3><p className="workshop-prose">{session.workingText || session.direction || session.brief}</p></section></div><p className="small-copy">Only Use this version can propose changes to saved story material.</p></details>}
+      {session.branchKind === 'whatIf' && <BranchComparison project={project} state={state} session={session} results={store.results} onOpenDocument={onOpenDocument} />}
       <section className="workshop-composer" aria-label="Steer this exploration"><h2>What would you like to explore next?</h2><p><strong>Scope:</strong> {capture ? 'Selected passage in working version' : session.selectedScope}</p><label>Next action<select value={action} disabled={adopting} onChange={event => setAction(event.target.value)}>{ACTIONS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>{action === 'subvert' && <><label>Convention to transform<input value={session.selectedScope === 'Whole working version' ? '' : session.selectedScope} maxLength={160} onChange={event => edit(current => ({ ...current, selectedScope: event.target.value }))} placeholder="For example, inherited special power" /></label><label>Transformation<select value={subversion} onChange={event => setSubversion(event.target.value)}><option value="">Choose a transformation…</option>{SUBVERSIONS.map(item => <option key={item}>{item}</option>)}</select></label></>}<label>Your direction<textarea value={session.composer} maxLength={12000} disabled={adopting} onChange={event => edit(current => ({ ...current, composer: event.target.value }))} placeholder="Keep the apprenticeship, add salvage expeditions, and make the guild’s safety concerns partly justified." /></label><div className="workshop-generation-footer"><span>{selectedModel?.label ?? 'No model available'}{providers.state?.settings.active.reasoning ? ` · ${providers.state.settings.active.reasoning}` : ''}{providers.state?.settings.active.serviceTier ? ` · ${providers.state.settings.active.serviceTier}` : ''}</span>{live ? <button disabled={live.run.status === 'stopping'} onClick={() => { void stop(); }}>{live.run.status === 'stopping' ? 'Stopping…' : 'Stop request'}</button> : <button className="primary-button" disabled={(!canGenerate && !pendingRequest.current) || requestBusy || adopting} onClick={() => { void generate(); }}>{requestBusy ? 'Preparing…' : pendingRequest.current ? 'Check request status' : 'Explore'}</button>}</div>
         {!canGenerate && <p className="small-copy">{selectedModel?.statusDetail || 'Connect an available model in Settings to generate.'} You can keep editing, saving, and organizing here.</p>}
         {result && ['failed', 'stopped', 'interrupted'].includes(result.run.status) && <div className="workshop-actions"><button disabled={!canGenerate || requestBusy} onClick={() => { void generate(result.action); }}>Try again with current context</button><button onClick={() => { void retryDiscussionSave(access, result.run.target.documentId, result.run.id).then(() => store.refreshResults()).catch(report); }}>Check retained result save</button></div>}

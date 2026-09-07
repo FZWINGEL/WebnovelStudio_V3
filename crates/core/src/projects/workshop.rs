@@ -507,6 +507,7 @@ fn parse_state(json: &str, hash: &str) -> CoreResult<WorkshopState> {
             "The workshop state failed its fingerprint check.",
         ));
     }
+    validate_state_shape(&state)?;
     Ok(state)
 }
 
@@ -680,6 +681,61 @@ fn validate_hard_preference_conflicts(state: &WorkshopState) -> CoreResult<()> {
     Ok(())
 }
 
+fn validate_session_branch_graph(sessions: &[WorkshopSession]) -> CoreResult<()> {
+    let by_id: HashMap<&str, &WorkshopSession> = sessions
+        .iter()
+        .map(|session| (session.id.as_str(), session))
+        .collect();
+
+    for session in sessions {
+        match (session.branch_kind, session.parent_session_id.as_deref()) {
+            (WorkshopBranchKind::Working, None) => {}
+            (WorkshopBranchKind::Working, Some(_)) => {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A working workshop session cannot have a parent.",
+                ));
+            }
+            (WorkshopBranchKind::WhatIf, None) => {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A what-if workshop session must have a parent.",
+                ));
+            }
+            (WorkshopBranchKind::WhatIf, Some(parent)) if parent == session.id => {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A what-if workshop session cannot parent itself.",
+                ));
+            }
+            (WorkshopBranchKind::WhatIf, Some(parent)) if !by_id.contains_key(parent) => {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A what-if workshop session has an unknown parent.",
+                ));
+            }
+            (WorkshopBranchKind::WhatIf, Some(_)) => {}
+        }
+    }
+
+    for session in sessions {
+        let mut seen = HashSet::new();
+        let mut current = Some(session.id.as_str());
+        while let Some(id) = current {
+            if !seen.insert(id) {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "Workshop session parents cannot contain a cycle.",
+                ));
+            }
+            current = by_id
+                .get(id)
+                .and_then(|parent| parent.parent_session_id.as_deref());
+        }
+    }
+    Ok(())
+}
+
 fn validate_state_shape(state: &WorkshopState) -> CoreResult<()> {
     if state.schema_version != 1 {
         return Err(CoreError::new(
@@ -698,6 +754,7 @@ fn validate_state_shape(state: &WorkshopState) -> CoreResult<()> {
             "Workshop state exceeds its bounded size.",
         ));
     }
+    validate_session_branch_graph(&state.sessions)?;
     let mut sessions = HashSet::new();
     for session in &state.sessions {
         check_id(&session.id)?;
@@ -960,16 +1017,6 @@ fn validate_state_references(
         .map(|session| session.id.as_str())
         .collect();
     for session in &state.sessions {
-        if session
-            .parent_session_id
-            .as_deref()
-            .is_some_and(|id| !session_ids.contains(id))
-        {
-            return Err(CoreError::new(
-                "InvalidRequest",
-                "A workshop session has a dangling parent.",
-            ));
-        }
         for id in session
             .focus_document_id
             .as_ref()
@@ -1134,6 +1181,24 @@ fn validate_state_references(
         }
     }
     if let Some(previous) = current {
+        let previous_sessions: HashMap<&str, &WorkshopSession> = previous
+            .sessions
+            .iter()
+            .map(|session| (session.id.as_str(), session))
+            .collect();
+        for session in &state.sessions {
+            let Some(old) = previous_sessions.get(session.id.as_str()) else {
+                continue;
+            };
+            if old.parent_session_id != session.parent_session_id
+                || old.branch_kind != session.branch_kind
+            {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A saved workshop session's branch identity is immutable; create a new fork instead.",
+                ));
+            }
+        }
         let previous_decisions: HashMap<&str, &WorkshopDecision> = previous
             .decisions
             .iter()
@@ -1677,12 +1742,17 @@ fn validate_protected_text(
 fn target_fixed_text(
     connection: &Connection,
     state: &WorkshopState,
+    session_id: &str,
     document: &DocumentRecord,
 ) -> CoreResult<Vec<String>> {
-    let mut protected = state
+    let session = state
         .sessions
         .iter()
-        .flat_map(|session| session.selected_details.iter())
+        .find(|session| session.id == session_id)
+        .ok_or_else(|| CoreError::new("InvalidRequest", "The adoption session does not exist."))?;
+    let mut protected = session
+        .selected_details
+        .iter()
         .filter(|detail| {
             detail.fixed
                 && !detail.text.is_empty()
@@ -1711,6 +1781,7 @@ fn target_fixed_text(
 fn validate_adoption_targets(
     connection: &Connection,
     state: &WorkshopState,
+    session_id: &str,
     targets: &mut [WorkshopAdoptionTarget],
 ) -> CoreResult<Vec<DocumentRecord>> {
     if targets.is_empty() || targets.len() > 64 {
@@ -1773,7 +1844,7 @@ fn validate_adoption_targets(
                         "An existing document title cannot change during workshop adoption.",
                     ));
                 }
-                let fixed = target_fixed_text(connection, state, &current)?;
+                let fixed = target_fixed_text(connection, state, session_id, &current)?;
                 validate_protected_text(Some(&current), &target.body, &fixed, &fixed)?;
                 if target.mode == AdoptionMode::Add {
                     let source = body_blocks(&current.body)?;
@@ -2458,7 +2529,7 @@ impl OwnedProject {
         {
             let revision = read_revision(self.db()?, &decision.revision_id)?;
             let body = body_text(&revision.body);
-            if decision.session_id == session.id {
+            if session_is_ancestor(&state, &session.id, &decision.session_id) {
                 chosen_details.push(format!(
                     "{}: {}\nAuthor rationale: {}",
                     decision.title, body, decision.rationale
@@ -2721,7 +2792,8 @@ impl OwnedProject {
             ));
         }
         let mut targets = request.targets.clone();
-        let before = validate_adoption_targets(self.db()?, &state, &mut targets)?;
+        let before =
+            validate_adoption_targets(self.db()?, &state, &request.session_id, &mut targets)?;
         let target_ids = targets
             .iter()
             .map(|target| target.document_id.clone())
@@ -2752,6 +2824,7 @@ impl OwnedProject {
         validate_protected_texts_for_targets(
             self.db()?,
             &state,
+            &request.session_id,
             &before,
             &targets,
             &request.protected_text,
@@ -2883,7 +2956,7 @@ impl OwnedProject {
             .iter()
             .map(|target| target.document_id.clone())
             .collect::<HashSet<_>>();
-        let before = validate_adoption_targets(&tx, &state, &mut targets)?;
+        let before = validate_adoption_targets(&tx, &state, &preview.session_id, &mut targets)?;
         validate_state_references(&tx, &state, None, &target_ids)?;
         let source_epoch = current_context_epoch(&tx)?;
         validate_candidate_provenance(
@@ -2921,6 +2994,7 @@ impl OwnedProject {
         validate_protected_texts_for_targets(
             &tx,
             &state,
+            &preview.session_id,
             &before,
             &targets,
             &preview.protected_text,
@@ -3123,6 +3197,7 @@ impl OwnedProject {
 fn validate_protected_texts_for_targets(
     connection: &Connection,
     state: &WorkshopState,
+    session_id: &str,
     before: &[DocumentRecord],
     targets: &[WorkshopAdoptionTarget],
     requested: &[String],
@@ -3134,7 +3209,7 @@ fn validate_protected_texts_for_targets(
     for target in targets {
         let mut protected = requested.to_vec();
         if let Some(old) = before_by_id.remove(target.document_id.as_str()) {
-            let previous_fixed = target_fixed_text(connection, state, old)?;
+            let previous_fixed = target_fixed_text(connection, state, session_id, old)?;
             protected.extend(previous_fixed.clone());
             validate_protected_text(Some(old), &target.body, &protected, &previous_fixed)?;
         } else {

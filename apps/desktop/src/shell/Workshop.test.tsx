@@ -181,7 +181,9 @@ beforeEach(() => {
   mocks.workshopHistory.mockResolvedValue([]);
   mocks.startWorkshop.mockResolvedValue(start());
   mocks.previewWorkshopAdoption.mockImplementation(async (request: { sessionId: string; expectedVersion: string; targets: any[]; rationale: string; candidateIds: string[]; relationships?: any[]; impactDrafts?: any[] }) => ({
-    id: 'preview-1', sessionId: request.sessionId, expectedVersion: request.expectedVersion, targets: request.targets, before: [], rationale: request.rationale, protectedText: [], candidateIds: request.candidateIds,
+    id: 'preview-1', sessionId: request.sessionId, expectedVersion: request.expectedVersion, targets: request.targets,
+    before: savedDocuments.filter(document => request.targets.some(target => target.expected && target.documentId === document.head.documentId)),
+    rationale: request.rationale, protectedText: [], candidateIds: request.candidateIds,
     relationships: request.relationships?.map(link => ({ ...link, status: 'tentative', sourceHeads: [link.fromExpected, link.toExpected].filter(Boolean) })),
     impacts: request.impactDrafts?.map((impact, index) => ({ ...impact, id: `impact-${index + 1}`, decisionId: 'preview-decision', candidateId: request.candidateIds[index] ?? request.candidateIds[0] ?? 'candidate', status: 'needsReview' })),
   }));
@@ -196,6 +198,66 @@ afterEach(async () => {
 });
 
 describe('Story Workshop behavioral contracts', () => {
+  it('forks an independent saved exploration and keeps the parent intact across reopen', async () => {
+    const original = session({ title: 'Guild knowledge', workingTitle: 'Repair rules', workingText: 'The guild teaches only apprentices.',
+      selectedDetails: [{ id: 'fixed-rule', candidateId: null, text: 'The guild', fixed: true }],
+      activeRunId: 'old-parent-run', originalNotes: 'Keep the original attraction.' });
+    const preference: WorkshopPreference = { id: 'local-preference', label: 'Public teaching', family: 'World', meaning: 'Explore access to knowledge.',
+      examples: '', timing: '', polarity: 'want', strength: 'soft', scope: 'exploration', targetId: original.id, confirmed: true };
+    await render(view({ state: state({ sessions: [original], preferences: [preference] }) }));
+    await act(async () => exactButton('Explore a what-if').click());
+    await waitFor(() => expect(currentView.state.sessions).toHaveLength(2));
+    const child = currentView.state.sessions.find(item => item.id !== original.id)!;
+    expect(child).toMatchObject({ parentSessionId: original.id, branchKind: 'whatIf', workingText: original.workingText, activeRunId: null });
+    expect(child.anchorDocumentId).not.toBe(original.anchorDocumentId);
+    const childPreference = currentView.state.preferences.find(item => item.targetId === child.id)!;
+    expect(childPreference).toMatchObject({ ...preference, id: expect.any(String), targetId: child.id });
+    expect(childPreference.id).not.toBe(preference.id);
+    await act(async () => setValue(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!, 'The guild publishes repair manuals.'));
+    await waitFor(() => expect(currentView.state.sessions.find(item => item.id === child.id)?.workingText).toBe('The guild publishes repair manuals.'));
+    expect(currentView.state.sessions.find(item => item.id === original.id)).toEqual(original);
+    expect(currentView.state.preferences.find(item => item.id === preference.id)).toEqual(preference);
+    expect(savedDocuments).toEqual(project.documents);
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await render(currentView);
+    expect(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!.value).toBe('The guild publishes repair manuals.');
+    await act(async () => exactButton(original.title).click());
+    expect(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!.value).toBe(original.workingText);
+    await act(async () => exactButton(`What if · ${child.title}`).click());
+    expect(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!.value).toBe('The guild publishes repair manuals.');
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
+
+  it('carries inherited candidate impacts into a what-if preview and adopts only after confirmation', async () => {
+    const inherited = candidate('inherited', 'Repair manuals become public.');
+    inherited.affectedTargets = [{ documentId: 'world-1', reason: 'Public instruction may change the guild apprenticeship.' }];
+    const original = session({ lens: 'world', title: 'Guild knowledge', focusDocumentId: 'world-1', workingTitle: 'Repair rules', workingText: inherited.content,
+      selectedDetails: [{ id: 'inherited-detail', candidateId: inherited.id, text: inherited.content, fixed: false }] });
+    await render(view({ state: state({ sessions: [original] }), results: [result({ output: { ...result().output!, candidates: [inherited] } })] }));
+    await act(async () => exactButton('Explore a what-if').click());
+    await waitFor(() => expect(currentView.state.sessions).toHaveLength(2));
+    const branchId = currentView.state.currentSessionId!;
+    await act(async () => exactButton('Use this version').click());
+    expect(mocks.previewWorkshopAdoption).not.toHaveBeenCalled();
+    expect(host.querySelector('[aria-label="Review affected material"]')?.textContent).toContain(inherited.affectedTargets[0].reason);
+    await act(async () => exactButton('Preview all changes').click());
+    await waitFor(() => expect(mocks.previewWorkshopAdoption).toHaveBeenCalledOnce());
+    expect(mocks.previewWorkshopAdoption.mock.calls[0][0]).toMatchObject({ sessionId: branchId, candidateIds: [inherited.id],
+      impactDrafts: [{ documentId: 'world-1', kind: 'possibleTension', reason: inherited.affectedTargets[0].reason }],
+      targets: [{ documentId: 'world-1', expected: project.documents[0].head, mode: 'add' }] });
+    expect(currentView.state.sessions.find(item => item.id === original.id)).toEqual(original);
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+    await act(async () => exactButton('Confirm Use this version').click());
+    await waitFor(() => expect(mocks.adoptWorkshop).toHaveBeenCalledOnce());
+    expect(onDocumentsChanged).toHaveBeenCalledOnce();
+  });
+
   it('reconciles an uncertain request with the same identity even after going offline', async () => {
     mocks.startWorkshop.mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'Acknowledgment lost.' });
     await render();
