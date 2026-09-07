@@ -1,3 +1,4 @@
+import { recordCheck } from './native-evidence.mjs';
 // Native qualification for passage-backed character knowledge records.
 //
 // This helper is intentionally independent from native-smoke.mjs. The parent
@@ -222,7 +223,7 @@ export async function runKnowledgeFlow({ page, data, output, createWritingProjec
     assert((await source.innerText()).includes(publicPassage));
     assert.deepEqual(latestPacket(), historyPacket, 'Knowledge history/source inspection must not create a model packet');
     await page.screenshot({ path: resolve(output, 'knowledge-history.png') });
-    checks.push('Native review records reader-visible and author-room character knowledge with exact selected quotations, reuses entity identities, and exposes source-ordered knowledge history without another model request');
+    recordCheck(checks, 'native-knowledge:01', 'Native review records reader-visible and author-room character knowledge with exact selected quotations, reuses entity identities, and exposes source-ordered knowledge history without another model request');
 
     await page.getByRole('button', { name: 'Close source', exact: true }).click();
     await page.getByRole('button', { name: 'Close knowledge history', exact: true }).click();
@@ -250,7 +251,7 @@ export async function runKnowledgeFlow({ page, data, output, createWritingProjec
     await candidate.getByText('Rejected', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'All projects', exact: true }).click();
     await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
-    checks.push('Native restricted continuation includes reader-visible character knowledge and excludes the private observation from the delivered envelope and context inspector');
+    recordCheck(checks, 'native-knowledge:02', 'Native restricted continuation includes reader-visible character knowledge and excludes the private observation from the delivered envelope and context inspector');
   } finally {
     db?.close();
   }

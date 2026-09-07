@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "consumers": {
+    "main": [
+      "workshop",
+      "main"
+    ],
+    "lifecycle": [
+      "http",
+      "close",
+      "interruption",
+      "recovery",
+      "memory"
+    ]
+  },
+  "suites": {
+    "main": {
+      "script": "native-smoke.mjs",
+      "report": "report.json",
+      "checks": [
+        "native-smoke:01",
+        "native-smoke:02",
+        "native-smoke:03",
+        "native-smoke:04",
+        "native-smoke:05",
+        "native-smoke:06",
+        "native-smoke:07",
+        "native-smoke:08",
+        "native-smoke:09",
+        "native-smoke:10",
+        "native-smoke:11",
+        "native-smoke:12",
+        "native-smoke:13",
+        "native-smoke:14",
+        "native-smoke:15",
+        "native-smoke:16",
+        "native-smoke:17",
+        "native-smoke:18",
+        "native-smoke:19",
+        "native-smoke:20",
+        "native-smoke:21",
+        "native-smoke:22",
+        "native-smoke:23",
+        "native-smoke:24",
+        "native-smoke:25",
+        "native-smoke:26",
+        "native-smoke:27",
+        "native-smoke:28",
+        "native-smoke:29",
+        "native-smoke:30",
+        "native-smoke:31",
+        "native-smoke:32",
+        "native-smoke:33",
+        "native-smoke:34",
+        "native-smoke:35",
+        "native-smoke:36",
+        "native-reviewed-export:01",
+        "native-reviewed-export:02",
+        "native-reviewed-evidence:01",
+        "native-reviewed-evidence:02",
+        "native-reviewed-evidence:03",
+        "native-reviewed-summaries:01",
+        "native-reviewed-summaries:02",
+        "native-structured-suggestions:01",
+        "native-structured-suggestions:02",
+        "native-promise-history:01",
+        "native-promise-history:02",
+        "native-knowledge:01",
+        "native-knowledge:02",
+        "native-context-lookup:01",
+        "native-context-lookup:02",
+        "native-recovery-copy:01"
+      ]
+    },
+    "workshop": {
+      "script": "native-workshop-smoke.mjs",
+      "report": "workshop/report.json",
+      "checks": [
+        "native-workshop-smoke:01",
+        "native-workshop-smoke:02",
+        "native-workshop-smoke:03",
+        "native-workshop-smoke:04",
+        "native-workshop-smoke:05",
+        "native-workshop-smoke:06",
+        "native-workshop-smoke:07",
+        "native-workshop-smoke:08",
+        "native-workshop-smoke:09",
+        "native-workshop-smoke:10",
+        "native-workshop-smoke:11",
+        "native-workshop-smoke:12",
+        "native-workshop-smoke:13",
+        "native-workshop-smoke:14",
+        "native-workshop-smoke:15",
+        "native-workshop-smoke:16",
+        "native-workshop-smoke:17",
+        "native-workshop-smoke:18",
+        "native-workshop-smoke:19",
+        "native-workshop-smoke:20",
+        "native-workshop-smoke:21",
+        "native-workshop-smoke:22",
+        "native-workshop-smoke:23",
+        "native-workshop-smoke:24",
+        "native-workshop-smoke:25",
+        "native-workshop-smoke:26",
+        "native-workshop-smoke:27",
+        "native-workshop-smoke:28",
+        "native-workshop-smoke:29",
+        "native-workshop-smoke:30",
+        "native-workshop-smoke:31"
+      ]
+    },
+    "http": {
+      "script": "native-http-smoke.mjs",
+      "report": "http/qualification.json",
+      "checks": [
+        "native-http-smoke:01",
+        "native-http-smoke:02",
+        "native-http-smoke:03",
+        "native-http-smoke:04",
+        "native-http-smoke:05",
+        "native-http-smoke:06"
+      ]
+    },
+    "recovery": {
+      "script": "native-project-recovery.mjs",
+      "report": "project-recovery/qualification.json",
+      "checks": [
+        "native-project-recovery:01",
+        "native-project-recovery:02",
+        "native-project-recovery:03",
+        "native-project-recovery:04"
+      ]
+    },
+    "memory": {
+      "script": "native-memory-lookup-smoke.mjs",
+      "report": "memory-lookup-mock/qualification.json",
+      "checks": [
+        "native-memory-lookup-smoke:01",
+        "native-memory-lookup-smoke:02",
+        "native-memory-lookup-smoke:03"
+      ]
+    },
+    "close": {
+      "script": "native-app-close.mjs",
+      "report": "app-close/qualification.json",
+      "checks": [
+        "close:dirty-flush",
+        "close:held-work"
+      ]
+    },
+    "interruption": {
+      "script": "native-interruption.mjs",
+      "report": "interruption/qualification.json",
+      "checks": [
+        "qualifySaveRendererLoss",
+        "qualifyApplyProcessLoss",
+        "qualifyRunningRequestProcessLoss",
+        "qualifyDirtyRefreshKeys"
+      ]
+    }
+  }
+}

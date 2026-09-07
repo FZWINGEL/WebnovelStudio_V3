@@ -1,3 +1,4 @@
+import { recordCheck } from './native-evidence.mjs';
 // Native qualification for passage-backed promise records and frozen history.
 // This helper is intentionally independent from native-smoke.mjs so its
 // project and its assertions can be run from a focused native harness.
@@ -219,7 +220,7 @@ export async function runPromiseHistoryFlow({ page, data, output, createWritingP
     await history.getByRole('button', { name: /Read The vow for promise observation 1/ }).click();
     await page.getByRole('region', { name: 'Saved story source', exact: true }).waitFor();
     assert.deepEqual(latestPacket(), beforeSource, 'Opening promise evidence must not create a model packet');
-    checks.push('Native promise review records reader and author-room observations, retries a lost stage acknowledgment with one exact immutable set, reuses an explicit identity for a payoff, and shows complete evidence history without a model call');
+    recordCheck(checks, 'native-promise-history:01', 'Native promise review records reader and author-room observations, retries a lost stage acknowledgment with one exact immutable set, reuses an explicit identity for a payoff, and shows complete evidence history without a model call');
 
     // Second journey: restricted writing receives the public promise only.
     await page.getByRole('button', { name: 'Close source', exact: true }).click();
@@ -270,7 +271,7 @@ export async function runPromiseHistoryFlow({ page, data, output, createWritingP
     assert.equal(cleared.promises_hash, null, 'Explicit promise clearing canonicalizes to an empty nullable hash');
     assert(db.prepare('SELECT context_source_epoch AS epoch FROM project').get().epoch > beforeClearEpoch);
     assert(db.prepare('SELECT count(*) AS n FROM review_fences WHERE affected_bundle_id=?').get(payoffBundle.id).n > beforeClearFences);
-    checks.push('Restricted reviewed continuation excludes author-room promise identity and note from its reviewed envelope; a record-only re-review fences later work, explicit clearing survives reload, and prior promise history remains immutable');
+    recordCheck(checks, 'native-promise-history:02', 'Restricted reviewed continuation excludes author-room promise identity and note from its reviewed envelope; a record-only re-review fences later work, explicit clearing survives reload, and prior promise history remains immutable');
 
     await page.getByRole('button', { name: 'All projects', exact: true }).click();
     await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();

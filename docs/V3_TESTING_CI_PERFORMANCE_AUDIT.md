@@ -7,6 +7,13 @@
 **Timing baseline:** successful push run `34067931031`, source `63770b9122f598b3e32ea1b0f5f4020c4325115f`  
 **Status:** Read-only audit and proposed changes. No repository changes or GitHub Actions runs were made for this audit. The in-progress, unpushed Story Workshop implementation is outside this snapshot.
 
+**Follow-up:** The [implementation ledger](V3_TESTING_CI_PERFORMANCE_IMPLEMENTATION.md)
+tracks all audit requirements. Cleanup, fixture batching, selected Node tests,
+earlier feedback and timing uploads have local checks. Build-once fan-out and
+prepared/frozen registry paths are implemented as opt-in candidates; measured
+hosted adoption and remaining experiments are still open. The original audit
+below is retained as historical evidence.
+
 ## Recommendation
 
 Fix avoidable test-harness work before weakening test gates or replacing the runner. The strongest immediate candidates are repeated process cleanup in the interruption harness and autocommit-heavy construction of legacy-import fixtures. Then improve frontend feedback scheduling, separate pure tests from DOM tests, and evaluate build-once native fan-out across isolated Windows runners.

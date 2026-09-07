@@ -1,3 +1,5 @@
+import { spawnOwned, stopOwned, markOwnedReady } from './owned-process.mjs';
+import { recordCheck, initializeEvidence } from './native-evidence.mjs';
 // Native synthetic qualification for backup/recovery isolation. Project A is
 // backed up through the real native Save dialog, while project B owns a held
 // loopback SSE discussion. A is then recovered as a new project through the
@@ -18,6 +20,7 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const executable = process.env.WNS_V3_NATIVE_EXE
   ? resolve(process.env.WNS_V3_NATIVE_EXE)
   : resolve(root, 'target/debug/webnovel-desktop.exe');
+await initializeEvidence(executable);
 const evidence = resolve(root, '.local/native-results/project-recovery');
 await mkdir(evidence, { recursive: true });
 
@@ -43,7 +46,7 @@ async function reservePort() {
 async function launch(data, logs) {
   const port = await reservePort();
   let log = '';
-  const app = spawn(executable, [], {
+  const app = spawnOwned(executable, [], {
     cwd: data,
     windowsHide: true,
     stdio: 'pipe',
@@ -80,6 +83,7 @@ async function launch(data, logs) {
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));
     const runtime = await invoke(page, 'runtime_info');
+  markOwnedReady(app);
     assert.equal(runtime.host, 'Tauri');
     assert.equal(runtime.persistence, true);
     return { app, browser, page, runtime, pageErrors, data };
@@ -90,14 +94,7 @@ async function launch(data, logs) {
   }
 }
 
-async function stopIfAlive(app) {
-  if (!app || app.exitCode !== null) return;
-  app.kill();
-  await new Promise(resolvePromise => {
-    const timeout = setTimeout(resolvePromise, 5000);
-    app.once('exit', () => { clearTimeout(timeout); resolvePromise(); });
-  });
-}
+async function stopIfAlive(app) { await stopOwned(app); }
 
 async function stopOwnedHelper(helper) {
   if (!helper || helper.exitCode !== null) return;
@@ -312,7 +309,7 @@ async function main() {
     assert.equal(activeB.runs[0].status, 'running');
     assert.equal(activeB.providerResults.length, 0);
     assert(activeB.contextPackets.some(packet => packet.id === started.run.packetId), 'B packet must be durably retained before recovery.');
-    checks.push('Project B reached one running held SSE request with durable partial output before backup/recovery');
+    recordCheck(checks, 'native-project-recovery:01', 'Project B reached one running held SSE request with durable partial output before backup/recovery');
 
     const backupPath = resolve(data, 'backup', 'recovery-source-a.wnsbackup');
     await mkdir(resolve(data, 'backup'), { recursive: true });
@@ -325,7 +322,7 @@ async function main() {
     const backupStat = await stat(backupPath);
     assert(backupStat.size > 0, 'Native project backup must create a non-empty archive.');
     assert.equal(held.requests.length, 1, 'Backing up A must not replay B provider work.');
-    checks.push('Project A backup completed through the PID-owned native Save dialog while B remained active');
+    recordCheck(checks, 'native-project-recovery:02', 'Project A backup completed through the PID-owned native Save dialog while B remained active');
 
     const recoveryTitle = 'Recovered source A';
     await page.evaluate(({ operationId, title }) => {
@@ -370,7 +367,7 @@ async function main() {
     assert.deepEqual(afterB.storySnapshots, activeB.storySnapshots, 'Recovery must not change B story snapshots.');
     assert.deepEqual(afterB.snapshotSources, activeB.snapshotSources, 'Recovery must not change B snapshot sources.');
     assert.equal(afterB.contextPackets.find(packet => packet.id === started.run.packetId)?.project_id, projectB.project.projectId);
-    checks.push('Recovery returned A with a fresh identity and exact document/history, retained source A/B, and left B running with no replay or result redirect');
+    recordCheck(checks, 'native-project-recovery:03', 'Recovery returned A with a fresh identity and exact document/history, retained source A/B, and left B running with no replay or result redirect');
 
     await invoke(page, 'stop_discussion', { access: projectB.access, runId: started.run.id });
     await waitForRun(bDbPath, started.run.id, row => row.status === 'stopped');
@@ -386,7 +383,7 @@ async function main() {
     while (!held.requests[0].clientDisconnected && Date.now() < stopDeadline) await new Promise(resolvePromise => setTimeout(resolvePromise, 50));
     assert(held.requests[0].clientDisconnected, 'Stopping B must close the exact held SSE connection.');
     assert.equal(held.requests.length, 1, 'Stopping B must not replay the provider request.');
-    checks.push('Project B stopped once after recovery, persisted one stopped outcome, closed its held SSE, and did not replay');
+    recordCheck(checks, 'native-project-recovery:04', 'Project B stopped once after recovery, persisted one stopped outcome, closed its held SSE, and did not replay');
     assert.deepEqual(run.pageErrors, [], 'Native recovery fixture must produce no page errors.');
     return { status: 'passed', checks, dataDirectory: data, runtime: run.runtime, pageErrors: run.pageErrors, syntheticProviderRequests: held.requests.length, backupPath, sourceProjectId: projectA.project.projectId, recoveredProjectId: recovered.project.projectId, activeProjectId: projectB.project.projectId };
   } finally {

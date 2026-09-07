@@ -1,3 +1,4 @@
+import { recordCheck } from './native-evidence.mjs';
 // Optional author acceptance of a generated starting point in an owned WebView2 fixture.
 import assert from 'node:assert/strict';
 import { realpath } from 'node:fs/promises';
@@ -69,7 +70,7 @@ export async function qualifyReviewedSummaries({ page, data, output, createWriti
     assert.deepEqual(packet.receipt.reviewedSummaries ?? [], []);
     assert.equal(packet.receipt.reviewedSummaryOmissions[0].reason, 'originalTextIncluded');
     await page.screenshot({ path: resolve(output, 'accepted-summary-context.png') });
-    checks.push('Native summary review explicitly copies current mock memory into an editable draft, stages and resumes it before acceptance, preserves prose without another AI request, and distinguishes accepted summary availability from full-text delivery');
+    recordCheck(checks, 'native-reviewed-summaries:01', 'Native summary review explicitly copies current mock memory into an editable draft, stages and resumes it before acceptance, preserves prose without another AI request, and distinguishes accepted summary availability from full-text delivery');
     await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill('Ren returned the silver key to Mei before dusk.');
     await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
     await page.getByRole('button', { name: 'Story review', exact: true }).click();
@@ -81,7 +82,7 @@ export async function qualifyReviewedSummaries({ page, data, output, createWriti
     assert.equal(current.summary_json, null);
     assert.deepEqual(db.prepare('SELECT * FROM ready_bundles WHERE id=?').get(bundle.id), bundle);
     assert.equal(counts().memory, beforeReview.memory);
-    checks.push('Native changed chapter review permits explicit summary clearing while retaining the earlier immutable accepted summary and avoiding automatic memory refresh');
+    recordCheck(checks, 'native-reviewed-summaries:02', 'Native changed chapter review permits explicit summary clearing while retaining the earlier immutable accepted summary and avoiding automatic memory refresh');
     await page.getByRole('button', { name: 'All projects', exact: true }).click();
     await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   } finally { db.close(); }

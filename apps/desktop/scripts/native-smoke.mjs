@@ -1,3 +1,5 @@
+import { spawnOwned, stopOwned, markOwnedReady } from './owned-process.mjs';
+import { recordCheck, initializeEvidence } from './native-evidence.mjs';
 // Actual Tauri/WebView2 integration checks. No Chromium browser is launched.
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -11,6 +13,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const executable = process.env.WNS_V3_NATIVE_EXE ? resolve(process.env.WNS_V3_NATIVE_EXE) : resolve(root, 'target/debug/webnovel-desktop.exe');
+await initializeEvidence(executable);
 const output = resolve(root, '.local/native-results');
 await mkdir(output, { recursive: true });
 const data = await mkdtemp(resolve(tmpdir(), 'wns-v3-native-'));
@@ -25,7 +28,7 @@ let port = await reservePort();
 let appLog = '';
 let spawnError;
 function launch() {
-  const process = spawn(executable, [], {
+  const process = spawnOwned(executable, [], {
     cwd: data, windowsHide: true, stdio: 'pipe',
     env: { ...globalThis.process.env, WNS_V3_NATIVE_CDP_PORT: String(port), WNS_V3_TRIAL_WEBVIEW_DIR: resolve(data, 'webview'), WNS_V3_TEST_DATA_DIR: resolve(data, 'library') },
   });
@@ -84,6 +87,7 @@ try {
   let page = context.pages()[0];
   if (!page) page = await context.waitForEvent('page', { timeout: 10000 });
   observedPage = page;
+  markOwnedReady(app);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   // Startup now restores the Codex choice. Select the local test model before
@@ -113,7 +117,7 @@ try {
   await page.getByRole('button', { name: 'Choose model: GPT-5.6-Luna', exact: true }).click();
   await page.locator('.model-choice').filter({ hasText: 'Local test model' }).click();
   await page.getByRole('button', { name: 'Choose model: Local test model', exact: true }).waitFor();
-  checks.push('Model choice, favorites and traits survive reload; checked Codex connects when available and otherwise remains blocked without substitution');
+  recordCheck(checks, 'native-smoke:01', 'Model choice, favorites and traits survive reload; checked Codex connects when available and otherwise remains blocked without substitution');
   await page.getByRole('button', { name: 'Open editor trial', exact: true }).click();
   await page.getByRole('textbox', { name: 'Chapter manuscript' }).waitFor();
   // The diagnostic is intentionally hidden at smaller native window widths.
@@ -123,10 +127,10 @@ try {
   const runtime = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('runtime_info'));
   assert.equal(runtime.host, 'Tauri');
   assert.equal(runtime.persistence, true);
-  checks.push(`Real Tauri IPC, WebView2 ${runtime.webviewVersion}`);
+  recordCheck(checks, 'native-smoke:02', `Real Tauri IPC, WebView2 ${runtime.webviewVersion}`);
   await page.getByRole('button', { name: 'Check with Rust', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Fingerprints match' }).waitFor();
-  checks.push('Editor/Rust canonical JSON and SHA-256 match over real IPC');
+  recordCheck(checks, 'native-smoke:03', 'Editor/Rust canonical JSON and SHA-256 match over real IPC');
   await page.screenshot({ path: resolve(output, 'desktop.png') });
 
   // An immutable Tiptap instance is exposed on its DOM element by Tiptap itself.
@@ -144,7 +148,7 @@ try {
   await page.getByRole('button', { name: 'Keep feedback', exact: true }).click();
   assert(await page.evaluate(() => document.querySelector('.tiptap').editor === window.nativeTrialEditor));
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), before);
-  checks.push('Selection quote and composer focus survive chat updates without replacing the editor');
+  recordCheck(checks, 'native-smoke:04', 'Selection quote and composer focus survive chat updates without replacing the editor');
 
   await page.getByRole('button', { name: 'Try your own replacement' }).click();
   await page.getByRole('textbox', { name: 'Replacement text' }).fill('At nightfall');
@@ -165,7 +169,7 @@ try {
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), before);
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), after);
-  checks.push('Preview/Reject do not mutate; strict local Apply, undo and redo preserve surrounding nodes');
+  recordCheck(checks, 'native-smoke:05', 'Preview/Reject do not mutate; strict local Apply, undo and redo preserve surrounding nodes');
 
   const manuscript = page.getByRole('textbox', { name: 'Chapter manuscript' });
   await manuscript.click();
@@ -174,14 +178,14 @@ try {
   assert.equal(focusStyle.style, 'solid');
   assert.equal(focusStyle.width, '2px');
   await page.screenshot({ path: resolve(output, 'editor-focused.png') });
-  checks.push('Manuscript keyboard focus is visibly indicated in the native window');
+  recordCheck(checks, 'native-smoke:06', 'Manuscript keyboard focus is visibly indicated in the native window');
   await page.keyboard.press('Control+End');
   await page.keyboard.press('Enter');
   await page.keyboard.insertText('灯火🙂 灯火🙂 e\u0301 👩‍🚀');
   assert((await manuscript.textContent()).includes('灯火🙂 灯火🙂 e\u0301 👩‍🚀'));
   await page.getByRole('button', { name: 'Check with Rust', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Fingerprints match' }).waitFor();
-  checks.push('Synthetic Unicode edge cases survive native input: non-Latin text, emoji, combining marks and ZWJ');
+  recordCheck(checks, 'native-smoke:07', 'Synthetic Unicode edge cases survive native input: non-Latin text, emoji, combining marks and ZWJ');
   await page.evaluate(() => {
     const editor = document.querySelector('.tiptap').editor;
     editor.commands.setTextSelection({ from: 1, to: 8 });
@@ -194,7 +198,7 @@ try {
   // requestAnimationFrame focus handoff itself, not just that existing label.
   await page.waitForFunction(() => document.activeElement?.id === 'feedback-input');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'feedback-input');
-  checks.push('Ctrl+Shift+F captures selection and transfers focus');
+  recordCheck(checks, 'native-smoke:08', 'Ctrl+Shift+F captures selection and transfers focus');
 
   await page.evaluate(() => {
     const editor = document.querySelector('.tiptap').editor;
@@ -202,7 +206,7 @@ try {
   });
   await page.getByText('The chapter changed. This quotation is kept as a reference.', { exact: false }).waitFor();
   assert(await page.getByRole('button', { name: 'Try your own replacement' }).isDisabled());
-  checks.push('Intervening manuscript edits make captured replacement scope stale');
+  recordCheck(checks, 'native-smoke:09', 'Intervening manuscript edits make captured replacement scope stale');
 
   await page.getByRole('button', { name: 'Whole chapter', exact: true }).click();
   const clipboardSource = await page.evaluate(() => {
@@ -250,7 +254,7 @@ try {
   assert(pasted.content.slice(2).some(block => block.content?.some(node => node.text?.includes('尾声') && node.marks?.some(mark => mark.type === 'italic'))));
   await page.getByRole('button', { name: 'Check with Rust', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Fingerprints match' }).waitFor();
-  checks.push('Native WebView2 Ctrl+C/Ctrl+V preserves formatted Unicode paragraphs and unique IDs');
+  recordCheck(checks, 'native-smoke:10', 'Native WebView2 Ctrl+C/Ctrl+V preserves formatted Unicode paragraphs and unique IDs');
   await page.evaluate(() => {
     const editor = document.querySelector('.tiptap').editor;
     editor.commands.setTextSelection({ from: 1, to: 10 });
@@ -261,7 +265,7 @@ try {
   await page.getByRole('menuitem', { name: 'Give feedback on selection' }).click();
   await page.getByRole('textbox', { name: 'Your feedback on this passage' }).waitFor();
   assert.equal(await page.locator('.quoted-scope blockquote').textContent(), 'Clipboard');
-  checks.push('Right-click selection menu captures the intended passage');
+  recordCheck(checks, 'native-smoke:11', 'Right-click selection menu captures the intended passage');
   // W2 exercises shipping project commands against synthetic, file-backed data.
   // This is transport qualification; the visible W0 manuscript is still session-only.
   const projectPath = resolve(data, 'persistence-project');
@@ -288,7 +292,7 @@ try {
   assert.equal(persisted.staleError.code, 'WriterLeaseExpired');
   assert.equal(persisted.reopened.documents[0].body.body.content[0].content[0].text, 'Saved in Rust. Mei waited beneath the lantern. 👩‍🚀');
   assert.equal(persisted.reopened.documents[0].lastCheckpointId, persisted.revision.id);
-  checks.push('Real project IPC creates file-backed prose, saves once, checkpoints, fences stale writers and reopens the latest head');
+  recordCheck(checks, 'native-smoke:12', 'Real project IPC creates file-backed prose, saves once, checkpoints, fences stale writers and reopens the latest head');
   const contextProof = await page.evaluate(async opened => {
     const invoke = window.__TAURI_INTERNALS__.invoke;
     const access = opened.access;
@@ -323,7 +327,7 @@ try {
   assert.equal(contextProof.current, false);
   assert.equal(contextProof.oldEvidence.hits.length, 1);
   assert.equal(contextProof.revoked.code, 'ContextPolicyChanged');
-  checks.push('Native context IPC freezes exact sources, persists a mock-only packet receipt, marks it stale after editing and revokes further reads on policy change');
+  recordCheck(checks, 'native-smoke:13', 'Native context IPC freezes exact sources, persists a mock-only packet receipt, marks it stale after editing and revokes further reads on policy change');
 
   // F2-B reviewed continuation stays an explicit restricted-writing basis:
   // the current target remains working prose, while only the exact earlier
@@ -482,7 +486,7 @@ try {
   assert.equal(reviewedContinuation.staleFreeze?.code, 'ReviewBasisUnavailable');
   assert.equal(reviewedContinuation.revokedPolicy, '1');
   assert.equal(reviewedContinuation.revokedRead?.code, 'ContextPolicyChanged');
-  checks.push('Native reviewed continuation freezes the current target separately from its exact reviewed prefix, excludes future/private sources, preserves stale evidence read-only, and revokes old reads after policy change');
+  recordCheck(checks, 'native-smoke:14', 'Native reviewed continuation freezes the current target separately from its exact reviewed prefix, excludes future/private sources, preserves stale evidence read-only, and revokes old reads after policy change');
   await page.getByRole('button', { name: 'Back to library', exact: true }).click();
   async function fillManuscript(text) {
     await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill(text);
@@ -538,7 +542,7 @@ try {
   await page.getByRole('button', { name: /^Harbour A Last opened/ }).click();
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei keeps the brass key. She has made her choice.');
   await page.screenshot({ path: resolve(output, 'persistent-workspace.png') });
-  checks.push('Native library creates character-first and chapter-first projects; typing, detach-after-flush switching and renderer reload retain isolated prose');
+  recordCheck(checks, 'native-smoke:15', 'Native library creates character-first and chapter-first projects; typing, detach-after-flush switching and renderer reload retain isolated prose');
   if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
   await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.brand strong')?.textContent.includes('Harbour A copy') || !!document.querySelector('[role="alert"]'));
@@ -554,8 +558,7 @@ try {
   assert.equal(new Set(libraryBeforeRestart.entries.map(entry => entry.projectId)).size, 3);
   assert.equal(libraryBeforeRestart.pending.length, 0);
   await browser.close(); browser = undefined;
-  const exited = new Promise(resolve => app.once('exit', resolve));
-  app.kill(); await exited;
+  await stopOwned(app);
   // An exiting WebView child can briefly retain the old debugging endpoint.
   // A fresh port makes readiness belong to this new application process.
   const previousPort = port;
@@ -577,13 +580,14 @@ try {
   const restartedContext = browser.contexts()[0];
   page = restartedContext.pages()[0] ?? await restartedContext.waitForEvent('page', { timeout: 10000 });
   observedPage = page;
+  markOwnedReady(app);
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: /^Harbour A Last opened/ }).click();
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei keeps the brass key. She has made her choice.');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour A copy Last opened/ }).click();
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Only the independent copy changes.');
-  checks.push('Native duplicate uses an independent project; original and copy reopen with distinct prose after the desktop process is killed and restarted');
+  recordCheck(checks, 'native-smoke:16', 'Native duplicate uses an independent project; original and copy reopen with distinct prose after the desktop process is killed and restarted');
 
   // Continuation is qualified in its own synthetic project so the later
   // Harbour C passage/review checks retain their original fixture and counts.
@@ -723,7 +727,7 @@ try {
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour A copy Last opened/ }).click();
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Only the independent copy changes.');
-  checks.push('Native continuation refuses an unavailable reviewed prefix, requires explicit working-draft fallback, retries one lost preparation acknowledgment with the exact operation/body/IDs and one stored version, previews typed paragraphs without mutating the mounted editor, applies after the unchanged ending, survives visible undo/redo, and retains the new body in history after reload');
+  recordCheck(checks, 'native-smoke:17', 'Native continuation refuses an unavailable reviewed prefix, requires explicit working-draft fallback, retries one lost preparation acknowledgment with the exact operation/body/IDs and one stored version, previews typed paragraphs without mutating the mounted editor, applies after the unchanged ending, survives visible undo/redo, and retains the new body in history after reload');
   const editorBeforeRename = await page.evaluate(() => { window.editorBeforeRename = document.querySelector('.tiptap').editor; return window.editorBeforeRename.getJSON(); });
   if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
   await page.getByRole('button', { name: 'Rename', exact: true }).click();
@@ -791,12 +795,12 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Discuss this document', exact: true }).inputValue(), 'Remember the promise from this scene.');
   await page.locator('.persistent-feedback article').filter({ hasText: 'This test confirms discussion and context handling' }).waitFor();
   await page.screenshot({ path: resolve(output, 'persistent-discussion.png') });
-  checks.push('Native selected discussion retains its exact quote, mock response and context receipt without replacing prose; unsent composer and conversation survive switching and renderer reload');
+  recordCheck(checks, 'native-smoke:18', 'Native selected discussion retains its exact quote, mock response and context receipt without replacing prose; unsent composer and conversation survive switching and renderer reload');
   await openRequestOptions(page);
   await page.locator('.persistent-source-pins>summary').click();
   await page.locator('.persistent-source-list li').filter({ hasText: "Mei's voiceThis document" }).waitFor();
   await page.locator('.persistent-source-list li').filter({ hasText: 'Ending to protectThis project' }).waitFor();
-  checks.push('Persistent document/project source choices survive native navigation/reload and are marked required in the frozen discussion packet without changing prose');
+  recordCheck(checks, 'native-smoke:19', 'Persistent document/project source choices survive native navigation/reload and are marked required in the frozen discussion packet without changing prose');
   const beforeGuidance = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
   await openRequestOptions(page);
   await page.locator('.persistent-feedback article').filter({ hasText: /^You/ }).filter({ hasText: 'Keep this image, but make its meaning less obvious.' }).getByRole('button', { name: 'Keep as guidance', exact: true }).click();
@@ -821,12 +825,12 @@ try {
   await earlierExchange.scrollIntoViewIfNeeded();
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
   await page.screenshot({ path: resolve(output, 'discussion-context.png') });
-  checks.push('Native follow-up discussion receives and displays the exact earlier complete exchange separately from saved guidance without changing the manuscript');
+  recordCheck(checks, 'native-smoke:20', 'Native follow-up discussion receives and displays the exact earlier complete exchange separately from saved guidance without changing the manuscript');
   await page.reload();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).click();
   await page.locator('.guidance-item p').filter({ hasText: /^Preserve the final lantern image and keep the ending intact\.$/ }).waitFor({ state: 'attached' });
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
-  checks.push('Native Keep as guidance stores the confirmed document instruction, supplies its exact version in the next packet, survives reload and never changes manuscript text');
+  recordCheck(checks, 'native-smoke:21', 'Native Keep as guidance stores the confirmed document instruction, supplies its exact version in the next packet, survives reload and never changes manuscript text');
   await openRequestOptions(page);
   await page.getByRole('button', { name: 'Add guidance', exact: true }).click();
   await page.getByRole('textbox', { name: 'Direction', exact: true }).fill('Keep the promise intact for this attempt.');
@@ -853,7 +857,7 @@ try {
   await page.locator('.context-inspector details[open] .context-guidance p').filter({ hasText: /^Keep the promise intact for this attempt\.$/ }).waitFor();
   await page.getByRole('button', { name: 'Stop response', exact: true }).waitFor({ state: 'detached' });
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeGuidance);
-  checks.push('Native stopped discussion retry retains one-use guidance and the saved retry choice across navigation/reload, then supplies the exact instruction without changing prose');
+  recordCheck(checks, 'native-smoke:22', 'Native stopped discussion retry retains one-use guidance and the saved retry choice across navigation/reload, then supplies the exact instruction without changing prose');
   const retryLibrary = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
   const retryProjectPath = await realpath(retryLibrary.entries.find(entry => entry.title === 'Harbour C').path);
   const retryRelative = relative(toNamespacedPath(await realpath(data)), toNamespacedPath(retryProjectPath));
@@ -883,7 +887,7 @@ try {
     retryDatabase.exec('DROP TRIGGER IF EXISTS native_terminal_failure;');
     retryDatabase.close();
   }
-  checks.push('Native failed response save stays visible across navigation and renderer reload; local retry commits the retained response without another run or manuscript change');
+  recordCheck(checks, 'native-smoke:23', 'Native failed response save stays visible across navigation and renderer reload; local retry commits the retained response without another run or manuscript change');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByLabel('Start with', { exact: true }).selectOption('chapter');
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('The promise on the pier');
@@ -937,7 +941,7 @@ try {
   assert.equal(JSON.stringify(briefPacket.messages).includes(briefPacket.receipt.safeBrief.originMessageId), false);
   if (await page.locator('.context-inspector').getAttribute('open') === null) await page.locator('.context-inspector>summary').click();
   await page.locator('.context-safe-brief p').filter({ hasText: approvedBrief }).waitFor();
-  checks.push('Native writing-brief adoption requires explicit approval, survives draft reload, supplies only exact approved directions rather than private planning, and remains inspectable without changing prose');
+  recordCheck(checks, 'native-smoke:24', 'Native writing-brief adoption requires explicit approval, survives draft reload, supplies only exact approved directions rather than private planning, and remains inspectable without changing prose');
   let chosen = page.locator('.proposal-card').filter({ hasText: 'Mock clarity option' });
   await chosen.getByRole('textbox', { name: 'Replacement wording', exact: true }).fill('Her sister');
   await chosen.getByRole('button', { name: 'Preview', exact: true }).click();
@@ -966,7 +970,7 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), appliedProse);
   await chosen.scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(output, 'proposal-applied.png') });
-  checks.push('Native chapter passage suggestions retain three alternatives and edited previews across reload; explicit Apply preserves the mounted editor and protected ending, leaves other options pending/stale, and Reject does not change prose');
+  recordCheck(checks, 'native-smoke:25', 'Native chapter passage suggestions retain three alternatives and edited previews across reload; explicit Apply preserves the mounted editor and protected ending, leaves other options pending/stale, and Reject does not change prose');
   await page.getByRole('textbox', { name: 'Manuscript', exact: true }).focus();
   // Hold a real background caret-save acknowledgement while the author uses
   // Redo. Remembering a reading position must not disable or blur the editor.
@@ -992,7 +996,7 @@ try {
   await page.waitForFunction(text => document.querySelector('.tiptap').editor.getText() === text, appliedProse);
   await page.evaluate(() => window.releaseBackgroundView());
   await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
-  checks.push('Delayed real caret-save acknowledgement leaves manuscript focus and editing available; native Redo succeeds while the background save is pending');
+  recordCheck(checks, 'native-smoke:26', 'Delayed real caret-save acknowledgement leaves manuscript focus and editing available; native Redo succeeds while the background save is pending');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await page.reload();
@@ -1001,7 +1005,7 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), appliedProse);
   await page.locator('.proposal-card').filter({ hasText: 'Mock clarity option' }).locator('.proposal-status').filter({ hasText: /^Applied$/ }).waitFor();
   await page.locator('.proposal-card').filter({ hasText: 'Mock focus option' }).locator('.proposal-status').filter({ hasText: /^Rejected$/ }).waitFor();
-  checks.push('Native durable Apply is one undo event; undo and redo save through Rust and the final body plus explicit decisions survive navigation and renderer reload');
+  recordCheck(checks, 'native-smoke:27', 'Native durable Apply is one undo event; undo and redo save through Rust and the final body plus explicit decisions survive navigation and renderer reload');
   await page.getByRole('button', { name: 'History', exact: true }).click();
   await page.getByRole('heading', { name: 'Saved versions', exact: true }).waitFor();
   const versions = page.getByRole('combobox', { name: 'Saved version', exact: true });
@@ -1061,7 +1065,7 @@ try {
   await page.locator('.history-preview .saved-prose').filter({ hasText: appliedProse }).waitFor();
   await page.screenshot({ path: resolve(output, 'history-after-restore.png') });
   await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
-  checks.push('Native saved-version comparison is read-only; explicit restore recovers a lost commit acknowledgment through the same mounted editor, is one undo event, and retains both versions after reload');
+  recordCheck(checks, 'native-smoke:28', 'Native saved-version comparison is read-only; explicit restore recovers a lost commit acknowledgment through the same mounted editor, is one undo event, and retains both versions after reload');
   await page.evaluate(() => document.querySelector('.tiptap').editor.commands.setTextSelection({ from: 1, to: 4 }));
   await page.getByRole('button', { name: 'Bold', exact: true }).click();
   await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
@@ -1089,7 +1093,7 @@ try {
   await exportDialog.getByRole('button', { name: 'Done', exact: true }).click();
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), exportSource);
   assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Export draft');
-  checks.push('Native draft export previews exact frozen Markdown/plain text, cancels the real Save dialog without writing, saves through native UI Automation, and preserves manuscript and return focus');
+  recordCheck(checks, 'native-smoke:29', 'Native draft export previews exact frozen Markdown/plain text, cancels the real Save dialog without writing, saves through native UI Automation, and preserves manuscript and return focus');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('button', { name: 'Archive Harbour C', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor({ state: 'detached' });
@@ -1097,7 +1101,7 @@ try {
   await page.getByRole('button', { name: 'Unarchive Harbour C', exact: true }).click();
   await page.getByRole('button', { name: 'Show active', exact: true }).click();
   await page.getByRole('button', { name: /^Harbour C Last opened/ }).waitFor();
-  checks.push('Native renames preserve the mounted editor; last document and exact caret survive navigation/reload; archive and unarchive preserve the project');
+  recordCheck(checks, 'native-smoke:30', 'Native renames preserve the mounted editor; last document and exact caret survive navigation/reload; archive and unarchive preserve the project');
   const { qualifyReviewedExport } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-reviewed-export.mjs')).href);
   await qualifyReviewedExport({ page, data, output, operateSaveDialog, createWritingProject, checks });
   const { qualifyReviewedEvidence } = await import(pathToFileURL(resolve(root, 'apps/desktop/scripts/native-reviewed-evidence.mjs')).href);
@@ -1149,7 +1153,7 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei left the key beside the gate.');
   await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
   assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Story review');
-  checks.push('Native author review previews exact prose, resumes an unaccepted stage after restart, requires explicit acceptance, reconciles a lost commit acknowledgment, preserves the mounted editor and restores keyboard focus');
+  recordCheck(checks, 'native-smoke:31', 'Native author review previews exact prose, resumes an unaccepted stage after restart, requires explicit acceptance, reconciles a lost commit acknowledgment, preserves the mounted editor and restores keyboard focus');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByLabel('Start with', { exact: true }).selectOption('chapter');
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('The return');
@@ -1182,7 +1186,7 @@ try {
   await page.getByRole('button', { name: 'Story review', exact: true }).click();
   await page.getByRole('heading', { name: 'Earlier story needs review', exact: true }).waitFor();
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Ren returned to the empty gate.');
-  checks.push('Native review binds the earlier reviewed prefix; changing an earlier chapter marks the later review unavailable while preserving later prose across reopen');
+  recordCheck(checks, 'native-smoke:32', 'Native review binds the earlier reviewed prefix; changing an earlier chapter marks the later review unavailable while preserving later prose across reopen');
   // C4 uses only the explicit local test model. Observe the real project DB;
   // dropping an IPC acknowledgment must not create a second memory job.
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -1253,7 +1257,7 @@ try {
     await page.getByText('Show source evidence', { exact: true }).click();
     await page.locator('.memory-evidence blockquote').filter({ hasText: /^Ren returned to the empty gate\.$/ }).waitFor();
     await page.screenshot({ path: resolve(output, 'chapter-memory-changed.png') });
-    checks.push('Native explicit chapter memory persists one source-bound result across a lost start acknowledgment and reopen, preserves the editor, does no autosave analysis, and retains changed-source evidence');
+    recordCheck(checks, 'native-smoke:33', 'Native explicit chapter memory persists one source-bound result across a lost start acknowledgment and reopen, preserves the editor, does no autosave analysis, and retains changed-source evidence');
 
     memoryDatabase.exec("CREATE TRIGGER native_memory_terminal_failure BEFORE INSERT ON memory_results BEGIN SELECT RAISE(ABORT,'synthetic memory save fault'); END;");
     await page.getByRole('button', { name: 'Refresh story memory', exact: true }).click();
@@ -1272,7 +1276,7 @@ try {
     assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_results').get().count, 2);
     assert.equal(memoryDatabase.prepare('SELECT count(*) AS count FROM memory_views').get().count, 2);
     assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Ren returned to the gate and found a broken chain.');
-    checks.push('Native memory terminal-save failure remains visible across navigation and renderer reload; explicit local retry installs the retained result without another model job or manuscript change');
+    recordCheck(checks, 'native-smoke:34', 'Native memory terminal-save failure remains visible across navigation and renderer reload; explicit local retry installs the retained result without another model job or manuscript change');
   } finally {
     memoryDatabase.exec('DROP TRIGGER IF EXISTS native_memory_terminal_failure;');
     memoryDatabase.close();
@@ -1314,7 +1318,7 @@ try {
   assert.equal(memoryPolicy.revoked.jobs[0].result.rawOutput, null);
   assert.equal(memoryPolicy.revoked.jobs[0].result.candidate, null);
   assert.equal(memoryPolicy.blocked?.code, 'ContextPolicyChanged');
-  checks.push('Native memory inspection resolves the exact saved chapter; disclosure revocation hides retained generated text and evidence and blocks further source lookup');
+  recordCheck(checks, 'native-smoke:35', 'Native memory inspection resolves the exact saved chapter; disclosure revocation hides retained generated text and evidence and blocks further source lookup');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   const navigationFixture = await page.evaluate(async () => {
@@ -1445,7 +1449,7 @@ try {
   await page.locator('.context-inspector .stale-notice').filter({ hasText: 'Needs refresh' }).waitFor();
   await page.locator('.context-inspector > details[open] .context-navigation').waitFor();
   assert.deepEqual(await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON()), beforeNavigation);
-  checks.push('Native ordinary discussion automatically supplies existing generated memory when full prose exceeds its allowance, exposes exact evidence, preserves the manuscript and historical packet across changes/reload, and excludes stale views without another memory job');
+  recordCheck(checks, 'native-smoke:36', 'Native ordinary discussion automatically supplies existing generated memory when full prose exceeds its allowance, exposes exact evidence, preserves the manuscript and historical packet across changes/reload, and excludes stale views without another memory job');
   assert.deepEqual(errors, []);
   await writeFile(resolve(output, 'report.json'), JSON.stringify({ date: new Date().toISOString(), runtime, url: page.url(), authoringLanguage: 'English', checks, errors, executable, limitations: ['Explicit editor trial is session-only; library documents use the Rust persistence path', 'No physical keyboard/dead-key author trial', 'No screen-reader user trial', 'No minimum-window-size or multi-DPI qualification', 'This flow uses only the local test model; live-provider qualification is separate. Durable Apply supports scoped passage replacements, explicit complete-block and whole-chapter replacements, and append-only continuation', 'Backup/recovery dialog journeys remain separate W3 checks; this flow covers native draft Save/Cancel'], dataDirectory: data }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, output }, null, 2));
@@ -1459,5 +1463,5 @@ try {
   throw error;
 } finally {
   await browser?.close();
-  if (app.exitCode === null) app.kill();
+  await stopOwned(app);
 }

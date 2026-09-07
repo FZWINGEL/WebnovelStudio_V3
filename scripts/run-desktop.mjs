@@ -39,7 +39,7 @@ switch (action) {
   case 'test': await node(['node_modules/vitest/vitest.mjs', 'run']); break;
   case 'native': await node(['scripts/native-smoke.mjs']); break;
   case 'check':
-    await node(['--test', resolve(root, 'scripts/check-versions.test.mjs'), resolve(root, 'scripts/prepare-package-retest.test.mjs')]);
+    await node(['--test', resolve(root, 'scripts/runner-identities.test.mjs'), resolve(root, 'scripts/collect-ci-timings.test.mjs'), resolve(root, 'scripts/native-artifact.test.mjs'), resolve(root, 'scripts/native-consumer.test.mjs'), resolve(root, 'scripts/owned-process.test.mjs'), resolve(root, 'scripts/check-versions.test.mjs'), resolve(root, 'scripts/prepare-package-retest.test.mjs')]);
     await run('cargo', ['fmt', '--all', '--check']);
     await run('cargo', ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings']);
     await run('cargo', ['test', '--workspace', '--locked']);

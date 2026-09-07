@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { emptyWorkshop, newSession, WorkshopStore, type WorkshopTransport } from './store';
 import type { SaveWorkshop, WorkshopSnapshot, WorkshopView } from '../ipc/workshop';

@@ -1,3 +1,5 @@
+import { spawnOwned, stopOwned, markOwnedReady } from './owned-process.mjs';
+import { recordCheck, initializeEvidence } from './native-evidence.mjs';
 // Bounded Story Workshop qualification against the actual Tauri/WebView2 app.
 // This harness deliberately uses the built-in local mock and synthetic data;
 // it never sends a provider request to a live service.
@@ -15,6 +17,7 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const executable = process.env.WNS_V3_NATIVE_EXE
   ? resolve(process.env.WNS_V3_NATIVE_EXE)
   : resolve(root, 'target/debug/webnovel-desktop.exe');
+await initializeEvidence(executable);
 const output = resolve(root, '.local/native-results/workshop');
 await mkdir(output, { recursive: true });
 // Resolve Windows short temp names/junctions before comparing them with the
@@ -33,7 +36,7 @@ let port = await reservePort();
 let appLog = '';
 let spawnError;
 function launch() {
-  const child = spawn(executable, [], {
+  const child = spawnOwned(executable, [], {
     cwd: data,
     windowsHide: true,
     stdio: 'pipe',
@@ -122,7 +125,7 @@ async function chooseLocalMock() {
   assert.deepEqual(state.settings.active, { providerId: 'mock', modelId: 'mock-story-context', reasoning: null, serviceTier: null });
   assert.equal(state.dispatch.kind, 'localMock');
   assert.equal(state.catalog.models.find(model => model.key.providerId === 'mock' && model.key.modelId === 'mock-story-context')?.ready, true);
-  checks.push('The active author model is the ready local mock; dispatch is localMock before any Workshop generation');
+  recordCheck(checks, 'native-workshop-smoke:01', 'The active author model is the ready local mock; dispatch is localMock before any Workshop generation');
 }
 
 async function chooseStartWritingWhenPresented() {
@@ -172,10 +175,11 @@ try {
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor({ timeout: 30_000 });
   await chooseLocalMock();
   runtime = await invoke('runtime_info');
+  markOwnedReady(app);
   assert.equal(runtime.host, 'Tauri');
   assert.equal(runtime.persistence, true);
   assert.equal(new URL(page.url()).hostname, 'tauri.localhost');
-  checks.push(`Actual Tauri/WebView2 runtime attached over CDP (${runtime.webviewVersion})`);
+  recordCheck(checks, 'native-workshop-smoke:02', `Actual Tauri/WebView2 runtime attached over CDP (${runtime.webviewVersion})`);
 
   const title = 'Native Story Workshop fixture';
   const seed = 'A quiet archive preserves memories that their owners are not ready to face.';
@@ -199,7 +203,7 @@ try {
   await seedInput.fill(seed);
   await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
   await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.brief === seed), 'seed save');
-  checks.push('Develop blank/noChapter opens a fresh Workshop and saves the seed without creating a chapter');
+  recordCheck(checks, 'native-workshop-smoke:03', 'Develop blank/noChapter opens a fresh Workshop and saves the seed without creating a chapter');
 
   await page.getByRole('button', { name: 'World', exact: true }).click();
   await page.getByRole('heading', { name: 'World', exact: true }).waitFor();
@@ -207,7 +211,7 @@ try {
   assert.equal(await page.locator('.candidate-card').count(), 0);
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, 0);
   await page.screenshot({ path: resolve(output, 'seed-world-no-generation.png') });
-  checks.push('World lens navigation is a no-generation action: the empty comparison board and discussion table remain empty');
+  recordCheck(checks, 'native-workshop-smoke:04', 'World lens navigation is a no-generation action: the empty comparison board and discussion table remain empty');
 
   await page.getByRole('button', { name: 'Explore', exact: true }).click();
   await page.getByText('Generation complete', { exact: true }).waitFor({ timeout: 30_000 });
@@ -218,7 +222,7 @@ try {
   assert.equal(await page.locator('.candidate-card').filter({ hasText: 'Local workshop direction 1' }).count(), 1);
   assert.equal(await page.locator('.candidate-card').filter({ hasText: 'deterministic workshop alternative' }).count(), 3);
   await page.screenshot({ path: resolve(output, 'three-mock-directions.png') });
-  checks.push('One UI Explore request completes on the deterministic mock and renders exactly three alternatives');
+  recordCheck(checks, 'native-workshop-smoke:05', 'One UI Explore request completes on the deterministic mock and renders exactly three alternatives');
 
   const interpretation = page.locator('.workshop-interpretation');
   assert.equal(await interpretation.getAttribute('open'), '', 'A new result should reveal its editable interpretation');
@@ -246,7 +250,7 @@ try {
     const current = workshopState().state.sessions.find(session => session.id === interpretationBefore.id);
     return JSON.stringify([current.brief, current.direction, current.stillOpen]) === JSON.stringify(savedInterpretation);
   }, 'interpretation baseline restored, including cleared fields');
-  checks.push('The new result reveals three editable interpretation fields; changes and clears persist without replacing prose, original notes, or starting generation');
+  recordCheck(checks, 'native-workshop-smoke:06', 'The new result reveals three editable interpretation fields; changes and clears persist without replacing prose, original notes, or starting generation');
 
   const firstRun = database.prepare('SELECT packet_id,dispatch_state FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
   assert.equal(firstRun.dispatch_state, 'delivered');
@@ -273,7 +277,7 @@ try {
   const closeContext = page.getByRole('button', { name: 'Close working story', exact: true });
   if (await closeContext.isVisible()) await closeContext.click();
   else await page.getByRole('button', { name: 'Hide working story', exact: true }).click();
-  checks.push('Saved context inspection matches the exact delivered Workshop envelope and reports confirmed mock delivery without another generation');
+  recordCheck(checks, 'native-workshop-smoke:07', 'Saved context inspection matches the exact delivered Workshop envelope and reports confirmed mock delivery without another generation');
 
   const firstCard = page.locator('.candidate-card').filter({ hasText: 'Local workshop direction 1' }).first();
   await firstCard.getByRole('button', { name: 'Select details', exact: true }).click();
@@ -292,7 +296,7 @@ try {
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, 1, 'Preparing a contrast must not generate');
   await page.getByRole('textbox', { name: 'Your direction', exact: true }).fill(beforeConsequence.composer);
   await waitForDatabase(() => workshopState().state.sessions.some(session => session.id === beforeConsequence.id && session.composer === beforeConsequence.composer), 'restore author direction');
-  checks.push('Rejecting an implication assumption and preparing a contrast preserve candidate choices, selected details, and the working body while saving exact provisional evidence without generation');
+  recordCheck(checks, 'native-workshop-smoke:08', 'Rejecting an implication assumption and preparing a contrast preserve candidate choices, selected details, and the working body while saving exact provisional evidence without generation');
   await firstCard.getByRole('button', { name: 'Select full direction', exact: true }).click();
   await page.locator('.workshop-tray textarea').first().waitFor();
   assert.match(await page.locator('.workshop-tray textarea').first().inputValue(), /deterministic workshop alternative/);
@@ -308,7 +312,7 @@ try {
   await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
   await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.workingText === authorEdit), 'working version save');
   await page.screenshot({ path: resolve(output, 'selected-detail-working-edit.png') });
-  checks.push('A full candidate detail is selected into the tray, developed locally, and edited in the author-only working version');
+  recordCheck(checks, 'native-workshop-smoke:09', 'A full candidate detail is selected into the tray, developed locally, and edited in the author-only working version');
 
   const documentsBeforeAdoption = documents();
   assert.equal(
@@ -365,7 +369,7 @@ try {
   assert.equal(await working.inputValue(), stalePreviewDraft, 'Refusal must preserve the later author draft');
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, runsBeforeStalePreview, 'Stale preview refusal must not generate');
   await page.screenshot({ path: resolve(output, 'stale-exploration-preview-refused.png') });
-  checks.push('A working edit after preview visibly refuses adoption while preserving the later draft, all documents, decisions, and receipts without generation');
+  recordCheck(checks, 'native-workshop-smoke:10', 'A working edit after preview visibly refuses adoption while preserving the later draft, all documents, decisions, and receipts without generation');
 
   await adoption.getByRole('button', { name: 'Keep exploring', exact: true }).click();
   await working.fill(authorEdit);
@@ -393,14 +397,14 @@ try {
   assert.equal(chosen.documentId, adoptedWorld.id);
   assert.equal(database.prepare('SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind=\'adoptWorkshop\'').get().n, 1);
   await page.screenshot({ path: resolve(output, 'adoption-committed-author-room.png') });
-  checks.push('Preview leaves documents unchanged; explicit adoption creates one world document, zero chapters, and one author-room decision');
+  recordCheck(checks, 'native-workshop-smoke:11', 'Preview leaves documents unchanged; explicit adoption creates one world document, zero chapters, and one author-room decision');
 
   await page.getByRole('tab', { name: 'Write', exact: true }).click();
   await page.getByRole('tab', { name: /^Chapters/ }).waitFor();
   assert.equal(await page.getByRole('tab', { name: /^Chapters/ }).getAttribute('aria-selected'), 'true');
   assert.equal(documents().filter(document => document.kind === 'chapter').length, 0);
   await page.screenshot({ path: resolve(output, 'write-barrier-no-chapters.png') });
-  checks.push('Switching from Develop to Write crosses the save barrier and still exposes zero chapters');
+  recordCheck(checks, 'native-workshop-smoke:12', 'Switching from Develop to Write crosses the save barrier and still exposes zero chapters');
 
   await page.getByRole('tab', { name: /^Characters/ }).click();
   await page.getByRole('button', { name: 'Add', exact: true }).click();
@@ -439,7 +443,7 @@ try {
   assert.equal(relationship.status, 'chosen');
   assert.deepEqual(relationship.sourceHeads.map(head => head.documentId).sort(), participantIds.sort());
   await page.screenshot({ path: resolve(output, 'directional-relationship.png') });
-  checks.push('People lens records one directional author-room relationship with both participant source heads');
+  recordCheck(checks, 'native-workshop-smoke:13', 'People lens records one directional author-room relationship with both participant source heads');
 
   // A saved relationship prepares a separate scoped exploration.  Opening the
   // scope must not call a provider; only the explicit Explore action may do so.
@@ -502,7 +506,7 @@ try {
   const relationshipParentIndex = workshopState().state.sessions.findIndex(session => session.id === relationshipParentId);
   await savedExplorationsAfterRelationship.getByRole('button').nth(relationshipParentIndex).click();
   await waitForDatabase(() => workshopState()?.state.currentSessionId === relationshipParentId, 'relationship parent restore');
-  checks.push('Exploring a chosen relationship creates an independent pinned scope without auto-generation, freezes its exact direction and uncertainty in the packet, and requires an explicit adoption destination');
+  recordCheck(checks, 'native-workshop-smoke:14', 'Exploring a chosen relationship creates an independent pinned scope without auto-generation, freezes its exact direction and uncertainty in the packet, and requires an explicit adoption destination');
 
   const recap = page.locator('details.workshop-recap');
   if (await recap.getAttribute('open') === null) await recap.locator('summary').click();
@@ -510,7 +514,7 @@ try {
   await recap.getByText(/^Workshop version \d+$/, { exact: true }).first().waitFor();
   assert((await recap.locator('ul > li').count()) > 0);
   await page.screenshot({ path: resolve(output, 'workshop-history.png') });
-  checks.push('Saved exploration history reopens from the UI after adoption and relationship edits');
+  recordCheck(checks, 'native-workshop-smoke:15', 'Saved exploration history reopens from the UI after adoption and relationship edits');
 
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
@@ -532,14 +536,14 @@ try {
   await reopenedRecap.getByText(/^Workshop version \d+$/, { exact: true }).first().waitFor();
   assert((await reopenedRecap.locator('ul > li').count()) > 0);
   await page.screenshot({ path: resolve(output, 'reopened-workshop-history.png') });
-  checks.push('Returning through the library restores the seed, author working text, chosen decision, relationship, and history without another generation');
+  recordCheck(checks, 'native-workshop-smoke:16', 'Returning through the library restores the seed, author working text, chosen decision, relationship, and history without another generation');
 
   await page.getByRole('tab', { name: 'Write', exact: true }).click();
   await page.getByRole('tab', { name: /^Chapters/ }).waitFor();
   assert.equal(documents().filter(document => document.kind === 'chapter').length, 0);
   assert.equal(documents().filter(document => document.kind === 'world').length, 1);
   assert.equal(documents().filter(document => document.kind === 'character').length, 1);
-  checks.push('The post-reopen Develop-to-Write barrier preserves author material while chapters remain unchanged');
+  recordCheck(checks, 'native-workshop-smoke:17', 'The post-reopen Develop-to-Write barrier preserves author material while chapters remain unchanged');
 
   // W23: one atomic adoption can update an existing world, create a Unicode
   // character, and record a directional relationship.  The prior relationship
@@ -634,7 +638,7 @@ try {
   assert.equal(changedRelationshipImpact.candidateId ?? null, null);
   assert.equal(changedRelationshipImpact.status, 'needsReview');
   const committedNewCharacterBody = JSON.parse(newCharacter.body_json);
-  checks.push('One atomic adoption updates the existing world, creates Unicode character material, commits a directional relationship with exact source heads, records the changed endpoint provenance, and leaves chapters untouched');
+  recordCheck(checks, 'native-workshop-smoke:18', 'One atomic adoption updates the existing world, creates Unicode character material, commits a directional relationship with exact source heads, records the changed endpoint provenance, and leaves chapters untouched');
 
   // The new character identity and body must survive a real project reopen,
   // before the next Workshop request is prepared.
@@ -648,7 +652,7 @@ try {
   assert.equal(reopenedNewCharacter.title, newCharacterTitle);
   assert.deepEqual(JSON.parse(reopenedNewCharacter.body_json), committedNewCharacterBody);
   assert.equal(documents().filter(document => document.kind === 'chapter').length, 0);
-  checks.push('The Unicode character title and exact body survive reopening the project');
+  recordCheck(checks, 'native-workshop-smoke:19', 'The Unicode character title and exact body survive reopening the project');
 
   // W23 names are explicit author metadata. Exercise both the Workshop lens
   // picker and the Writer action, then verify the atomic source-epoch CAS
@@ -696,7 +700,7 @@ try {
   await reopenedWriterNames.locator('textarea:not([disabled])').waitFor();
   assert.equal(await reopenedWriterNames.getByRole('textbox', { name: 'Alternate names and transliterations', exact: true }).inputValue(), savedNamesCanonical);
   await reopenedWriterNames.getByRole('button', { name: 'Close names', exact: true }).click();
-  checks.push('Writer Names & aliases saves Unicode names and transliterations atomically while preserving the character and avoiding generation');
+  recordCheck(checks, 'native-workshop-smoke:20', 'Writer Names & aliases saves Unicode names and transliterations atomically while preserving the character and avoiding generation');
 
   // A project resume must reload the saved aliases, still without another run.
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
@@ -743,7 +747,7 @@ try {
   await page.getByRole('navigation', { name: 'Documents', exact: true }).getByRole('button').filter({ has: page.getByText(newCharacterTitle, { exact: true }) }).click();
   await page.getByRole('main', { name: 'Writing desk', exact: true }).waitFor();
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, namesRunsBefore, 'Saved names flow must still avoid generation');
-  checks.push('Saved names reopen through project resume; unsaved aliases refuse Write and project switching until explicitly saved');
+  recordCheck(checks, 'native-workshop-smoke:21', 'Saved names reopen through project resume; unsaved aliases refuse Write and project switching until explicitly saved');
 
   // W23 voice guidance is an explicit second local-mock dispatch. It only
   // changes the saved Workshop request/result; it must not adopt the sample.
@@ -794,7 +798,7 @@ try {
   assert.equal(workshopState().state.decisions.length, voiceDecisionsBefore, 'Developing voice guidance must not create a decision automatically');
   assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, adoptionReceiptsBeforeVoice, 'Developing voice guidance must not adopt automatically');
   await page.screenshot({ path: resolve(output, 'voice-guidance-alternatives.png') });
-  checks.push('Themes & tone sends a second explicit local-mock voice-guidance request, renders three STYLE alternatives, preserves the sample until author development, and keeps guidance out of adoption');
+  recordCheck(checks, 'native-workshop-smoke:22', 'Themes & tone sends a second explicit local-mock voice-guidance request, renders three STYLE alternatives, preserves the sample until author development, and keeps guidance out of adoption');
 
   // Noncanon feel tests have their own sample route; their event text must
   // never enter the working version just to ask for voice guidance.
@@ -831,7 +835,7 @@ try {
   assert.deepEqual(documents(), voiceDocumentsBefore);
   assert.equal(workshopState().state.decisions.length, voiceDecisionsBefore);
   assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, adoptionReceiptsBeforeVoice);
-  checks.push('Noncanon moments save as samples, expose no Develop/tray/context-include shortcut, and send the exact chosen sample only on an explicit voice-guidance request without changing the working version, selected details, documents, or decisions');
+  recordCheck(checks, 'native-workshop-smoke:23', 'Noncanon moments save as samples, expose no Develop/tray/context-include shortcut, and send the exact chosen sample only on an explicit voice-guidance request without changing the working version, selected details, documents, or decisions');
 
   const runsBeforeBible = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
   await page.getByRole('button', { name: 'Story Bible', exact: true }).click();
@@ -858,7 +862,7 @@ try {
     if (document.activeElement !== button) return new Promise(resolvePromise => requestAnimationFrame(resolvePromise));
   });
   assert.equal(await page.getByRole('button', { name: 'Story Bible', exact: true }).evaluate(button => document.activeElement === button), true, 'Closing the Bible restores its launch button focus');
-  checks.push('Story Bible opens exact chosen sources, excludes superseded choices, preserves historical text after a source edit, and restores focus without generation');
+  recordCheck(checks, 'native-workshop-smoke:24', 'Story Bible opens exact chosen sources, excludes superseded choices, preserves historical text after a source edit, and restores focus without generation');
 
   await page.getByRole('tab', { name: 'Develop', exact: true }).click();
   await ensureDevelopMode();
@@ -874,7 +878,7 @@ try {
   }
   assert.deepEqual(documents(), navigationDocuments, 'Lens navigation must leave all documents untouched');
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, navigationRuns);
-  checks.push('All six development lenses are reachable and save their position without changing documents or generating');
+  recordCheck(checks, 'native-workshop-smoke:25', 'All six development lenses are reachable and save their position without changing documents or generating');
 
   const recapSessionId = workshopState().state.currentSessionId;
   const recapQuestion = workshopState().state.sessions.find(session => session.id === recapSessionId).focusQuestion;
@@ -893,7 +897,7 @@ try {
   assert((await recapNextTime.innerText()).includes(recapQuestion), 'Explicit reopening makes the question available for the next session');
   assert.deepEqual(documents(), navigationDocuments, 'Recap inspection and question dispositions must leave documents untouched');
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, navigationRuns, 'Recaps and question reopening must not generate');
-  checks.push('The saved stopping point preserves an intentional mystery without recommending it, then restores the next question only after explicit reopening, with no generation or document writes');
+  recordCheck(checks, 'native-workshop-smoke:26', 'The saved stopping point preserves an intentional mystery without recommending it, then restores the next question only after explicit reopening, with no generation or document writes');
 
   async function openPreferenceShelf() {
     const reveal = page.getByRole('button', { name: 'Working story & context', exact: true });
@@ -954,7 +958,7 @@ try {
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, presetRunsBefore, 'Review, save, reuse, and reopen do not generate');
   assert.deepEqual(documents(), navigationDocuments, 'Preset operations do not alter story documents');
   await page.screenshot({ path: resolve(output, 'saved-preset-reuse.png') });
-  checks.push('Preset names follow JSON and field edits, explicit adoption persists across Library reopen, and saved definitions can be edited and reused without duplicate definitions or automatic preference adoption');
+  recordCheck(checks, 'native-workshop-smoke:27', 'Preset names follow JSON and field edits, explicit adoption persists across Library reopen, and saved definitions can be edited and reused without duplicate definitions or automatic preference adoption');
 
   const beforeConflict = workshopState().state.preferences;
   await preferences.getByRole('button', { name: 'Add preference', exact: true }).click();
@@ -969,7 +973,7 @@ try {
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, presetRunsBefore, 'Resolving a preference conflict remains local');
   await page.screenshot({ path: resolve(output, 'hard-project-preference-conflict.png') });
   await preferenceForm.getByRole('button', { name: 'Cancel', exact: true }).click();
-  checks.push('A conflicting local Want is visibly refused without changing a hard project exclusion or generating');
+  recordCheck(checks, 'native-workshop-smoke:28', 'A conflicting local Want is visibly refused without changing a hard project exclusion or generating');
 
   const firstProjectState = workshopState().state;
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
@@ -996,7 +1000,7 @@ try {
   await page.getByRole('heading', { name: 'Notebook', exact: true }).waitFor();
   assert.deepEqual(workshopState().state, firstProjectState, 'A separate blank project must not alter the original Workshop state');
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, presetRunsBefore);
-  checks.push('An untitled second project can begin development without story prerequisites or generation; returning restores the first project’s Workshop and preferences');
+  recordCheck(checks, 'native-workshop-smoke:29', 'An untitled second project can begin development without story prerequisites or generation; returning restores the first project’s Workshop and preferences');
 
   // W30: create a real parent exploration, fork it through the visible UI,
   // save and reopen the alternate, then prove that only an explicit adoption
@@ -1148,7 +1152,7 @@ try {
   const w30Decision = workshopState().state.decisions.find(decision => decision.sessionId === w30ChildId && decision.documentId === w30ExistingWorld.id && decision.status === 'chosen');
   assert(w30Decision && w30Decision.access === 'authorRoom', 'Explicit what-if adoption must create an author-room decision');
   await page.screenshot({ path: resolve(output, 'what-if-adoption-committed.png') });
-  checks.push('W30 forks an independent what-if with its own anchor and exploration preference, preserves the parent across save/reopen and comparison, leaves story documents and providers untouched through preview, and changes only the existing world after explicit adoption while chapters remain unchanged');
+  recordCheck(checks, 'native-workshop-smoke:30', 'W30 forks an independent what-if with its own anchor and exploration preference, preserves the parent across save/reopen and comparison, leaves story documents and providers untouched through preview, and changes only the existing world after explicit adoption while chapters remain unchanged');
 
   // W06: paste existing notes through the visible entry flow, then use the
   // explicit organization action.  The resulting Notebook is independent;
@@ -1249,7 +1253,7 @@ try {
   assert.deepEqual(storyDocuments(), w06DocumentsBeforeOrganize, 'W06 Library reopen must preserve the manuscript without adoption');
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, w06RunsBeforeOrganize + 1, 'W06 Library reopen must not generate');
   assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, w06AdoptionReceiptsBeforeOrganize, 'W06 Library reopen must preserve the no-adoption boundary');
-  checks.push('W06 pastes exact existing notes, creates an independent parentless Notebook with no source pins or working material, runs one mock organization request, and keeps the source notes/manuscript unchanged through explicit candidate development and Library reopen without adoption');
+  recordCheck(checks, 'native-workshop-smoke:31', 'W06 pastes exact existing notes, creates an independent parentless Notebook with no source pins or working material, runs one mock organization request, and keeps the source notes/manuscript unchanged through explicit candidate development and Library reopen without adoption');
 
   assert.deepEqual(pageErrors, [], `Native Workshop page errors: ${pageErrors.join('; ')}`);
   await writeFile(resolve(output, 'report.json'), JSON.stringify({
@@ -1275,11 +1279,5 @@ try {
 } finally {
   database?.close();
   await browser?.close().catch(() => {});
-  if (app.exitCode === null) {
-    app.kill();
-    await new Promise(resolvePromise => {
-      const timeout = setTimeout(resolvePromise, 5_000);
-      app.once('exit', () => { clearTimeout(timeout); resolvePromise(); });
-    });
-  }
+  await stopOwned(app);
 }

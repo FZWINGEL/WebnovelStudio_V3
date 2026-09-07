@@ -1,11 +1,13 @@
+import { recordCheck, initializeEvidence } from './native-evidence.mjs';
 // Native interruption qualification at durable Save/Apply acknowledgment boundaries. Every project and
 // stream in this file is synthetic and lives under a fresh temp directory. The fixture configures no credentials.
+import { trackOwnedProcess } from './owned-process.mjs';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, hostname, release } from 'node:os';
 import { isAbsolute, relative, resolve, sep, toNamespacedPath } from 'node:path';
 import { createServer as createNetServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
@@ -18,6 +20,7 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const executable = process.env.WNS_V3_NATIVE_EXE
   ? resolve(process.env.WNS_V3_NATIVE_EXE)
   : resolve(root, 'target/debug/webnovel-desktop.exe');
+await initializeEvidence(executable);
 const menuOnly = process.argv.includes('--context-menu-only');
 const evidence = resolve(root, menuOnly ? '.local/native-results/context-menu' : '.local/native-results/interruption');
 await mkdir(evidence, { recursive: true });
@@ -26,6 +29,8 @@ const fixtureDirectories = [];
 const launchLogs = [];
 const screenshots = [];
 const ownedApps = [];
+const owners = new WeakMap();
+const phaseTimings = [];
 
 async function reservePort() {
   const server = createNetServer();
@@ -42,6 +47,7 @@ function invoke(page, command, args) {
 }
 
 async function launch(data) {
+  const setupStarted = performance.now();
   const port = await reservePort();
   let appLog = '';
   const app = spawn(executable, [], {
@@ -55,6 +61,7 @@ async function launch(data) {
       WNS_V3_TEST_DATA_DIR: resolve(data, 'library'),
     },
   });
+  owners.set(app, trackOwnedProcess(app));
   ownedApps.push(app);
   let spawnError;
   app.on('error', error => { spawnError = error; appLog += String(error); });
@@ -82,10 +89,12 @@ async function launch(data) {
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));
     const runtime = await invoke(page, 'runtime_info');
+    owners.get(app).ready();
     assert.equal(runtime.host, 'Tauri');
     assert.equal(runtime.persistence, true);
     runtimeObservations.push({ dataDirectory: data, runtime, pageErrors });
     if (!fixtureDirectories.includes(data)) fixtureDirectories.push(data);
+    phaseTimings.push({ phase: 'setup', dataDirectory: data, durationMs: performance.now() - setupStarted });
     return { app, browser, page, port, runtime, pageErrors, appLog: () => appLog };
   } catch (error) {
     await browser?.close().catch(() => {});
@@ -95,13 +104,12 @@ async function launch(data) {
 }
 
 async function stopIfAlive(app) {
-  if (app && app.exitCode === null) {
-    app.kill();
-    await new Promise(resolvePromise => {
-      const timeout = setTimeout(resolvePromise, 5000);
-      app.once('exit', () => { clearTimeout(timeout); resolvePromise(); });
-    });
-  }
+  if (!app) return;
+  const owner = owners.get(app);
+  assert(owner, 'Refuse cleanup of an unowned process');
+  const started = performance.now();
+  try { await owner.stop(); }
+  finally { phaseTimings.push({ phase: 'teardown', pid: app.pid, durationMs: performance.now() - started }); }
 }
 
 async function createProject(page, title, documentId, documentTitle, text) {
@@ -477,7 +485,12 @@ async function qualifyNativeContextMenus() {
 }
 
 const info = await stat(executable);
+const qualifications = menuOnly
+  ? [qualifyNativeContextMenus]
+  : [qualifySaveRendererLoss, qualifyApplyProcessLoss, qualifyRunningRequestProcessLoss, qualifyDirtyRefreshKeys];
 const report = {
+  expectedScenarios: qualifications.map(qualify => qualify.name), phaseTimings,
+  runner: { hostname: hostname(), os: release(), node: process.version, architecture: process.arch, githubRunId: process.env.GITHUB_RUN_ID ?? null },
   startedAt: new Date().toISOString(), executable, executableLength: info.size,
   executableSha256: createHash('sha256').update(await readFile(executable)).digest('hex'),
   checks: [], fixtureRoots: fixtureDirectories, runtimeObservations, screenshots, liveModelCalls: 0,
@@ -489,12 +502,12 @@ const report = {
   ],
 };
 try {
-  const qualifications = menuOnly
-    ? [qualifyNativeContextMenus]
-    : [qualifySaveRendererLoss, qualifyApplyProcessLoss, qualifyRunningRequestProcessLoss, qualifyDirtyRefreshKeys];
   for (const qualify of qualifications) {
+    const started = performance.now();
     const result = await qualify();
-    report.checks.push(result);
+    result.scenario = qualify.name;
+    result.durationMs = performance.now() - started;
+    recordCheck(report.checks, qualify.name, result);
     console.log(result.summary);
   }
   assert(runtimeObservations.every(observation => observation.pageErrors.length === 0), 'Native renderer must not emit uncaught errors.');
@@ -502,7 +515,12 @@ try {
 } catch (error) {
   report.status = 'failed'; report.failure = String(error?.stack ?? error); throw error;
 } finally {
-  for (const app of ownedApps) await stopIfAlive(app);
+  report.cleanupFailures = [];
+  for (const app of ownedApps) {
+    try { await stopIfAlive(app); }
+    catch (error) { report.cleanupFailures.push(String(error)); }
+  }
+  if (report.cleanupFailures.length) { report.status = 'failed'; process.exitCode = 1; }
   report.finishedAt = new Date().toISOString();
   report.launchLogs = launchLogs.map(entry => ({ dataDirectory: entry.dataDirectory, tail: entry.read().slice(-8000) }));
   await writeFile(resolve(evidence, 'qualification.json'), JSON.stringify(report, null, 2));

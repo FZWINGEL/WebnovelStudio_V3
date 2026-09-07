@@ -1,6 +1,8 @@
 PRAGMA foreign_keys = ON;
 PRAGMA user_version = 8;
 
+BEGIN;
+
 CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL);
 INSERT INTO schema_migrations VALUES
   (1, '001-persistence-floor'), (2, '002-authority-boundary'),
@@ -106,3 +108,5 @@ INSERT INTO finding_waivers VALUES ('waiver-a', 'finding-a', 'accepted', '2026-0
 INSERT INTO settlement_runs VALUES ('settle-a', 'a-newer', 'a-newer-old', 'completed', NULL, '2026-01-01');
 INSERT INTO settlement_proposals VALUES ('proposal-a', 'p-alpha', 'a-newer', 'a-newer-old', 'run', 'canon', 'low', '{}', NULL, 1.0, 'pending', NULL, NULL, NULL, NULL, '2026-01-01');
 INSERT INTO draft_segments VALUES ('segment-a', 'a-newer-old', 'beat-c', 1, 'Approved old', NULL, NULL, '2026-01-01');
+
+COMMIT;

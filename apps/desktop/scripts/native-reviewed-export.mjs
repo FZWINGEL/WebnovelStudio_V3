@@ -1,3 +1,4 @@
+import { recordCheck } from './native-evidence.mjs';
 // Runs inside the owned native WebView2 qualification, against synthetic data.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -111,7 +112,7 @@ export async function qualifyReviewedExport({ page, data, output, operateSaveDia
     await page.getByRole('button', { name: /^Reviewed export story Last opened/ }).click();
     assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), prose);
     for (const record of exports) assert.deepEqual(db.prepare('SELECT * FROM export_records WHERE id=?').get(record.id), record);
-    checks.push('Native reviewed export marks a first chapter explicitly, previews and saves exact Markdown/TXT with bound review records and no reviewed checkpoint, reopens history, refuses copied authority, and preserves an installed file when recording fails');
+    recordCheck(checks, 'native-reviewed-export:01', 'Native reviewed export marks a first chapter explicitly, previews and saves exact Markdown/TXT with bound review records and no reviewed checkpoint, reopens history, refuses copied authority, and preserves an installed file when recording fails');
 
     await capturePrepare();
     const staleDialog = await openPreview();
@@ -144,7 +145,7 @@ export async function qualifyReviewedExport({ page, data, output, operateSaveDia
     for (const record of exports) assert.deepEqual(db.prepare('SELECT * FROM export_records WHERE id=?').get(record.id), record);
     await page.getByRole('button', { name: 'All projects', exact: true }).click();
     await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
-    checks.push('Native reviewed export rechecks after the real Save dialog opens, refuses intervening prose edits before file creation, and retains historical export records after reopening the changed chapter');
+    recordCheck(checks, 'native-reviewed-export:02', 'Native reviewed export rechecks after the real Save dialog opens, refuses intervening prose edits before file creation, and retains historical export records after reopening the changed chapter');
   } finally {
     db.exec('DROP TRIGGER IF EXISTS native_reviewed_export_record_failure;');
     db.close();

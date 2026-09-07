@@ -1,3 +1,4 @@
+import { explorationRequest } from '../workshop/explorationRequest';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState } from 'react';
 import { readDocument, type DocumentRecord, type OpenedProject } from '../ipc/projects';
 import { adoptWorkshop, previewWorkshopAdoption, startWorkshop, workshopHistory, type CandidateChoice, type WorkshopAdoptionPreview, type WorkshopAdoptionTarget, type WorkshopCandidate, type WorkshopImpactDraft, type WorkshopRelationship, type WorkshopResult, type WorkshopSession, type WorkshopSnapshot, type WorkshopState } from '../ipc/workshop';
@@ -7,7 +8,7 @@ import { sameModel, type ModelSelection } from '../ipc/providers';
 import { ContextInspector } from '../assistant/ContextInspector';
 import { CandidateBoard } from '../workshop/CandidateBoard';
 import { Preferences, applicablePreferences, preferenceLabel } from '../workshop/Preferences';
-import { ACTIONS, LENSES, NOTES_ORGANIZATION_BRIEF, NOTES_ORGANIZATION_SCOPE, ORGANIZE_NOTES_INSTRUCTION, SUBVERSIONS, WORLD_QUESTIONS, type WorkshopLens } from '../workshop/catalog';
+import { ACTIONS, LENSES, NOTES_ORGANIZATION_BRIEF, NOTES_ORGANIZATION_SCOPE, SUBVERSIONS, WORLD_QUESTIONS, type WorkshopLens } from '../workshop/catalog';
 import { describeWorkshopError, newSession, WorkshopStore } from '../workshop/store';
 import { appendText, plainText, textDocument } from '../workshop/text';
 import { Relationships } from '../workshop/Relationships';
@@ -282,18 +283,10 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
       await store.flush();
       const current = store.state.sessions.find(item => item.id === target.id)!;
       const isCurrentSession = current.id === session?.id;
-      if (!pendingRequest.current && isCurrentSession && !candidate && targetCapture && (targetCapture.generation !== current.workingGeneration || current.workingText.slice(targetCapture.from, targetCapture.to) !== targetCapture.text)) throw new Error('The selected passage changed. Select it again before exploring.');
-      const selectedAction = ACTIONS.find(item => item.id === nextAction) ?? ACTIONS[0];
-      const candidateDimension = nextAction === 'directions' && candidate && targetResult?.output
-        ? `Compare alternatives along the existing dimension: ${targetResult.output.dimension}.\nUse the selected candidate as an unaccepted starting point. Preserve author-chosen invariants and Keep fixed details; vary this dimension rather than replacing the whole idea.` : '';
-      const organizationInstruction = current.lens === 'notebook' && current.selectedScope === NOTES_ORGANIZATION_SCOPE && nextAction === 'directions' && !candidate && !targetCapture
-        ? ORGANIZE_NOTES_INSTRUCTION : '';
-      const instruction = [selectedAction.instruction, organizationInstruction, candidateDimension, nextAction === 'subvert' ? `Convention to transform: ${current.selectedScope}.\nTransformation: ${subversion}.` : '', current.composer].filter(Boolean).join('\n\n');
-      pendingRequest.current ??= { operationId: crypto.randomUUID(), exploration: {
-        sessionId: current.id, expectedVersion: store.version, workingGeneration: current.workingGeneration,
-        action: nextAction, instruction, selectedScope: nextAction === 'voiceGuidance' ? 'Voice qualities from the sample' : candidate?.title ?? (isCurrentSession && targetCapture ? 'Selected passage in working version' : current.selectedScope), selectedText: candidate?.content ?? (isCurrentSession ? targetCapture?.text : undefined) ?? (nextAction === 'voiceGuidance' && isCurrentSession ? current.workingText : ''),
-        workingSelection: nextAction !== 'voiceGuidance' && !candidate && isCurrentSession && targetCapture ? { from: targetCapture.from, to: targetCapture.to, text: targetCapture.text } : null,
-      }, selection: structuredClone(providers.state!.settings.active) };
+      pendingRequest.current ??= { operationId: crypto.randomUUID(), exploration: explorationRequest({
+        session: current, version: store.version, action: nextAction, candidate,
+        dimension: targetResult?.output?.dimension, capture: targetCapture, isCurrentSession, subversion,
+      }), selection: structuredClone(providers.state!.settings.active) };
       const pending = pendingRequest.current;
       const started = await startWorkshop(access, pending.operationId, pending.exploration, pending.selection);
       pendingRequest.current = null;

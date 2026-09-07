@@ -1,3 +1,4 @@
+import { recordCheck } from './native-evidence.mjs';
 // Visible author actions and exact receipts in the owned synthetic native run.
 import assert from 'node:assert/strict';
 import { realpath } from 'node:fs/promises';
@@ -103,7 +104,7 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     assert.deepEqual(discussion.receipt.reviewedEvidence.flatMap(set => set.recordIds).sort(), originalRecords.map(record => record.id).sort());
     await page.locator('.context-inspector > details[open] .context-reviewed-evidence').filter({ hasText: 'Silver key' }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: resolve(output, 'reviewed-evidence-discussion.png') });
-    checks.push('Native chapter review adds passage-backed possession details with explicit reader disclosure, reconciles a lost stage acknowledgment with one exact complete record set, preserves prose, and shows delivered reviewed evidence separately in discussion context');
+    recordCheck(checks, 'native-reviewed-evidence:01', 'Native chapter review adds passage-backed possession details with explicit reader disclosure, reconciles a lost stage acknowledgment with one exact complete record set, preserves prose, and shows delivered reviewed evidence separately in discussion context');
 
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     await page.getByLabel('Start with', { exact: true }).selectOption('chapter');
@@ -165,7 +166,7 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     await history.getByRole('button', { name: 'Read The exchange for observation 1', exact: true }).click();
     await page.getByRole('region', { name: 'Saved story source', exact: true }).waitFor();
     assert.deepEqual(latestPacket(), historyPacket, 'History/source inspection must not prepare another packet');
-    checks.push('Native cross-chapter object selection reuses an explicit identity, preserves unknown holders, shows exact saved evidence in chapter order, and opens the original source without another model request');
+    recordCheck(checks, 'native-reviewed-evidence:02', 'Native cross-chapter object selection reuses an explicit identity, preserves unknown holders, shows exact saved evidence in chapter order, and opens the original source without another model request');
 
     await page.locator('.document-sidebar nav button > span').filter({ hasText: /^The exchange$/ }).click();
     await page.getByRole('heading', { name: 'The exchange', exact: true }).waitFor();
@@ -227,6 +228,6 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     await page.getByRole('heading', { name: 'Not reviewed yet', exact: true }).waitFor();
     await page.getByRole('button', { name: 'All projects', exact: true }).click();
     await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
-    checks.push('Native reviewed continuation supplies only reader-approved records from a mixed bundle; a detail-only review change fences later review without changing prose, and explicit clearing/reopen/independent copy preserve old bundles and frozen packet bytes without copied authority');
+    recordCheck(checks, 'native-reviewed-evidence:03', 'Native reviewed continuation supplies only reader-approved records from a mixed bundle; a detail-only review change fences later review without changing prose, and explicit clearing/reopen/independent copy preserve old bundles and frozen packet bytes without copied authority');
   } finally { db.close(); }
 }

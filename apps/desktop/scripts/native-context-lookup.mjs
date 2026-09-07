@@ -1,3 +1,4 @@
+import { recordCheck } from './native-evidence.mjs';
 import assert from 'node:assert/strict';
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
@@ -131,6 +132,6 @@ export async function qualifyContextLookup({ page, output, testRoot, createWriti
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
 
-  checks.push('Native local lookup opts in to exactly three durable calls (search, read, final), keeps intermediate JSON out of chat, exposes authenticated packet evidence and exact-source navigation, and preserves the final packet across project reopen');
-  checks.push('Native lookup delivers frozen source titles in both model input and receipt; a later document rename and restart preserve the original title, exact packet bytes, and three-call history');
+  recordCheck(checks, 'native-context-lookup:01', 'Native local lookup opts in to exactly three durable calls (search, read, final), keeps intermediate JSON out of chat, exposes authenticated packet evidence and exact-source navigation, and preserves the final packet across project reopen');
+  recordCheck(checks, 'native-context-lookup:02', 'Native lookup delivers frozen source titles in both model input and receipt; a later document rename and restart preserve the original title, exact packet bytes, and three-call history');
 }

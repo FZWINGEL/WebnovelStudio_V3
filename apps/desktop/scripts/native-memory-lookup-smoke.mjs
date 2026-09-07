@@ -1,3 +1,5 @@
+import { spawnOwned, stopOwned, markOwnedReady } from './owned-process.mjs';
+import { recordCheck, initializeEvidence } from './native-evidence.mjs';
 // Native reviewed-memory qualification. Default uses only the offline test model.
 // --live explicitly opts into one Codex discussion with at most three calls.
 import { chromium } from 'playwright-core';
@@ -17,13 +19,14 @@ const live = process.argv.includes('--live');
 const evidence = resolve(root, `.local/native-results/memory-lookup-${live ? 'live' : 'mock'}`);
 await mkdir(evidence, { recursive: true });
 const executable = process.env.WNS_V3_NATIVE_EXE ? resolve(process.env.WNS_V3_NATIVE_EXE) : resolve(root, 'target/debug/webnovel-desktop.exe');
+await initializeEvidence(executable);
 const info = await stat(executable);
 const data = await mkdtemp(resolve(tmpdir(), 'wns-v3-memory-lookup-'));
 const server = createServer();
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 const port = server.address().port;
 await new Promise(done => server.close(done));
-const app = spawn(executable, [], { cwd: data, windowsHide: true, stdio: 'pipe', env: {
+const app = spawnOwned(executable, [], { cwd: data, windowsHide: true, stdio: 'pipe', env: {
   ...process.env, WNS_V3_NATIVE_CDP_PORT: String(port), WNS_V3_TRIAL_WEBVIEW_DIR: resolve(data, 'webview'), WNS_V3_TEST_DATA_DIR: resolve(data, 'library'),
 } });
 let appLog = ''; app.stdout.on('data', chunk => { appLog += chunk; }); app.stderr.on('data', chunk => { appLog += chunk; });
@@ -45,6 +48,7 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   report.runtime = await invoke('runtime_info');
+  markOwnedReady(app);
   const fixture = await setupMemoryLookupFixture({ page, data });
   report.fixture = fixture;
   const library = await invoke('library_snapshot');
@@ -55,7 +59,7 @@ try {
   assert(child && !isAbsolute(child) && child !== '..' && !child.startsWith(`..${sep}`));
   db = new DatabaseSync(resolve(projectPath, 'project.sqlite3'), { readOnly: true });
   assert.equal(db.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, 0);
-  report.checks.push('Synthetic reviewed story records created without a model request');
+  recordCheck(report.checks, 'native-memory-lookup-smoke:01', 'Synthetic reviewed story records created without a model request');
   await page.reload();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await page.getByRole('button', { name: new RegExp(`^${fixture.title} Last opened`) }).click();
@@ -120,7 +124,7 @@ try {
   await page.screenshot({ path: resolve(evidence, 'knowledge-history.png') });
   await inspector.getByRole('button', { name: 'Open exact source', exact: true }).first().click();
   await page.screenshot({ path: resolve(evidence, 'memory-lookups.png') });
-  report.checks.push('Three bounded model invocations retain identity, knowledge, promise and possession reads; final answer inspected with exact source; no manuscript/proposal change');
+  recordCheck(report.checks, 'native-memory-lookup-smoke:02', 'Three bounded model invocations retain identity, knowledge, promise and possession reads; final answer inspected with exact source; no manuscript/proposal change');
   const runCount = report.invocations.length;
   await page.reload();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
@@ -128,7 +132,7 @@ try {
   await page.getByRole('heading', { name: fixture.targetTitle, exact: true }).waitFor();
   await page.getByLabel('Context for model call', { exact: true }).waitFor();
   assert.equal(db.prepare('SELECT count(*) AS n FROM discussion_lookup_invocations').get().n, runCount);
-  report.checks.push('Saved answer and lookup packets reopen without another invocation');
+  recordCheck(report.checks, 'native-memory-lookup-smoke:03', 'Saved answer and lookup packets reopen without another invocation');
   assert.deepEqual(errors, []);
   report.status = 'passed';
 } catch (error) {
@@ -138,7 +142,7 @@ try {
   process.exitCode = 1;
 } finally {
   db?.close(); await browser?.close().catch(() => {});
-  if (app.exitCode === null) { app.kill(); await new Promise(done => { const timeout = setTimeout(done, 5000); app.once('exit', () => { clearTimeout(timeout); done(); }); }); }
+  await stopOwned(app);
   report.cleanup = { ownedPid: app.pid, exitCode: app.exitCode, signalCode: app.signalCode };
   report.finishedAt = new Date().toISOString(); report.pageErrors = errors;
   await writeFile(resolve(evidence, 'app.log'), appLog);

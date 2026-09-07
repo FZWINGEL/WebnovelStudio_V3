@@ -74,9 +74,19 @@ existing `RUST_TEST_THREADS` value or explicit `-- --test-threads=N` argument
 can override it. WAL, `synchronous=FULL`, actual project creation/migration,
 reopening, recovery and intentional timeout behavior remain unchanged.
 
+## Audit experiments
+
+See the [implementation and measurement ledger](V3_TESTING_CI_PERFORMANCE_IMPLEMENTATION.md)
+for the complete audit scope, exact evidence and adoption gates. Manual CI can
+select serial native scheduling or locked registry access for comparison.
+Push, pull-request and manual defaults use build-once native fan-out and
+prepared/frozen Cargo commands, as authorized on 8 September 2026. Hosted
+qualification and performance comparisons remain pending. A fan-out run requires its final native gate;
+the producer's successful compilation alone is not native qualification.
+
 ## CI coverage
 
-The Ubuntu job runs core Rust checks and frontend checks. The Windows native
+The Ubuntu job runs frontend checks before Rust setup and core checks. The Windows native
 job runs the complete Rust workspace and frontend suite, then the short
 Workshop smoke followed by the existing native editor, HTTP, close,
 interruption, recovery and memory-lookup flows. Running Workshop first surfaces
@@ -183,3 +193,31 @@ installer from `63770b9` and the documentation-only harness checkout `ded8f3d`.
 All four dependency/build steps were skipped; original and qualification source
 identities remained distinct in the downloaded evidence. This is a measured
 improvement for harness iteration, not a substitute for a fresh application build.
+
+## Testing audit optimization follow-up (7 September 2026)
+
+Implemented interruption cleanup with immediately registered close tracking,
+shared completion, explicit timeout failures, and five tooling regressions.
+Interruption reports retain cleanup errors, scenario/setup/teardown timings,
+runner identity and expected scenarios. Schema-8 fixture setup now transacts
+only construction, checks foreign keys/schema/commit state and closes explicitly.
+Project-tab pure tests use Node, with separate browser localStorage coverage.
+Ubuntu frontend checks precede Rust setup; Windows coverage is retained. Cargo
+test timing artifacts upload from both jobs. No durability gates were removed.
+
+Validation: pinned-Node full local check passed 16 tooling checks, formatting,
+strict Clippy, workspace Rust tests, production build and 569 frontend tests.
+The subsequently added browser-storage test and existing pure file passed all
+7 focused tests. Native script syntax passed. Other ongoing Workshop changes
+were preserved; this evidence describes the checkout at execution time.
+
+Five alternating local Python SQLite fixture pairs measured baseline setup
+median 70.75 ms (69.57-80.86), transaction median 3.90 ms (3.69-4.38). This is
+fixture SQL evidence using Python SQLite, not a rusqlite or hosted CI benchmark.
+
+Pending: fresh native interruption recovery/termination qualification, timing
+instrumentation across other suites, and five comparable hosted runs per
+candidate. Build-once native fan-out remains deferred until its setup/artifact
+cost and exact suite reconciliation can be qualified. The latest repository
+record reports GitHub billing admission failure. No CI dispatch, push, or native
+UI run was performed. Nextest/cache/runner experiments remain deferred.

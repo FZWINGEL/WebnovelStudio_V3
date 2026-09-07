@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { DiscussionRun } from '../ipc/discussions';
 import type { WorkshopCandidate, WorkshopResult, WorkshopSession, WorkshopState } from '../ipc/workshop';

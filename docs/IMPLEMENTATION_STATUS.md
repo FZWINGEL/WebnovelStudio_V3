@@ -17,6 +17,63 @@ See the [completion record](V3_STORY_WORKSHOP_COMPLETION.md) for build identity,
 exact evidence boundaries, and remaining native/provider/author-study gates.
 Full specification acceptance is still open; W44 has no author observations.
 
+## Testing/CI audit implementation in progress
+
+The [audit implementation ledger](V3_TESTING_CI_PERFORMANCE_IMPLEMENTATION.md)
+tracks the full objective. The second local pass adds an exact 102-check native
+manifest, shared confirmed process cleanup, native startup/checkpoint/teardown
+telemetry, a build-once fan-out workflow with two Windows consumers and
+strict final reconciliation, and prepared/frozen Cargo commands.
+Twenty-five tooling tests and actionlint 1.7.12 pass. Fifteen importer regressions
+pass with both locked and frozen Cargo commands. Three reviewed Workshop pure
+files retain all ten test identities after moving to Node.
+
+Five-pair pinned-rusqlite fixture setup median is 73.67 ms baseline versus
+4.78 ms transactional; five-run local selected-frontend median is 1.058 s jsdom
+versus 0.242 s Node. These are component measurements, not hosted savings.
+The first current-worktree nextest attempt encountered concurrent Workshop
+compile errors; an isolated cee4bb4 checkout plus fixture changes is now used
+for stable comparisons. Hosted annotations freshly confirm billing admission
+failure. Full native/hosted performance qualification remains incomplete;
+fan-out and prepared/frozen commands are enabled by user authorization on
+8 September 2026, with manual serial/locked comparison options retained.
+The latest current-worktree full check passes 774 Rust and 594 frontend tests,
+formatting, strict Clippy and production build. The isolated nextest experiment
+was rejected after a process-lifecycle failure in its fifth run; the library-only
+sccache experiment passed but remains unadopted pending hosted costs.
+The fresh debug app and strict Clippy also pass with `--frozen --timings`.
+Latest hosted run 34164413029 again ran no steps due to billing admission.
+Full goal completion remains unproven until the native/hosted gates pass.
+
+## Testing audit optimization follow-up (7 September 2026)
+
+Implemented interruption cleanup with immediately registered close tracking,
+shared completion, explicit timeout failures, and five tooling regressions.
+Interruption reports retain cleanup errors, scenario/setup/teardown timings,
+runner identity and expected scenarios. Schema-8 fixture setup now transacts
+only construction, checks foreign keys/schema/commit state and closes explicitly.
+Project-tab pure tests use Node, with separate browser localStorage coverage.
+Ubuntu frontend checks precede Rust setup; Windows coverage is retained. Cargo
+test timing artifacts upload from both jobs. No durability gates were removed.
+
+Validation: pinned-Node full local check passed 16 tooling checks, formatting,
+strict Clippy, workspace Rust tests, production build and 569 frontend tests.
+The subsequently added browser-storage test and existing pure file passed all
+7 focused tests. Native script syntax passed. Other ongoing Workshop changes
+were preserved; this evidence describes the checkout at execution time.
+
+Five alternating local Python SQLite fixture pairs measured baseline setup
+median 70.75 ms (69.57-80.86), transaction median 3.90 ms (3.69-4.38). This is
+fixture SQL evidence using Python SQLite, not a rusqlite or hosted CI benchmark.
+
+Pending: fresh native interruption recovery/termination qualification, timing
+instrumentation across other suites, and five comparable hosted runs per
+candidate. Build-once native fan-out remains deferred until its setup/artifact
+cost and exact suite reconciliation can be qualified. The latest repository
+record reports GitHub billing admission failure. No CI dispatch, push, or native
+UI run was performed. Nextest/cache/runner experiments remain deferred.
+
+
 **Status date:** 7 September 2026
 
 **Current branch:** `codex/v3-persistence`

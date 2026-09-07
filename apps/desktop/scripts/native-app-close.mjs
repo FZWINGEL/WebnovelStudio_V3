@@ -1,3 +1,5 @@
+import { spawnOwned, stopOwned, markOwnedReady } from './owned-process.mjs';
+import { recordCheck, initializeEvidence } from './native-evidence.mjs';
 // Focused native normal-close qualification. Every project, stream, and
 // credential in this file is synthetic and lives under a fresh temp directory.
 import { chromium } from 'playwright-core';
@@ -16,6 +18,7 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const executable = process.env.WNS_V3_NATIVE_EXE
   ? resolve(process.env.WNS_V3_NATIVE_EXE)
   : resolve(root, 'target/debug/webnovel-desktop.exe');
+await initializeEvidence(executable);
 const evidence = resolve(root, '.local/native-results/app-close');
 await mkdir(evidence, { recursive: true });
 const runtimeObservations = [];
@@ -40,7 +43,7 @@ function invoke(page, command, args) {
 async function launch(data) {
   const port = await reservePort();
   let appLog = '';
-  const app = spawn(executable, [], {
+  const app = spawnOwned(executable, [], {
     cwd: data,
     windowsHide: true,
     stdio: 'pipe',
@@ -75,20 +78,13 @@ async function launch(data) {
   page.on('pageerror', error => pageErrors.push(error.message));
   let runtime = null;
   try { runtime = await invoke(page, 'runtime_info'); } catch { /* Report the launch failure below. */ }
+  markOwnedReady(app);
   runtimeObservations.push({ dataDirectory: data, runtime, pageErrors });
   if (!fixtureDirectories.includes(data)) fixtureDirectories.push(data);
   return { app, browser, page, port, runtime, pageErrors, appLog: () => appLog };
 }
 
-async function stopIfAlive(app) {
-  if (app && app.exitCode === null) {
-    app.kill();
-    await new Promise(resolvePromise => {
-      const timeout = setTimeout(resolvePromise, 5000);
-      app.once('exit', () => { clearTimeout(timeout); resolvePromise(); });
-    });
-  }
-}
+async function stopIfAlive(app) { await stopOwned(app); }
 
 async function requestNativeClose(app, data, onReady) {
   const helper = spawn('powershell.exe', [
@@ -433,8 +429,9 @@ const report = {
 };
 try {
   const dirty = await qualifyDirtyFlush();
+  recordCheck(report.checks, 'close:dirty-flush', dirty.summary);
   const heldWork = await qualifyHeldWorkClose();
-  report.checks.push(dirty.summary, heldWork.summary);
+  recordCheck(report.checks, 'close:held-work', heldWork.summary);
   report.fixtureResults = [dirty, heldWork];
   report.status = 'passed';
 } catch (error) {

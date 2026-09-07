@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "nextest": "0.9.143",
+  "sccache": "0.17.0",
+  "actionlint": "1.7.12",
+  "downloadArtifactAction": "8.0.1",
+  "samples": 5,
+  "rustTestThreads": 4,
+  "vitestWorkers": 2
+}

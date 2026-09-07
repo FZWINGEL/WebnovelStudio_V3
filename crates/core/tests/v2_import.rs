@@ -32,10 +32,41 @@ struct TempSource {
 
 impl TempSource {
     fn new() -> Self {
+        let started = std::time::Instant::now();
         let path = std::env::temp_dir().join(format!("v2-import-{}.db", Uuid::new_v4()));
         let connection = Connection::open(&path).expect("fixture database");
         connection.execute_batch(FIXTURE).expect("fixture schema");
-        drop(connection);
+        assert!(connection.is_autocommit(), "fixture must be committed");
+        assert_eq!(
+            connection
+                .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            8
+        );
+        assert!(
+            !connection
+                .prepare("PRAGMA foreign_key_check")
+                .unwrap()
+                .exists([])
+                .unwrap()
+        );
+        connection.close().expect("close committed fixture");
+        if std::env::var_os("WNS_V3_FIXTURE_TIMINGS").is_some() {
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "phase": "v2-fixture-setup",
+                    "test": std::thread::current().name(),
+                    "durationMs": started.elapsed().as_secs_f64() * 1000.0
+                })
+            );
+        }
         Self { path }
     }
 

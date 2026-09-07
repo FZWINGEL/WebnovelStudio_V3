@@ -1,3 +1,4 @@
+import { recordCheck } from './native-evidence.mjs';
 import assert from 'node:assert/strict';
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep, toNamespacedPath } from 'node:path';
@@ -106,7 +107,7 @@ export async function qualifyStructuredSuggestions({ page, data, output, createW
     await reopen();
     assert.deepEqual(await manuscript(), after);
     await page.locator('.proposal-card').last().locator('.proposal-status').filter({ hasText: /^Applied$/ }).waitFor();
-    checks.push('Native explicit paragraph scope expands partial endpoints visibly; rich preview retains hard breaks and formatting without generation, retries one lost acknowledgment with identical IDs/body, protects outside blocks on Apply, and survives undo/redo/reload');
+    recordCheck(checks, 'native-structured-suggestions:01', 'Native explicit paragraph scope expands partial endpoints visibly; rich preview retains hard breaks and formatting without generation, retries one lost acknowledgment with identical IDs/body, protects outside blocks on Apply, and survives undo/redo/reload');
 
     await page.getByRole('button', { name: 'Suggest edits', exact: true }).click();
     await page.getByRole('textbox', { name: 'Request edits for this passage', exact: true }).fill('Rewrite this chapter with a quieter ending.');
@@ -138,7 +139,7 @@ export async function qualifyStructuredSuggestions({ page, data, output, createW
     await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
     await reopen();
     assert.deepEqual(await manuscript(), wholeAfter);
-    checks.push('Native whole-chapter suggestions require explicit scope; formatting edits invalidate preview, complete structured Apply replaces only its authorized chapter, and exact whole-chapter undo/redo and saved decisions survive reload');
+    recordCheck(checks, 'native-structured-suggestions:02', 'Native whole-chapter suggestions require explicit scope; formatting edits invalidate preview, complete structured Apply replaces only its authorized chapter, and exact whole-chapter undo/redo and saved decisions survive reload');
     await page.getByRole('button', { name: 'All projects', exact: true }).click();
     await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   } finally { db.close(); }

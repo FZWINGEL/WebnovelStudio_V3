@@ -8,7 +8,7 @@ Use [implementation status](IMPLEMENTATION_STATUS.md) for current tests, native 
 | --- | --- | --- |
 | 0 | [Release preparation](RELEASE_3_0_0.md) | Candidate identity, verification, and remaining package/native gates |
 | 0a | [Changelog](../CHANGELOG.md) | User-facing changes for the current unreleased candidate |
-| 0b | [Testing and CI audit](V3_TESTING_CI_PERFORMANCE_AUDIT.md) | Fetched read-only performance audit of `c83a127`; proposed follow-up work and measured evidence, separate from Workshop implementation |
+| 0b | [Testing and CI audit](V3_TESTING_CI_PERFORMANCE_AUDIT.md) | Historical audit of `c83a127`; [implementation ledger](V3_TESTING_CI_PERFORMANCE_IMPLEMENTATION.md) tracks optimizations, experiments and remaining qualification |
 | 1 | [Product requirements](../PRODUCT.md) | Author experience and explicit product boundaries |
 | 2 | [Design surface](../DESIGN.md) | Current AI writing workspace, project tabs, assistant, and historical editor trial |
 | 2a | [Story Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md) · [completion record](V3_STORY_WORKSHOP_COMPLETION.md) · [implementation ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md) · [author study](STORY_WORKSHOP_AUTHOR_STUDY.md) | Develop/Write, contrasting candidates, scoped preferences, decisions and relationships; implementation and qualification tracked separately |

@@ -1,3 +1,5 @@
+import { spawnOwned, stopOwned, markOwnedReady } from './owned-process.mjs';
+import { recordCheck, initializeEvidence } from './native-evidence.mjs';
 // Native Tauri HTTP transport qualification against a synthetic loopback server.
 // Uses temporary projects and removes only its own synthetic Windows credential.
 import { chromium } from 'playwright-core';
@@ -16,6 +18,7 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const evidence = resolve(root, '.local/native-results/http');
 await mkdir(evidence, { recursive: true });
 const executable = process.env.WNS_V3_NATIVE_EXE ? resolve(process.env.WNS_V3_NATIVE_EXE) : resolve(root, 'target/debug/webnovel-desktop.exe');
+await initializeEvidence(executable);
 const build = await stat(executable);
 const executableSha256 = createHash('sha256').update(await readFile(executable)).digest('hex');
 const data = await mkdtemp(resolve(tmpdir(), 'wns-v3-http-native-'));
@@ -23,7 +26,7 @@ const server = createServer();
 await new Promise(resolvePromise => server.listen(0, '127.0.0.1', resolvePromise));
 const port = server.address().port;
 await new Promise(resolvePromise => server.close(resolvePromise));
-const app = spawn(executable, [], {
+const app = spawnOwned(executable, [], {
   cwd: data,
   windowsHide: true,
   stdio: ['ignore', 'ignore', 'ignore'],
@@ -87,20 +90,7 @@ async function cleanup() {
   if (clean) return;
   clean = true;
   await browser?.close().catch(() => {});
-  if (app.exitCode === null) {
-    app.kill();
-    await new Promise(resolvePromise => {
-      const timeout = setTimeout(resolvePromise, 5000);
-      app.once('exit', () => { clearTimeout(timeout); resolvePromise(); });
-    });
-  }
-  if (app.exitCode === null && app.pid) {
-    await new Promise(resolvePromise => {
-      const killer = spawn('taskkill.exe', ['/PID', String(app.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-      killer.once('exit', resolvePromise);
-      killer.once('error', resolvePromise);
-    });
-  }
+  await stopOwned(app);
 }
 try {
   const started = Date.now();
@@ -115,6 +105,7 @@ try {
   if (!browser) throw new Error('Native HTTP qualification could not attach before its readiness deadline');
   const context = browser.contexts()[0];
   page = context.pages()[0] ?? await context.waitForEvent('page', { timeout: 10000 });
+  markOwnedReady(app);
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
 
@@ -181,8 +172,8 @@ try {
   await page.getByRole('button',{name:'Stop response',exact:true}).waitFor({state:'detached'});
   assert.equal(await manuscript.innerText(),'Mara held the lantern. The ending stays unchanged.');
   assert.equal(requests[0].path,'/custom/chat/completions'); assert(requests[0].authorizationCorrect); assert.equal(requests[0].body.model,'test-editor-v1'); assert.equal(requests[0].body.response_format,undefined);
-  metadata.checks.push('Model discovery can be stopped without replacing the cached models');
-  metadata.checks.push('Settings stores a credential privately; explicit model discovery and persistent picker select the exact HTTP model; in-flight route/key stays captured across Settings changes');
+  recordCheck(metadata.checks, 'native-http-smoke:01', 'Model discovery can be stopped without replacing the cached models');
+  recordCheck(metadata.checks, 'native-http-smoke:02', 'Settings stores a credential privately; explicit model discovery and persistent picker select the exact HTTP model; in-flight route/key stays captured across Settings changes');
   await page.evaluate(()=>document.querySelector('.tiptap').editor.commands.setTextSelection({from:1,to:5}));
   await page.getByRole('button',{name:'Discuss selection',exact:true}).click();
   await page.getByRole('button',{name:'Suggest edits',exact:true}).click();
@@ -197,7 +188,7 @@ try {
   await card.locator('.proposal-status').filter({hasText:/^Applied$/}).waitFor();
   assert.equal(await manuscript.innerText(),'Her sister held the lantern. The ending stays unchanged.');
   assert.equal(requests[1].path,'/changed/chat/completions'); assert(requests[1].authorizationCorrect); assert.equal(requests[1].body.response_format.type,'json_object');
-  metadata.checks.push('A second exact HTTP request uses updated route/key; strict JSON retains one scoped candidate and explicit Apply preserves the ending');
+  recordCheck(metadata.checks, 'native-http-smoke:03', 'A second exact HTTP request uses updated route/key; strict JSON retains one scoped candidate and explicit Apply preserves the ending');
   await page.getByRole('button',{name:'Discuss',exact:true}).click();
   if(await page.getByRole('button',{name:'Use whole document',exact:true}).count()) await page.getByRole('button',{name:'Use whole document',exact:true}).click();
   await page.getByRole('textbox',{name:'Discuss this document',exact:true}).fill('Give a long scene discussion.');
@@ -227,7 +218,7 @@ try {
   db.close();
   assert(!String(await page.locator('body').innerText()).includes('internal-secret-must-not-be-shown'));
   metadata.results=results.map(r=>({...r,binding_json:JSON.parse(r.binding_json),delivery_json:JSON.parse(r.delivery_json)}));
-  metadata.checks.push('Stop retains partial text, HTTP error is sanitized, exact body receipts survive reopen without another request, and only explicit Apply changes prose');
+  recordCheck(metadata.checks, 'native-http-smoke:04', 'Stop retains partial text, HTTP error is sanitized, exact body receipts survive reopen without another request, and only explicit Apply changes prose');
   await page.screenshot({path:resolve(evidence,'reopened.png')});
   // Story-memory transport is explicitly chosen independently of the author model.
   await page.getByRole('button',{name:'Settings',exact:true}).click();
@@ -278,7 +269,7 @@ try {
   await page.getByRole('searchbox',{name:'Search models'}).fill('test-editor-v1');
   await page.getByRole('searchbox',{name:'Search models'}).press('Enter');
   await page.getByRole('button',{name:'Choose model: test-editor-v1',exact:true}).waitFor();
-  metadata.checks.push('Claude rail exposes three static models and five effort choices, saves and reopens an author choice, leaves the independent HTTP Luna memory provider unchanged, and keeps Send disabled until the native connection is checked');
+  recordCheck(metadata.checks, 'native-http-smoke:05', 'Claude rail exposes three static models and five effort choices, saves and reopens an author choice, leaves the independent HTTP Luna memory provider unchanged, and keeps Send disabled until the native connection is checked');
   await page.getByRole('button',{name:'Choose model: test-editor-v1',exact:true}).waitFor();
   const within=relative(await realpath(data),await realpath(path));
   assert(within&&!isAbsolute(within)&&within!=='..'&&!within.startsWith(`..${sep}`),'Memory write fixture must stay inside this synthetic run directory');
@@ -329,7 +320,7 @@ try {
     assert.equal(memoryDb.prepare('SELECT count(*) n FROM memory_views').get().n,1);
     assert.equal(await manuscript.innerText(),'Her sister held the lantern. The ending stays unchanged.');
     metadata.memoryResults=memoryResults.map(r=>({...r,delivery_json:JSON.parse(r.delivery_json)}));
-    metadata.checks.push('API-only memory requests Luna/xhigh independently of the writer, saves exact HTTP delivery, recovers a failed local result save without another POST, survives reopen, and supports Stop without changing prose');
+    recordCheck(metadata.checks, 'native-http-smoke:06', 'API-only memory requests Luna/xhigh independently of the writer, saves exact HTTP delivery, recovers a failed local result save without another POST, survives reopen, and supports Stop without changing prose');
   } finally {memoryDb.exec('DROP TRIGGER IF EXISTS native_http_memory_save_fault;');memoryDb.close();}
   metadata.pageErrors=pageErrors; assert.deepEqual(pageErrors,[]); metadata.status='passed';
 } catch(error) {
