@@ -47,7 +47,7 @@ export function tabForKind(kind: string): ProjectTabId {
 }
 
 export function documentsForTab(documents: readonly DocumentRecord[], tab: ProjectTabId): DocumentRecord[] {
-  return documents.filter(document => tabForKind(document.kind) === tab);
+  return documents.filter(document => !document.head.documentId.startsWith('workshop-') && tabForKind(document.kind) === tab);
 }
 
 /** The first document kind is the initial category; a blank project starts in Chapters. */

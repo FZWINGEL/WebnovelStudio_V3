@@ -90,4 +90,6 @@ suites! {
     transfer,
     v2_import,
     windows_process,
+    workshop,
+    workshop_boundaries,
 }

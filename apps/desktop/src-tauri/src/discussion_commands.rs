@@ -9,8 +9,11 @@ use tauri::State;
 use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, packet_input_hash};
 use webnovel_core::projects::discussions::*;
 use webnovel_core::projects::proposals::*;
+use webnovel_core::projects::workshop_generation::StartWorkshop;
 use webnovel_core::projects::{CoreError, CoreResult, ProjectAccess, ProjectSession};
 use webnovel_core::providers::preferences::ModelSelection;
+#[cfg(windows)]
+use webnovel_core::providers::{claude_runtime::ClaudeConnection, codex_runtime::CodexConnection};
 
 #[tauri::command]
 pub async fn read_discussion(
@@ -255,112 +258,330 @@ pub async fn start_discussion(
             }
             project.start_discussion(request)?
         };
-        if started.run.status == DiscussionRunStatus::Queued
-            && started.packet.options.provider_binding.is_some()
-        {
+        dispatch_started(
+            project,
+            recovery,
+            runtime,
+            started,
             #[cfg(windows)]
-            {
-                let stop = match runtime.register(&started.run.owner) {
-                    Ok(stop) => stop,
-                    Err(error) if error.code == "RunAlreadyStarted" => return Ok(started),
-                    Err(error) => return Err(error),
-                };
-                if let Some(dispatch) = recovery.claim(&project, &started.run) {
-                    let failure_project = project.clone();
-                    let failure_run = dispatch.run.clone();
-                    let worker_runtime = runtime.clone();
-                    let worker_recovery = recovery.clone();
-                    let is_claude = dispatch
-                        .packet
-                        .options
-                        .provider_binding
-                        .as_ref()
-                        .is_some_and(|binding| binding.provider_id == "claude");
-                    if std::thread::Builder::new()
-                        .name(
-                            if is_claude {
-                                "webnovel-claude-response"
-                            } else {
-                                "webnovel-codex-response"
-                            }
-                            .into(),
-                        )
-                        .spawn(move || {
-                            if is_claude {
-                                crate::claude_live_discussion::run_live(
-                                    project,
-                                    worker_recovery,
-                                    worker_runtime,
-                                    claude_connection,
-                                    dispatch,
-                                    stop,
-                                );
-                            } else {
-                                crate::live_discussion::run_live(
-                                    project,
-                                    worker_recovery,
-                                    worker_runtime,
-                                    connection,
-                                    dispatch,
-                                    stop,
-                                );
-                            }
-                        })
-                        .is_err()
-                    {
-                        runtime.release(&failure_run.owner);
-                        if is_claude {
-                            crate::claude_live_discussion::worker_unavailable(
-                                &failure_project,
-                                &recovery,
-                                failure_run,
-                            );
-                        } else {
-                            crate::live_discussion::worker_unavailable(
-                                &failure_project,
-                                &recovery,
-                                failure_run,
-                            );
-                        }
+            connection,
+            #[cfg(windows)]
+            claude_connection,
+        )
+    })
+    .await
+}
+
+/// Dispatch a queued discussion through the same provider ownership, stop,
+/// recovery, and mock worker lifecycle used by ordinary discussions. Workshop
+/// starts call this after the actor has frozen and durably queued their run.
+#[cfg(windows)]
+pub(crate) fn dispatch_started(
+    project: ProjectSession,
+    recovery: DiscussionRecovery,
+    runtime: DesktopProviders,
+    started: DiscussionStart,
+    connection: Option<CodexConnection>,
+    claude_connection: Option<ClaudeConnection>,
+) -> CoreResult<DiscussionStart> {
+    if started.run.status == DiscussionRunStatus::Queued
+        && started.packet.options.provider_binding.is_some()
+    {
+        let stop = match runtime.register(&started.run.owner) {
+            Ok(stop) => stop,
+            Err(error) if error.code == "RunAlreadyStarted" => return Ok(started),
+            Err(error) => return Err(error),
+        };
+        if let Some(dispatch) = recovery.claim(&project, &started.run) {
+            let failure_project = project.clone();
+            let failure_run = dispatch.run.clone();
+            let worker_runtime = runtime.clone();
+            let worker_recovery = recovery.clone();
+            let is_claude = dispatch
+                .packet
+                .options
+                .provider_binding
+                .as_ref()
+                .is_some_and(|binding| binding.provider_id == "claude");
+            if std::thread::Builder::new()
+                .name(
+                    if is_claude {
+                        "webnovel-claude-response"
+                    } else {
+                        "webnovel-codex-response"
                     }
-                } else {
-                    runtime.release(&started.run.owner);
-                }
-            }
-            return Ok(started);
-        }
-        if started.run.status == DiscussionRunStatus::Queued {
-            let worker_registration = runtime.track_local_worker()?;
-            // A duplicate lost-ack retry can reach here. Only one worker can
-            // claim the durable queued run. Claim before spawning, so failure
-            // to spawn a duplicate cannot seal another worker's running job.
-            if let Some(dispatch) = recovery.claim(&project, &started.run) {
-                let failure_project = project.clone();
-                let failure_run = dispatch.run.clone();
-                let worker_recovery = recovery.clone();
-                if std::thread::Builder::new()
-                    .name("webnovel-test-response".into())
-                    .spawn(move || {
-                        let _worker_registration = worker_registration;
-                        run_mock(project, worker_recovery, dispatch);
-                    })
-                    .is_err()
-                {
-                    record_worker_failure(
+                    .into(),
+                )
+                .spawn(move || {
+                    if is_claude {
+                        crate::claude_live_discussion::run_live(
+                            project,
+                            worker_recovery,
+                            worker_runtime,
+                            claude_connection,
+                            dispatch,
+                            stop,
+                        );
+                    } else {
+                        crate::live_discussion::run_live(
+                            project,
+                            worker_recovery,
+                            worker_runtime,
+                            connection,
+                            dispatch,
+                            stop,
+                        );
+                    }
+                })
+                .is_err()
+            {
+                runtime.release(&failure_run.owner);
+                if is_claude {
+                    crate::claude_live_discussion::worker_unavailable(
                         &failure_project,
                         &recovery,
-                        &failure_run,
-                        CoreError::new(
-                            "WorkerUnavailable",
-                            "The local test worker could not start.",
-                        ),
+                        failure_run,
+                    );
+                } else {
+                    crate::live_discussion::worker_unavailable(
+                        &failure_project,
+                        &recovery,
+                        failure_run,
                     );
                 }
             }
+        } else {
+            runtime.release(&started.run.owner);
         }
-        Ok(started)
-    })
-    .await
+        return Ok(started);
+    }
+    dispatch_mock(project, recovery, runtime, started)
+}
+
+/// Start a Workshop request after the renderer's model selection has been
+/// checked and bound to the native provider runtime.  The actor still owns
+/// session/CAS resolution; this helper only mirrors the ordinary discussion
+/// admission and dispatch boundary.
+pub(crate) fn start_workshop_native(
+    mut request: StartWorkshop,
+    selected: ModelSelection,
+    project: ProjectSession,
+    recovery: DiscussionRecovery,
+    library: DesktopLibrary,
+    runtime: DesktopProviders,
+) -> CoreResult<DiscussionStart> {
+    let _admission = runtime.admit_request()?;
+    let saved = saved_workshop_request(&project, &request)?;
+
+    // Resolve a lost-acknowledgment retry through the durable actor receipt
+    // before touching provider connections. Terminal runs return immediately;
+    // queued runs are dispatched only when their original native provider can
+    // be reacquired. recovery.claim remains the ownership gate, while an
+    // unavailable provider leaves the durable queue for a later retry.
+    if let Some(saved_run) = saved.as_ref() {
+        request.provider_binding = saved_run.provider_binding.clone();
+        let started = project.start_workshop(request)?;
+        if started.run.status != DiscussionRunStatus::Queued {
+            return Ok(started);
+        }
+        #[cfg(windows)]
+        {
+            match started
+                .packet
+                .options
+                .provider_binding
+                .as_ref()
+                .map(|binding| binding.provider_id.as_str())
+            {
+                Some("codex") => {
+                    let connection = runtime.connection().ok();
+                    if connection.is_none() {
+                        return Ok(started);
+                    }
+                    return dispatch_started(project, recovery, runtime, started, connection, None);
+                }
+                Some("claude") => {
+                    let claude_connection = runtime.claude_connection().ok();
+                    if claude_connection.is_none() {
+                        return Ok(started);
+                    }
+                    return dispatch_started(
+                        project,
+                        recovery,
+                        runtime,
+                        started,
+                        None,
+                        claude_connection,
+                    );
+                }
+                // A saved HTTP request belongs to the HTTP command; an
+                // unknown native binding must never be dispatched here.
+                Some(_) => return Ok(started),
+                None => return dispatch_mock(project, recovery, runtime, started),
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            if started.packet.options.provider_binding.is_some() {
+                return Ok(started);
+            }
+            return dispatch_mock(project, recovery, runtime, started);
+        }
+    }
+
+    {
+        let library = library
+            .0
+            .lock()
+            .map_err(|_| crate::provider_commands::unavailable())?;
+        let active = library.provider_state()?.settings.active;
+        if active != selected {
+            return Err(CoreError::new(
+                "ModelChoiceChanged",
+                "The selected model changed before this workshop started. Check the model selector and send again.",
+            ));
+        }
+    }
+    #[cfg(windows)]
+    let connection = if selected.provider_id == "codex" {
+        Some(runtime.connection().map_err(|_| {
+            CoreError::new(
+                "ProviderUnavailable",
+                "Check the Codex connection in Settings before sending this workshop.",
+            )
+        })?)
+    } else {
+        None
+    };
+    #[cfg(windows)]
+    let claude_connection = if selected.provider_id == "claude" {
+        Some(runtime.claude_connection().map_err(|_| {
+            CoreError::new(
+                "ProviderUnavailable",
+                "Check the Claude Code connection in Settings before sending this workshop.",
+            )
+        })?)
+    } else {
+        None
+    };
+    request.provider_binding = if selected.provider_id == "mock" {
+        None
+    } else if selected.provider_id == "codex" {
+        #[cfg(windows)]
+        {
+            Some(crate::provider_runtime::connection_author_binding(
+                connection.as_ref().expect("Codex connection selected"),
+                &selected,
+            )?)
+        }
+        #[cfg(not(windows))]
+        {
+            return Err(CoreError::new(
+                "ProviderUnavailable",
+                "The Codex connection is currently available on Windows only.",
+            ));
+        }
+    } else if selected.provider_id == "claude" {
+        #[cfg(windows)]
+        {
+            Some(crate::provider_runtime::claude_binding_for_choice(
+                claude_connection
+                    .as_ref()
+                    .expect("Claude connection selected"),
+                &selected,
+            )?)
+        }
+        #[cfg(not(windows))]
+        {
+            return Err(CoreError::new(
+                "ProviderUnavailable",
+                "The Claude Code connection is currently available on Windows only.",
+            ));
+        }
+    } else {
+        return Err(CoreError::new(
+            "ProviderUnavailable",
+            "This workshop provider is unavailable. Check Settings before sending.",
+        ));
+    };
+    let started = project.start_workshop(request)?;
+    #[cfg(windows)]
+    {
+        dispatch_started(
+            project,
+            recovery,
+            runtime,
+            started,
+            connection,
+            claude_connection,
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        dispatch_started(project, recovery, runtime, started)
+    }
+}
+
+pub(crate) fn saved_workshop_request(
+    project: &ProjectSession,
+    request: &StartWorkshop,
+) -> CoreResult<Option<DiscussionRun>> {
+    let anchor_id = format!("workshop-{}", request.exploration.session_id);
+    match project.read_discussion(request.access.clone(), anchor_id) {
+        Ok(view) => Ok(view
+            .runs
+            .into_iter()
+            .find(|run| run.operation_id == request.operation_id)),
+        Err(error) if error.code == "DocumentNotFound" => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn dispatch_started(
+    project: ProjectSession,
+    recovery: DiscussionRecovery,
+    runtime: DesktopProviders,
+    started: DiscussionStart,
+) -> CoreResult<DiscussionStart> {
+    dispatch_mock(project, recovery, runtime, started)
+}
+
+fn dispatch_mock(
+    project: ProjectSession,
+    recovery: DiscussionRecovery,
+    runtime: DesktopProviders,
+    started: DiscussionStart,
+) -> CoreResult<DiscussionStart> {
+    if started.run.status == DiscussionRunStatus::Queued {
+        let worker_registration = runtime.track_local_worker()?;
+        // A duplicate lost-ack retry can reach here. Only one worker can
+        // claim the durable queued run before spawning its local worker.
+        if let Some(dispatch) = recovery.claim(&project, &started.run) {
+            let failure_project = project.clone();
+            let failure_run = dispatch.run.clone();
+            let worker_recovery = recovery.clone();
+            if std::thread::Builder::new()
+                .name("webnovel-test-response".into())
+                .spawn(move || {
+                    let _worker_registration = worker_registration;
+                    run_mock(project, worker_recovery, dispatch);
+                })
+                .is_err()
+            {
+                record_worker_failure(
+                    &failure_project,
+                    &recovery,
+                    &failure_run,
+                    CoreError::new(
+                        "WorkerUnavailable",
+                        "The local test worker could not start.",
+                    ),
+                );
+            }
+        }
+    }
+    Ok(started)
 }
 
 fn check_model_choice(
@@ -562,14 +783,8 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
             }]
         }).to_string()]);
     }
-    let instruction = packet
-        .messages
-        .last()
-        .ok_or_else(invalid)?
-        .content
-        .chars()
-        .take(220)
-        .collect::<String>();
+    let full_instruction = packet.messages.last().ok_or_else(invalid)?.content.clone();
+    let instruction = full_instruction.chars().take(220).collect::<String>();
     let envelope: serde_json::Value =
         serde_json::from_str(&packet.messages.get(1).ok_or_else(invalid)?.content)
             .map_err(|_| invalid())?;
@@ -589,6 +804,96 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
         .and_then(|scope| scope.get("kind"))
         .and_then(|kind| kind.as_str())
         .is_some_and(|kind| matches!(kind, "blocks" | "wholeDocument"));
+    let allowance = packet
+        .options
+        .max_output_tokens
+        .parse::<usize>()
+        .map_err(|_| invalid())?;
+    if intent == FeedbackIntent::WorkshopExplore {
+        let workshop = envelope.get("workshop").ok_or_else(invalid)?;
+        let request: serde_json::Value =
+            serde_json::from_str(&full_instruction).map_err(|_| invalid())?;
+        let action = request
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("directions");
+        let kind = if matches!(
+            action,
+            "directions" | "explore" | "findDirection" | "findDirections"
+        ) {
+            "directions"
+        } else {
+            "refinement"
+        };
+        let selected_text = request
+            .get("selectedText")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let current = workshop
+            .get("currentElement")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("the current story element");
+        let mut preserved = vec![current.to_owned()];
+        if !selected_text.trim().is_empty() {
+            preserved.push(selected_text.to_owned());
+        }
+        if let Some(details) = workshop
+            .get("selectedDetails")
+            .and_then(serde_json::Value::as_array)
+        {
+            preserved.extend(details.iter().filter_map(|detail| {
+                detail
+                    .get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            }));
+        }
+        preserved.sort();
+        preserved.dedup();
+        let candidates = (0..if kind == "directions" { 3 } else { 1 })
+            .map(|index| {
+                let dimension = format!("Local test axis {}", index + 1);
+                let content = format!(
+                    "{}\n{}\nThis is a deterministic workshop alternative for axis {}.",
+                    current,
+                    preserved.join("\n"),
+                    index + 1
+                );
+                serde_json::json!({
+                    "id": "",
+                    "title": format!("Local workshop direction {}", index + 1),
+                    "content": content,
+                    "dimensionValue": dimension,
+                    "implications": [{"text": "This could change a related decision.", "basis": "the selected workshop material", "assumption": "the author wants the change explored"}],
+                    "assumptions": ["This is a proposed alternative, not canon."],
+                    "affectedTargets": [],
+                    "preservedDetails": preserved,
+                    "changedDetails": [format!("Local test axis {}", index + 1)]
+                })
+            })
+            .collect::<Vec<_>>();
+        let output = serde_json::json!({
+            "schemaVersion": "story-workshop-output.v1",
+            "requestKind": kind,
+            "question": workshop.get("focusQuestion").and_then(serde_json::Value::as_str).unwrap_or("What should we explore next?"),
+            "questionReason": workshop.get("focusReason").and_then(serde_json::Value::as_str).unwrap_or("The local fixture preserves the current focus."),
+            "dimension": "Local test axis",
+            "interpretation": {
+                "youSaid": workshop.get("direction").and_then(serde_json::Value::as_str).unwrap_or_default(),
+                "possibleDirection": current,
+                "stillOpen": workshop.get("stillOpen").and_then(serde_json::Value::as_str).unwrap_or_default()
+            },
+            "candidates": candidates
+        });
+        let encoded = serde_json::to_string(&output).map_err(|_| invalid())?;
+        if encoded.len() > allowance {
+            return Err(CoreError::new(
+                "OutputBudgetTooSmall",
+                "The reserved response allowance is too small for the local workshop response.",
+            ));
+        }
+        return Ok(vec![encoded]);
+    }
     let chunks = vec![
         "Local test response — no live AI model is connected.\n\n".to_owned(),
         format!("{focus}Your request: {instruction}\n\n"),
@@ -597,11 +902,6 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
             packet.receipt.source_handles.len()
         ),
     ];
-    let allowance = packet
-        .options
-        .max_output_tokens
-        .parse::<usize>()
-        .map_err(|_| invalid())?;
     if intent == FeedbackIntent::ProposeEdits {
         if structured_scope {
             let output = serde_json::json!({
@@ -853,6 +1153,96 @@ mod tests {
             ));
             clean_project(project);
         }
+    }
+
+    #[test]
+    fn mock_workshop_output_is_completed_as_raw_json_and_validates_to_stable_candidates() {
+        let path = std::env::temp_dir().join(format!(
+            "wns-desktop-worker-workshop-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project = ProjectSession::create(path, "Workshop worker test").unwrap();
+        let access = project.attach("test-session".into()).unwrap();
+        let document = project
+            .create_document(CreateDocument {
+                access: access.clone(),
+                operation_id: "create-anchor".into(),
+                document_id: "workshop-anchor".into(),
+                title: "Workshop anchor".into(),
+                kind: "note".into(),
+                body: serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"The current story element."}]}]}}),
+            })
+            .unwrap();
+        let request = webnovel_core::projects::workshop_generation::WorkshopGenerationRequest {
+            access: access.clone(),
+            operation_id: "workshop-operation".into(),
+            exploration: webnovel_core::projects::workshop_generation::WorkshopExploration {
+                session_id: "session-1".into(),
+                expected_version: "0".into(),
+                working_generation: "0".into(),
+                action: "directions".into(),
+                instruction: "Offer three different mechanisms.".into(),
+                selected_scope: "Whole working version".into(),
+                selected_text: "The editable selected passage".into(),
+                working_selection: None,
+            },
+            context: webnovel_core::projects::workshop_generation::WorkshopContext {
+                expected: document.head,
+                lens: webnovel_core::projects::workshop::Lens::Possibilities,
+                depth: webnovel_core::projects::workshop::WorkshopDepth::Develop,
+                current_element: "The current story element.".into(),
+                direction: "An editable direction".into(),
+                still_open: "Its consequences remain open".into(),
+                focus_question: "What changes next?".into(),
+                focus_reason: "Compare mechanisms before choosing one.".into(),
+                selected_details: vec![
+                    webnovel_core::projects::workshop_generation::WorkshopLiteral {
+                        text: "Keep this fixed detail".into(),
+                        fixed: true,
+                    },
+                ],
+                chosen_details: vec![],
+                fixed_details: vec!["Keep this fixed detail".into()],
+                fixed_source_refs: vec!["workshop-anchor@0".into()],
+                preferences: vec!["want ordinary life".into()],
+                hard_constraints: vec!["hard constraint: avoid hidden destiny".into()],
+                included_document_ids: vec![],
+                included_alternatives: vec![],
+                rejected_rationales: vec!["rejected-1: too narrow".into()],
+                questions: vec![],
+                original_notes: "An intentionally included author note.".into(),
+                outside_direction: false,
+            },
+            budget: MockContextBudget::new("100000", "4096", "1024"),
+            provider_binding: None,
+        };
+        let (start, metadata) = request.into_discussion().unwrap();
+        let started = project.start_discussion(start).unwrap();
+        let recovery = DiscussionRecovery::default();
+        let dispatch = recovery.claim(&project, &started.run).unwrap();
+        run_mock_with_pause(project.clone(), recovery, dispatch, || {});
+        let view = project
+            .read_discussion(access, "workshop-anchor".into())
+            .unwrap();
+        assert_eq!(view.runs[0].status, DiscussionRunStatus::Completed);
+        let output = webnovel_core::projects::workshop_generation::validate_workshop_output(
+            &view.runs[0].output_text,
+            &metadata,
+            &view.runs[0].id,
+        )
+        .unwrap();
+        assert_eq!(output.candidates.len(), 3);
+        assert_eq!(output.candidates[0].id, format!("{}-0", view.runs[0].id));
+        assert!(
+            output.candidates[0]
+                .content
+                .contains("Keep this fixed detail")
+        );
+        clean_project(project);
     }
 
     #[test]

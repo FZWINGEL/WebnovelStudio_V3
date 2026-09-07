@@ -5,6 +5,46 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
+### Story Workshop — implementation in progress
+
+The new [Story Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md), fetched from
+`codex/v3-persistence` at `c83a127`, is being implemented across all three slices.
+The [requirement ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md) tracks the full
+scope. New source is not yet a qualified installer. The previous private 3.0.0
+package predates these changes.
+
+The Develop/Write shell and dedicated six-lens Workshop frontend are implemented
+with editable brief/current direction/original notes, typed three-candidate
+comparison, detail selection, working draft and local history, scoped
+preferences, custom tags, preset review/import/export UI, relationships for
+existing document endpoints, noncanon moments/guidance, what-if and existing
+parent comparison, and a source-based Story Bible that projects exact chosen
+revisions. Explicit saved-packet reads are available in the Workshop context
+view. The 14:45 checkpoint passed the full frontend build and 465 tests
+in 39 files, including frozen selected ranges, stale scoped-edit refusal,
+and offline reconciliation with immutable request identity.
+
+Synthetic headless Chromium inspection found no page errors or horizontal
+overflow at 600, 800, 1024, and 1440 pixels; it is browser-fixture evidence,
+not native qualification. The local captures are under `.local/workshop-qa/` and
+are ignored. The standard `desktop.ps1 -Command check` passed at this checkpoint:
+formatting, strict workspace Clippy, all Rust workspace tests, production build,
+465 frontend tests, and 11 tooling checks. Schema-35 integration includes exact
+candidate provenance, frozen selection scope, supersession, before/after
+revisions, protected additions and paragraph boundaries, immutable retries,
+and readable recovered alternatives. Five independent database boundary tests
+cover atomic stale refusal, exact history, chapter preservation, author-secret
+exclusion, hard preference conflicts, and multiline protection. Hosted native
+and requirement-specific quality checks remain pending.
+
+No new native run, live Workshop provider call, current Workshop installer
+qualification, or author study has been performed for this change. The
+[formative study protocol](STORY_WORKSHOP_AUTHOR_STUDY.md) is prepared; its human
+evidence gate remains open. Known unfinished breadth includes atomic creation or
+adoption of relationships with new-document endpoints (the current UI covers
+existing documents), richer four-category/candidate-target impact review, and
+explicit promotion of rejection rationale, which remains manual.
+
 ### V3.0.0 workspace preparation — 7 September
 
 Development-speed optimization and workspace preparation for the private

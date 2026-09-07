@@ -491,12 +491,26 @@ try {
     // after the actual editor model (not just its DOM) contains the new text.
     await page.waitForFunction(expected => document.querySelector('.tiptap')?.editor?.getText() === expected, text);
   }
+  async function chooseStartWritingWhenPresented() {
+    const modeChoice = page.getByRole('heading', { name: 'How do you want to begin?', exact: true });
+    const chaptersAction = page.getByRole('button', { name: 'Create a chapter', exact: true });
+    const mode = await Promise.race([
+      modeChoice.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true),
+      chaptersAction.waitFor({ state: 'visible', timeout: 10_000 }).then(() => false),
+    ]);
+    if (mode) {
+      await page.getByRole('button', { name: 'Start writing', exact: true }).click();
+      await page.getByRole('tab', { name: /^Chapters/ }).waitFor();
+    }
+  }
   async function createWritingProject(title, kind, documentTitle, text) {
     await page.getByRole('button', { name: 'New project', exact: true }).click();
     await page.getByRole('textbox', { name: 'Project title', exact: true }).fill(title);
     await page.getByRole('button', { name: 'Create project', exact: true }).click();
-    // A new project opens on its Chapters tab; the empty workspace owns the
-    // first-document action now, while the form still permits any document kind.
+    // New projects may offer the Develop/Write choice before the historic
+    // empty Chapters surface. Writing fixtures must opt into the old surface
+    // explicitly so their existing assertions remain meaningful.
+    await chooseStartWritingWhenPresented();
     await page.getByRole('button', { name: 'Create a chapter', exact: true }).click();
     await page.getByLabel('Start with', { exact: true }).selectOption(kind);
     await page.getByRole('textbox', { name: 'Title', exact: true }).fill(documentTitle);

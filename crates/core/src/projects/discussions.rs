@@ -25,6 +25,7 @@ use crate::documents::{
 use crate::projects::context_packets::PrepareContext;
 use crate::projects::discussion_lookup;
 use crate::projects::story_context::{FreezeReviewedContinuation, FreezeStory, FrozenContext};
+use crate::projects::workshop_generation::WORKSHOP_RESPONSE_CONTRACT;
 use crate::providers::http_request::prepare_request as prepare_http_request;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,7 @@ pub enum FeedbackIntent {
     Discuss,
     ProposeEdits,
     Continue,
+    WorkshopExplore,
 }
 
 impl FeedbackIntent {
@@ -67,6 +69,7 @@ impl FeedbackIntent {
             Self::Discuss => ContextPurpose::Discuss,
             Self::ProposeEdits => ContextPurpose::Revise,
             Self::Continue => ContextPurpose::Continue,
+            Self::WorkshopExplore => ContextPurpose::StoryQuestion,
         }
     }
 
@@ -75,6 +78,7 @@ impl FeedbackIntent {
             Self::Discuss => "discuss",
             Self::ProposeEdits => "proposeEdits",
             Self::Continue => "continue",
+            Self::WorkshopExplore => "workshopExplore",
         }
     }
 
@@ -83,6 +87,7 @@ impl FeedbackIntent {
             "discuss" => Ok(Self::Discuss),
             "proposeEdits" => Ok(Self::ProposeEdits),
             "continue" => Ok(Self::Continue),
+            "workshopExplore" => Ok(Self::WorkshopExplore),
             _ => Err(CoreError::new(
                 "InvalidProject",
                 "The saved discussion draft has an unknown intent.",
@@ -95,9 +100,8 @@ impl FeedbackIntent {
             ContextPurpose::Discuss => Ok(Self::Discuss),
             ContextPurpose::Revise => Ok(Self::ProposeEdits),
             ContextPurpose::Continue => Ok(Self::Continue),
-            ContextPurpose::Plan
-            | ContextPurpose::StoryQuestion
-            | ContextPurpose::MemoryAnalysis => Err(CoreError::new(
+            ContextPurpose::StoryQuestion => Ok(Self::WorkshopExplore),
+            ContextPurpose::Plan | ContextPurpose::MemoryAnalysis => Err(CoreError::new(
                 "InvalidContext",
                 "The discussion snapshot has an unsupported purpose.",
             )),
@@ -946,6 +950,9 @@ impl OwnedProject {
         // The response contract is derived here from trusted intent and the
         // immutable live binding. It is never accepted from the renderer, so
         // old mock packets and old live packets remain contract-free.
+        if request.intent == FeedbackIntent::WorkshopExplore {
+            crate::projects::workshop_generation::metadata_from_instruction(&request.instruction)?;
+        }
         let response_contract = match request.intent {
             FeedbackIntent::Discuss if request.lookup.is_some() => {
                 Some(LOOKUP_RESPONSE_CONTRACT.to_owned())
@@ -960,6 +967,7 @@ impl OwnedProject {
                     PROPOSAL_RESPONSE_CONTRACT.to_owned()
                 },
             ),
+            FeedbackIntent::WorkshopExplore => Some(WORKSHOP_RESPONSE_CONTRACT.to_owned()),
             _ => None,
         };
         let packet = compile_packet(&PacketRequest {
@@ -2404,6 +2412,7 @@ fn validate_feedback_basis(
         FeedbackIntent::Continue => {
             matches!(basis, Some(BasisKind::Working | BasisKind::Reviewed)) && scope.is_none()
         }
+        FeedbackIntent::WorkshopExplore => basis.is_none() && scope.is_none(),
         _ => basis.is_none() && scope.is_none_or(|scope| scope.kind != ScopeKind::Append),
     };
     if !valid {
@@ -2471,6 +2480,18 @@ fn validate_start(request: &StartDiscussion) -> CoreResult<()> {
         ));
     }
     validate_safe_brief_start(request)?;
+    if request.intent == FeedbackIntent::WorkshopExplore {
+        if request.previous_run_id.is_some()
+            || request.lookup.is_some()
+            || request.safe_brief.is_some()
+        {
+            return Err(CoreError::new(
+                "InvalidWorkshop",
+                "Workshop exploration cannot resume or use writing-only request features.",
+            ));
+        }
+        crate::projects::workshop_generation::metadata_from_instruction(&request.instruction)?;
+    }
     Ok(())
 }
 
@@ -2636,7 +2657,7 @@ fn discussion_context_policy(
     let version = policy_epoch.to_string();
     let purpose = request.intent.purpose();
     match request.intent {
-        FeedbackIntent::Discuss => Ok((
+        FeedbackIntent::Discuss | FeedbackIntent::WorkshopExplore => Ok((
             purpose,
             InformationPolicy {
                 version,
@@ -2866,6 +2887,7 @@ fn insert_packet(
                     PROPOSAL_RESPONSE_CONTRACT.to_owned()
                 },
             ),
+            FeedbackIntent::WorkshopExplore => Some(WORKSHOP_RESPONSE_CONTRACT.to_owned()),
             _ => None,
         },
     };
@@ -2915,7 +2937,7 @@ fn validate_previous_run(
     Ok(())
 }
 
-fn read_start(db: &Connection, run_id: &str) -> CoreResult<DiscussionStart> {
+pub(super) fn read_start(db: &Connection, run_id: &str) -> CoreResult<DiscussionStart> {
     let run = read_run(db, run_id)?;
     let user_message = db.query_row("SELECT id FROM discussion_messages WHERE run_id=? AND role='user' ORDER BY created_at,id LIMIT 1", [run_id], |row| row.get::<_,String>(0)).map_err(CoreError::from).and_then(|id| read_message(db, &id))?;
     // Safe-brief starts are explicit author actions whose receipt must remain
@@ -2944,7 +2966,7 @@ fn read_start(db: &Connection, run_id: &str) -> CoreResult<DiscussionStart> {
     })
 }
 
-fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
+pub(super) fn read_run(db: &Connection, run_id: &str) -> CoreResult<DiscussionRun> {
     check_id(run_id)?;
     type RunRow = (
         String,

@@ -25,6 +25,10 @@ function storage(): ProjectTabStorage & { values: Map<string, string>; failRead?
 }
 
 describe('project tabs', () => {
+  it('keeps private Workshop anchors out of author document tabs', () => {
+    const note = document('author-note', 'note', 'Workshop notes');
+    expect(documentsForTab([document('workshop-session-1', 'note'), note], 'notes')).toEqual([note]);
+  });
   it('maps known kinds and sends unknown future kinds to Notes', () => {
     expect(tabForKind('chapter')).toBe('chapters');
     expect(tabForKind('world')).toBe('worldbuilding');

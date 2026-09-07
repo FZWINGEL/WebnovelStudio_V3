@@ -29,6 +29,8 @@ pub mod reviewed_summary;
 pub mod source_pins;
 pub mod story_context;
 pub mod story_records;
+pub mod workshop;
+pub mod workshop_generation;
 
 pub type CoreResult<T> = Result<T, CoreError>;
 
@@ -292,6 +294,23 @@ enum Command {
     EvidenceQuery(Box<evidence_queries::EvidenceQueryCommand>),
     Export(Box<exports::ExportCommand>),
     SourcePins(Box<source_pins::SourcePinCommand>),
+    WorkshopStart(
+        Box<workshop_generation::StartWorkshop>,
+        Reply<discussions::DiscussionStart>,
+    ),
+    WorkshopRead(ProjectAccess, Reply<workshop::WorkshopView>),
+    WorkshopSave(workshop::SaveWorkshop, Reply<workshop::WorkshopSnapshot>),
+    WorkshopHistory(ProjectAccess, Reply<Vec<workshop::WorkshopSnapshot>>),
+    WorkshopPreview(
+        workshop::PreviewWorkshopAdoption,
+        Reply<workshop::WorkshopAdoptionPreview>,
+    ),
+    WorkshopAdopt(
+        ProjectAccess,
+        String,
+        String,
+        Reply<workshop::WorkshopAdoptionAck>,
+    ),
     BackgroundWork(Reply<background_work::BackgroundWork>),
     StopBackgroundWork(
         background_work::BackgroundWork,
@@ -449,6 +468,31 @@ impl ProjectSession {
                             }
                             Command::Export(command) => project.handle_export(*command),
                             Command::SourcePins(command) => project.handle_source_pins(*command),
+                            Command::WorkshopStart(request, reply) => {
+                                let result = project.start_workshop(*request);
+                                project.fence_uncertain(&result);
+                                let _ = reply.send(result);
+                            }
+                            Command::WorkshopRead(access, reply) => {
+                                let _ = reply.send(project.read_workshop(access));
+                            }
+                            Command::WorkshopSave(request, reply) => {
+                                let result = project.save_workshop(request);
+                                project.fence_uncertain(&result);
+                                let _ = reply.send(result);
+                            }
+                            Command::WorkshopHistory(access, reply) => {
+                                let _ = reply.send(project.workshop_history(access));
+                            }
+                            Command::WorkshopPreview(request, reply) => {
+                                let _ = reply.send(project.preview_workshop_adoption(request));
+                            }
+                            Command::WorkshopAdopt(access, operation_id, preview_id, reply) => {
+                                let result =
+                                    project.adopt_workshop(access, operation_id, preview_id);
+                                project.fence_uncertain(&result);
+                                let _ = reply.send(result);
+                            }
                             Command::BackgroundWork(reply) => {
                                 let _ = reply.send(project.background_work());
                             }
@@ -632,6 +676,41 @@ impl ProjectSession {
     }
     pub fn storage_info(&self) -> CoreResult<StorageInfo> {
         self.request(Command::StorageInfo)
+    }
+    pub fn start_workshop(
+        &self,
+        request: workshop_generation::StartWorkshop,
+    ) -> CoreResult<discussions::DiscussionStart> {
+        self.request(|reply| Command::WorkshopStart(Box::new(request), reply))
+    }
+    pub fn read_workshop(&self, access: ProjectAccess) -> CoreResult<workshop::WorkshopView> {
+        self.request(|reply| Command::WorkshopRead(access, reply))
+    }
+    pub fn save_workshop(
+        &self,
+        request: workshop::SaveWorkshop,
+    ) -> CoreResult<workshop::WorkshopSnapshot> {
+        self.request(|reply| Command::WorkshopSave(request, reply))
+    }
+    pub fn workshop_history(
+        &self,
+        access: ProjectAccess,
+    ) -> CoreResult<Vec<workshop::WorkshopSnapshot>> {
+        self.request(|reply| Command::WorkshopHistory(access, reply))
+    }
+    pub fn preview_workshop_adoption(
+        &self,
+        request: workshop::PreviewWorkshopAdoption,
+    ) -> CoreResult<workshop::WorkshopAdoptionPreview> {
+        self.request(|reply| Command::WorkshopPreview(request, reply))
+    }
+    pub fn adopt_workshop(
+        &self,
+        access: ProjectAccess,
+        operation_id: String,
+        preview_id: String,
+    ) -> CoreResult<workshop::WorkshopAdoptionAck> {
+        self.request(|reply| Command::WorkshopAdopt(access, operation_id, preview_id, reply))
     }
     /// Inspect active discussion and memory work owned by this project's
     /// current operation namespace. The actor's current renderer access is
@@ -954,6 +1033,28 @@ impl OwnedProject {
                     return Err(CoreError::new(
                         "UnsupportedSchema",
                         "This project claims schema 34 but is missing durable lookup tables.",
+                    ));
+                }
+            }
+        }
+        if version >= 35 {
+            for table in [
+                "workshop_state",
+                "workshop_snapshots",
+                "workshop_adoption_previews",
+                "workshop_receipts",
+            ] {
+                let present: bool = connection.query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{table}')"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )?;
+                if !present {
+                    return Err(CoreError::new(
+                        "UnsupportedSchema",
+                        "This project claims schema 35 but is missing Story Workshop tables.",
                     ));
                 }
             }
@@ -1861,6 +1962,19 @@ fn existing_receipt(
     kind: &str,
     payload: &str,
 ) -> CoreResult<Option<StoredResult>> {
+    let workshop_receipt: Option<(String, String)> = connection
+        .query_row(
+            "SELECT operation_kind,payload_hash FROM workshop_receipts WHERE operation_namespace=? AND operation_id=?",
+            params![namespace, id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if workshop_receipt.is_some() {
+        return Err(CoreError::new(
+            "OperationIdReusedWithDifferentPayload",
+            "This operation ID was already used for a workshop command.",
+        ));
+    }
     let proposal_receipt: Option<(String, String)> = connection
         .query_row(
             "SELECT kind,payload_hash FROM proposal_receipts \

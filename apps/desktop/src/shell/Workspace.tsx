@@ -14,8 +14,12 @@ import { runtimeInfo } from '../ipc/native';
 import { ModelSelector } from '../providers/ModelSelector';
 import { ModelSettings } from '../providers/ModelSettings';
 import { PROJECT_TABS, documentsForTab, tabForKind, readProjectTabs, writeProjectTabs, type ProjectTabId } from './projectTabs';
+import { readWorkspaceMode, writeWorkspaceMode, type WorkspaceMode } from './workspaceModes';
+import { Workshop, type WorkshopHandle } from './Workshop';
+import { StoryBible } from './StoryBible';
 import { AppCloseDialog, type AppCloseDialogPhase } from './AppCloseDialog';
 import { appCloseStatus, beginAppClose, cancelAppClose, finishAppClose, stopAppJobs, type AppCloseStatus } from '../ipc/appClose';
+import './workspaceModes.css';
 
 const EditorTrial = typeof __WNS_EDITOR_TRIAL__ !== 'undefined' && __WNS_EDITOR_TRIAL__
   ? lazy(() => import('./App').then(module => ({ default: module.App })))
@@ -83,6 +87,9 @@ export function Workspace() {
   const [documentTitle, setDocumentTitle] = useState('');
   const [kind, setKind] = useState('chapter');
   const [projectTab, setProjectTab] = useState<ProjectTabId>('chapters');
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode | null>(null);
+  const [storyBibleOpen, setStoryBibleOpen] = useState(false);
+  const storyBibleButton = useRef<HTMLButtonElement>(null);
   const [trial, setTrial] = useState(false);
   const [trialAvailable, setTrialAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -94,6 +101,7 @@ export function Workspace() {
   const documentIntent = useRef<CreateDocumentIntent | null>(null);
   const recovery = useRef(crypto.randomUUID());
   const duplication = useRef({ id: crypto.randomUUID(), source: '' });
+  const workshopRef = useRef<WorkshopHandle>(null);
   const [loading, setLoading] = useState(true);
   const [closePrompt, setClosePrompt] = useState<ClosePrompt | null>(null);
   const closeAttempt = useRef<CloseAttempt | null>(null);
@@ -295,6 +303,7 @@ export function Workspace() {
         attempt.cancelRequired = false;
       };
       try {
+        await flushWorkshop();
         const session = activeRef.current?.session;
         if (session) await session.detachAfter(prepare, 'close');
         else await prepare();
@@ -327,20 +336,131 @@ export function Workspace() {
     catch (reason) { setError(errorText(reason)); }
     finally { running.current = false; setBusy(false); }
   }
+
+  async function flushWorkshop(): Promise<void> {
+    await workshopRef.current?.flush();
+  }
+
   function activate(opened: OpenedProject, document?: DocumentRecord) {
     if (document) opened = { ...opened, documents: opened.documents.map(item => item.head.documentId === document.head.documentId ? document : item) };
     setExporting(null);
+    setStoryBibleOpen(false);
     setProject(opened);
     const preferences = readProjectTabs(opened.project.projectId);
+    const mode = readWorkspaceMode(opened.project.projectId) ?? (opened.documents.length ? 'write' : null);
     const previousDocument = opened.documents.find(item => item.head.documentId === opened.viewState?.documentId) ?? opened.documents[0];
     const tab = document ? tabForKind(document.kind) : preferences.activeTab ?? tabForKind(previousDocument?.kind ?? 'chapter');
     const eligible = documentsForTab(opened.documents, tab);
     const next = document ?? eligible.find(item => item.head.documentId === preferences.lastDocumentByTab[tab]) ?? eligible.find(item => item.head.documentId === opened.viewState?.documentId) ?? eligible[0];
+    setWorkspaceMode(mode);
     setProjectTab(tab);
     writeProjectTabs(opened.project.projectId, { ...preferences, activeTab: tab, lastDocumentByTab: { ...preferences.lastDocumentByTab, ...(next ? { [tab]: next.head.documentId } : {}) } });
-    setActive(next ? { record: next, session: new DocumentSession(opened.access, next, projectTransport), viewState: opened.viewState } : null);
+    setActive(mode === 'write' && next ? { record: next, session: new DocumentSession(opened.access, next, projectTransport), viewState: opened.viewState } : null);
     setSearch(''); setNewProject(false); setNewDocument(false); setRenaming(false); setRenamingDocument(false);
     if (opened.libraryWarning) setNotice(`Project opened. Library update needs attention: ${opened.libraryWarning}`);
+  }
+
+  function mergeWorkshopDocuments(projectId: string, documents: DocumentRecord[]): void {
+    setProject(current => {
+      if (!current || current.project.projectId !== projectId) return current;
+      const mountedId = activeRef.current?.record.head.documentId;
+      const merged = new Map(current.documents.map(document => [document.head.documentId, document]));
+      for (const document of documents) {
+        // A mounted writer owns its live buffer. Workshop adoption can add or
+        // update other records, but it must never replace that editor's body.
+        if (document.head.documentId !== mountedId) merged.set(document.head.documentId, document);
+      }
+      return { ...current, documents: [...merged.values()] };
+    });
+  }
+
+  async function restoreWriteDocument(base: OpenedProject, preferredTab: ProjectTabId): Promise<void> {
+    const preferences = readProjectTabs(base.project.projectId);
+    const tab = preferredTab;
+    const eligible = documentsForTab(base.documents, tab);
+    const destination = eligible.find(item => item.head.documentId === preferences.lastDocumentByTab[tab]) ?? eligible[0];
+    const record = destination ? await readDocument(base.access, destination.head.documentId) : null;
+    const projectBase = record
+      ? { ...base, documents: base.documents.map(item => item.head.documentId === record.head.documentId ? record : item) }
+      : base;
+    writeProjectTabs(base.project.projectId, { ...preferences, activeTab: tab, lastDocumentByTab: { ...preferences.lastDocumentByTab, ...(record ? { [tab]: record.head.documentId } : {}) } });
+    setProject(projectBase);
+    setProjectTab(tab);
+    setActive(record ? { record, session: new DocumentSession(base.access, record, projectTransport), viewState: null } : null);
+    setSearch(''); setNewDocument(false); setRenamingDocument(false); setExporting(null);
+  }
+
+  async function transitionMode(next: WorkspaceMode): Promise<void> {
+    if (!project || workspaceMode === next) return;
+    const projectId = project.project.projectId;
+    if (next === 'develop') {
+      await settlePendingDocumentIntent();
+      const current = activeRef.current;
+      // The existing editor owns the write barrier. Only clear it after the
+      // checkpoint and detach have completed, so a failed save leaves Write
+      // mounted and editable.
+      if (current) {
+        const saved = await current.session.detachAfter(() => readDocument(current.session.projectAccess, current.record.head.documentId), 'switch');
+        setProject(base => base?.project.projectId === projectId ? {
+          ...base, access: current.session.projectAccess,
+          documents: base.documents.map(document => document.head.documentId === saved.head.documentId ? saved : document),
+        } : base);
+      }
+      setActive(null);
+      writeWorkspaceMode(projectId, 'develop');
+      setWorkspaceMode('develop');
+      setStoryBibleOpen(false);
+      return;
+    }
+
+    // Workshop has its own local working version and save boundary. Read the
+    // destination only after that boundary succeeds, keeping Develop mounted
+    // if either operation fails.
+    await flushWorkshop();
+    const base = project;
+    if (base.documents.length) await restoreWriteDocument(base, projectTab);
+    else {
+      setProject(base);
+      setProjectTab(projectTab);
+      setActive(null);
+    }
+    writeWorkspaceMode(projectId, 'write');
+    setWorkspaceMode('write');
+    setStoryBibleOpen(false);
+  }
+
+  function selectWorkspaceMode(next: WorkspaceMode): void {
+    if (!project || workspaceMode === next) return;
+    void perform(() => transitionMode(next));
+  }
+
+  function openDocumentFromWorkshop(projectId: string, documentId: string): void {
+    void perform(async () => {
+      if (!project || project.project.projectId !== projectId) return;
+      const base = project;
+      const access = activeRef.current?.session.projectAccess ?? base.access;
+      const record = await navigate(() => readDocument(access, documentId));
+      const opened = { ...base, access, documents: base.documents.map(item => item.head.documentId === documentId ? record : item) };
+      writeWorkspaceMode(projectId, 'write');
+      activate(opened, record);
+    });
+  }
+
+  function openStoryBible(): void {
+    if (!project) return;
+    void perform(async () => {
+      await settlePendingDocumentIntent();
+      await activeRef.current?.session.flush();
+      await flushWorkshop();
+      const access = activeRef.current?.session.projectAccess;
+      if (access) setProject(current => current ? { ...current, access } : current);
+      setStoryBibleOpen(true);
+    });
+  }
+
+  function closeStoryBible(): void {
+    setStoryBibleOpen(false);
+    requestAnimationFrame(() => storyBibleButton.current?.focus());
   }
 
   /** Keep a reconciled lease attached to the mounted editor before using its snapshot. */
@@ -393,6 +513,7 @@ export function Workspace() {
     return { record: result.record, access: result.access, opened };
   }
   async function navigate<T>(prepare: () => Promise<T>): Promise<T> {
+    await flushWorkshop();
     await settlePendingDocumentIntent();
     return activeRef.current ? activeRef.current.session.detachAfter(prepare) : prepare();
   }
@@ -572,6 +693,7 @@ export function Workspace() {
   }
   async function backup() {
     if (!project) return;
+    await flushWorkshop();
     const settled = await settlePendingDocumentIntent();
     const work = async () => {
       await activeRef.current?.session.flush();
@@ -627,13 +749,25 @@ export function Workspace() {
     <header className="app-header"><div className="brand">{project && <button className="library-back" disabled={busy} onClick={backToLibrary}>All projects</button>}<strong>{project ? project.project.title : 'WebnovelStudio'}</strong>{!project && <span className="trial-label">Your library</span>}</div>
       <div className="assistant-controls"><ModelSelector /><ModelSettings /></div>
     </header>
-    {project && <div className="project-navigation"><div className="project-tabs" role="tablist" aria-label="Project workspace" onKeyDown={event => {
-      const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-      const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
-      const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
-      if (next >= 0) { event.preventDefault(); tabs[next]?.focus(); }
-    }}>{PROJECT_TABS.map(tab => <button key={tab.id} id={`project-tab-${tab.id}`} role="tab" aria-selected={projectTab === tab.id} aria-controls="project-workspace-panel" tabIndex={projectTab === tab.id ? 0 : -1} disabled={busy} onClick={() => selectTab(tab.id)}>{tab.label}<span className="tab-count">{documentsForTab(project.documents, tab.id).length}</span></button>)}</div>
-      <details className="project-tools"><summary>Project options</summary><div className="project-tools-menu"><button disabled={busy} onClick={() => { setRenamedTitle(project.project.title); setRenaming(!renaming); }}>Rename</button><button disabled={busy} onClick={duplicate}>Duplicate</button><button disabled={busy} onClick={() => void perform(backup)}>Backup</button><button ref={exportButton} disabled={busy || !active} onClick={() => void perform(exportDraft)}>Export draft</button></div></details>
+    {project && <div className="project-navigation">
+      <div className="workspace-mode-row">
+        <div className="workspace-mode-switch" role="tablist" aria-label="Primary workspace" onKeyDown={event => {
+          const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+          const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
+          if (next >= 0) { event.preventDefault(); tabs[next]?.focus(); }
+        }}>
+          {(['develop', 'write'] as const).map(mode => <button key={mode} id={`workspace-mode-${mode}`} role="tab" aria-selected={workspaceMode === mode} aria-controls="workspace-mode-panel" tabIndex={workspaceMode === mode ? 0 : -1} disabled={busy} onClick={() => selectWorkspaceMode(mode)}>{mode === 'develop' ? 'Develop' : 'Write'}</button>)}
+        </div>
+        <button ref={storyBibleButton} className="story-bible-action" disabled={busy} onClick={openStoryBible}>Story Bible</button>
+        <details className="project-tools"><summary>Project options</summary><div className="project-tools-menu"><button disabled={busy} onClick={() => { setRenamedTitle(project.project.title); setRenaming(!renaming); }}>Rename</button><button disabled={busy} onClick={duplicate}>Duplicate</button><button disabled={busy} onClick={() => void perform(backup)}>Backup</button><button ref={exportButton} disabled={busy || !active} onClick={() => void perform(exportDraft)}>Export draft</button></div></details>
+      </div>
+      {workspaceMode === 'write' && <div className="project-tabs" role="tablist" aria-label="Project workspace" onKeyDown={event => {
+        const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+        const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+        const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
+        if (next >= 0) { event.preventDefault(); tabs[next]?.focus(); }
+      }}>{PROJECT_TABS.map(tab => <button key={tab.id} id={`project-tab-${tab.id}`} role="tab" aria-selected={projectTab === tab.id} aria-controls="project-workspace-panel" tabIndex={projectTab === tab.id ? 0 : -1} disabled={busy} onClick={() => selectTab(tab.id)}>{tab.label}<span className="tab-count">{documentsForTab(project.documents, tab.id).length}</span></button>)}</div>}
     </div>}
     {project && renaming && <form className="rename-project-form" onSubmit={rename}><label htmlFor="rename-project">Project title</label><input autoFocus id="rename-project" value={renamedTitle} maxLength={160} onChange={event => setRenamedTitle(event.target.value)} /><button type="button" onClick={() => setRenaming(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedTitle.trim()}>Save title</button></form>}
     {project && active && renamingDocument && <form className="rename-project-form" onSubmit={renameCurrentDocument}><label htmlFor="rename-document">Document title</label><input autoFocus id="rename-document" value={renamedDocumentTitle} maxLength={160} onChange={event => setRenamedDocumentTitle(event.target.value)} /><button type="button" onClick={() => setRenamingDocument(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedDocumentTitle.trim()}>Save document title</button></form>}
@@ -645,6 +779,19 @@ export function Workspace() {
         : <div className="library-empty"><h2>{search ? 'No matching projects' : archived ? 'No archived projects' : 'A place for your next story'}</h2><p>{search ? 'Try a different title.' : archived ? 'Archived projects stay on your computer.' : 'Create a project, then add a character, a world, a chapter, or a simple note. There is no required order.'}</p></div>}
       {!!library.pending.length && <section className="pending-projects" aria-label="Unfinished project operations"><h2>Unfinished setup</h2>{library.pending.map(pending => <div key={pending.origin.operationId}><span>{pending.title}</span>{pending.kind === 'create' && <button disabled={busy} onClick={() => create(pending.title, pending.origin.operationId)}>Resume creation</button>}{pending.kind === 'duplicate' && <button disabled={busy} onClick={() => resumeDuplicate(pending.origin.operationId, pending.title)}>Resume copy</button>}{pending.kind === 'recover' && <button disabled={busy} onClick={() => recover(pending.origin.operationId, pending.title)}>Resume recovery</button>}{pending.kind === 'import' && <button disabled={busy} onClick={() => resumeImport(pending.origin.operationId)}>Check import</button>}</div>)}</section>}
       <footer className="library-footer"><span>Projects are saved on this computer.</span><div className="header-actions"><button disabled={busy} onClick={() => recover()}>Recover backup</button>{EditorTrial && trialAvailable && <button disabled={busy} onClick={() => setTrial(true)}>Open editor trial</button>}</div></footer>
+    </main> : workspaceMode === null ? <main className="workspace-mode-choice" id="workspace-mode-panel" aria-labelledby="workspace-mode-choice-title">
+      <div className="workspace-mode-choice-card">
+        <p className="workspace-mode-kicker">A new story can begin anywhere.</p>
+        <h1 id="workspace-mode-choice-title">How do you want to begin?</h1>
+        <p>Explore the story first, or open the writing desk and create a chapter when you are ready.</p>
+        <div className="workspace-mode-choice-actions">
+          <button className="primary-button" disabled={busy} onClick={() => selectWorkspaceMode('develop')}>Develop a story</button>
+          <button className="secondary-button" disabled={busy} onClick={() => selectWorkspaceMode('write')}>Start writing</button>
+        </div>
+      </div>
+    </main> : workspaceMode === 'develop' ? <main className="workspace-develop" id="workspace-mode-panel" aria-labelledby="workspace-mode-develop-title">
+      <h1 id="workspace-mode-develop-title" className="sr-only">Develop your story</h1>
+      <Workshop ref={workshopRef} project={project} onOpenDocument={(documentId: string) => openDocumentFromWorkshop(project.project.projectId, documentId)} onDocumentsChanged={(documents: DocumentRecord[]) => mergeWorkshopDocuments(project.project.projectId, documents)} onError={setError} />
     </main> : <div className="workspace" id="project-workspace-panel" role="tabpanel" aria-labelledby={`project-tab-${projectTab}`}>
       <aside className="document-sidebar" aria-label="Project documents"><div className="sidebar-heading"><h2>{currentTab.label}</h2><button className="primary-button" disabled={busy} onClick={() => beginDocument()}>Add</button></div><input aria-label="Find a document" type="search" placeholder={`Find ${currentTab.label.toLocaleLowerCase()}`} value={search} onChange={event => setSearch(event.target.value)} />
         {newDocument && <form className="inline-form document-form" onSubmit={addDocument}><label htmlFor="document-kind">Start with</label><select id="document-kind" value={kind} onChange={event => setKind(event.target.value)}>{kinds.map(kind => <option key={kind} value={kind}>{kind.charAt(0).toUpperCase() + kind.slice(1)}</option>)}</select><label htmlFor="document-title">Title</label><input id="document-title" autoFocus value={documentTitle} onChange={event => setDocumentTitle(event.target.value)} maxLength={160} /><div><button type="button" onClick={() => setNewDocument(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy}>Create</button></div></form>}
@@ -661,6 +808,7 @@ export function Workspace() {
     {importingV2 && !project && <V2ImportDialog session={renderer.current}
       onImported={opened => { setImportingV2(false); activate(opened); void refreshLibrary(); }}
       onClose={() => { setImportingV2(false); void refreshLibrary(); }} />}
+    {storyBibleOpen && project && <StoryBible project={project} onClose={closeStoryBible} onOpenDocument={(documentId: string) => { setStoryBibleOpen(false); openDocumentFromWorkshop(project.project.projectId, documentId); }} />}
     {(error || notice || busy) && <footer className="workspace-notice" role={error ? 'alert' : 'status'}><span className={error ? 'error-status' : ''}>{error || notice || 'Working…'}</span>{error && <button onClick={() => setError('')}>Dismiss</button>}</footer>}
   </div>;
 }

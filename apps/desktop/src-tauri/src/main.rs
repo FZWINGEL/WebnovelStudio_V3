@@ -36,6 +36,8 @@ mod reload_accelerators;
 mod review_commands;
 mod source_pin_commands;
 mod v2_import_commands;
+mod workshop_commands;
+mod workshop_generation_commands;
 
 #[tauri::command]
 fn validate_snapshot(snapshot_json: String) -> Result<SnapshotReceipt, String> {
@@ -228,7 +230,15 @@ fn main() {
             library_commands::library_recover,
             library_commands::library_duplicate,
             library_commands::library_resume_import,
-            library_commands::project_backup
+            library_commands::project_backup,
+            workshop_commands::read_workshop,
+            workshop_commands::save_workshop,
+            workshop_commands::workshop_history,
+            workshop_commands::preview_workshop_adoption,
+            workshop_commands::adopt_workshop,
+            workshop_commands::export_workshop_preset,
+            workshop_commands::import_workshop_preset,
+            workshop_generation_commands::start_workshop
         ])
         .run(tauri::generate_context!())
         .expect("Could not launch WebnovelStudio V3");

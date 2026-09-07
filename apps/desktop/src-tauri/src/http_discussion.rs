@@ -8,6 +8,7 @@ use webnovel_core::context::packet::{
     HTTP_TOKEN_ACCOUNTING_METHOD, HttpProviderBinding, HttpResponseFormat, ProviderBinding,
 };
 use webnovel_core::projects::discussions::*;
+use webnovel_core::projects::workshop_generation::StartWorkshop;
 use webnovel_core::projects::{CoreError, CoreResult, ProjectSession};
 use webnovel_core::providers::adapter::{
     CancellationToken, HttpRequestStage, ProviderErrorKind, StreamEvent,
@@ -109,6 +110,101 @@ pub async fn start(
         } else { runtime.release_http(&started.run.owner); }
         Ok(started)
     }).await
+}
+
+/// OpenAI-compatible Workshop requests use the same streaming and terminal
+/// receipt path as ordinary discussions. The actor resolves the Workshop
+/// session and freezes its request before this function claims the queued run.
+pub async fn start_workshop(
+    mut request: StartWorkshop,
+    selected: ModelSelection,
+    project: ProjectSession,
+    recovery: DiscussionRecovery,
+    library: DesktopLibrary,
+    runtime: DesktopProviders,
+) -> CoreResult<DiscussionStart> {
+    execute(move || {
+        let _admission = runtime.admit_request()?;
+        let saved = crate::discussion_commands::saved_workshop_request(&project, &request)?;
+        let (started, adapter) = if let Some(saved) = &saved {
+            // Resolve saved retries through the durable receipt before reading
+            // endpoint settings. A terminal receipt therefore works offline;
+            // a queued receipt is claimed below without replaying an API call.
+            request.provider_binding = saved.provider_binding.clone();
+            (project.start_workshop(request)?, None)
+        } else {
+            let library = library
+                .0
+                .lock()
+                .map_err(|_| crate::provider_commands::unavailable())?;
+                let state = library.provider_state()?;
+                if state.settings.active != selected {
+                    return Err(CoreError::new(
+                        "ModelChoiceChanged",
+                        "The selected model changed before this workshop started. Check the model selector and send again.",
+                    ));
+                }
+                let profile = library
+                    .endpoint_profiles()?
+                    .profiles
+                    .into_iter()
+                    .find(|profile| profile.id == selected.provider_id)
+                    .ok_or_else(|| {
+                        CoreError::new(
+                            "ProviderUnavailable",
+                            "The API connection is unavailable. Check Settings.",
+                        )
+                    })?;
+                if !profile.enabled
+                    || !(profile.manual_model_ids.contains(&selected.model_id)
+                        || profile.cached_model_ids.contains(&selected.model_id))
+                    || selected.reasoning.is_some()
+                    || selected.service_tier.is_some()
+                {
+                    return Err(CoreError::new(
+                        "ProviderUnavailable",
+                        "This API model or its selected options are unavailable. Check Settings.",
+                    ));
+                }
+                let adapter = crate::endpoint_commands::adapter_for_profile(
+                    &profile,
+                    &WindowsCredentialStore,
+                )?;
+                request.provider_binding = Some(binding_for(
+                    &profile,
+                    &selected,
+                    FeedbackIntent::WorkshopExplore,
+                ));
+                (project.start_workshop(request)?, Some(adapter))
+        };
+        if started.run.status != DiscussionRunStatus::Queued {
+            return Ok(started);
+        }
+        let stop = match runtime.register_http(&started.run.owner) {
+            Ok(stop) => stop,
+            Err(error) if error.code == "RunAlreadyStarted" => return Ok(started),
+            Err(error) => return Err(error),
+        };
+        if let Some(dispatch) = recovery.claim(&project, &started.run) {
+            if let Some(adapter) = adapter {
+                tauri::async_runtime::spawn(run(
+                    project,
+                    recovery,
+                    runtime,
+                    adapter,
+                    dispatch,
+                    stop,
+                ));
+            } else {
+                finish_unstarted(&project, &recovery, dispatch);
+                runtime.release_http(&started.run.owner);
+            }
+        } else {
+            runtime.release_http(&started.run.owner);
+        }
+        Ok(started)
+    })
+    .await
 }
 
 fn finish_unstarted(

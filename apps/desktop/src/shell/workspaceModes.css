@@ -1,0 +1,117 @@
+.persistent-workspace .project-navigation {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.workspace-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 48px;
+}
+
+.workspace-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7f9fc;
+}
+
+.workspace-mode-switch [role='tab'] {
+  min-width: 84px;
+  padding: 7px 14px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-mode-switch [aria-selected='true'] {
+  color: var(--accent);
+  background: #e7efff;
+  box-shadow: 0 1px 2px #25334414;
+}
+
+.story-bible-action {
+  padding: 7px 10px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.workspace-mode-choice,
+.workspace-develop {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.workspace-mode-choice {
+  display: grid;
+  place-items: center;
+  padding: 48px 24px;
+  background: #f9fafc;
+}
+
+.workspace-mode-choice-card {
+  width: min(560px, 100%);
+  padding: 34px 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px #2533440d;
+}
+
+.workspace-mode-kicker {
+  margin: 0 0 9px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.workspace-mode-choice-card h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.workspace-mode-choice-card > p:not(.workspace-mode-kicker) {
+  max-width: 44em;
+  margin: 12px 0 24px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.workspace-mode-choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.workspace-develop {
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-develop > .sr-only {
+  position: absolute;
+}
+
+@media (max-width: 700px) {
+  .workspace-mode-row {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .workspace-mode-choice {
+    padding: 28px 16px;
+  }
+
+  .workspace-mode-choice-card {
+    padding: 26px 24px;
+  }
+}

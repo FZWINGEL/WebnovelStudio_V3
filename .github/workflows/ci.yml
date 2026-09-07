@@ -88,6 +88,8 @@ jobs:
         working-directory: apps/desktop
       - run: npm run test:native
         working-directory: apps/desktop
+      - run: npm run test:native-workshop
+        working-directory: apps/desktop
       - run: npm run test:native-http
         working-directory: apps/desktop
       - run: npm run test:native-close

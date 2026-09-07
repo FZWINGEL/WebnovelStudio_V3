@@ -122,6 +122,16 @@ try {
   await page.getByRole('button',{name:'New project',exact:true}).click();
   await page.getByRole('textbox',{name:'Project title',exact:true}).fill('HTTP adapter qualification');
   await page.getByRole('button',{name:'Create project',exact:true}).click();
+  const modeChoice = page.getByRole('heading',{name:'How do you want to begin?',exact:true});
+  const chapterAction = page.getByRole('button',{name:'Create a chapter',exact:true});
+  const mode = await Promise.race([
+    modeChoice.waitFor({state:'visible',timeout:10_000}).then(()=>true),
+    chapterAction.waitFor({state:'visible',timeout:10_000}).then(()=>false),
+  ]);
+  if (mode) {
+    await page.getByRole('button',{name:'Start writing',exact:true}).click();
+    await page.getByRole('tab',{name:/^Chapters/}).waitFor();
+  }
   await page.getByRole('button',{name:'Create a chapter',exact:true}).click();
   await page.getByLabel('Start with',{exact:true}).selectOption('chapter');
   await page.getByRole('textbox',{name:'Title',exact:true}).fill('The station');

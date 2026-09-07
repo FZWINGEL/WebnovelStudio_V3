@@ -651,6 +651,12 @@ fn validate_project_connection_heads(
             format!("The provider results are invalid: {error}"),
         )
     })?;
+    crate::projects::workshop::validate_storage(connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The Story Workshop records are invalid: {error}"),
+        )
+    })?;
     crate::projects::discussion_lookup::validate_storage(connection).map_err(|error| {
         transfer_error(
             "InvalidBackup",

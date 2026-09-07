@@ -85,6 +85,8 @@ vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => mocks.close.c
 vi.mock('./App', () => ({ App: () => null }));
 vi.mock('./ExportDialog', () => ({ ExportDialog: () => null }));
 vi.mock('./V2ImportDialog', () => ({ V2ImportDialog: () => null }));
+vi.mock('./Workshop', () => ({ Workshop: ({ project }: any) => <section data-testid="workshop" data-lease={project.access.writerLease}><strong>{project.project.title}</strong></section> }));
+vi.mock('./StoryBible', () => ({ StoryBible: () => <section data-testid="story-bible" /> }));
 vi.mock('./AppCloseDialog', () => ({ AppCloseDialog: ({ phase, message, onStop, onStayOpen }: any) => <div data-testid="app-close-dialog"><p>{message}</p>{phase === 'waiting' && <button onClick={onStop}>Stop replies and close</button>}<button onClick={onStayOpen}>Stay open</button></div> }));
 vi.mock('../providers/ModelSelector', () => ({ ModelSelector: () => null }));
 vi.mock('../providers/ModelSettings', () => ({ ModelSettings: () => null }));
@@ -176,6 +178,46 @@ afterEach(async () => {
 });
 
 describe('Workspace project tabs', () => {
+  it('offers a local Develop or Write choice for a fresh blank project', async () => {
+    currentProject = opened('project', []);
+    await renderWorkspace();
+    await act(async () => (host.querySelector<HTMLButtonElement>('.project-open')!).click());
+    await waitFor(() => expect(host.textContent).toContain('Develop a story'));
+    expect(host.textContent).toContain('Start writing');
+    expect(host.querySelector('[data-testid="writer"]')).toBeNull();
+    await act(async () => button('Develop a story').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="workshop"]')).not.toBeNull());
+    expect(JSON.parse(localStorage.getItem('webnovelstudio.workspace-mode.v1:project')!)).toEqual({ version: 1, mode: 'develop' });
+  });
+
+  it('keeps populated projects in Write and preserves the editor across the mode switch', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    currentProject = opened('project', [chapter], 'project');
+    writeProjectTabs('project', { activeTab: 'chapters', lastDocumentByTab: { chapters: chapter.head.documentId } });
+    await renderWorkspace(); await openCurrentProject();
+    expect(host.querySelector('[data-testid="writer"]')).not.toBeNull();
+    await act(async () => button('Develop').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="workshop"]')).not.toBeNull());
+    expect(mocks.events).toContain('detach:start:chapter-1');
+    await act(async () => button('Write').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="writer"]')).not.toBeNull());
+    expect(host.querySelector('[data-testid="writer"]')?.textContent).toContain('Chapter one');
+    expect(JSON.parse(localStorage.getItem('webnovelstudio.workspace-mode.v1:project')!)).toEqual({ version: 1, mode: 'write' });
+  });
+
+  it('carries a reconciled writer lease into Develop and back to Write', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    currentProject = opened('project', [chapter], 'project');
+    await renderWorkspace(); await openCurrentProject();
+    const reconciled = { ...currentProject.access, writerLease: 'reconciled-lease' };
+    mocks.sessions[0].flush.mockImplementationOnce(async () => { mocks.sessions[0].projectAccess = reconciled; });
+    await act(async () => button('Develop').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="workshop"]')?.getAttribute('data-lease')).toBe('reconciled-lease'));
+    expect(mocks.readDocument).toHaveBeenLastCalledWith(reconciled, chapter.head.documentId);
+    await act(async () => button('Write').click());
+    await waitFor(() => expect(mocks.sessions.at(-1).projectAccess.writerLease).toBe('reconciled-lease'));
+  });
+
   it('flushes and detaches the current session before replacing it on tab switch', async () => {
     const chapter = record('chapter-1', 'chapter', 'Chapter one');
     const world = record('world-1', 'world', 'The world');
