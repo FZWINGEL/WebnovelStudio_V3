@@ -234,10 +234,10 @@ try {
   const adoption = page.getByRole('region', { name: 'Adoption preview', exact: true });
   await adoption.getByRole('heading', { name: 'Where should this version go?', exact: true }).waitFor();
   assert((await adoption.innerText()).includes('Chapters and character knowledge are not changed.'));
-  await adoption.getByLabel('Title', { exact: true }).fill('The Ember Archive');
+  await adoption.getByRole('textbox', { name: 'Title', exact: true }).fill('The Ember Archive');
   await adoption.getByRole('combobox', { name: 'Kind', exact: true }).selectOption('world');
-  await adoption.getByLabel('Content to choose', { exact: true }).fill(authorEdit);
-  await adoption.getByLabel('Why this version?', { exact: true }).fill('Keep the archive ordinary and the uncertainty deliberate.');
+  await adoption.getByRole('textbox', { name: 'Content to choose', exact: true }).fill(authorEdit);
+  await adoption.getByRole('textbox', { name: 'Why this version?', exact: true }).fill('Keep the archive ordinary and the uncertainty deliberate.');
   assert.deepEqual(
     documents(),
     documentsBeforeAdoption,
@@ -312,9 +312,9 @@ try {
   assert.equal(values.length, 2);
   await from.selectOption(values[0]);
   await to.selectOption(values[1]);
-  await relationships.getByLabel('Relationship type', { exact: true }).fill('trusts');
-  await relationships.getByLabel('What this person wants, misunderstands, or values', { exact: true }).fill('The archive keeper trusts the archive to preserve what people cannot yet say.');
-  await relationships.getByLabel('What remains uncertain', { exact: true }).fill('Whether the archive chooses what to remember.');
+  await relationships.getByRole('textbox', { name: 'Relationship type', exact: true }).fill('trusts');
+  await relationships.getByRole('textbox', { name: 'What this person wants, misunderstands, or values', exact: true }).fill('The archive keeper trusts the archive to preserve what people cannot yet say.');
+  await relationships.getByRole('textbox', { name: 'What remains uncertain', exact: true }).fill('Whether the archive chooses what to remember.');
   await relationships.getByRole('combobox', { name: 'Decision status', exact: true }).selectOption('chosen');
   await relationships.getByRole('button', { name: 'Save relationship', exact: true }).click();
   await relationships.locator('article').filter({ hasText: 'trusts' }).waitFor();
@@ -388,12 +388,12 @@ try {
   const firstTarget = secondAdoption.locator('fieldset').first();
   await firstTarget.getByRole('combobox', { name: 'Destination', exact: true }).selectOption(existingWorld.id);
   await firstTarget.getByRole('combobox', { name: 'Change', exact: true }).selectOption('add');
-  await firstTarget.getByLabel('Content to choose', { exact: true }).fill(updatedWorldText);
+  await firstTarget.getByRole('textbox', { name: 'Content to choose', exact: true }).fill(updatedWorldText);
   await secondAdoption.getByRole('button', { name: 'Include related material in this decision', exact: true }).click();
   const secondTarget = secondAdoption.locator('fieldset').nth(1);
-  await secondTarget.getByLabel('Title', { exact: true }).fill(newCharacterTitle);
+  await secondTarget.getByRole('textbox', { name: 'Title', exact: true }).fill(newCharacterTitle);
   await secondTarget.getByRole('combobox', { name: 'Kind', exact: true }).selectOption('character');
-  await secondTarget.getByLabel('Content to choose', { exact: true }).fill(newCharacterText);
+  await secondTarget.getByRole('textbox', { name: 'Content to choose', exact: true }).fill(newCharacterText);
   const adoptionRelationships = secondAdoption.getByRole('region', { name: 'Relationships in this adoption', exact: true });
   await adoptionRelationships.getByRole('button', { name: 'Include a relationship', exact: true }).click();
   const newParticipant = adoptionRelationships.locator('option').filter({ hasText: 'New in this decision' }).first();
@@ -401,10 +401,10 @@ try {
   assert(newCharacterTargetId, 'The new character must be available as a stable relationship participant');
   await adoptionRelationships.getByRole('combobox', { name: 'From', exact: true }).selectOption(existingWorld.id);
   await adoptionRelationships.getByRole('combobox', { name: 'To', exact: true }).selectOption(newCharacterTargetId);
-  await adoptionRelationships.getByLabel('Relationship type', { exact: true }).fill('trusts');
-  await adoptionRelationships.getByLabel('What this relationship means', { exact: true }).fill(adoptionRelationshipDescription);
-  await adoptionRelationships.getByLabel('What remains uncertain', { exact: true }).fill('Whether the archive will accept the index as a true account.');
-  await secondAdoption.getByLabel('Why this version?', { exact: true }).fill('Update the archive and give its keeper a bounded responsibility.');
+  await adoptionRelationships.getByRole('textbox', { name: 'Relationship type', exact: true }).fill('trusts');
+  await adoptionRelationships.getByRole('textbox', { name: 'What this relationship means', exact: true }).fill(adoptionRelationshipDescription);
+  await adoptionRelationships.getByRole('textbox', { name: 'What remains uncertain', exact: true }).fill('Whether the archive will accept the index as a true account.');
+  await secondAdoption.getByRole('textbox', { name: 'Why this version?', exact: true }).fill('Update the archive and give its keeper a bounded responsibility.');
   const secondPreviewState = workshopState();
   const secondPreviewDocuments = documents();
   const secondPreviewChapters = secondPreviewDocuments.filter(document => document.kind === 'chapter').length;

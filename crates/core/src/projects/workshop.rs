@@ -1376,6 +1376,12 @@ fn build_adoption_impacts(
     }
     let mut overrides = HashMap::new();
     for draft in impact_drafts {
+        // Workshop anchors are blank author-room implementation notes. Older
+        // renderers may still send their model annotations as stale drafts;
+        // discard them before validating override provenance.
+        if is_workshop_anchor_id(&draft.document_id) {
+            continue;
+        }
         check_id(&draft.document_id)?;
         validate_text(&draft.reason, "impact reason", MAX_DETAIL_BYTES)?;
         if draft.reason.trim().is_empty() {
@@ -1412,6 +1418,12 @@ fn build_adoption_impacts(
             ));
         };
         for affected in &candidate.affected_targets {
+            // A model can see the run's internal anchor in its frozen packet,
+            // but it is never story material eligible for an adoption review
+            // flag. Keep the raw candidate/packet history unchanged.
+            if is_workshop_anchor_id(&affected.document_id) {
+                continue;
+            }
             if !available.contains(&affected.document_id) {
                 return Err(CoreError::new(
                     "InvalidWorkshopImpactTarget",
@@ -1447,6 +1459,10 @@ fn build_adoption_impacts(
         ));
     }
     Ok(impacts)
+}
+
+fn is_workshop_anchor_id(document_id: &str) -> bool {
+    document_id.starts_with("workshop-")
 }
 
 fn session_is_ancestor(

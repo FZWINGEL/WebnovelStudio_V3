@@ -1,6 +1,6 @@
 # Codex qualification evidence
 
-This document records historical discovery and **24 bounded live CLI dispatches**: the first twenty provider and editor qualifications below, one native AI chapter draft, and three reviewed-memory lookup invocations on 6 September 2026. Zero-dispatch preflight failures are recorded separately. This evidence does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
+This document records historical discovery and **25 bounded live CLI dispatches**: the first twenty provider and editor qualifications below, one native AI chapter draft, three reviewed-memory lookup invocations on 6 September 2026, and one core/headless Workshop directions invocation on 7 September 2026. Zero-dispatch preflight failures are recorded separately. This evidence does not establish a supported production provider. W8 and E3 remain open until provider, containment, failure, interruption, and release gates pass.
 
 ## Current provider policy
 
@@ -439,3 +439,35 @@ is preserved under `.local/memory-lookup-live-preflight-race/`. The repaired
 frontend joins the existing native check through bounded read-only status
 polling instead of starting a duplicate probe, and preserves explicit saved
 model choices. The successful trial above used that repair.
+
+## Core/headless Workshop directions qualification — 7 September 2026
+
+One fresh synthetic Workshop directions request completed through the core/headless
+provider path at `2026-09-07T13:47:00.885Z`. The checked discovery-backed
+binding was GPT-5.6 Luna with xhigh reasoning and priority service tier, using
+Codex CLI `0.153.4` and `codex-stdin.author.v1`; the effective provider identity
+was not reported. It made one external invocation with zero retries. Confirmed
+stdin was `7,289` bytes; reported usage was `2,106` input tokens,
+`2,354` output tokens, and `1,167` reasoning-output tokens. Cleanup was
+settled and the provider receipt matched the packet.
+
+The completed response retained exactly three validated directions with stable
+candidate IDs and distinct dimensions: consent-and-restitution, witness-and-
+burden, and memory-for-access. The qualification also confirmed completed
+delivery, an unchanged anchor and manual Workshop state, and zero chapter
+creation. The source checkpoint was `2a97a391382a94697fdeeed9319b7ee3f6b8eae7`.
+Evidence is the [qualification report](../.local/workshop-qualification-585be29fd92341e5946690ba286e51ab.json).
+
+All three affected-material annotations named the internal blank Workshop
+anchor. This exposed a review-flag UX defect: subsequent frontend and core
+adoption fixes exclude those internal targets while retaining the original
+response, packet, real story flags, and receipt. The focused regression checks
+both the internal exclusion and unchanged real-target behavior.
+
+A separate read-only SQLite reopen at `2026-09-07T14:00:25.138Z` verified the
+exact frozen packet and input hash, one completed settled provider receipt,
+matching response and usage, unchanged note and Workshop state, and no chapter
+or author decision. It made zero additional invocations; the [reopen
+report](../.local/workshop-qualification-585be29fd92341e5946690ba286e51ab-reopen.json)
+records the boundary. Neither check establishes native UI, live voice guidance,
+affected-material usefulness, narrative quality, or full Workshop readiness.

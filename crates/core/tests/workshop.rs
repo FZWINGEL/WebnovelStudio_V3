@@ -857,7 +857,7 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
         "dimension":"Approach",
         "interpretation":{"youSaid":"A seed","possibleDirection":"A path","stillOpen":"Its cost"},
         "candidates":[
-            {"id":"","title":"One","content":"Direction one","dimensionValue":"one","implications":[],"assumptions":[],"affectedTargets":[{"documentId":"impact-world","reason":"May alter the foundational rule."},{"documentId":"new-impact-world","reason":"Creates a direct contradiction if adopted."}],"preservedDetails":[],"changedDetails":["direction"]},
+            {"id":"","title":"One","content":"Direction one","dimensionValue":"one","implications":[],"assumptions":[],"affectedTargets":[{"documentId":"impact-world","reason":"May alter the foundational rule."},{"documentId":"new-impact-world","reason":"Creates a direct contradiction if adopted."},{"documentId":"workshop-impact-session","reason":"Internal anchor should never become story material."}],"preservedDetails":[],"changedDetails":["direction"]},
             {"id":"","title":"Two","content":"Direction two","dimensionValue":"two","implications":[],"assumptions":[],"affectedTargets":[],"preservedDetails":[],"changedDetails":["direction"]},
             {"id":"","title":"Three","content":"Direction three","dimensionValue":"three","implications":[],"assumptions":[],"affectedTargets":[],"preservedDetails":[],"changedDetails":["direction"]}
         ]
@@ -878,6 +878,7 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
         })
         .unwrap();
     let result = project.read_workshop(access.clone()).unwrap();
+    let packet_id = result.results[0].run.packet_id.clone();
     let candidate_id = result.results[0].output.as_ref().unwrap().candidates[0]
         .id
         .clone();
@@ -915,11 +916,18 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
             rationale: "Adopt the direction while reviewing its consequence".into(),
             protected_text: Vec::new(),
             relationships: Vec::new(),
-            impact_drafts: vec![WorkshopImpactDraft {
-                document_id: "new-impact-world".into(),
-                kind: WorkshopImpactKind::Contradiction,
-                reason: "The adopted direction contradicts the new world's stated rule.".into(),
-            }],
+            impact_drafts: vec![
+                WorkshopImpactDraft {
+                    document_id: "new-impact-world".into(),
+                    kind: WorkshopImpactKind::Contradiction,
+                    reason: "The adopted direction contradicts the new world's stated rule.".into(),
+                },
+                WorkshopImpactDraft {
+                    document_id: "workshop-impact-session".into(),
+                    kind: WorkshopImpactKind::Contradiction,
+                    reason: "A stale renderer annotation for the hidden anchor.".into(),
+                },
+            ],
         })
         .unwrap();
     assert_eq!(preview.impacts.len(), 2);
@@ -948,6 +956,11 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
         unchanged.body["body"]["content"][0]["content"][0]["text"],
         "Original"
     );
+    let anchor = project
+        .document(access.clone(), "workshop-impact-session".into())
+        .unwrap();
+    assert_eq!(anchor.kind, "note");
+    assert_eq!(anchor.head.version, "0");
     let view = project.read_workshop(access).unwrap();
     assert!(view.state.impacts.iter().any(|impact| {
         impact.document_id == "impact-world"
@@ -963,6 +976,20 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
             && impact.candidate_id.as_deref() == Some(candidate_id.as_str())
             && impact.relationship_id.is_none()
     }));
+    assert_eq!(view.results[0].run.packet_id, packet_id);
+    assert!(
+        view.results[0].output.as_ref().unwrap().candidates[0]
+            .affected_targets
+            .iter()
+            .any(|target| target.document_id == "workshop-impact-session")
+    );
+    assert!(
+        !view
+            .state
+            .impacts
+            .iter()
+            .any(|impact| impact.document_id == "workshop-impact-session")
+    );
 }
 
 #[test]

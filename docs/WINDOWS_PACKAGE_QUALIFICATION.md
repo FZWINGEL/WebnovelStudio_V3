@@ -17,8 +17,19 @@ adoption **Kind** selector. It recorded no page errors on WebView2
 `151.0.4129.101`; later native suites were skipped. Failure artifacts are under
 `.local/ci-workshop-34127175895/workshop/failure.*`. The headless cause was an
 exact-label `getByLabel` lookup that fails for this selector while the exact
-role/combobox lookup resolves. A harness correction and new rerun are pending;
-no package run has been executed for this build.
+role/combobox lookup resolves. The native-first rerun [34129236987](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34129236987)
+on source `2a97a39` also failed in the six bounded Workshop groups at the
+prefilled **Content** selector: the exact-label lookup found no element while the
+exact textbox role resolved. Ubuntu and Windows checks/build passed; later native
+gates were skipped. The harness now uses exact textbox/combobox roles and a fresh
+rerun is pending. A bounded headless live smoke on this source completed one
+Luna/xhigh/priority request with three valid directions and held unchanged-anchor,
+manual-path, and no-chapter boundaries; it exposed internal anchor and
+`affectedTargets` metadata, which was then fixed in current/historical flag
+projection and backend anchor-override handling while preserving raw responses
+and real flags. Package run `34129253871` was intentionally cancelled because the
+product fix requires a fresh installer; no package run has been completed for
+this build.
 
 ## Historical 3.0.0 private candidate installer
 

@@ -358,21 +358,26 @@ describe('Story Workshop behavioral contracts', () => {
     await waitFor(() => expect(onDocumentsChanged).toHaveBeenCalledOnce());
   });
 
-  it('sends affected target classifications and reasons as review flags without editing source documents', async () => {
+  it('keeps story review flags while excluding internal anchors from new and historical impacts', async () => {
     const affected = candidate('affected', 'The archive grants access by patience.');
-    affected.affectedTargets = [{ documentId: 'world-1', reason: 'This direction may tension the archive access rule.' }];
+    affected.affectedTargets = [
+      { documentId: 'world-1', reason: 'This direction may tension the archive access rule.' },
+      { documentId: 'workshop-session-1', reason: 'Internal blank anchor should never need review.' },
+    ];
     const seeded = session({
       lens: 'world', workingTitle: 'Archive access', workingText: affected.content,
       selectedDetails: [{ id: 'selected-affected', candidateId: affected.id, text: affected.content, fixed: false }],
     });
     await render(view({
-      state: state({ sessions: [seeded] }),
+      state: state({ sessions: [seeded], impacts: [{ id: 'internal-impact', documentId: 'workshop-session-1', decisionId: 'old-decision', kind: 'possibleTension', reason: 'Historical internal anchor flag.', status: 'needsReview' }] }),
       results: [result({ output: { ...result().output!, candidates: [affected] } })],
     }));
     await act(async () => exactButton('Use this version').click());
     await waitFor(() => expect(host.querySelector('[aria-label="Review affected material"]')).toBeTruthy());
     expect(host.textContent).toContain('Possible tension');
     expect(host.textContent).toContain('This direction may tension the archive access rule.');
+    expect(host.textContent).not.toContain('Internal blank anchor should never need review.');
+    expect(host.textContent).not.toContain('Historical internal anchor flag.');
 
     await act(async () => exactButton('Preview all changes').click());
     await waitFor(() => expect(mocks.previewWorkshopAdoption).toHaveBeenCalledOnce());

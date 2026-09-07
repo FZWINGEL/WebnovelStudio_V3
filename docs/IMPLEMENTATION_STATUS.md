@@ -34,14 +34,14 @@ candidate provenance, frozen selection scope, supersession, before/after
 revisions, protected additions and paragraph boundaries, immutable retries,
 and readable recovered alternatives. Five independent database boundary tests
 cover atomic stale refusal, exact history, chapter preservation, author-secret
-exclusion, hard preference conflicts, and multiline protection. Hosted native
-and requirement-specific quality checks remain pending.
+exclusion, hard preference conflicts, and multiline protection. Hosted native,
+broad live-provider, and requirement-specific quality checks remain pending.
 
 The subsequent development changes add atomic relationship adoption with stable
 new endpoints, candidate-derived impact flags with author classifications,
 explicit rejection-to-preference promotion, reviewed voice-guidance generation,
 an explicit subversion choice, and a recap based on actual saved decisions.
-The 15:23 local `desktop.ps1 -Command check` passed 746 Rust tests (plus one
+The 15:56:22 Berlin local `desktop.ps1 -Command check` passed 746 Rust tests (plus one
 intentional subprocess entry-point ignore), 474 frontend tests in 41 files,
 11 tooling checks, formatting, strict workspace Clippy, TypeScript, and the
 production build. Candidate IDs and relationship IDs remain attached to impact
@@ -49,8 +49,15 @@ flags; changed relationship endpoints reference their exact adoption decisions.
 Workshop UI/source and focused tests also cover question status cycling, the
 saved-decision recap, offline/manual save and retry identity, late-result
 protection, partial/stopped recovery, and relationship endpoint/impact
-provenance. These are local development checks; native, live-provider, and
-requirement-specific quality qualification remain pending.
+provenance. These are local development checks. A first bounded headless live
+Workshop smoke on source `2a97a39` completed at 13:47 UTC with one
+Luna/xhigh/priority request, 7,289 stdin tokens, 2,106 input tokens, 2,354
+output tokens, 1,167 reasoning tokens, and three valid directions; the unchanged
+anchor, manual path, and no-chapter boundaries held. It exposed internal anchor
+and `affectedTargets` metadata in the UI; current/historical flag projection
+and backend anchor-override handling were then fixed while preserving raw
+responses and real flags. This is one smoke, not broad live-provider or
+requirement-specific quality qualification.
 The hosted qualification remains pending below the earlier source checkpoint.
 
 [CI 34124050562](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34124050562)
@@ -68,9 +75,17 @@ adoption **Kind** selector. It recorded no page errors on WebView2
 `151.0.4129.101`; later native suites were skipped. Failure artifacts are under
 `.local/ci-workshop-34127175895/workshop/failure.*`. A headless reproduction
 showed the harness's exact-label `getByLabel` lookup failing while the exact
-role/combobox lookup resolves. The harness correction and a new rerun are
-pending; this is not a broad native pass. Live Workshop qualification, current
-Workshop installer qualification, and the author study remain pending.
+role/combobox lookup resolves. The initial harness correction was then exercised
+by the native-first rerun below; this is not a broad native pass. Live Workshop qualification, current
+Workshop installer qualification, and the author study remain pending. The
+native-first rerun [CI 34129236987](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34129236987)
+on source `2a97a39` also failed in the six bounded Workshop groups at the
+prefilled **Content** selector: the exact-label lookup found no element while
+the exact textbox role resolved. Ubuntu and Windows checks/build passed; later
+native gates were skipped. The harness now uses exact textbox/combobox roles and
+a fresh rerun is pending. Package run `34129253871` was intentionally cancelled
+because the product fix requires a fresh installer; package qualification remains
+pending.
 The [formative study protocol](STORY_WORKSHOP_AUTHOR_STUDY.md) is prepared; no
 observed human study is claimed.
 

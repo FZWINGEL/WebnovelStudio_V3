@@ -77,24 +77,38 @@ adoption **Kind** selector. It recorded no page errors on WebView2
 `151.0.4129.101`; later native suites were skipped. Failure artifacts are under
 `.local/ci-workshop-34127175895/workshop/failure.*`. A headless reproduction
 showed the harness's exact-label `getByLabel` lookup failing while the exact
-role/combobox lookup resolves; the harness correction and a new rerun are
-pending, so this is not a broad native pass.
-The 15:23 local checkpoint then passed `desktop.ps1 -Command check`: 746 Rust
+role/combobox lookup resolves. The initial harness correction was then exercised
+by the native-first rerun below, so this is not a broad native pass. The native-first rerun [CI 34129236987](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34129236987)
+on source `2a97a39` also failed in the six bounded Workshop groups at the prefilled
+**Content** selector: the exact-label lookup found no element while the exact
+textbox role resolved. Ubuntu and Windows checks/build passed; later native gates
+were skipped. The harness now uses exact textbox/combobox roles and a fresh rerun
+is pending. Package run `34129253871` was intentionally cancelled because the
+product fix requires a fresh installer; package qualification remains pending.
+The 15:56:22 Berlin local checkpoint then passed `desktop.ps1 -Command check`: 746 Rust
 tests (plus one intentional subprocess entry-point ignore), 474 frontend tests
 in 41 files, 11 tooling checks, formatting, strict workspace Clippy, TypeScript,
-and the production build. This includes atomic new-endpoint relationships,
+and the production build. The final total input cap was restored before this
+checkpoint. This includes atomic new-endpoint relationships,
 candidate and relationship impact provenance, destination identity, explicit
-rejection promotion and subversion, and reviewed voice guidance. There is no
-current broad live provider, installer, or author-study evidence.
+rejection promotion and subversion, and reviewed voice guidance. One bounded
+headless live Workshop smoke on source `2a97a39` completed at 13:47 UTC with one
+Luna/xhigh/priority request, 7,289 stdin tokens, 2,106 input tokens, 2,354
+output tokens, 1,167 reasoning tokens, and three valid directions; unchanged
+anchor, manual path, and no-chapter boundaries held. It exposed internal anchor
+and `affectedTargets` metadata in the UI; current/historical flag projection
+and backend anchor-override handling were then fixed while preserving raw
+responses and real flags. Broad live-provider, installer, and author-study
+evidence remain pending.
 Schema-35 tests cover the resolved chosen/alternative distinction, supersession,
 exact before/after revisions, protected multiline additions, frozen ranges,
 operation replay, atomic new-endpoint relationships, and candidate/relationship
 impact provenance. Five `workshop_boundaries` tests cover multi-target
 atomicity, chapter preservation, secret exclusion, preference conflict, and
-paragraph protection. The Workshop native run has not qualified broadly; there
-has been no live Workshop provider run, current Workshop installer
-qualification, or author study. The
-fetched specification above is unchanged.
+paragraph protection. The Workshop native run has not qualified broadly; one
+bounded headless live smoke exists, but broad live-provider, current Workshop
+installer qualification, and author-study evidence remain pending. The fetched specification above is
+unchanged.
 
 | Status phrase | Meaning in this checkpoint |
 | --- | --- |
@@ -141,18 +155,18 @@ green mock/frontend run alone.
 | W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Rationale and protected-content paths are implemented, with multiline/paragraph boundary checks covered locally; independent authority/access/evidence qualification remains pending. |
 | W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | What-if and existing-parent compare are implemented in the Workshop paths; reviewed acceptance and native/quality evidence remain pending. |
 | W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | `AdoptionImpacts.tsx` exposes reviewable reasons and four categories; the Rust adoption packet persists candidate and relationship provenance, defaults uncertain model claims to `possibleTension`, and keeps impacts at `needsReview` without automatic repair. Focused Workshop tests pass; native/quality evidence remains pending. |
-| W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Explicit read of saved packets is implemented in `RequestContext.tsx` and context IPC; complete delivered-context qualification remains pending. |
+| W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Explicit read of saved packets is implemented in `RequestContext.tsx` and context IPC; queued wording now says “saved”. The bounded live smoke passed the unchanged-anchor/manual/no-chapter path, while complete delivered-context qualification remains pending. |
 | W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | No executed qualification recorded for this complete exclusion/rationale contract; remains pending. |
 | W34 | 14 | Outside-current-direction retains hard constraints; budget omissions visible | No executed qualification recorded; remains pending. |
 | W35 | 13–14 | Author secrets/intent cross into restricted writing only through explicit existing paths | Local Rust boundary coverage confirms a chosen author-room secret is excluded from a restricted snapshot/search; native/live writing qualification remains pending. |
-| W36 | 15 | One explicit request, visible model/scope/status, no generation on navigation or save | Provider-command integration is present in `workshop_generation_commands.rs` and passes the local standard check; native generation/lifecycle evidence remains pending. |
+| W36 | 15 | One explicit request, visible model/scope/status, no generation on navigation or save | Provider-command integration is present in `workshop_generation_commands.rs` and passes the local standard check; one bounded headless live request completed, while native generation/lifecycle evidence remains pending. |
 | W37 | 15 | Independent manual saves; late response stays alternative and requires explicit refresh | Offline manual editing/save, immutable lost-ack request replay, frozen selection scope, stale-result refusal, and late-response preservation are covered by focused Workshop tests and the current full check. Native late-response evidence remains pending. |
 | W38 | 15 | Partial/failed/stopped distinct; retry/recovery no blind provider replay; cost wording | Workshop UI/core paths distinguish failed, stopped, interrupted, and partial output, retain recoverable text, and offer explicit retry/local save reconciliation; focused frontend/provider checks and the current full check pass. Native/live/provider-quality qualification remains pending. |
 | W39 | 15 | Offline manual development, preferences/history/organization and restart resume | Manual Workshop UI and scoped preferences are implemented; schema-35 persistence, reopen, replay, and local history pass the standard check, while native/provider evidence remains pending. |
 | W40 | 16 | Source-bound facets, stale-source refusal, no second truth database | Existing-document source binding and stale multi-target refusal are covered in core Workshop tests; broader source-bound qualification remains pending. |
 | W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Schema-35 actor/adoption passes the current standard check; focused tests cover atomic existing/new linked endpoints with exact heads, stale refusal without partial writes, exact history, candidate/relationship impacts, and no chapter mutation. Native/quality evidence remains pending. |
 | W42 | 17 | Exportable/importable editable project presets with explicit adoption of preferences | Import/export UI and preset review are implemented; native adoption and quality evidence pending. |
-| W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | Frontend build/fixture evidence and five focused core boundary tests cover hard conflicts, neutral preferences, secret isolation, and multi-target adoption; no new native run or full end-to-end quality qualification has been performed. |
+| W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | Frontend build/fixture evidence and five focused core boundary tests cover hard conflicts, neutral preferences, secret isolation, and multi-target adoption. The bounded live smoke exposed and then fixed internal-anchor/`affectedTargets` projection; no broad native run or full end-to-end quality qualification has been completed. |
 | W44 | 18 | Counterbalanced formative author study, same model/budget, ownership/coherence/usefulness | Pending observed author participation; protocol is prepared but no study evidence exists. |
 
 ## Qualification
