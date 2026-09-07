@@ -39,7 +39,12 @@ Headless fixtures at 1440 and 800 pixels cover consequence preparation,
 navigation and deliberate question reopening, and archived protection/unfix
 under `.local/workshop-consequences-qa/`, `.local/workshop-navigation-qa/`, and
 `.local/workshop-protection-qa/`. No page errors or horizontal overflow occurred.
-Native and fresh package qualification of this checkpoint remain pending.
+The checkpoint is pushed at `fc3468829e037588458a05204c0ef92ddbea9cc2`.
+Fresh [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
+and [package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
+are checking that exact source; their results remain pending. The current
+debug executable was rebuilt successfully without launching it locally; its
+byte identity is recorded in [Windows qualification](WINDOWS_PACKAGE_QUALIFICATION.md).
 
 The preceding names/aliases source is
 `b801ae9cfc00203a37c7de05da8de801a0214af1`. Fresh

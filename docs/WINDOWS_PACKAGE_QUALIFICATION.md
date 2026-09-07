@@ -4,6 +4,21 @@ The initial distribution target is Windows x64 with an NSIS installer. Package c
 
 ## Current local development build — 7 September 2026
 
+The Workshop controls source `fc3468829e037588458a05204c0ef92ddbea9cc2`
+built successfully with `desktop.ps1 -Command spike` at
+`2026-09-07T18:15:05.5439967Z`. The executable is
+`D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`, 48,686,592 bytes,
+ProductVersion `3.0.0`, SHA-256
+`10de871c7e2fb7d90ba2f4ee7c40c995c74a19678661422248c2a22534828d1e`.
+The log and identity are retained in `.local/workshop-controls-debug-build.log`
+and `.local/workshop-controls-debug-build.json`. It was not launched locally.
+Fresh [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
+and [package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
+are checking this exact product source. Both results remain pending; no older
+installer was reused for these changes.
+
+## Previous names/aliases development build
+
 The names/aliases source built successfully with `desktop.ps1 -Command spike`
 at `2026-09-07T17:24:48.8272045Z`. The executable is
 `D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`, 48,684,032 bytes,
@@ -13,7 +28,7 @@ The build log and byte identity are retained in
 `.local/workshop-aliases-debug-build.log` and
 `.local/workshop-aliases-debug-build.json`. This build was not launched locally;
 its native and installer qualification requires the fresh hosted runs.
-Current source `b801ae9cfc00203a37c7de05da8de801a0214af1` is being checked by
+Source `b801ae9cfc00203a37c7de05da8de801a0214af1` was checked by
 [CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
 and fresh [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364).
 CI is terminal: contract steps passed, then the Workshop harness failed after

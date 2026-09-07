@@ -14,6 +14,12 @@ check also passes 544 tests after the last UI corrections. Exact local,
 headless and pending native/package evidence is recorded in the
 [Workshop ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
 
+Product source is `fc3468829e037588458a05204c0ef92ddbea9cc2`. Its debug build
+succeeded, and fresh [CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
+and [package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
+are pending on that exact source. The preceding package does not qualify these
+product changes.
+
 The preceding names/aliases implementation is pushed at
 `b801ae9cfc00203a37c7de05da8de801a0214af1`. Fresh
 [CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)

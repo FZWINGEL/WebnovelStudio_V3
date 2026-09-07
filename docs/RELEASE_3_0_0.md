@@ -11,7 +11,14 @@ Story Workshop implementations and their exact native/package evidence are in
 the original source for current development without turning these historical
 installer checks into evidence for newer application code.
 
-The current aliases source `b801ae9cfc00203a37c7de05da8de801a0214af1`
+The current Workshop controls source `fc3468829e037588458a05204c0ef92ddbea9cc2`
+has passed local checks and a debug build. Fresh
+[CI 34150860150](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150860150)
+and [package run 34150884037](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34150884037)
+are pending. The prior installer results below retain their original source
+identities and do not qualify these newer changes.
+
+The preceding aliases source `b801ae9cfc00203a37c7de05da8de801a0214af1`
 has a successful local debug build. Fresh
 [CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
 and [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
