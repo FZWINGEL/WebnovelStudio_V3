@@ -5,6 +5,13 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
+The names/aliases implementation is pushed at
+`b801ae9cfc00203a37c7de05da8de801a0214af1`. Fresh
+[CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
+and [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
+are in progress on that exact source. Their results remain unqualified until
+the hosted jobs finish; no prior installer was reused for this product change.
+
 ### Story Workshop — implementation in progress
 
 The new [Story Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md), fetched from

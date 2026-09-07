@@ -11,6 +11,13 @@ Story Workshop implementations and their exact native/package evidence are in
 the original source for current development without turning these historical
 installer checks into evidence for newer application code.
 
+The current aliases source `b801ae9cfc00203a37c7de05da8de801a0214af1`
+has a successful local debug build. Fresh
+[CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
+and [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
+are in progress on that source; the earlier installer below does not qualify
+the new names/aliases UI or IPC.
+
 ## Candidate scope
 
 The candidate is a native Tauri desktop application for English web novels. Wuxia, xianxia, cultivation, progression, and translated-register writing are supported styles within that English authoring scope.
@@ -72,7 +79,7 @@ not downloaded locally. Its SHA-256, ProductName, and ProductVersion were
 verified from the downloaded package metadata. Previous delivered builds remain
 available.
 
-[Retest 34068729080](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34068729080) passed the same lifecycle using that exact installer and the later documentation-only qualification source `ded8f3d43e0a14589cfd6afbde866f39e61530ba`. Its metadata preserves the original installer build separately from the current harness source. It skipped dependency setup and compilation, finishing in 1 minute 59 seconds versus the fresh job's 16 minutes 20 seconds. Evidence is retained under `.local/ci-34068729080`.
+Historical [retest 34068729080](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34068729080) passed the lifecycle using the original `63770b9122f598b3e32ea1b0f5f4020c4325115f` installer and its later documentation-only qualification source `ded8f3d43e0a14589cfd6afbde866f39e61530ba`. Its metadata preserves the original installer build separately from the current harness source. It skipped dependency setup and compilation, finishing in 1 minute 59 seconds versus the fresh job's 16 minutes 20 seconds. Evidence is retained under `.local/ci-34068729080`.
 
 The earlier run `34066312408` on `729d6bd` built a 3.0.0 installer but failed before project creation because the harness searched for `Library` instead of the current `Your library` label. Its metadata and failure evidence remain under `.local/ci-34066312408`; its installer was not retained by the old success-only upload step. It is superseded by the passing candidate above.
 

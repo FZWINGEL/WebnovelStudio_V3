@@ -9,6 +9,13 @@ installed lifecycle, and [CI 34133645198](https://github.com/FZWINGEL/WebnovelSt
 passed all 15 Workshop native checks plus the existing native suites. Full
 specification acceptance and author evaluation remain open.
 
+Current names/aliases source is
+`b801ae9cfc00203a37c7de05da8de801a0214af1`. Fresh
+[CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
+and [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
+are running against it. Local checks and the new debug build are recorded
+below; native and installed results for this source are pending.
+
 The earlier local hardening checkpoint added reusable saved preset definitions, coherent
 name/text editing, and explicit definition updates without adopting preferences.
 Story Bible isolates unavailable sources, verifies exact current or historical
@@ -412,7 +419,7 @@ Log: `.local/workshop-relationship-final-check.log`. A completed relationship
 response is refreshed in the UI after a deliberate relationship edit; a fresh
 proposal is required before adoption when the saved relationship scope changed.
 
-Published source is `e61640a4738128b9744919275e362e402c7ed0d8`.
+The previous published relationship source is `e61640a4738128b9744919275e362e402c7ed0d8`.
 [CI 34145255173](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145255173)
 reached 21 groups, including relationship exploration and preset/lens/new-project
 flows, then failed at W30 when the sidebar-close control was intercepted;
@@ -423,9 +430,16 @@ The current native harness includes the W23 names/aliases checks, but they are
 unexecuted, so this is not a broad native pass. That earlier relationship-slice
 debug rebuild could not replace the running executable: Windows returned access denied for
 `target/debug/webnovel-desktop.exe`, owned by process 55084 since 18:14:33 Berlin.
-No author application was closed. The executable still belongs to the earlier
-`ff276eb` build; the failed attempt is recorded in
+No author application was closed. At that time the executable still belonged
+to the earlier `ff276eb` build; the failed attempt is recorded in
 `.local/workshop-relationship-debug-build.log`.
+
+The current aliases debug build subsequently succeeded at 19:24 Berlin after
+the author application was no longer running. It is
+`target/debug/webnovel-desktop.exe`, 48,684,032 bytes, ProductVersion `3.0.0`,
+SHA-256 `f171aa81b37e908b96b7d10d13b47d77054040fa35adad4dad67418a1022512e`.
+See `.local/workshop-aliases-debug-build.log` and
+`.local/workshop-aliases-debug-build.json`. It was not launched locally.
 
 The relationship and taste-test work described above is implemented locally and
 covered by focused UI/headless checks. Relationship-only adoption was not added:

@@ -13,6 +13,10 @@ The build log and byte identity are retained in
 `.local/workshop-aliases-debug-build.log` and
 `.local/workshop-aliases-debug-build.json`. This build was not launched locally;
 its native and installer qualification requires the fresh hosted runs.
+Current source `b801ae9cfc00203a37c7de05da8de801a0214af1` is being checked by
+[CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
+and fresh [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364).
+Both were confirmed in progress; no installed aliases result is claimed yet.
 
 ## Last qualified Workshop package — 7 September 2026
 
