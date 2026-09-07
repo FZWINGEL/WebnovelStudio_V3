@@ -340,7 +340,9 @@ try {
   await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();
   await page.getByRole('tab', { name: 'Develop', exact: true }).waitFor();
   await ensureDevelopMode();
-  const reopenedBrief = page.locator('.workshop-brief textarea');
+  const reopenedIdea = page.locator('details.workshop-brief');
+  if (await reopenedIdea.getAttribute('open') === null) await reopenedIdea.locator('summary').click();
+  const reopenedBrief = reopenedIdea.getByRole('textbox', { name: 'Your idea, image, dialogue, or attraction', exact: true });
   await reopenedBrief.waitFor();
   assert.equal(await reopenedBrief.inputValue(), seed);
   assert.equal(await page.getByRole('textbox', { name: 'Develop or edit directly', exact: true }).inputValue(), authorEdit);
@@ -372,7 +374,10 @@ try {
     await staleCandidateTray.getByRole('button', { name: 'Remove', exact: true }).first().click();
   }
   await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
-  await waitForDatabase(() => workshopState()?.state.sessions.every(session => session.selectedDetails.length === 0), 'stale selected-detail removal');
+  await waitForDatabase(() => {
+    const sessions = workshopState()?.state.sessions;
+    return sessions?.length > 0 && sessions.every(session => session.selectedDetails.length === 0);
+  }, 'stale selected-detail removal');
   const secondAdoptionDocumentsBefore = documents();
   const existingWorld = secondAdoptionDocumentsBefore.find(document => document.id === adoptedWorld.id);
   const existingCharacter = secondAdoptionDocumentsBefore.find(document => document.kind === 'character');
@@ -475,7 +480,8 @@ try {
   const voiceWorking = page.getByRole('textbox', { name: 'Develop or edit directly', exact: true });
   await voiceWorking.fill(voiceSample);
   await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
-  await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.workingText === voiceSample), 'voice sample save');
+  const voiceSessionId = workshopState().state.currentSessionId;
+  await waitForDatabase(() => workshopState()?.state.sessions.find(session => session.id === voiceSessionId)?.workingText === voiceSample, 'voice sample save');
   const voiceDocumentsBefore = documents();
   const voiceDecisionsBefore = workshopState().state.decisions.length;
   const voiceRunsBefore = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
@@ -504,7 +510,10 @@ try {
   assert.equal(workshopState().state.decisions.length, voiceDecisionsBefore, 'Voice guidance must not create a decision automatically');
   assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, adoptionReceiptsBeforeVoice, 'Voice guidance must not adopt automatically');
   await voiceCards.first().getByRole('button', { name: 'Develop this', exact: true }).click();
-  await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.workingText !== voiceSample), 'author voice guidance development');
+  await waitForDatabase(() => {
+    const savedVoice = workshopState()?.state.sessions.find(session => session.id === voiceSessionId)?.workingText;
+    return typeof savedVoice === 'string' && savedVoice !== voiceSample;
+  }, 'author voice guidance development');
   assert.notEqual(await voiceWorking.inputValue(), voiceSample, 'The sample may change only after the author develops a guidance alternative');
   assert.deepEqual(documents(), voiceDocumentsBefore, 'Developing voice guidance must remain author-only material');
   assert.equal(workshopState().state.decisions.length, voiceDecisionsBefore, 'Developing voice guidance must not create a decision automatically');

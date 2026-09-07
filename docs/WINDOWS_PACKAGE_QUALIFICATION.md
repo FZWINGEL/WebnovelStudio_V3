@@ -4,12 +4,29 @@ The initial distribution target is Windows x64 with an NSIS installer. Package c
 
 ## Current development build — 7 September 2026
 
-A fresh debug executable from source `ea7c1ea` is available at
+A fresh debug executable from source `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf` is available at
 `target/debug/webnovel-desktop.exe`. It is 48,414,720 bytes, was built at
-`2026-09-07T13:29:22.8674513Z`, and has SHA-256
-`1add0c8bfb2ad0a4204f5b4f0d7cabd1c2ffad72409b810c5734bb58bd185067`.
+`2026-09-07T14:02:46.9371672Z`, and has SHA-256
+`ad0210a80bf8e83045906ae4d36d30662af96fcf076663f90e27a373cc830c85`.
 This is a development executable identity, not an installer or installed-release
-qualification. Hosted CI run
+qualification. Hosted CI run [34130744589](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130744589)
+on exact source `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf` completed as a harness
+failure at 14:14:09 UTC. Ubuntu, Windows frontend/Clippy/Rust/build, and the
+WebView2 `151.0.4129.101` environment passed; the Workshop path passed 10 of
+15 intended groups with no page errors, including explicit mock generation,
+detail selection/manual edit, adoption preview without writes, one world
+adoption with zero chapters and an authorRoom decision, the Develop-to-Write
+barrier, directional relationships with two exact heads, and history UI. After
+reopen, line 344 waited on a hidden starting-idea textarea because
+`details.workshop-brief` was collapsed. The harness now expands the summary
+before querying the exact textbox role; the remaining five Workshop groups and
+all later native suites were skipped and remain unqualified. This is a harness
+failure, not a product failure or broad native pass. Artifacts are under
+`.local/ci-workshop-34130744589/workshop/`. A fresh CI rerun is pending. The
+fresh package run [34130743953](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130743953)
+remains in progress building this exact source; it was not cancelled because
+the new changes are harness/docs only, and no package result is claimed yet.
+Earlier hosted CI run
 ([34127175895](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34127175895))
 passed Ubuntu, Windows Rust/frontend/build, and the existing 52-check native
 suite, then passed six bounded Workshop native groups before timing out at the

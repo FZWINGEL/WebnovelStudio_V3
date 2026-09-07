@@ -85,7 +85,26 @@ textbox role resolved. Ubuntu and Windows checks/build passed; later native gate
 were skipped. The harness now uses exact textbox/combobox roles and a fresh rerun
 is pending. Package run `34129253871` was intentionally cancelled because the
 product fix requires a fresh installer; package qualification remains pending.
-The 15:56:22 Berlin local checkpoint then passed `desktop.ps1 -Command check`: 746 Rust
+
+The next hosted run [CI 34130744589](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130744589)
+on exact source `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf` completed as a harness
+failure at 14:14:09 UTC. Ubuntu, Windows frontend/Clippy/Rust/build, and the
+WebView2 `151.0.4129.101` environment passed; the Workshop path passed 10 of
+15 intended groups with no page errors, including explicit mock generation,
+detail selection/manual edit, adoption preview without writes, one world
+adoption with zero chapters and an authorRoom decision, the Develop-to-Write
+barrier, directional relationships with two exact heads, and history UI. After
+reopen, line 344 waited on a hidden starting-idea textarea because
+`details.workshop-brief` was collapsed. The harness now expands the summary
+before querying the exact textbox role; the remaining five Workshop groups and
+all later native suites were skipped and remain unqualified. This is a harness
+failure, not a product failure or broad native pass. Artifacts are under
+`.local/ci-workshop-34130744589/workshop/`. A fresh CI rerun is pending.
+The fresh package run [34130743953](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130743953)
+remains in progress building the exact `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf`
+product source. It was not cancelled because the new changes are harness/docs
+only; no package result is claimed yet.
+The 15:56:22 Berlin local checkpoint passed `desktop.ps1 -Command check`: 746 Rust
 tests (plus one intentional subprocess entry-point ignore), 474 frontend tests
 in 41 files, 11 tooling checks, formatting, strict workspace Clippy, TypeScript,
 and the production build. The final total input cap was restored before this
@@ -93,13 +112,18 @@ checkpoint. This includes atomic new-endpoint relationships,
 candidate and relationship impact provenance, destination identity, explicit
 rejection promotion and subversion, and reviewed voice guidance. One bounded
 headless live Workshop smoke on source `2a97a39` completed at 13:47 UTC with one
-Luna/xhigh/priority request, 7,289 stdin tokens, 2,106 input tokens, 2,354
-output tokens, 1,167 reasoning tokens, and three valid directions; unchanged
-anchor, manual path, and no-chapter boundaries held. It exposed internal anchor
-and `affectedTargets` metadata in the UI; current/historical flag projection
-and backend anchor-override handling were then fixed while preserving raw
-responses and real flags. Broad live-provider, installer, and author-study
-evidence remain pending.
+Luna/xhigh/priority request, 7,289 confirmed stdin bytes, 2,106 input tokens,
+2,354 output tokens, 1,167 reasoning tokens, and three valid directions; unchanged
+anchor, manual path, and no-chapter boundaries held. The response named internal
+anchors as affected material; source review showed that these could become
+visible review flags. Current/historical flag projection and backend
+anchor-override handling were then fixed while preserving raw responses and real
+flags. A separate read-only reopen at `2026-09-07T14:00:25.138Z`, recorded in
+`.local/workshop-qualification-585be29fd92341e5946690ba286e51ab-reopen.json`,
+verified the exact frozen packet/input hash, one immutable receipt, raw output, and
+usage with unchanged blank-anchor/manual state and no chapters or decisions; it
+issued no additional model request. Broad live-provider, installer, native, and
+author-study evidence remain pending.
 Schema-35 tests cover the resolved chosen/alternative distinction, supersession,
 exact before/after revisions, protected multiline additions, frozen ranges,
 operation replay, atomic new-endpoint relationships, and candidate/relationship

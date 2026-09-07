@@ -51,13 +51,15 @@ saved-decision recap, offline/manual save and retry identity, late-result
 protection, partial/stopped recovery, and relationship endpoint/impact
 provenance. These are local development checks. A first bounded headless live
 Workshop smoke on source `2a97a39` completed at 13:47 UTC with one
-Luna/xhigh/priority request, 7,289 stdin tokens, 2,106 input tokens, 2,354
+Luna/xhigh/priority request, 7,289 confirmed stdin bytes, 2,106 input tokens, 2,354
 output tokens, 1,167 reasoning tokens, and three valid directions; the unchanged
-anchor, manual path, and no-chapter boundaries held. It exposed internal anchor
-and `affectedTargets` metadata in the UI; current/historical flag projection
-and backend anchor-override handling were then fixed while preserving raw
-responses and real flags. This is one smoke, not broad live-provider or
-requirement-specific quality qualification.
+anchor, manual path, and no-chapter boundaries held. The response named internal
+anchors as affected material; source review showed that these could become
+visible review flags. Current/historical flag projection and backend
+anchor-override handling were then fixed while preserving raw responses and real
+flags. A separate read-only database reopen verified the saved packet, input
+hash, immutable receipt, response, and usage without another model call. This is
+one smoke, not broad live-provider or requirement-specific quality qualification.
 The hosted qualification remains pending below the earlier source checkpoint.
 
 [CI 34124050562](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34124050562)
@@ -86,6 +88,25 @@ native gates were skipped. The harness now uses exact textbox/combobox roles and
 a fresh rerun is pending. Package run `34129253871` was intentionally cancelled
 because the product fix requires a fresh installer; package qualification remains
 pending.
+
+The next hosted run [CI 34130744589](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130744589)
+on exact source `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf` completed as a harness
+failure at 14:14:09 UTC. Ubuntu, Windows frontend/Clippy/Rust/build, and the
+WebView2 `151.0.4129.101` environment passed; the Workshop path passed 10 of
+15 intended groups with no page errors, including explicit mock generation,
+detail selection/manual edit, adoption preview without writes, one world
+adoption with zero chapters and an authorRoom decision, the Develop-to-Write
+barrier, directional relationships with two exact heads, and history UI. After
+reopen, line 344 waited on a hidden starting-idea textarea because
+`details.workshop-brief` was collapsed. The harness now expands the summary
+before querying the exact textbox role; the remaining five Workshop groups and
+all later native suites were skipped and remain unqualified. This is a harness
+failure, not a product failure or broad native pass. Artifacts are under
+`.local/ci-workshop-34130744589/workshop/`. A fresh CI rerun is pending.
+The fresh package run [34130743953](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130743953)
+remains in progress building the exact `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf`
+product source. It was not cancelled because the new changes are harness/docs
+only; no package result is claimed yet.
 The [formative study protocol](STORY_WORKSHOP_AUTHOR_STUDY.md) is prepared; no
 observed human study is claimed.
 
