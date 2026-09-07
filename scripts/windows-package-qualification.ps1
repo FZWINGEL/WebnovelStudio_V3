@@ -1016,6 +1016,7 @@ try {
         if ($null -eq (Set-UiaValue $projectTitleBox $projectTitle)) { throw 'Project title did not expose ValuePattern.' }
         Invoke-Uia (Wait-Until { Find-UiaByName $window 'Create project' } 15 'Create project submit button')
         $script:result.firstLaunch.projectCreated = $true
+        Invoke-Uia (Wait-Until { Find-UiaByName $window 'Start writing' } 30 'blank project Start writing choice')
         Invoke-Uia (Wait-Until { Find-UiaByName $window 'Create a chapter' } 30 'Create a chapter button')
         Select-Chapter $window
         $titleBox = Wait-Until { Find-UiaByName $window 'Title' ([System.Windows.Automation.ControlType]::Edit) } 15 'document Title field'

@@ -27,7 +27,7 @@ and offline reconciliation with immutable request identity.
 Synthetic headless Chromium inspection found no page errors or horizontal
 overflow at 600, 800, 1024, and 1440 pixels; it is browser-fixture evidence,
 not native qualification. The local captures are under `.local/workshop-qa/` and
-are ignored. The standard `desktop.ps1 -Command check` passed at this checkpoint:
+are ignored. The earlier 14:45 `desktop.ps1 -Command check` passed at that checkpoint:
 formatting, strict workspace Clippy, all Rust workspace tests, production build,
 465 frontend tests, and 11 tooling checks. Schema-35 integration includes exact
 candidate provenance, frozen selection scope, supersession, before/after
@@ -46,18 +46,33 @@ intentional subprocess entry-point ignore), 474 frontend tests in 41 files,
 11 tooling checks, formatting, strict workspace Clippy, TypeScript, and the
 production build. Candidate IDs and relationship IDs remain attached to impact
 flags; changed relationship endpoints reference their exact adoption decisions.
+Workshop UI/source and focused tests also cover question status cycling, the
+saved-decision recap, offline/manual save and retry identity, late-result
+protection, partial/stopped recovery, and relationship endpoint/impact
+provenance. These are local development checks; native, live-provider, and
+requirement-specific quality qualification remain pending.
 The hosted qualification remains pending below the earlier source checkpoint.
 
 [CI 34124050562](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34124050562)
 on `a023511` passed the existing Windows native suite. Ubuntu frontend checks
 passed 464 of 465 tests; the chapter-review test read the screen before async
 summary validation finished. Its local synchronization fix passes all 33 focused
-ReviewPanel tests. The new Workshop native suite stopped at its synthetic path
-containment guard with a Windows short-name temp directory. The harness now
+ReviewPanel tests. The first new Workshop native suite stopped at its synthetic
+path-containment guard with a Windows short-name temp directory. The harness now
 canonicalizes its temp root before comparing paths; the guard remains intact.
-The hosted rerun, live Workshop qualification, current Workshop installer, and
-author study remain pending. The [formative study protocol](STORY_WORKSHOP_AUTHOR_STUDY.md)
-is prepared; no observed human study is claimed.
+The subsequent hosted run
+([CI 34127175895](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34127175895))
+passed Ubuntu, Windows Rust/frontend/build, and the existing 52-check native
+suite, then passed six bounded Workshop native groups before timing out at the
+adoption **Kind** selector. It recorded no page errors on WebView2
+`151.0.4129.101`; later native suites were skipped. Failure artifacts are under
+`.local/ci-workshop-34127175895/workshop/failure.*`. A headless reproduction
+showed the harness's exact-label `getByLabel` lookup failing while the exact
+role/combobox lookup resolves. The harness correction and a new rerun are
+pending; this is not a broad native pass. Live Workshop qualification, current
+Workshop installer qualification, and the author study remain pending.
+The [formative study protocol](STORY_WORKSHOP_AUTHOR_STUDY.md) is prepared; no
+observed human study is claimed.
 
 ### V3.0.0 workspace preparation — 7 September
 

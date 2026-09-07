@@ -86,9 +86,11 @@ jobs:
       - run: cargo test --workspace --locked
       - run: npm run desktop:spike -- -- --locked
         working-directory: apps/desktop
-      - run: npm run test:native
-        working-directory: apps/desktop
+      # Qualify the short Workshop path before the broader editor regressions
+      # so a Workshop failure does not wait for the full native editor flow.
       - run: npm run test:native-workshop
+        working-directory: apps/desktop
+      - run: npm run test:native
         working-directory: apps/desktop
       - run: npm run test:native-http
         working-directory: apps/desktop

@@ -79,6 +79,11 @@ function documents() {
   return database.prepare('SELECT id,kind,title,body_json FROM documents WHERE trashed=0 ORDER BY position').all();
 }
 
+function documentText(document) {
+  const snapshot = JSON.parse(document.body_json);
+  return (snapshot.body.content ?? []).map(block => (block.content ?? []).map(inline => inline.type === 'text' ? inline.text : '\n').join('')).join('\n');
+}
+
 function workshopState() {
   const row = database.prepare('SELECT version,state_json FROM workshop_state WHERE singleton=1').get();
   return row ? { version: String(row.version), state: JSON.parse(row.state_json) } : null;
@@ -230,7 +235,7 @@ try {
   await adoption.getByRole('heading', { name: 'Where should this version go?', exact: true }).waitFor();
   assert((await adoption.innerText()).includes('Chapters and character knowledge are not changed.'));
   await adoption.getByLabel('Title', { exact: true }).fill('The Ember Archive');
-  await adoption.getByLabel('Kind', { exact: true }).selectOption('world');
+  await adoption.getByRole('combobox', { name: 'Kind', exact: true }).selectOption('world');
   await adoption.getByLabel('Content to choose', { exact: true }).fill(authorEdit);
   await adoption.getByLabel('Why this version?', { exact: true }).fill('Keep the archive ordinary and the uncertainty deliberate.');
   assert.deepEqual(
@@ -285,7 +290,7 @@ try {
 
   await page.getByRole('tab', { name: /^Characters/ }).click();
   await page.getByRole('button', { name: 'Add', exact: true }).click();
-  await page.getByLabel('Start with', { exact: true }).selectOption('character');
+  await page.getByRole('combobox', { name: 'Start with', exact: true }).selectOption('character');
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('The Archive Keeper');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('heading', { name: 'The Archive Keeper', exact: true }).waitFor();
@@ -301,8 +306,8 @@ try {
   await page.getByRole('heading', { name: 'People', exact: true }).waitFor();
   const relationships = page.getByRole('region', { name: 'Local relationships', exact: true });
   await relationships.getByRole('button', { name: 'Connect people or groups', exact: true }).click();
-  const from = relationships.getByLabel('From', { exact: true });
-  const to = relationships.getByLabel('To', { exact: true });
+  const from = relationships.getByRole('combobox', { name: 'From', exact: true });
+  const to = relationships.getByRole('combobox', { name: 'To', exact: true });
   const values = await from.locator('option').evaluateAll(options => options.map(option => option.value));
   assert.equal(values.length, 2);
   await from.selectOption(values[0]);
@@ -310,7 +315,7 @@ try {
   await relationships.getByLabel('Relationship type', { exact: true }).fill('trusts');
   await relationships.getByLabel('What this person wants, misunderstands, or values', { exact: true }).fill('The archive keeper trusts the archive to preserve what people cannot yet say.');
   await relationships.getByLabel('What remains uncertain', { exact: true }).fill('Whether the archive chooses what to remember.');
-  await relationships.getByLabel('Decision status', { exact: true }).selectOption('chosen');
+  await relationships.getByRole('combobox', { name: 'Decision status', exact: true }).selectOption('chosen');
   await relationships.getByRole('button', { name: 'Save relationship', exact: true }).click();
   await relationships.locator('article').filter({ hasText: 'trusts' }).waitFor();
   await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
@@ -355,6 +360,157 @@ try {
   assert.equal(documents().filter(document => document.kind === 'world').length, 1);
   assert.equal(documents().filter(document => document.kind === 'character').length, 1);
   checks.push('The post-reopen Develop-to-Write barrier preserves author material while chapters remain unchanged');
+
+  // W23: one atomic adoption can update an existing world, create a Unicode
+  // character, and record a directional relationship.  The prior relationship
+  // deliberately uses the world as one endpoint so its changed-source impact
+  // can be checked after the commit.
+  await page.getByRole('tab', { name: 'Develop', exact: true }).click();
+  await ensureDevelopMode();
+  const staleCandidateTray = page.getByRole('region', { name: 'Selected details', exact: true });
+  while (await staleCandidateTray.getByRole('button', { name: 'Remove', exact: true }).count()) {
+    await staleCandidateTray.getByRole('button', { name: 'Remove', exact: true }).first().click();
+  }
+  await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
+  await waitForDatabase(() => workshopState()?.state.sessions.every(session => session.selectedDetails.length === 0), 'stale selected-detail removal');
+  const secondAdoptionDocumentsBefore = documents();
+  const existingWorld = secondAdoptionDocumentsBefore.find(document => document.id === adoptedWorld.id);
+  const existingCharacter = secondAdoptionDocumentsBefore.find(document => document.kind === 'character');
+  assert(existingWorld && existingCharacter, 'The second adoption requires the existing world and character fixtures');
+  assert(relationship.sourceHeads.some(head => head.documentId === existingWorld.id), 'The prior relationship must include the world endpoint');
+  const updatedWorldText = 'The archive now records each memory before its owner is ready to face it.';
+  const newCharacterTitle = 'Érin — Qiao';
+  const newCharacterText = 'Érin — Qiao keeps a careful index of the memories the archive refuses to name.';
+  const adoptionRelationshipDescription = 'The archive trusts Érin — Qiao with the memories it cannot name.';
+  await page.getByRole('button', { name: 'Use this version', exact: true }).click();
+  const secondAdoption = page.getByRole('region', { name: 'Adoption preview', exact: true });
+  await secondAdoption.getByRole('heading', { name: 'Where should this version go?', exact: true }).waitFor();
+  const firstTarget = secondAdoption.locator('fieldset').first();
+  await firstTarget.getByRole('combobox', { name: 'Destination', exact: true }).selectOption(existingWorld.id);
+  await firstTarget.getByRole('combobox', { name: 'Change', exact: true }).selectOption('add');
+  await firstTarget.getByLabel('Content to choose', { exact: true }).fill(updatedWorldText);
+  await secondAdoption.getByRole('button', { name: 'Include related material in this decision', exact: true }).click();
+  const secondTarget = secondAdoption.locator('fieldset').nth(1);
+  await secondTarget.getByLabel('Title', { exact: true }).fill(newCharacterTitle);
+  await secondTarget.getByRole('combobox', { name: 'Kind', exact: true }).selectOption('character');
+  await secondTarget.getByLabel('Content to choose', { exact: true }).fill(newCharacterText);
+  const adoptionRelationships = secondAdoption.getByRole('region', { name: 'Relationships in this adoption', exact: true });
+  await adoptionRelationships.getByRole('button', { name: 'Include a relationship', exact: true }).click();
+  const newParticipant = adoptionRelationships.locator('option').filter({ hasText: 'New in this decision' }).first();
+  const newCharacterTargetId = await newParticipant.getAttribute('value');
+  assert(newCharacterTargetId, 'The new character must be available as a stable relationship participant');
+  await adoptionRelationships.getByRole('combobox', { name: 'From', exact: true }).selectOption(existingWorld.id);
+  await adoptionRelationships.getByRole('combobox', { name: 'To', exact: true }).selectOption(newCharacterTargetId);
+  await adoptionRelationships.getByLabel('Relationship type', { exact: true }).fill('trusts');
+  await adoptionRelationships.getByLabel('What this relationship means', { exact: true }).fill(adoptionRelationshipDescription);
+  await adoptionRelationships.getByLabel('What remains uncertain', { exact: true }).fill('Whether the archive will accept the index as a true account.');
+  await secondAdoption.getByLabel('Why this version?', { exact: true }).fill('Update the archive and give its keeper a bounded responsibility.');
+  const secondPreviewState = workshopState();
+  const secondPreviewDocuments = documents();
+  const secondPreviewChapters = secondPreviewDocuments.filter(document => document.kind === 'chapter').length;
+  await secondAdoption.getByRole('button', { name: 'Preview all changes', exact: true }).click();
+  await secondAdoption.getByRole('heading', { name: 'Choose this version for your story', exact: true }).waitFor();
+  assert.deepEqual(documents(), secondPreviewDocuments, 'Multi-target adoption preview must not write story documents');
+  assert.equal(documents().filter(document => document.kind === 'chapter').length, secondPreviewChapters, 'Multi-target preview must not write chapters');
+  assert.deepEqual(workshopState(), secondPreviewState, 'Multi-target adoption preview must not change workshop state');
+  const storedPreviewRow = database.prepare('SELECT preview_json FROM workshop_adoption_previews ORDER BY rowid DESC LIMIT 1').get();
+  assert(storedPreviewRow?.preview_json, 'The multi-target adoption preview must be durable');
+  const storedPreview = JSON.parse(storedPreviewRow.preview_json);
+  assert.equal(storedPreview.targets.length, 2);
+  assert.equal(storedPreview.relationships.length, 1);
+  assert.deepEqual(storedPreview.candidateIds, [], 'The manual multi-target adoption must not reuse stale generated candidates');
+  assert.equal(storedPreview.relationships[0].fromDocumentId, existingWorld.id);
+  assert.equal(storedPreview.relationships[0].toDocumentId, newCharacterTargetId);
+  const secondPreviewText = await secondAdoption.innerText();
+  assert(secondPreviewText.includes(newCharacterTitle));
+  assert(secondPreviewText.includes(adoptionRelationshipDescription));
+  assert(secondPreviewText.includes('Relationships to choose'));
+  await page.screenshot({ path: resolve(output, 'multi-target-adoption-preview.png') });
+  await secondAdoption.getByRole('button', { name: 'Confirm Use this version', exact: true }).click();
+  await page.getByText('Version chosen. Its source and rationale are saved; writing access remains author only.', { exact: true }).waitFor();
+  await waitForDatabase(() => documents().filter(document => document.kind === 'character').length === 2, 'multi-target character adoption');
+  const secondAdoptionDocuments = documents();
+  const updatedWorld = secondAdoptionDocuments.find(document => document.id === existingWorld.id);
+  const newCharacter = secondAdoptionDocuments.find(document => document.kind === 'character' && document.id !== existingCharacter.id);
+  assert(updatedWorld && newCharacter, 'The multi-target adoption must save both target documents');
+  assert.notEqual(updatedWorld.body_json, existingWorld.body_json);
+  assert(documentText(updatedWorld).includes(updatedWorldText), 'The existing world update must preserve the chosen appended text');
+  assert.equal(newCharacter.title, newCharacterTitle);
+  assert.equal(documentText(newCharacter), newCharacterText);
+  assert.equal(secondAdoptionDocuments.filter(document => document.kind === 'chapter').length, 0, 'Multi-target adoption must not write chapters');
+  const secondState = workshopState().state;
+  const chosenWorld = secondState.decisions.find(decision => decision.documentId === existingWorld.id && decision.status === 'chosen');
+  const chosenCharacter = secondState.decisions.find(decision => decision.documentId === newCharacter.id && decision.status === 'chosen');
+  assert(chosenWorld && chosenCharacter, 'Both multi-target decisions must remain chosen');
+  const committedRelationship = secondState.relationships.find(item => item.description === adoptionRelationshipDescription);
+  assert(committedRelationship, 'The new directional relationship must be committed');
+  assert.deepEqual(committedRelationship.sourceHeads, [chosenWorld.head, chosenCharacter.head]);
+  const changedRelationshipImpact = secondState.impacts.find(impact => impact.relationshipId === relationship.id && impact.documentId === existingWorld.id);
+  assert(changedRelationshipImpact, 'The changed world endpoint must receive a relationship review flag');
+  assert.equal(changedRelationshipImpact.decisionId, chosenWorld.id);
+  assert.equal(changedRelationshipImpact.candidateId ?? null, null);
+  assert.equal(changedRelationshipImpact.status, 'needsReview');
+  const committedNewCharacterBody = JSON.parse(newCharacter.body_json);
+  checks.push('One atomic adoption updates the existing world, creates Unicode character material, commits a directional relationship with exact source heads, records the changed endpoint provenance, and leaves chapters untouched');
+
+  // The new character identity and body must survive a real project reopen,
+  // before the next Workshop request is prepared.
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();
+  await page.getByRole('tab', { name: 'Develop', exact: true }).waitFor();
+  await ensureDevelopMode();
+  const reopenedNewCharacter = documents().find(document => document.id === newCharacter.id);
+  assert(reopenedNewCharacter, 'The Unicode character must be present after reopening');
+  assert.equal(reopenedNewCharacter.title, newCharacterTitle);
+  assert.deepEqual(JSON.parse(reopenedNewCharacter.body_json), committedNewCharacterBody);
+  assert.equal(documents().filter(document => document.kind === 'chapter').length, 0);
+  checks.push('The Unicode character title and exact body survive reopening the project');
+
+  // W23 voice guidance is an explicit second local-mock dispatch. It only
+  // changes the saved Workshop request/result; it must not adopt the sample.
+  await page.getByRole('button', { name: 'Themes & tone', exact: true }).click();
+  await page.getByRole('heading', { name: 'Themes & tone', exact: true }).waitFor();
+  const voiceSample = 'Rain ticked against the workshop glass while she counted each drop.';
+  const voiceWorking = page.getByRole('textbox', { name: 'Develop or edit directly', exact: true });
+  await voiceWorking.fill(voiceSample);
+  await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
+  await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.workingText === voiceSample), 'voice sample save');
+  const voiceDocumentsBefore = documents();
+  const voiceDecisionsBefore = workshopState().state.decisions.length;
+  const voiceRunsBefore = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  const adoptionReceiptsBeforeVoice = database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n;
+  await page.getByRole('button', { name: 'Propose voice guidance from this sample', exact: true }).click();
+  const voiceAction = page.getByRole('combobox', { name: 'Next action', exact: true });
+  assert.equal(await voiceAction.inputValue(), 'voiceGuidance');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, voiceRunsBefore, 'Preparing voice guidance must not dispatch');
+  await page.getByRole('textbox', { name: 'Your direction', exact: true }).fill('Use measured warmth and varied sentence density; keep the sample events outside the story.');
+  await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
+  await page.getByRole('button', { name: 'Explore', exact: true }).click();
+  await page.getByText('Generation complete', { exact: true }).waitFor({ timeout: 30_000 });
+  await page.getByRole('heading', { name: 'Compare voice guidance', exact: true }).waitFor();
+  await waitForDatabase(() => {
+    const latest = database.prepare('SELECT status,output_text FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+    return database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n === voiceRunsBefore + 1
+      && latest?.status === 'completed' && latest.output_text.includes('STYLE guidance');
+  }, 'voice guidance mock run');
+  const voiceCards = page.locator('.candidate-card');
+  assert.equal(await voiceCards.count(), 3, 'Voice guidance must produce three alternatives');
+  const voiceCardTexts = await voiceCards.allTextContents();
+  assert(voiceCardTexts.every(text => text.includes('STYLE guidance') && text.includes('Sentence density') && text.includes('Viewpoint distance') && text.includes('Humor') && text.includes('Exposition') && text.includes('Dialogue rhythm')));
+  assert.equal(new Set(['restrained', 'brisk', 'lyrical'].filter(dimension => voiceCardTexts.some(text => text.includes(dimension)))).size, 3);
+  assert.equal(await voiceWorking.inputValue(), voiceSample, 'Voice generation must not replace the author sample');
+  assert.deepEqual(documents(), voiceDocumentsBefore, 'Voice guidance must not mutate story documents');
+  assert.equal(workshopState().state.decisions.length, voiceDecisionsBefore, 'Voice guidance must not create a decision automatically');
+  assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, adoptionReceiptsBeforeVoice, 'Voice guidance must not adopt automatically');
+  await voiceCards.first().getByRole('button', { name: 'Develop this', exact: true }).click();
+  await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.workingText !== voiceSample), 'author voice guidance development');
+  assert.notEqual(await voiceWorking.inputValue(), voiceSample, 'The sample may change only after the author develops a guidance alternative');
+  assert.deepEqual(documents(), voiceDocumentsBefore, 'Developing voice guidance must remain author-only material');
+  assert.equal(workshopState().state.decisions.length, voiceDecisionsBefore, 'Developing voice guidance must not create a decision automatically');
+  assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, adoptionReceiptsBeforeVoice, 'Developing voice guidance must not adopt automatically');
+  await page.screenshot({ path: resolve(output, 'voice-guidance-alternatives.png') });
+  checks.push('Themes & tone sends a second explicit local-mock voice-guidance request, renders three STYLE alternatives, preserves the sample until author development, and keeps guidance out of adoption');
 
   assert.deepEqual(pageErrors, [], `Native Workshop page errors: ${pageErrors.join('; ')}`);
   await writeFile(resolve(output, 'report.json'), JSON.stringify({

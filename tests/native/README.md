@@ -20,6 +20,18 @@ Run `npm run test:native-close` from `apps/desktop` after the native build, or
 set `WNS_V3_NATIVE_EXE` to an owned development executable. CI runs this
 separately from the 52-check main flow and existing HTTP fixture.
 
+`npm run test:native-workshop` drives the separate Story Workshop through real
+Tauri IPC with the local mock and synthetic data. It covers world-first project
+creation, no-generation navigation, three directions, selection and manual
+editing, adoption preview, directional relationships, history, and library
+reopen. The extended fixture also checks existing/new linked adoption, Unicode
+character retention, changed-endpoint review provenance, and explicitly requested
+voice guidance without automatic adoption. Its report and failure captures are under
+`.local/native-results/workshop/`. CI runs this shorter flow before the broad
+editor smoke so Workshop failures surface earlier. Current executed boundaries
+are recorded in the [Workshop ledger](../../docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md).
+This fixture does not qualify live providers or narrative quality.
+
 `npm run test:native-interruption` runs the separate interruption fixture. It
 holds real Save/Apply acknowledgments after Rust commits, replaces the renderer
 or terminates only the owned native process, and checks exact reopened prose,

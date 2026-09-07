@@ -2,9 +2,27 @@
 
 The initial distribution target is Windows x64 with an NSIS installer. Package configuration is implementation work; a successful build alone does not establish offline installation, accessibility, recovery, or author-trial acceptance. Current executed evidence is recorded in [implementation status](IMPLEMENTATION_STATUS.md).
 
-## Current 3.0.0 candidate
+## Current development build — 7 September 2026
 
-This remains a private, unreleased candidate. [Package run 34067936098](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067936098) passed on clean builder source `63770b9122f598b3e32ea1b0f5f4020c4325115f`. The installer `WebnovelStudio V3_3.0.0_x64-setup.exe` has SHA-256 `eef43925590d588f44e2e35978597e8aabc0b323f081c97f5092c45effc0fff2`. Windows Server 2025 `10.0.26100` with WebView2 `151.0.4129.101` passed installed release identity, exact ProductVersion `3.0.0`, synthetic project/chapter creation, writing, save/reopen, normal close, in-place uninstall, and same-version reinstall with project/document/text retained. There were no errors or forced process stops. Downloaded metadata, results, and screenshots are under `.local/ci-34067936098`; the reinstall screenshot was visually inspected.
+A fresh debug executable from source `ea7c1ea` is available at
+`target/debug/webnovel-desktop.exe`. It is 48,414,720 bytes, was built at
+`2026-09-07T13:29:22.8674513Z`, and has SHA-256
+`1add0c8bfb2ad0a4204f5b4f0d7cabd1c2ffad72409b810c5734bb58bd185067`.
+This is a development executable identity, not an installer or installed-release
+qualification. Hosted CI run
+([34127175895](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34127175895))
+passed Ubuntu, Windows Rust/frontend/build, and the existing 52-check native
+suite, then passed six bounded Workshop native groups before timing out at the
+adoption **Kind** selector. It recorded no page errors on WebView2
+`151.0.4129.101`; later native suites were skipped. Failure artifacts are under
+`.local/ci-workshop-34127175895/workshop/failure.*`. The headless cause was an
+exact-label `getByLabel` lookup that fails for this selector while the exact
+role/combobox lookup resolves. A harness correction and new rerun are pending;
+no package run has been executed for this build.
+
+## Historical 3.0.0 private candidate installer
+
+This is private, unreleased historical evidence for the earlier candidate. [Package run 34067936098](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067936098) passed on clean builder source `63770b9122f598b3e32ea1b0f5f4020c4325115f`. The installer `WebnovelStudio V3_3.0.0_x64-setup.exe` has SHA-256 `eef43925590d588f44e2e35978597e8aabc0b323f081c97f5092c45effc0fff2`. Windows Server 2025 `10.0.26100` with WebView2 `151.0.4129.101` passed installed release identity, exact ProductVersion `3.0.0`, synthetic project/chapter creation, writing, save/reopen, normal close, in-place uninstall, and same-version reinstall with project/document/text retained. There were no errors or forced process stops. Downloaded metadata, results, and screenshots are under `.local/ci-34067936098`; the reinstall screenshot was visually inspected.
 
 [Retest 34068729080](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34068729080) passed the same lifecycle with the exact original installer and qualification checkout `ded8f3d43e0a14589cfd6afbde866f39e61530ba`, which changes documentation only. Rust setup, dependency installation, and compilation were skipped. The fresh job took 16 minutes 20 seconds; the retest took 1 minute 59 seconds. Its evidence under `.local/ci-34068729080` retains `installerBuild` source `63770b9` separately from `qualificationSource` `ded8f3d` and the harness hash. See [testing](TESTING.md) for the allowed-change and identity checks. Offline/no-runtime installation, true upgrades, installed live-provider behavior and broader author qualification remain open.
 

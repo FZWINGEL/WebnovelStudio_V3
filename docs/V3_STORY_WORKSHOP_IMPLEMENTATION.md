@@ -21,9 +21,10 @@ retain their independent Luna/xhigh policy.
 
 The Rust boundary validates project/session identity, expected versions,
 protected content, and adoption targets. Existing schema-35 storage, actor,
-adoption, and provider-command integration passed the local standard check;
-the newly broadened same-packet relationship/impact path still awaits its final
-focused storage checks. Native execution remains pending. An uncertain save or Apply retains its immutable
+adoption, provider-command integration, and the broadened same-packet
+relationship/impact path passed the current local standard check and focused
+storage checks, including exact endpoint and impact provenance. Native
+execution remains pending. An uncertain save or Apply retains its immutable
 operation identity for receipt reconciliation. A provider response is intended
 to remain an alternative until an author uses it; it cannot replace a working
 version edited after dispatch.
@@ -67,10 +68,17 @@ Clippy, all Rust workspace tests, the production build, frontend tests, and 11
 tooling checks. The hosted checkpoint for source `a023511` failed its Ubuntu
 ReviewPanel async-summary test (464 of 465 frontend tests passed)
 ([CI 34124050562](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34124050562)).
-A local synchronization fix passes all 33 focused ReviewPanel tests, but no
-hosted rerun is claimed here. The existing
-`test:native` suite passed at `a023511`; the current Workshop native smoke still
-needs a rerun after the short-temp realpath guard was fixed syntactically.
+A local synchronization fix passes all 33 focused ReviewPanel tests. The
+existing `test:native` suite passed at `a023511`. The subsequent hosted run
+([CI 34127175895](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34127175895))
+passed Ubuntu, Windows Rust/frontend/build, and the existing 52-check native
+suite, then passed six bounded Workshop native groups before timing out at the
+adoption **Kind** selector. It recorded no page errors on WebView2
+`151.0.4129.101`; later native suites were skipped. Failure artifacts are under
+`.local/ci-workshop-34127175895/workshop/failure.*`. A headless reproduction
+showed the harness's exact-label `getByLabel` lookup failing while the exact
+role/combobox lookup resolves; the harness correction and a new rerun are
+pending, so this is not a broad native pass.
 The 15:23 local checkpoint then passed `desktop.ps1 -Command check`: 746 Rust
 tests (plus one intentional subprocess entry-point ignore), 474 frontend tests
 in 41 files, 11 tooling checks, formatting, strict workspace Clippy, TypeScript,
@@ -80,10 +88,12 @@ rejection promotion and subversion, and reviewed voice guidance. There is no
 current broad live provider, installer, or author-study evidence.
 Schema-35 tests cover the resolved chosen/alternative distinction, supersession,
 exact before/after revisions, protected multiline additions, frozen ranges,
-and operation replay. Five `workshop_boundaries` tests cover multi-target
+operation replay, atomic new-endpoint relationships, and candidate/relationship
+impact provenance. Five `workshop_boundaries` tests cover multi-target
 atomicity, chapter preservation, secret exclusion, preference conflict, and
-paragraph protection. The new Workshop native run has not passed; there has
-been no live Workshop provider run, current Workshop installer qualification, or author study. The
+paragraph protection. The Workshop native run has not qualified broadly; there
+has been no live Workshop provider run, current Workshop installer
+qualification, or author study. The
 fetched specification above is unchanged.
 
 | Status phrase | Meaning in this checkpoint |
@@ -121,26 +131,26 @@ green mock/frontend run alone.
 | W19 | 8 | World slices and four optional lenses; depth choice, ordinary life, open mysteries | Six-lens Workshop surface is implemented; depth, ordinary-life, and open-mystery quality evidence remains pending. |
 | W20 | 8 | Conditional consequences expose basis/assumptions; accept/reject/contrast | Consequence exploration is present in the Workshop path; basis/assumption and accept/reject/contrast qualification remains pending. |
 | W21 | 9 | Behavior-first people, optional spine and tentative situation responses | The people lens, behavior-first situation action, and durable session/decision fields provide the prompt-led path; no structured people database is required for this behavior. Focused/native quality evidence remains pending. |
-| W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | Existing-document relationship UI/state is implemented in `Relationships.tsx` and the adoption packet carries the relationship source heads; the new same-packet focused storage checks remain pending. |
+| W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | Existing/new document relationship UI/state is implemented in `Relationships.tsx`; focused Workshop tests cover exact endpoint heads, atomic new linked endpoints, stale endpoint rollback, and preserved relationship provenance. Native/quality evidence remains pending. |
 | W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | No executed qualification recorded; remains pending. |
 | W24 | 10 | Themes as open questions; reader tone distinct from intensity | Themes & tone is represented by the six-lens Workshop surface; distinction/quality evidence remains pending. |
 | W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | Same-situation noncanon treatments and explicit `voiceGuidance` are implemented in the Workshop frontend/core paths. The voice-guidance source slice passes seven focused core tests and two focused desktop tests, including the native mock lifecycle; live/native quality evidence remains pending. |
 | W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | The Story possibilities lens, optional arc action, prompt template fields, and durable session/decision hooks provide the prompt-led story-engine path without a structured engine database. Quality qualification remains pending. |
-| W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | No executed qualification recorded; remains pending. |
-| W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | Local history exists; saved-decision recap/handoff qualification remains pending. |
+| W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | Workshop question actions, durable statuses, unknown-to fields, and the local recap are implemented; the focused frontend question-cycle test passes. Native/quality evidence remains pending. |
+| W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | `WorkshopRecap.tsx` renders saved chosen decisions, rationale, exact version links, open questions, and next focus without a model call; native/quality evidence remains pending. |
 | W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Rationale and protected-content paths are implemented, with multiline/paragraph boundary checks covered locally; independent authority/access/evidence qualification remains pending. |
 | W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | What-if and existing-parent compare are implemented in the Workshop paths; reviewed acceptance and native/quality evidence remain pending. |
-| W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | `AdoptionImpacts.tsx` exposes reviewable reasons and four categories, and the same adoption packet carries impact drafts without automatic repair. The new focused storage checks for relationship/impact provenance remain pending. |
+| W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | `AdoptionImpacts.tsx` exposes reviewable reasons and four categories; the Rust adoption packet persists candidate and relationship provenance, defaults uncertain model claims to `possibleTension`, and keeps impacts at `needsReview` without automatic repair. Focused Workshop tests pass; native/quality evidence remains pending. |
 | W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Explicit read of saved packets is implemented in `RequestContext.tsx` and context IPC; complete delivered-context qualification remains pending. |
 | W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | No executed qualification recorded for this complete exclusion/rationale contract; remains pending. |
 | W34 | 14 | Outside-current-direction retains hard constraints; budget omissions visible | No executed qualification recorded; remains pending. |
 | W35 | 13–14 | Author secrets/intent cross into restricted writing only through explicit existing paths | Local Rust boundary coverage confirms a chosen author-room secret is excluded from a restricted snapshot/search; native/live writing qualification remains pending. |
 | W36 | 15 | One explicit request, visible model/scope/status, no generation on navigation or save | Provider-command integration is present in `workshop_generation_commands.rs` and passes the local standard check; native generation/lifecycle evidence remains pending. |
-| W37 | 15 | Independent manual saves; late response stays alternative and requires explicit refresh | Save/retry paths exist, but retry payload/scope projection review remains in progress; native late-response evidence pending. |
-| W38 | 15 | Partial/failed/stopped distinct; retry/recovery no blind provider replay; cost wording | Retry/recovery work is present but not finally verified; provider, stop, partial/failed, and cost qualification remain pending. |
+| W37 | 15 | Independent manual saves; late response stays alternative and requires explicit refresh | Offline manual editing/save, immutable lost-ack request replay, frozen selection scope, stale-result refusal, and late-response preservation are covered by focused Workshop tests and the current full check. Native late-response evidence remains pending. |
+| W38 | 15 | Partial/failed/stopped distinct; retry/recovery no blind provider replay; cost wording | Workshop UI/core paths distinguish failed, stopped, interrupted, and partial output, retain recoverable text, and offer explicit retry/local save reconciliation; focused frontend/provider checks and the current full check pass. Native/live/provider-quality qualification remains pending. |
 | W39 | 15 | Offline manual development, preferences/history/organization and restart resume | Manual Workshop UI and scoped preferences are implemented; schema-35 persistence, reopen, replay, and local history pass the standard check, while native/provider evidence remains pending. |
 | W40 | 16 | Source-bound facets, stale-source refusal, no second truth database | Existing-document source binding and stale multi-target refusal are covered in core Workshop tests; broader source-bound qualification remains pending. |
-| W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Schema-35 actor/adoption passes the local standard check; focused tests cover atomic new-document plus existing-target adoption, stale refusal without partial writes, exact history, and no chapter mutation. Dependent-target breadth and native evidence remain pending. |
+| W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Schema-35 actor/adoption passes the current standard check; focused tests cover atomic existing/new linked endpoints with exact heads, stale refusal without partial writes, exact history, candidate/relationship impacts, and no chapter mutation. Native/quality evidence remains pending. |
 | W42 | 17 | Exportable/importable editable project presets with explicit adoption of preferences | Import/export UI and preset review are implemented; native adoption and quality evidence pending. |
 | W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | Frontend build/fixture evidence and five focused core boundary tests cover hard conflicts, neutral preferences, secret isolation, and multi-target adoption; no new native run or full end-to-end quality qualification has been performed. |
 | W44 | 18 | Counterbalanced formative author study, same model/budget, ownership/coherence/usefulness | Pending observed author participation; protocol is prepared but no study evidence exists. |

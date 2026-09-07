@@ -28,6 +28,32 @@ Focused checks speed up iteration. Run the full check before submitting a
 change; use the relevant native flow when editor, lifecycle, or IPC behavior
 changes. These commands use mock providers and synthetic projects.
 
+## Bounded live Workshop check
+
+`crates/core/examples/qualify_live_workshop.rs` is a separate Windows-only,
+explicitly opted-in check. With no flag it exits before provider discovery or
+project creation. Normal tests and CI never enable the flag.
+
+When deliberately qualifying a live connection, this command permits at most
+one Codex invocation on a synthetic project, using discovered Luna/xhigh/priority
+settings and the normal core packet, output, and durable receipt path:
+
+```powershell
+$previousWorkshopOptIn = $env:WNS_V3_ALLOW_LIVE_WORKSHOP
+try {
+    $env:WNS_V3_ALLOW_LIVE_WORKSHOP = '1'
+    cargo run --locked -p webnovel-core --example qualify_live_workshop
+} finally {
+    $env:WNS_V3_ALLOW_LIVE_WORKSHOP = $previousWorkshopOptIn
+}
+```
+
+It never retries. A unique `.local/workshop-qualification-*.json` report retains
+the exact packet, dispatch uncertainty, terminal receipt, parsed alternatives,
+and synthetic project location. The project is retained for inspection; use
+that evidence after a failure instead of blindly running another generation.
+This checks the provider/core boundary, not native UI or narrative quality.
+
 ## Rust test organization
 
 `crates/core/tests/integration.rs` compiles the existing integration suites as
@@ -51,8 +77,10 @@ reopening, recovery and intentional timeout behavior remain unchanged.
 ## CI coverage
 
 The Ubuntu job runs core Rust checks and frontend checks. The Windows native
-job runs the complete Rust workspace and frontend suite, then the existing
-native editor, HTTP, close, interruption, recovery and memory-lookup flows.
+job runs the complete Rust workspace and frontend suite, then the short
+Workshop smoke followed by the existing native editor, HTTP, close,
+interruption, recovery and memory-lookup flows. Running Workshop first surfaces
+its failures before waiting for the broader editor flow; every gate is retained.
 This removes the former duplicate Windows core job while retaining both
 operating systems' coverage. Native safety checks are not skipped for speed.
 
