@@ -1,45 +1,47 @@
 # Story Workshop implementation and acceptance
 
-**Current source:** `7832c2a68952db88ad5428077856e60ee8c57b34`.
-Automatic [CI run 34158319509](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509)
-created a [contracts job](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509/job/101854675961)
-and a [windows-native job](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509/job/101854675925),
-but both were refused before steps (`steps=[]`) with billing/payment/spending-limit
-annotations. No hosted test or package step ran, and no manual retry or package
-dispatch was made. Run/job evidence is retained under
-`.local/workshop-interpretation-hosted/`.
+**Current source:** `d3939aed349cfa4aa811c919fa6ec3cc89f10513`.
 
 This work implements [the Story Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md),
 fetched at `c83a127`, in the existing Rust/Tauri V3 application. The specification
-is the target; this ledger records implementation and evidence separately. The
-previous private 3.0.0 installer predates this work and does not qualify it.
-The latest checkpoint makes **You said**, **Possible direction**, and **Still open**
-directly editable. Author values survive clear and reopen without copying
-immutable AI suggestions or changing preferences or working prose; each new
-result reveals its panel, and uncertain adoption disables duplicate fields while
-leaving reconciliation available. Rust freezes actor-owned `session.brief` as
-top-level string `authorBrief` in the final `story-workshop-request.v1` instruction,
-separately from exact current-element and original-notes fields, with a short
-role instruction. Strict nested metadata/schema-36 shape remains unchanged;
-historical instruction/packet hashes are preserved. The new final instruction is
-stored, hash-bound, and replay-stable. Request context prefers the final
-schema-tagged request message and shows the exact brief
-and `stillOpen`; it does not reconstruct a historical missing brief.
+defines the target; this ledger records implementation and evidence separately.
 
-The final local wrapper (`.local/workshop-interpretation-final-check.log`) passed
-770 Rust tests (73 core unit, 624 integration, 73 desktop; one intentional
-ignore), 562 frontend tests in 50 files, and 11 tooling checks, plus formatting,
-strict Clippy, TypeScript, and production build. SQLite integration proves
-scoped prose is unchanged, corrections survive reopen, fresh packets contain the
-correction, old packets replay byte-equivalently, and explicit clear is delivered.
-Unit tests refuse malformed/oversized briefs. The actual Workshop headless fixture
-passes at 1440 and 800 pixels with no overflow, errors, generation, or adoption
-calls (`.local/workshop-interpretation-qa/report.json`); the 800-pixel screenshot
-was inspected. Native harness syntax and static review pass; native runtime has
-not been executed. The debug build succeeded through `spike` and was not
-launched; its identity is recorded in the Windows qualification document.
+This notes-organization slice adds **Organize these notes**, opening an
+independent parentless Working Notebook with exact `originalNotes` and a compact
+organization brief. It carries no parent focus, pins, working text, captured
+selection, tray, choices, or direction. The existing directions action requests
+three editable organizations. Organization leaves source notes and manuscript
+unchanged; adopting a reviewed version is a separate explicit action through
+the existing destination preview. Explicit exploration preferences are cloned to the
+new notebook ID while project preferences are retained, with no source-local
+fixed-authority claim. Paste alone never generates; blocked providers and
+uncertain starts prevent duplicate dispatch, and the same request identity
+reconciles. Notes edits advance `workingGeneration`, making retained results
+stale.
 
-No author-study observations exist; full specification acceptance remains open.
+The 44 focused Workshop tests include four new notes-organization regressions. The final
+local wrapper (`.local/workshop-notes-final-check.log`) passed 771 Rust tests (73
+core unit, 625 integration, 73 desktop; one intentional ignore), 566 frontend
+tests in 50 files, and 11 tooling checks, plus formatting, strict Clippy,
+TypeScript, and production build. SQLite integration proves frozen compact brief
+and exact notes, no parent prose/tray/selection leakage, manual review followed
+by explicit adoption to a new note, unchanged raw source and unrelated
+manuscript bodies/heads through reopen, and exact original-packet replay. This
+is synthetic contract evidence, not narrative-quality evidence.
+
+The actual Workshop headless fixture passes at 1440 and 800 pixels for parent
+selection isolation, one explicit dispatch, develop/edit/reload persistence,
+unchanged parent notes/prose, no adoption or manuscript calls, and no overflow
+or page errors (`.local/workshop-notes-qa/report.json`); the 800-pixel screenshot
+was inspected. Its bridge stores state in localStorage, not native SQLite. The
+new W06 native scenario is syntax-checked and statically reviewed only; it has
+not been executed. No current native, installer, live-organization, or
+author-quality acceptance is claimed. Current [CI run 34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258)
+was refused before steps in both jobs because GitHub reported recent account
+payment failure or a spending-limit requirement; no hosted test steps ran. Its
+job and annotation evidence is retained under `.local/workshop-notes-hosted/`.
+No manual retry or package dispatch was made. Full specification acceptance and
+author evaluation remain open.
 The preceding recap/sample/context and candidate-alternatives checkpoints below
 are historical evidence and do not qualify this source. The preceding
 candidate-alternatives checkpoint is pushed at
@@ -483,7 +485,7 @@ green mock/frontend run alone.
 | W03 | 4, 16 | Dedicated three-zone workbench, collapsible context; full generic editor retained | Dedicated Workshop frontend and generic Write surface are present; three-zone/collapsible-context and native focus qualification remain pending. |
 | W04 | 4, 16 | Story Bible projects exact chosen document material and provenance | Six direct regressions cover exact current/historical sources, unavailable or mismatched revisions, deleted sources, project switching, source callbacks and focus. CI 34152622887 passed exact chosen history, superseded exclusion, preserved historical text after a manual source edit, and focus return without generation. Broader native unavailable-source cases remain open. |
 | W05 | 4, 15 | Responsive comparison/list/drawer, keyboard/focus, save feedback, composition-safe input | Comparison UI and save-watermark path are implemented; fixture has no overflow at four widths, while native keyboard/focus/composition evidence is pending. |
-| W06 | 5 | Fragment, direction help, existing notes; preserve originals; no genre/MC/ending gate | Direct editing now covers the author interpretation fields and preserves author values through clear/reopen without copying immutable AI suggestions or changing preferences or working prose. Existing brought-in notes remain saved, but a dedicated editable organization proposal for those notes is still missing; current directions are generic. Native and quality evidence remain pending. |
+| W06 | 5 | Fragment, direction help, existing notes; preserve originals; no genre/MC/ending gate | **Organize these notes** opens an independent parentless Working Notebook with exact `originalNotes` and a compact organization brief; parent focus, pins, working text, captured selection, tray, choices, and direction do not cross. The directions action requests three editable organizations. Organization leaves source notes and manuscript unchanged; adoption is a separate explicit action. The SQLite fixture adopts to a new note and preserves the originals. Exploration preferences clone to the new notebook ID while project preferences remain, and no source-local fixed-authority claim is made. Paste alone never generates; blocked or uncertain starts prevent duplicates and same-request reconciliation is idempotent. Notes edits advance `workingGeneration` and stale retained results. SQLite and headless checks provide synthetic contract evidence; native W06 runtime, current installer, live organization, and narrative-quality acceptance remain pending. |
 | W07 | 5, 12 | Editable You said / Possible direction / Still open; question, reason, free alternatives | **You said**, **Possible direction**, and **Still open** are directly editable. UI/mock-store evidence covers clear/reopen persistence; SQLite proves a correction survives reopen, reaches a fresh packet, and explicit clear is delivered. Each new result reveals its panel, while uncertain adoption disables duplicate fields and keeps reconciliation available. Question/reason/free-alternative quality and native qualification remain pending. |
 | W08 | 6 | Three concise typed candidates with explicit differing dimensions and expandable details | CI 34133645198 passed one explicit mock generation returning three directions; broader candidate comparison and quality evidence remain pending. |
 | W09 | 6 | Develop, select details, save later; visible editable tray; preserved details in synthesis | CI 34133645198 passed the detail tray and local working edit, with reopened working/chosen history preserved; broader synthesis and native quality evidence remain pending. |

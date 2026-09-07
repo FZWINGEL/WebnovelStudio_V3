@@ -5,41 +5,47 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-The current product source is `7832c2a68952db88ad5428077856e60ee8c57b34`.
-Automatic [CI run 34158319509](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509)
-created a [contracts job](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509/job/101854675961)
-and a [windows-native job](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509/job/101854675925),
-but both were refused before steps (`steps=[]`) with billing/payment/spending-limit
-annotations. No hosted test or package step ran, and no manual retry or package
-dispatch was made. The run and job evidence is retained under
-`.local/workshop-interpretation-hosted/`.
+The current product source is `d3939aed349cfa4aa811c919fa6ec3cc89f10513`.
+The notes-organization slice adds **Organize these notes**, which opens an
+independent parentless Working Notebook with exact `originalNotes` and a
+compact organization brief. No parent focus, pins, working text, captured
+selection, tray, choices, or direction cross the boundary. The existing
+directions action asks for three editable organizations. Organization leaves
+source notes and manuscript unchanged; adopting a reviewed version is a
+separate explicit action through the existing destination preview. Exploration
+preferences are cloned to the new notebook ID while project preferences remain;
+there is no source-local fixed-authority claim. Paste alone never generates;
+blocked providers and uncertain starts prevent duplicate dispatch, and the same
+request identity reconciles. Notes edits advance `workingGeneration`, making a
+retained result stale.
 
-The latest checkpoint makes **You said**, **Possible direction**, and **Still open**
-directly editable. Author values survive clear and reopen without copying
-immutable AI suggestions or changing preferences or working prose; each new
-result reveals its panel, and uncertain adoption disables duplicate fields while
-leaving reconciliation available. The final request freezes the actor-owned
-`session.brief` as top-level string `authorBrief`, separately from the exact editable
-current element and original notes, with a short role instruction. RequestContext
-prefers the final schema-tagged request message and shows the exact brief and
-`stillOpen`; it does not reconstruct a historical missing brief. The strict
-nested metadata/schema-36 shape is unchanged; historical instruction and packet
-hashes are preserved, and the new final instruction is stored, hash-bound, and
-replay-stable.
+The final local wrapper (`.local/workshop-notes-final-check.log`) passed 771 Rust
+tests (73 core unit, 625 integration, 73 desktop; one intentional ignore), 566
+frontend tests in 50 files, and 11 tooling checks, plus formatting, strict
+Clippy, TypeScript, and production build. The 44 focused Workshop tests include
+four new notes-organization regressions. SQLite integration proves the frozen
+compact brief and exact notes, no parent prose/tray/selection leakage, manual
+review followed by explicit adoption to a new note, unchanged raw source and
+unrelated manuscript bodies/heads through reopen, and exact original-packet
+replay. This evidence is synthetic and does not establish narrative quality.
+The actual headless Workshop fixture passes at 1440 and 800 pixels with parent
+selection isolation, one explicit dispatch, develop/edit/reload persistence,
+unchanged parent notes/prose, no adoption or manuscript calls, and no overflow
+or page errors (`.local/workshop-notes-qa/report.json`); the 800-pixel screenshot
+was inspected. Its bridge stores state in localStorage, not native SQLite.
+The new W06 native scenario passed syntax and static review but has not been
+executed. The debug spike build was not launched. No current native,
+current-installer, live-organization, or author-quality acceptance is claimed.
+Current [CI run 34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258)
+was refused before steps in both jobs because GitHub reported recent account
+payment failure or a spending-limit requirement; no hosted test steps ran. Its
+job and annotation evidence is retained under `.local/workshop-notes-hosted/`.
+No manual retry or package dispatch was made. The full V3 goal remains open.
 
-The final local wrapper (`.local/workshop-interpretation-final-check.log`) passed
-770 Rust tests (73 core unit, 624 integration, 73 desktop; one intentional
-ignore), 562 frontend tests in 50 files, and 11 tooling checks, plus formatting,
-strict Clippy, TypeScript, and production build. SQLite integration covers
-unchanged scoped prose, reopen persistence, corrected text in a fresh packet,
-byte-equivalent replay of the old packet, and explicit clear delivery. Unit tests
-refuse malformed or oversized briefs. The actual Workshop headless fixture passes at
-1440 and 800 pixels with no overflow, page errors, generation, or adoption calls
-(`.local/workshop-interpretation-qa/report.json`); the 800-pixel screenshot was
-inspected. Native harness syntax and static review pass; native runtime has not
-been executed. The debug build succeeded through `spike` and was not launched; its
-identity is recorded in the Windows qualification document. No author-study
-observations exist, so the full V3 goal remains open.
+The preceding `7832c2a` checkpoint made author interpretation fields directly
+editable and froze the corrected brief separately from prose in each new
+request. Its 770 Rust / 562 frontend / 11 tooling and headless checks are
+historical evidence; the current check above includes those regressions.
 
 The previous `7eb94fbff3380688786c54a78e2e3dcdaea815bc` recap/sample/context
 checkpoint and its CI/package admission failures are historical evidence, not the

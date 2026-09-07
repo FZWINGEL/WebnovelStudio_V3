@@ -1,25 +1,27 @@
 # Windows package qualification
 
-The current interpretation source is
-`7832c2a68952db88ad5428077856e60ee8c57b34`. [CI
-34158319509](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509)
-failed before any steps ran in either job. GitHub's annotations report an
-account billing or spending-limit issue. Evidence is retained in
-`.local/workshop-interpretation-hosted/`. No manual package retry was dispatched;
-hosted native and current-source installer qualification remain pending.
+The current notes-organization source is
+`d3939aed349cfa4aa811c919fa6ec3cc89f10513`. Current [CI
+34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258)
+was refused before steps in both jobs because GitHub reported recent account
+payment failure or a spending-limit requirement; no hosted test steps ran. Its
+job and annotation evidence is retained under `.local/workshop-notes-hosted/`.
+No manual retry or package dispatch was made. No current installer or package
+qualification is claimed.
 
-## Current interpretation debug build — 7 September 2026
+## Current notes-organization debug build — 7 September 2026
 
 `desktop.ps1 -Command spike` rebuilt the current source without launching it.
 The executable is `D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`,
 48,696,832 bytes, ProductVersion `3.0.0`, SHA-256
-`8772457faf9fb53cd4ca54dc9d645f93e689dd85f0475201bc07a4befef717b8`,
-modified at `2026-09-07T20:09:39.5739342Z`. The build log and identity are
-`.local/workshop-interpretation-debug-build.log` and
-`.local/workshop-interpretation-debug-build.json`. The final local wrapper
-passes 770 Rust / 562 frontend / 11 tooling checks; this is not hosted native
-or installed-package qualification. The native interpretation harness is
-syntax-checked and statically reviewed only.
+`09b26869de158b7b804c48c133f58724072fb1cb2231d8119bb8173860581fe5`,
+modified at `2026-09-07T20:46:31.1567787Z`. The build log and identity are
+`.local/workshop-notes-debug-build.log` and
+`.local/workshop-notes-debug-build.json`. The final local wrapper passes 771
+Rust / 566 frontend / 11 tooling checks, plus formatting, strict Clippy,
+TypeScript, and production build. This debug executable was not launched. The
+native W06 harness is syntax-checked and statically reviewed only. These facts
+do not qualify native runtime behavior or an installed package.
 
 The preceding recap/sample/context source is
 `7eb94fbff3380688786c54a78e2e3dcdaea815bc`. Fresh

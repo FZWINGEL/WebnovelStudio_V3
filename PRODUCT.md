@@ -4,23 +4,24 @@
 
 WebnovelStudio is an AI writing application with the author directing, reviewing, and accepting the work. The author manages several projects, develops story material in any order, asks the AI to draft chapters or develop ideas, and gives whole-document or selected-text feedback. Manual writing and editing remain available throughout.
 
-Current product source `7832c2a` is pushed and the debug executable is rebuilt.
-Workshop interpretations now open with a result and let the author edit
-**You said**, **Possible direction**, and **Still open** directly. Explicit
-suggestion-copy actions leave the original AI reading visible. Corrections and
-clears persist without changing the working prose or permanent preferences.
-The next request receives the corrected brief separately from editable prose;
-saved context inspection shows the exact brief that request received.
+Current product source `d3939ae` is pushed and the debug executable is rebuilt.
+**Organize these notes** asks for three editable organizations in a separate
+Notebook exploration, preserving the original notes and current draft. The
+author can develop and edit a proposal, then explicitly choose its destination
+through the existing adoption preview. Pasting notes does not start generation;
+changing the notes marks older proposals as stale.
 
-The final local wrapper passes 770 Rust, 562 frontend, and 11 tooling checks,
-plus formatting, strict Clippy, TypeScript, and production build. Headless
-Workshop checks pass at 1440 and 800 pixels. [CI
-34158319509](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509)
-could not start its jobs because GitHub reported an account billing or spending-limit
-issue; no hosted test steps ran. Current native and package qualification, a
-dedicated organization proposal for brought-in notes, and author evaluation
-remain open. The [Workshop ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md)
-records implementation and qualification separately.
+The full local check passes 771 Rust tests, 566 frontend tests, and 11 tooling
+checks, plus formatting, strict Clippy, TypeScript, and production build.
+Headless UI checks pass at 1440 and 800 pixels. Current native, installer,
+live organization, and author-quality qualification remain open. [CI
+34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258)
+was refused before steps in both jobs because GitHub reported recent account
+payment failure or a spending-limit requirement; no hosted test steps ran. Its
+job and annotation evidence is retained under `.local/workshop-notes-hosted/`.
+No manual retry or package dispatch was made. See the
+[Workshop ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md) and
+[implementation status](docs/IMPLEMENTATION_STATUS.md) for evidence details.
 
 **Workspace direction, 7 September 2026:** each project has persistent Chapters,
 Worldbuilding, Characters, Plot & themes, and Notes tabs. Chapters share one
@@ -50,13 +51,19 @@ verified, and the fresh installer passed its synthetic installed write/reopen
 and same-version retention lifecycle. An earlier 15-check Workshop native flow
 also passed with the local mock, including atomic linked adoption, Unicode
 reopen, and voice guidance without automatic adoption. The latest
-relationship/taste changes have focused local and headless evidence; their
-hosted rerun is recorded as a harness failure, so no broad native pass is
-claimed. Full specification acceptance,
-broader native/provider coverage, and author evaluation remain open; exact
-evidence and source identities are recorded in the qualification documents. The previous relationship slice adds no-call directional relationship exploration with exact
-endpoint heads and a two-or-three-treatment noncanon moment contract; schema 36
-preserves older Workshop state, context, packet bytes, and hashes.
+relationship/taste changes have focused local and headless evidence; the
+current notes-organization slice adds the independent parentless notebook,
+three editable organization candidates, preference cloning, duplicate-start
+reconciliation, and stale-result fencing described above. Its SQLite evidence
+proves frozen compact brief and exact notes, no parent prose/tray/selection
+leakage, explicit adoption to a new note in the fixture, unchanged source and unrelated
+manuscript heads through reopen, and exact original-packet replay. This is
+synthetic contract evidence, not narrative-quality evidence. Full
+specification acceptance, broader native/provider coverage, and author
+evaluation remain open. The previous relationship slice adds no-call
+directional relationship exploration with exact endpoint heads and a
+two-or-three-treatment noncanon moment contract; schema 36 preserves older
+Workshop state, context, packet bytes, and hashes.
 
 W23 adds optional Unicode names, aliases, and transliterations in the existing
 `document_aliases` metadata (no schema change) on character/world documents
