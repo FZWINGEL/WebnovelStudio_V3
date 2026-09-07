@@ -18,6 +18,15 @@ Candidate cards also offer **Explore another angle → Give alternatives** for
 refining that candidate along the current comparison dimension. The request
 leaves your existing selection, working version, and story choices unchanged.
 
+Keep unresolved questions, intended payoffs, and possible arcs as separate
+editable story possibilities. Prepare one for exploration when you want AI
+suggestions; keeping or reopening it does not establish a story event. Themes
+offer separate reader-experience and content-intensity preferences, with your
+editable wording saved only after confirmation. On smaller windows the context
+drawer keeps keyboard focus inside and returns it when closed. See the
+[Workshop completion record](docs/V3_STORY_WORKSHOP_COMPLETION.md) for current
+checks and remaining native, provider, and author-evaluation gates.
+
 Codex is the primary provider focus. Claude and configurable OpenAI-compatible
 endpoints remain available as development integrations; further adapter ports
 are deferred.

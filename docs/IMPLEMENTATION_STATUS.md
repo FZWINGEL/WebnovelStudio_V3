@@ -1,5 +1,22 @@
 # V3 implementation status
 
+## Story Workshop functional completion (7 September 2026)
+
+Workshop product commit `da08d8c62b7dc134119440749475d1373868caf5` adds
+separate editable questions/payoffs/arc intentions, typed frozen context,
+independent theme preferences, lens-aware next questions, stale detail review,
+keyboard-safe context drawers, and stronger adoption-request integrity.
+
+The final combined checkout passed 774 Rust tests, 594 frontend tests in 56
+files, and 20 tooling checks, formatting, strict Clippy, TypeScript, and build
+(`.local/workshop-completion-check.log`). These totals include concurrent testing
+work excluded from the Workshop commit. An isolated archive of that commit also
+passed TypeScript and 45 Workshop shell tests. Headless actual-UI checks passed
+at 1440/800 pixels; the debug executable was rebuilt without launching it.
+See the [completion record](V3_STORY_WORKSHOP_COMPLETION.md) for build identity,
+exact evidence boundaries, and remaining native/provider/author-study gates.
+Full specification acceptance is still open; W44 has no author observations.
+
 **Status date:** 7 September 2026
 
 **Current branch:** `codex/v3-persistence`

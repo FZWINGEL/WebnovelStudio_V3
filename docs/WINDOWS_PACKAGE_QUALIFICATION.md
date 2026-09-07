@@ -1,6 +1,26 @@
 # Windows package qualification
 
-The current notes-organization source is
+## Current Workshop completion debug build — 7 September 2026
+
+Workshop product source is `da08d8c62b7dc134119440749475d1373868caf5`.
+The combined checkout passed 774 Rust / 594 frontend / 20 tooling checks,
+formatting, strict Clippy, TypeScript, and production build. Concurrent test/CI
+work and a request-helper extraction remain outside the Workshop commit; its
+isolated frontend archive passed TypeScript and 45 Workshop shell tests.
+
+`desktop.ps1 -Command spike` rebuilt
+`D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe` without launching it.
+Identity: 48,827,904 bytes, ProductVersion `3.0.0`, SHA-256
+`1d1e4657a36b57a7ecf26ffdfc328367b4309860ba58a24b4d5322cacdfcfb79`,
+modified `2026-09-07T21:41:16.3227704Z`. The log and JSON identity are
+`.local/workshop-completion-debug-build.log` and
+`.local/workshop-completion-debug-build.json`. This combined-checkout debug build
+is not a clean-source installer candidate and does not qualify native runtime
+or author experience. See the [completion record](V3_STORY_WORKSHOP_COMPLETION.md).
+
+## Preceding notes-organization checkpoint
+
+The preceding notes-organization source is
 `d3939aed349cfa4aa811c919fa6ec3cc89f10513`. Current [CI
 34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258)
 was refused before steps in both jobs because GitHub reported recent account
@@ -9,7 +29,7 @@ job and annotation evidence is retained under `.local/workshop-notes-hosted/`.
 No manual retry or package dispatch was made. No current installer or package
 qualification is claimed.
 
-## Current notes-organization debug build — 7 September 2026
+## Preceding notes-organization debug build — 7 September 2026
 
 `desktop.ps1 -Command spike` rebuilt the current source without launching it.
 The executable is `D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`,

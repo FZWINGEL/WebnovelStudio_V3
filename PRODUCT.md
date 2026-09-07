@@ -4,24 +4,20 @@
 
 WebnovelStudio is an AI writing application with the author directing, reviewing, and accepting the work. The author manages several projects, develops story material in any order, asks the AI to draft chapters or develop ideas, and gives whole-document or selected-text feedback. Manual writing and editing remain available throughout.
 
-Current product source `d3939ae` is pushed and the debug executable is rebuilt.
-**Organize these notes** asks for three editable organizations in a separate
-Notebook exploration, preserving the original notes and current draft. The
-author can develop and edit a proposal, then explicitly choose its destination
-through the existing adoption preview. Pasting notes does not start generation;
-changing the notes marks older proposals as stale.
+Story Workshop supports the three planned development slices: explore and
+combine directions, connect material through reviewed adoption, and develop
+what-if alternatives, voice samples, and future story possibilities. Questions,
+intended payoffs, and possible arcs remain editable author intentions, separate
+from established events. Reader experience and content intensity have distinct
+optional preferences. Notes organization preserves its source in a separate
+Notebook exploration. Editing and navigation never start generation.
 
-The full local check passes 771 Rust tests, 566 frontend tests, and 11 tooling
-checks, plus formatting, strict Clippy, TypeScript, and production build.
-Headless UI checks pass at 1440 and 800 pixels. Current native, installer,
-live organization, and author-quality qualification remain open. [CI
-34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258)
-was refused before steps in both jobs because GitHub reported recent account
-payment failure or a spending-limit requirement; no hosted test steps ran. Its
-job and annotation evidence is retained under `.local/workshop-notes-hosted/`.
-No manual retry or package dispatch was made. See the
-[Workshop ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md) and
-[implementation status](docs/IMPLEMENTATION_STATUS.md) for evidence details.
+See the [Workshop completion record](docs/V3_STORY_WORKSHOP_COMPLETION.md) for
+current functional contracts, verification, and build identity, and the
+[requirement ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md) for the complete
+specification mapping. Full acceptance still requires current native and
+provider qualification and actual author evaluation; source coverage and
+synthetic tests do not establish those outcomes.
 
 **Workspace direction, 7 September 2026:** each project has persistent Chapters,
 Worldbuilding, Characters, Plot & themes, and Notes tabs. Chapters share one
@@ -43,7 +39,7 @@ for saved briefs, working versions, typed alternatives, selected details,
 questions, scoped preferences, and local relationships. Provider responses remain
 alternatives until the author explicitly uses a version. Story Bible shows chosen
 document-backed material; documents and immutable revisions remain the story
-authority. Schema-36 Rust storage and actor boundaries cover Workshop persistence,
+authority. Schema-37 Rust storage and actor boundaries cover Workshop persistence,
 reopen/replay, atomic multi-target adoption, stale refusal without partial writes,
 chapter isolation, restricted-context secret exclusion, and local hard-preference
 conflicts. One bounded headless Codex request and its persisted reopen are

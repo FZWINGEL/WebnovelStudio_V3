@@ -1,47 +1,48 @@
 # Story Workshop implementation and acceptance
 
-**Current source:** `d3939aed349cfa4aa811c919fa6ec3cc89f10513`.
+**Current product source:** `da08d8c62b7dc134119440749475d1373868caf5`.
+The final local wrapper passed 774 Rust, 594 frontend, and 20 tooling checks,
+formatting, strict Clippy, TypeScript, and production build. These totals include
+concurrent test improvements in the checkout; an isolated archive of the product
+commit also passed TypeScript and 45 Workshop shell tests. The [completion
+record](V3_STORY_WORKSHOP_COMPLETION.md) gives build identity and evidence limits.
+This ledger implements and qualifies bounded behavior from [the Story
+Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md); the specification remains
+the target and does not establish acceptance by itself.
 
-This work implements [the Story Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md),
-fetched at `c83a127`, in the existing Rust/Tauri V3 application. The specification
-defines the target; this ledger records implementation and evidence separately.
+The current frontend adds a separate Story possibilities surface for
+`unresolvedQuestion`, `intendedPayoff`, and `possibleArc` records. Records can be
+opened or archived and edited directly, including clearing them to empty. The
+author can explicitly Keep, prefill, or Prepare a record; the surface enforces a
+64-record cap. Active nonempty records are actor-frozen typed context, not canon.
+Planned and actual context, together with the recap, are visible to the author.
 
-This notes-organization slice adds **Organize these notes**, opening an
-independent parentless Working Notebook with exact `originalNotes` and a compact
-organization brief. It carries no parent focus, pins, working text, captured
-selection, tray, choices, or direction. The existing directions action requests
-three editable organizations. Organization leaves source notes and manuscript
-unchanged; adopting a reviewed version is a separate explicit action through
-the existing destination preview. Explicit exploration preferences are cloned to the
-new notebook ID while project preferences are retained, with no source-local
-fixed-authority claim. Paste alone never generates; blocked providers and
-uncertain starts prevent duplicate dispatch, and the same request identity
-reconciles. Notes edits advance `workingGeneration`, making retained results
-stale.
+Themes expose optional Warmth, Hope, Unease, and Wonder controls plus a separate
+restrained/explicit injury-intensity control. Values remain editable and neutral
+until the author saves them; the Rust preference family is carried into the
+prompt. Lens-aware next-question suggestions avoid current or saved dispositions
+and exact questions already present in working or chosen text. This is a
+selection rule and makes no semantic-understanding claim.
 
-The 44 focused Workshop tests include four new notes-organization regressions. The final
-local wrapper (`.local/workshop-notes-final-check.log`) passed 771 Rust tests (73
-core unit, 625 integration, 73 desktop; one intentional ignore), 566 frontend
-tests in 50 files, and 11 tooling checks, plus formatting, strict Clippy,
-TypeScript, and production build. SQLite integration proves frozen compact brief
-and exact notes, no parent prose/tray/selection leakage, manual review followed
-by explicit adoption to a new note, unchanged raw source and unrelated
-manuscript bodies/heads through reopen, and exact original-packet replay. This
-is synthetic contract evidence, not narrative-quality evidence.
+Candidate detail picks now require stale-review gating. The context panel uses a
+native HTML dialog with visible Tab/Shift+Tab behavior, Escape restoration of the
+opener, background blocking, and the desktop panel alongside it. The 1440/800
+headless fixture in `.local/workshop-completion-qa/report.json` passed typed
+edit/clear/archive/reopen/reload, explicit theme save, the no-start/no-adopt/
+no-manuscript-call boundary, and no overflow or page errors; its screenshots
+were inspected. The 800px checks covered 40 Tab steps, background blocking,
+Escape focus restoration, and resize. The new context panel has four focused
+tests and TypeScript passes. Rust schema 37 is additive and default/skip-empty
+for the immutable legacy shape. SQLite tests pass for persistence/reopen,
+historical packet replay, context filtering/budgets, chapter preservation,
+relationship references, and adoption-request integrity.
 
-The actual Workshop headless fixture passes at 1440 and 800 pixels for parent
-selection isolation, one explicit dispatch, develop/edit/reload persistence,
-unchanged parent notes/prose, no adoption or manuscript calls, and no overflow
-or page errors (`.local/workshop-notes-qa/report.json`); the 800-pixel screenshot
-was inspected. Its bridge stores state in localStorage, not native SQLite. The
-new W06 native scenario is syntax-checked and statically reviewed only; it has
-not been executed. No current native, installer, live-organization, or
-author-quality acceptance is claimed. Current [CI run 34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258)
-was refused before steps in both jobs because GitHub reported recent account
-payment failure or a spending-limit requirement; no hosted test steps ran. Its
-job and annotation evidence is retained under `.local/workshop-notes-hosted/`.
-No manual retry or package dispatch was made. Full specification acceptance and
-author evaluation remain open.
+This checkpoint does not claim full specification acceptance. Native/live/
+installer coverage remains open, and W44 has no author observations. Hosted CI
+run [34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258)
+was blocked before steps by the reported billing/spending-limit condition.
+The debug executable is rebuilt without a native launch. Full specification
+acceptance remains open until those external evaluation gates have evidence.
 The preceding recap/sample/context and candidate-alternatives checkpoints below
 are historical evidence and do not qualify this source. The preceding
 candidate-alternatives checkpoint is pushed at
@@ -484,7 +485,7 @@ green mock/frontend run alone.
 | W02 | 4 | Overview, World, People, Themes & tone, Story possibilities, Notebook; free movement | All six lenses are implemented in catalog/Workshop. CI 34152622887 passed navigation through all six with saved position, unchanged documents, and zero generation. Broader navigation usability remains unqualified. |
 | W03 | 4, 16 | Dedicated three-zone workbench, collapsible context; full generic editor retained | Dedicated Workshop frontend and generic Write surface are present; three-zone/collapsible-context and native focus qualification remain pending. |
 | W04 | 4, 16 | Story Bible projects exact chosen document material and provenance | Six direct regressions cover exact current/historical sources, unavailable or mismatched revisions, deleted sources, project switching, source callbacks and focus. CI 34152622887 passed exact chosen history, superseded exclusion, preserved historical text after a manual source edit, and focus return without generation. Broader native unavailable-source cases remain open. |
-| W05 | 4, 15 | Responsive comparison/list/drawer, keyboard/focus, save feedback, composition-safe input | Comparison UI and save-watermark path are implemented; fixture has no overflow at four widths, while native keyboard/focus/composition evidence is pending. |
+| W05 | 4, 15 | Responsive comparison/list/drawer, keyboard/focus, save feedback, composition-safe input | The context surface uses a native HTML dialog with visible Tab/Shift+Tab behavior, Escape restoration of the opener, background blocking, and the desktop panel alongside it. The 800px fixture covers 40 Tab steps and resize without overflow; native keyboard/focus/composition qualification and final full verification remain pending. |
 | W06 | 5 | Fragment, direction help, existing notes; preserve originals; no genre/MC/ending gate | **Organize these notes** opens an independent parentless Working Notebook with exact `originalNotes` and a compact organization brief; parent focus, pins, working text, captured selection, tray, choices, and direction do not cross. The directions action requests three editable organizations. Organization leaves source notes and manuscript unchanged; adoption is a separate explicit action. The SQLite fixture adopts to a new note and preserves the originals. Exploration preferences clone to the new notebook ID while project preferences remain, and no source-local fixed-authority claim is made. Paste alone never generates; blocked or uncertain starts prevent duplicates and same-request reconciliation is idempotent. Notes edits advance `workingGeneration` and stale retained results. SQLite and headless checks provide synthetic contract evidence; native W06 runtime, current installer, live organization, and narrative-quality acceptance remain pending. |
 | W07 | 5, 12 | Editable You said / Possible direction / Still open; question, reason, free alternatives | **You said**, **Possible direction**, and **Still open** are directly editable. UI/mock-store evidence covers clear/reopen persistence; SQLite proves a correction survives reopen, reaches a fresh packet, and explicit clear is delivered. Each new result reveals its panel, while uncertain adoption disables duplicate fields and keeps reconciliation available. Question/reason/free-alternative quality and native qualification remain pending. |
 | W08 | 6 | Three concise typed candidates with explicit differing dimensions and expandable details | CI 34133645198 passed one explicit mock generation returning three directions; broader candidate comparison and quality evidence remain pending. |
@@ -503,24 +504,24 @@ green mock/frontend run alone.
 | W21 | 9 | Behavior-first people, optional spine and tentative situation responses | Rust tests verify three-response cardinality for new situations, historical prompt compatibility, and refusal of new legacy requests. Shared situations and distinct relationship perspectives are explicitly requested; semantic compliance and broader native/quality evidence remain pending. |
 | W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | The World/People surfaces prepare an independent named-direction exploration, preserve uncertainty, and pin both exact endpoint heads; RequestContext shows the immutable relationship envelope. Focused UI/headless checks cover stale/late reads, two sources, and an explicit destination. Native relationship qualification remains pending after the bounded harness failure below. |
 | W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | Existing `document_aliases` uses atomic source-epoch CAS saves and read-only uncertainty reconciliation. Focused and headless checks cover dirty navigation, title/body preservation, and restricted-context exclusion. CI 34152622887 passed Writer Unicode/transliteration save, project reopen, and unsaved-name navigation refusal until explicit saving, without generation. Broader author/provider evidence remains open. |
-| W24 | 10 | Themes as open questions; reader tone distinct from intensity | Themes & tone is represented by the six-lens Workshop surface; distinction/quality evidence remains pending. |
+| W24 | 10 | Themes as open questions; reader tone distinct from intensity | Optional Warmth, Hope, Unease, and Wonder controls are separate from restrained/explicit injury intensity. Values stay editable and neutral until the author saves them, and the Rust preference family is carried into the prompt. Narrative distinction and native quality evidence remain pending. |
 | W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | Response validation enforces cardinality of two or three treatments and rejects a one-treatment raw response recoverably; it does not prove that the treatments depict the same situation. The existing voice-guidance path remains explicitly reviewed before Develop/Use this version, with no automatic documents, decisions, or adoption. Broader voice/noncanon narrative quality remains pending. |
-| W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | The Story possibilities lens, optional arc action, prompt template fields, and durable session/decision hooks provide the prompt-led story-engine path without a structured engine database. Quality qualification remains pending. |
-| W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | World, lens, and generated question selection respect saved dispositions until explicitly reopened; question-specific reasons and unknown-to distinctions persist. Focused and 1440/800 headless checks pass. Native/quality evidence remains pending. |
+| W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | Story possibilities now stores separate `unresolvedQuestion`, `intendedPayoff`, and `possibleArc` records with open/archive, direct edit including empty, explicit Keep/prefill/Prepare, and a 64-record cap. Active nonempty records are actor-frozen typed context rather than canon; planned and actual context plus recap are visible. Narrative quality and final full verification remain pending. |
+| W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | Lens-aware next-question selection avoids current or saved dispositions and exact questions already present in working or chosen text. This is a selection rule with no semantic-understanding claim; native and narrative-quality evidence remain pending. |
 | W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | Four component tests and actual-component checks at 1440/800 pixels verify question dispositions, explicit reopening, untouched material, and saved-version/current-navigation labels without paid summaries. The hosted recap regression and author evaluation remain pending. |
 | W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Protection remains effective across archive/supersession, explicitly removable in the UI, relevant to request context, and independently enforced for adoption targets. Three core protection regressions plus UI/headless checks pass. Broader native/access/evidence qualification remains pending. |
 | W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | Implemented locally, native qualification pending: branch graph and immutable ancestry checks; branch-local draft protection; inherited chosen context; parent/alternate text, fields, decision revisions and linked impact evidence; explicit preview/adopt. Focused core, component and shell tests pass. A 21st hosted Workshop group now covers real fork/reopen/compare/preview/adoption. Broader creative-quality and author evidence remain open. |
 | W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | AdoptionImpacts exposes reasons and four categories. Core tests cover candidate/relationship provenance and uncertain claims defaulting to possibleTension/needsReview without repair. CI 34133645198 adds relationship-impact decision provenance with zero chapter writes. Broader category/review quality remains unqualified. |
-| W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | `NextExplorationContext` previews current material, selected details, chosen source versions/rationales, relevant protection, and deliberately included alternatives before sending. Rust freezes the actor-owned brief separately from exact editable prose and original notes in the final request. `RequestContext` reads that final message without reconstructing historical missing briefs. SQLite proves correction-reopen, fresh-packet delivery, byte-equivalent old-packet replay, and explicit clear; unit tests refuse malformed/oversized briefs. Five saved-request UI tests cover final-envelope selection, exact/empty briefs, legacy absence, relationship context, and stale-read refusal. The context preview retains its component/headless coverage. Native delivered-context qualification remains pending. |
+| W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Planned context, saved request context, and recap include active nonempty typed possibilities without promoting them to canon. SQLite tests pass for frozen actor-owned delivery, archived/blank exclusion, legacy bytes, replay, and budget refusal. The context panel has four focused tests; the full wrapper and isolated-commit TypeScript checks pass. Native delivered-context qualification remains pending. |
 | W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | A persisted core request test excludes unrelated note/chat text, rejected and archived prose, and an unadopted vignette; only the explicitly included saved alternative and rejection rationale remain. Raw excluded results stay recoverable and the exact packet survives reopen. Native delivered-context qualification remains pending. |
 | W34 | 14 | Outside-current-direction retains hard constraints; budget omissions visible | A core request test proves outside-direction retains complete original notes, fixed details and hard exclusions. Mandatory overflow refuses preparation without a run or changed Workshop state; an ample budget preserves the inputs. Native budget/conflict messaging remains unqualified. |
 | W35 | 13–14 | Author secrets/intent cross into restricted writing only through explicit existing paths | Local Rust boundary coverage confirms a chosen author-room secret is excluded from a restricted snapshot/search; native/live writing qualification remains pending. |
 | W36 | 15 | One explicit request, visible model/scope/status, no generation on navigation or save | CI 34133645198 passed one explicit mock request with three directions and the Develop-to-Write barrier; broader generation/lifecycle quality remains pending. |
-| W37 | 15 | Independent manual saves; late response stays alternative and requires explicit refresh | Offline manual editing/save, immutable lost-ack request replay, frozen selection scope, stale-result refusal, and late-response preservation are covered by focused Workshop tests and the current full check. Native late-response evidence remains pending. |
+| W37 | 15 | Independent manual saves; late response stays alternative and requires explicit refresh | Manual saves remain independent, and candidate detail picks now require stale-review before reuse. Existing late-result and stale-result boundaries remain covered by the preceding focused evidence; current full verification and native late-response evidence remain pending. |
 | W38 | 15 | Partial/failed/stopped distinct; retry/recovery no blind provider replay; cost wording | Workshop UI/core paths distinguish failed, stopped, interrupted, and partial output, retain recoverable text, and offer explicit retry/local save reconciliation; focused frontend/provider checks and the current full check pass. Native/live/provider-quality qualification remains pending. |
 | W39 | 15 | Offline manual development, preferences/history/organization and restart resume | CI 34133645198 passed manual seed/working persistence and full Library reopen preservation without generation; broader offline organization/restart quality remains pending. |
 | W40 | 16 | Source-bound facets, stale-source refusal, no second truth database | Existing-document source binding and stale multi-target refusal are covered in core Workshop tests; broader source-bound qualification remains pending. |
-| W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Core tests cover linked atomic adoption, stale refusal without partial writes, exact history, and no chapter mutation. CI 34133645198 adds existing-world/new-character relationship adoption with exact heads, impact decision provenance, and zero chapter writes. Broader native stale/failure cases remain unqualified. |
+| W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Core regressions pass for atomic multi-target adoption, stale refusal, history, unchanged chapters, unknown relationship rejection, frozen request fingerprint verification, and request/preview target binding. Known archived relationships remain readable. Broader native stale/failure cases remain unqualified. |
 | W42 | 17 | Exportable/importable editable project presets with explicit adoption of preferences | Local tests cover JSON/name synchronization, saved definition edits/reuse, adoption boundaries, invalid input and file errors. CI 34152622887 passed JSON review, explicit preference adoption, Library reopen, definition editing/reuse without duplication or automatic adoption. Native file-dialog qualification remains pending. |
 | W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | CI 34133645198 passed all 15 intended Workshop groups plus the listed auxiliary native suites with clean runtime observations; this is bounded native evidence, not full specification, physical keyboard/accessibility, late/stale/failure UI, quality, or author-study completion. |
 | W44 | 18 | Counterbalanced formative author study, same model/budget, ownership/coherence/usefulness | A [facilitator kit](studies/workshop/README.md) supplies condition/seed allocation, an optional tag-heavy worksheet, comparable live Codex allowances, anonymous observation and human review forms, and a later revisit record. No author observations exist; W44 remains pending. |
