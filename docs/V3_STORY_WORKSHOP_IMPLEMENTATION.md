@@ -363,6 +363,17 @@ Log: `.local/workshop-branch-final-check.log`. No local native app or global
 keyboard automation was used. A fresh installer must be built from these product
 changes rather than reusing the previously qualified package.
 
+Implementation is pushed as `ff276eb5eecfec3b38da3af758ca1f6377add8a4`.
+Fresh [CI 34141998962](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34141998962)
+and [installer qualification 34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
+are confirmed in progress on that exact source; no installer reuse was requested.
+The local debug application was rebuilt successfully at
+`target/debug/webnovel-desktop.exe`, 48,429,056 bytes, ProductVersion 3.0.0,
+SHA-256 `5880578d76ab848a8f07cff43ea7de0131776f40cc722e6e63d8b718e98110ec`,
+built `2026-09-07T16:11:10.8753042Z`. Identity is retained in
+`.local/workshop-branch-debug-build.json`. It was not launched on the author's
+desktop. The earlier qualified installer remains a separate, older artifact.
+
 Use synthetic temporary projects for contracts and native fixtures. Preserve
 existing writing and provider regression coverage; register core integration
 files in `crates/core/tests/integration.rs`. The 14:45 frontend checkpoint passed

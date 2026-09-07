@@ -64,6 +64,14 @@ and visual checks pass at 1440 and 800 pixels. The hosted Workshop harness now h
 21 groups; this source still needs its own native run and fresh installer. See the
 [what-if contracts and evidence](V3_STORY_WORKSHOP_IMPLEMENTATION.md#what-if-comparison-and-isolation-implementation).
 
+The implementation is pushed at `ff276eb5eecfec3b38da3af758ca1f6377add8a4`.
+[CI 34141998962](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34141998962)
+and fresh [package run 34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
+are confirmed in progress on this exact source. The local debug executable has
+been rebuilt successfully; its exact identity is in the Workshop ledger and
+`.local/workshop-branch-debug-build.json`. The older qualified installer does
+not contain this slice.
+
 The Develop/Write shell and dedicated six-lens Workshop frontend are implemented
 with editable brief/current direction/original notes, typed three-candidate
 comparison, detail selection, working draft and local history, scoped
