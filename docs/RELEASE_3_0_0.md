@@ -1,6 +1,6 @@
 # WebnovelStudio V3.0.0 Release Preparation
 
-Status: **private Windows development candidate; unreleased**.
+Status: **private Windows development candidate prepared; unreleased**.
 
 This document is the preparation checklist for the current 3.0.0 candidate. It does not announce a public release and does not claim that the complete V3 roadmap is finished.
 
@@ -40,17 +40,34 @@ The Windows packaging command is:
 .\scripts\desktop.ps1 -Command package
 ```
 
-The package command is the source of the NSIS installer evidence. A fresh package qualification is still pending for this candidate. Hosted run `34066312408` on source `729d6bdfe3f657badac80b114aee0f8a0b6b2970` built a 3.0.0 installer (`362ab1a47bfd8fde0637f13cf30b606bcd7371337455130ce77101e3164114a7`), but stopped before project creation because the harness waited for the stale UIAutomation label `Library` while the current UI exposes `Your library`. It does not establish an installed-lifecycle pass. Metadata and failure evidence are retained under `.local/ci-34066312408`; that workflow uploaded installers only after lifecycle success, so the failed run did not retain its installer artifact.
+The package command is the source of the NSIS installer evidence. The verified candidate is:
+
+| Evidence | Value |
+| --- | --- |
+| Build source | `63770b9122f598b3e32ea1b0f5f4020c4325115f` |
+| Standard CI | [34067931031](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067931031), both jobs passed |
+| Installer and lifecycle | [34067936098](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067936098), passed |
+| Installer | `WebnovelStudio V3_3.0.0_x64-setup.exe` |
+| Installer SHA-256 | `eef43925590d588f44e2e35978597e8aabc0b323f081c97f5092c45effc0fff2` |
+
+The installed release passed synthetic project/chapter creation, writing, save/reopen, normal close, in-place uninstall, and same-version reinstall with project, document, and exact text retained. The installed ProductVersion was `3.0.0`; there were no errors or forced process stops. Evidence is retained under `.local/ci-34067936098`.
+
+The downloaded installer is retained locally at `.local/builds/3.0.0/WebnovelStudio V3_3.0.0_x64-setup.exe` with `artifact.json` and `build-metadata.json`. Its 269,146,426 bytes, SHA-256, ProductName, and ProductVersion were verified against the hosted artifact. Previous delivered builds remain available.
+
+[Retest 34068729080](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34068729080) passed the same lifecycle using that exact installer and the later documentation-only qualification source `ded8f3d43e0a14589cfd6afbde866f39e61530ba`. Its metadata preserves the original installer build separately from the current harness source. It skipped dependency setup and compilation, finishing in 1 minute 59 seconds versus the fresh job's 16 minutes 20 seconds. Evidence is retained under `.local/ci-34068729080`.
+
+The earlier run `34066312408` on `729d6bd` built a 3.0.0 installer but failed before project creation because the harness searched for `Library` instead of the current `Your library` label. Its metadata and failure evidence remain under `.local/ci-34066312408`; its installer was not retained by the old success-only upload step. It is superseded by the passing candidate above.
 
 ## Private candidate preparation
 
 - [x] Synchronize Rust, Tauri, npm, and lock-file versions through the workspace version guard.
 - [x] Preserve the stable application identifier and separate release/debug data locations.
 - [x] Pass hosted development CI run `34064355153` on `db3df283`: all 52 native checks plus the HTTP, close, interruption, recovery, and memory jobs.
-- [x] Pass the local 3.0.0 candidate check: 721 Rust tests, 434 frontend tests, six version-guard tests, formatting, strict Clippy, TypeScript, and the production build.
-- [ ] Build and retain a 3.0.0 installer candidate and its metadata; the first build succeeded but did not retain the installer after the harness failure.
-- [ ] Confirm hosted checks for the final candidate commit.
-- [ ] Complete installed package lifecycle qualification after correcting the stale `Library` locator: launch, project creation, chapter creation, close/reopen, and same-version uninstall/reinstall retention.
+- [x] Pass the local 3.0.0 tooling check: 721 Rust tests, 434 frontend tests, 11 tooling checks, formatting, strict Clippy, TypeScript, and the production build in 39.41 seconds.
+- [x] Build and retain the 3.0.0 installer and its metadata.
+- [x] Confirm hosted checks for candidate source `63770b9`; subsequent documentation changes do not alter application code.
+- [x] Complete installed package lifecycle qualification: launch, project creation, chapter creation, close/reopen, and same-version uninstall/reinstall retention.
+- [x] Qualify reuse of the exact installer after an allowed documentation-only change without rebuilding it.
 
 ## Broader distribution and author qualification
 

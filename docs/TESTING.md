@@ -65,11 +65,26 @@ The Windows job allows 35 minutes for a cold build and cache upload. The first
 3.0.0 run passed all test and native steps but exceeded the previous 25-minute
 job limit during cache saving. Individual test harness timeouts are unchanged.
 
-The 3.0.0 candidate tests Windows CI with limited Rust debug information
-(`CARGO_PROFILE_DEV_DEBUG=1`, `CARGO_PROFILE_TEST_DEBUG=1`) to reduce dependency
-artifacts and cache work. Assertions and native development features remain
-enabled. Local debugging and release profiles are unchanged; hosted qualification
-must confirm the candidate before this experiment is counted as an improvement.
+The 3.0.0 candidate now uses limited Rust debug information
+(`CARGO_PROFILE_DEV_DEBUG=1`, `CARGO_PROFILE_TEST_DEBUG=1`) in standard CI to
+reduce dependency artifacts and cache work. Assertions and native development
+features remain enabled. This is adopted for hosted CI; local debugging and
+release profiles are unchanged.
+
+The final standard CI qualification for source
+`63770b9122f598b3e32ea1b0f5f4020c4325115f` is [run
+34067931031](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067931031).
+Both jobs passed 721 Rust tests, 434 frontend tests, and 11 tooling checks. The
+Windows job also passed all 52 main native checks plus the HTTP, normal-close,
+strict-interruption, recovered-project, and reviewed-memory lookup flows. Logs
+are `.local/release-ci-qualified.log` and
+`.local/release-ci-qualified-jobs.json`.
+
+The adopted cache restored 657,680,598 bytes versus 1,067,977,623 bytes at the
+earlier full-debug checkpoint, about 38% smaller. The qualified run recorded a
+38-second restore, 71-second Clippy step, and 289-second Rust test step; its
+post-cache step was already up to date, so no archive was created. Local
+debugging and release profiles remain unchanged.
 
 ## Measured checkpoint — 7 September 2026
 
@@ -132,3 +147,11 @@ The small Node guard suite runs in the normal local check and both CI jobs:
 ```powershell
 node --test scripts/check-versions.test.mjs scripts/prepare-package-retest.test.mjs
 ```
+
+The fresh package job [34067936098](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067936098)
+passed in 16 minutes 20 seconds. [Retest 34068729080](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34068729080)
+passed the same installed lifecycle in **1 minute 59 seconds**, using the exact
+installer from `63770b9` and the documentation-only harness checkout `ded8f3d`.
+All four dependency/build steps were skipped; original and qualification source
+identities remained distinct in the downloaded evidence. This is a measured
+improvement for harness iteration, not a substitute for a fresh application build.

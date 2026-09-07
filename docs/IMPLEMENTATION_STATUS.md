@@ -7,8 +7,8 @@
 
 ### V3.0.0 workspace preparation — 7 September
 
-The active goal is development-speed optimization and workspace cleanup for
-V3.0.0. Rust packages now inherit workspace version `3.0.0`; npm metadata and
+Development-speed optimization and workspace preparation for the private
+V3.0.0 candidate are complete. Rust packages inherit workspace version `3.0.0`; npm metadata and
 locks agree, and Tauri derives the installer version from Cargo. The stable
 application identifier and author-data paths are unchanged. Six focused
 version-guard checks cover agreement, inheritance, lock drift and line endings.
@@ -16,8 +16,8 @@ version-guard checks cover agreement, inheritance, lock drift and line endings.
 The candidate's local full check passed all 721 Rust and 434 frontend tests,
 the six version checks, formatting, strict Clippy, TypeScript and production
 build in 85.64 seconds including recompilation in the normal root `target/`.
-Evidence: `.local/release-3.0.0-check.{log,json}`. Final hosted candidate and
-installer qualification are still pending. See [release preparation](RELEASE_3_0_0.md)
+Evidence: `.local/release-3.0.0-check.{log,json}`. Final hosted standard CI and
+the synthetic installed-package lifecycle pass. See [release preparation](RELEASE_3_0_0.md)
 and [changelog](../CHANGELOG.md); neither announces a public release.
 
 The warm candidate check then passed in **43.98 seconds** using the normal
@@ -37,9 +37,38 @@ but the overall run was cancelled after exceeding its 25-minute job limit during
 cache saving. It is not a green CI result. The cache finished uploading during
 cleanup: 657,680,598 bytes with limited debug information versus 1,067,977,623
 bytes at the earlier full-debug checkpoint, about 38% smaller. The next run
-must confirm warm behavior; the job now allows 35 minutes for cold setup and
+needed to confirm warm behavior; the job now allows 35 minutes for cold setup and
 cache work without changing individual harness limits. Its native evidence is
 retained under `.local/ci-34066304241`.
+
+The final standard CI qualification for source
+`63770b9122f598b3e32ea1b0f5f4020c4325115f` is [run
+34067931031](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067931031).
+Both jobs passed: Ubuntu covers core/frontend checks and Windows covers the
+full 721-test Rust workspace; each runs 434 frontend tests and 11 tooling checks.
+The Windows job also passed all 52 main native checks plus the
+HTTP, normal-close, strict-interruption, recovered-project, and reviewed-memory
+lookup flows. Logs are `.local/release-ci-qualified.log` and
+`.local/release-ci-qualified-jobs.json`.
+
+The limited-debug-information cache is now adopted for standard CI:
+657,680,598 restored bytes versus 1,067,977,623 at the earlier full-debug
+checkpoint, about 38% smaller. The qualified run recorded a 38-second cache
+restore, 71-second Clippy step, and 289-second Rust test step; the post-cache
+step was already up to date, so no archive was created. Local debugging and
+release profiles remain unchanged.
+
+The 3.0.0 installer from that same source passed [package run
+34067936098](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34067936098):
+synthetic project/chapter creation, writing, save/reopen, normal close, and
+same-version uninstall/reinstall with retained text, no errors and no forced
+stop. [Retest 34068729080](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34068729080)
+passed with that exact installer and the later documentation-only checkout
+`ded8f3d`, recording the build and qualification sources separately. Retesting
+took 1 minute 59 seconds versus the fresh package job's 16 minutes 20 seconds.
+The preceding docs-only push also started no redundant CI run. Broader release,
+live-provider and author-trial gates remain open; the primary Create with AI
+redesign is still deferred.
 
 Workspace cleanup reclaimed **73.94 GiB** of obsolete project build products
 across 23 scratch Cargo trees. Automatic review blocked bulk directory deletion;

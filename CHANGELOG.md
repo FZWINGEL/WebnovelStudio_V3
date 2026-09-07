@@ -18,11 +18,12 @@ WebnovelStudio V3 is a native Windows desktop writing workspace for English web 
 
 ### Current verification
 
-- The current candidate has 721 Rust tests and 434 frontend tests in the verified matrix. The hosted CI result is recorded in the release preparation guide.
+- The current candidate passes 721 Rust tests, 434 frontend tests, and 11 tooling checks, with Ubuntu and Windows CI plus the native application flows verified.
 - Version consistency is checked from the Cargo workspace version across Rust, Tauri, npm, and lock files.
+- The 3.0.0 installer passes synthetic writing, save/reopen, normal close, and same-version uninstall/reinstall with retained text. Exact artifacts and source identities are recorded in the [release preparation guide](docs/RELEASE_3_0_0.md).
 
 ### Still being qualified
 
-- A fresh 3.0.0 Windows package and installer run, including offline and no-WebView2 cases.
+- Offline installation and the no-WebView2 case.
 - Upgrade retention, native backup/recovery/export dialogs, accessibility and keyboard behavior, high-DPI behavior, long chapters, and interruption recovery on the packaged application.
 - Live provider and release qualification. Claude and HTTP integrations are present development surfaces; their full live qualification is not claimed here.
