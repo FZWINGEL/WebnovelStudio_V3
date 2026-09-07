@@ -116,7 +116,9 @@ fn context_request(
     window: &str,
 ) -> StartWorkshop {
     let saved = project.read_workshop(access.clone()).unwrap();
-    let session = &saved.state.sessions[0];
+    let session = saved.state.sessions.iter().find(|session| {
+        Some(&session.id) == saved.state.current_session_id.as_ref()
+    }).expect("current workshop session");
     StartWorkshop {
         access: access.clone(),
         operation_id: operation.into(),
@@ -233,6 +235,111 @@ fn corrected_brief_reaches_new_requests_without_rewriting_prose_or_historical_pa
     assert_eq!(cleared_envelope["authorBrief"], "");
     assert_eq!(cleared_envelope["currentElement"], first_envelope["currentElement"]);
     assert_eq!(metadata_from_instruction(&first_instruction).unwrap().exploration.working_selection.unwrap().text, "Editable passage.");
+}
+
+#[test]
+fn notes_organization_preserves_originals_and_parent_work_through_review_adoption_and_reopen() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("notes-organization".into()).unwrap();
+    let original = "The archive accepts memories.\nMaybe it returns them?\nA line: ‘I remember the rain.’\nKeep the ending undecided.";
+    let source = project.create_document(CreateDocument {
+        access: access.clone(), operation_id: "original-note".into(),
+        document_id: "original-note".into(), title: "Raw archive notes".into(),
+        kind: "note".into(), body: body("original", original),
+    }).unwrap();
+    let manuscript = project.create_document(CreateDocument {
+        access: access.clone(), operation_id: "notes-unrelated-chapter".into(),
+        document_id: "chapter-other".into(), title: "An unrelated chapter".into(),
+        kind: "chapter".into(), body: body("chapter", "UNRELATED_MANUSCRIPT_PROSE"),
+    }).unwrap();
+    let (mut state, _) = state_with_session("parent-work");
+    state.sessions[0].working_text = "PARENT_WORKING_PROSE_AND_SELECTION".into();
+    state.sessions[0].original_notes = original.into();
+    state.sessions[0].direction = "PARENT_DIRECTION_SHOULD_NOT_BIAS_ORGANIZATION".into();
+    state.sessions[0].focus_document_id = Some(source.head.document_id.clone());
+    state.sessions[0].included_document_ids = vec![source.head.document_id.clone()];
+    state.sessions[0].selected_details = vec![SelectedDetail {
+        id: "parent-fixed-detail".into(), candidate_id: None,
+        text: "PARENT_WORKING_PROSE_AND_SELECTION".into(), fixed: true,
+    }];
+    let parent = state.sessions[0].clone();
+    let saved = save_state(&project, &access, "save-parent-notes", "0", state);
+    let mut state = saved.state;
+    let mut organization = session("notes-organization");
+    organization.title = "Organize archive notes".into();
+    organization.lens = Lens::Notebook;
+    organization.anchor_document_id = Some("workshop-notes-organization".into());
+    let organization_brief = "Organize the preserved notes without deciding their uncertainties.";
+    organization.brief = organization_brief.into();
+    organization.original_notes = original.into();
+    organization.selected_scope = "Original notes organization".into();
+    state.current_session_id = Some(organization.id.clone());
+    state.sessions.push(organization);
+    save_state(&project, &access, "save-organization", &saved.version, state);
+    let mut request = context_request(&project, &access, "organize-notes", "directions", "100000");
+    request.exploration.selected_scope = "Original notes organization".into();
+    request.exploration.instruction = "Propose three organizations of originalNotes; retain ambiguity and create no story facts or settings.".into();
+    let started = project.start_workshop(request.clone()).unwrap();
+    let final_message = started.packet.messages.last().unwrap().content.clone();
+    let metadata = metadata_from_instruction(&final_message).unwrap();
+    assert_eq!(metadata.current_element, organization_brief);
+    assert_eq!(metadata.original_notes, original);
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&final_message).unwrap()["authorBrief"], organization_brief);
+    assert!(metadata.direction.is_empty());
+    assert!(metadata.exploration.working_selection.is_none());
+    assert!(metadata.exploration.selected_text.is_empty());
+    assert!(metadata.selected_details.is_empty());
+    assert!(metadata.relationship.is_none());
+    let sent_text = started.packet.messages.iter().map(|message| message.content.as_str()).collect::<String>();
+    for excluded in ["UNRELATED_MANUSCRIPT_PROSE", "PARENT_WORKING_PROSE_AND_SELECTION", "PARENT_DIRECTION_SHOULD_NOT_BIAS_ORGANIZATION"] {
+        assert!(!sent_text.contains(excluded));
+    }
+    let organized = "Archive\nThe archive accepts memories.\n\nUnresolved\nMaybe it returns them?\nKeep the ending undecided.\n\nDialogue fragment\nA line: ‘I remember the rain.’".to_owned();
+    complete_context_fixture(&project, &started, context_candidates("directions", &[&organized, original, "Questions first: Maybe it returns them? The other notes remain available for review."]));
+    let view = project.read_workshop(access.clone()).unwrap();
+    assert_eq!(view.state.sessions[0], parent);
+    assert_eq!(view.state.sessions[1].original_notes, original);
+    assert!(view.state.sessions[1].working_text.is_empty());
+    assert!(view.state.decisions.is_empty());
+    let candidates = &view.results[0].output.as_ref().unwrap().candidates;
+    assert_eq!(candidates.len(), 3);
+    let chosen = candidates[0].clone();
+    let mut edited_state = view.state;
+    edited_state.sessions[1].working_text = format!("{}\n\nAuthor addition: preserve this uncertainty.", chosen.content);
+    edited_state.sessions[1].working_generation = "1".into();
+    let reviewed = edited_state.sessions[1].working_text.clone();
+    let saved = save_state(&project, &access, "edit-organization-proposal", &view.version, edited_state);
+    let preview = project.preview_workshop_adoption(PreviewWorkshopAdoption {
+        access: access.clone(), session_id: "notes-organization".into(), expected_version: saved.version,
+        candidate_ids: vec![chosen.id], targets: vec![WorkshopAdoptionTarget {
+            document_id: "organized-notes".into(), expected: None, title: "Organized notes".into(),
+            kind: "note".into(), mode: AdoptionMode::Add, body: body("organized", &reviewed),
+        }], rationale: "Group the notes; keep uncertain questions open.".into(), protected_text: vec![],
+        relationships: vec![], impact_drafts: vec![],
+    }).unwrap();
+    let ack = project.adopt_workshop(access.clone(), "adopt-notes-organization".into(), preview.id).unwrap();
+    assert_eq!(ack.decision_ids.len(), 1);
+    drop(project);
+    let reopened = ProjectSession::open(&temp.0).unwrap();
+    let access = reopened.attach("notes-reopened".into()).unwrap();
+    let view = reopened.read_workshop(access.clone()).unwrap();
+    assert_eq!(view.state.sessions[0], parent);
+    assert_eq!(view.state.sessions[1].original_notes, original);
+    assert_eq!(view.state.sessions[1].working_text, reviewed);
+    for before in [source, manuscript] {
+        let after = reopened.document(access.clone(), before.head.document_id.clone()).unwrap();
+        // Freezing a story snapshot may create an immutable checkpoint, but
+        // organization/adoption must not change any author-owned source field.
+        assert_eq!(after.head, before.head);
+        assert_eq!(after.body, before.body);
+        assert_eq!(after.title, before.title);
+        assert_eq!(after.kind, before.kind);
+        assert_eq!(after.metadata_version, before.metadata_version);
+    }
+    assert_eq!(reopened.document(access.clone(), "organized-notes".into()).unwrap().body, body("organized", &reviewed));
+    request.access = access;
+    assert_eq!(reopened.start_workshop(request).unwrap().packet.messages.last().unwrap().content, final_message);
 }
 
 #[test]

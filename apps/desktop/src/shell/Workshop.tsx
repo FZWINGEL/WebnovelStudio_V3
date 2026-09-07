@@ -7,7 +7,7 @@ import { sameModel, type ModelSelection } from '../ipc/providers';
 import { ContextInspector } from '../assistant/ContextInspector';
 import { CandidateBoard } from '../workshop/CandidateBoard';
 import { Preferences, applicablePreferences, preferenceLabel } from '../workshop/Preferences';
-import { ACTIONS, LENSES, SUBVERSIONS, WORLD_QUESTIONS, type WorkshopLens } from '../workshop/catalog';
+import { ACTIONS, LENSES, NOTES_ORGANIZATION_BRIEF, NOTES_ORGANIZATION_SCOPE, ORGANIZE_NOTES_INSTRUCTION, SUBVERSIONS, WORLD_QUESTIONS, type WorkshopLens } from '../workshop/catalog';
 import { describeWorkshopError, newSession, WorkshopStore } from '../workshop/store';
 import { appendText, plainText, textDocument } from '../workshop/text';
 import { Relationships } from '../workshop/Relationships';
@@ -49,7 +49,7 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
   const namesSelect = useRef<HTMLSelectElement>(null);
   const namesGuard = useRef<(() => Promise<void>) | null>(null);
   const registerNamesGuard = useCallback((guard: (() => Promise<void>) | null) => { namesGuard.current = guard; }, []);
-  const composing = useRef(false); const workingEditor = useRef<HTMLTextAreaElement>(null); const heading = useRef<HTMLHeadingElement>(null);
+  const composing = useRef(false); const [composingState, setComposingState] = useState(false); const workingEditor = useRef<HTMLTextAreaElement>(null); const heading = useRef<HTMLHeadingElement>(null);
   const providers = useProviders();
   const selectedModel = providers.state?.catalog.models.find(model => sameModel(model.key, providers.state!.settings.active));
   const canGenerate = !!providers.state && !providers.busy && selectedModel?.ready === true;
@@ -138,6 +138,35 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
     if (!canChangeExploration()) return;
     const next = newSession(lens);
     store.edit(current => ({ ...current, currentSessionId: next.id, sessions: [...current.sessions, next] })); setNotice('A new exploration is ready. Nothing has been generated.');
+  }
+  function canOrganizeNotes() {
+    return !!session?.originalNotes.trim() && canGenerate && !anyLive && !requestStarting.current && !requestBusy && !pendingRequest.current
+      && !adopting && !store.locked && !adoptionOperation.current && !navigationBusy && !composingState && !composing.current;
+  }
+  function organizeNotes() {
+    if (!session || !canOrganizeNotes()) return;
+    const source = session;
+    const next = newSession('notebook');
+    next.title = 'Organize original notes';
+    next.workingTitle = 'Organized notes';
+    next.parentSessionId = null;
+    next.brief = NOTES_ORGANIZATION_BRIEF;
+    next.direction = '';
+    next.stillOpen = '';
+    next.focusQuestion = 'How should these notes be organized for future writing?';
+    next.focusReason = 'Compare structures that preserve the author’s material, wishes, and open questions without deciding canon.';
+    next.focusDocumentId = null;
+    next.includedDocumentIds = [];
+    next.relationshipId = null;
+    next.selectedScope = NOTES_ORGANIZATION_SCOPE;
+    next.originalNotes = source.originalNotes;
+    next.composer = '';
+    const localPreferences = state.preferences.filter(preference => preference.scope === 'exploration' && preference.targetId === source.id)
+      .map(preference => ({ ...preference, id: crypto.randomUUID(), targetId: next.id }));
+    store.edit(current => ({ ...current, sessions: [...current.sessions, next], preferences: [...current.preferences, ...localPreferences], currentSessionId: next.id }));
+    setSelectedRun(null); setAction('directions'); setCapture(null); setNotesOpen(false);
+    setNotice('A separate notes organization proposal is ready. Your original notes and working draft remain unchanged.');
+    void generate('directions', undefined, next.id);
   }
   async function bringDocument(documentId: string) {
     if (!session || !documentId || adopting || adoptionOperation.current || navigationBusyRef.current) return;
@@ -235,24 +264,32 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
     setNotice('A provisional consequence comparison is ready. Review the exact candidate, basis, and assumption, then choose Explore when you want suggestions.');
     return true;
   }
-  async function generate(nextAction = action, candidate?: WorkshopCandidate) {
-    if (!session || requestStarting.current || requestBusy || live || (!pendingRequest.current && (!canGenerate || !providers.state)) || composing.current) return;
-    if (nextAction === 'subvert' && !pendingRequest.current && (!subversion || !session.selectedScope.trim() || session.selectedScope === 'Whole working version')) {
+  async function generate(nextAction = action, candidate?: WorkshopCandidate, targetSessionId = session?.id) {
+    const target = targetSessionId ? store.state.sessions.find(item => item.id === targetSessionId) : null;
+    const targetResults = target ? store.results.filter(item => item.sessionId === target.id) : [];
+    const targetResult = targetResults.find(item => item.run.id === selectedRun) ?? targetResults.at(-1) ?? null;
+    const targetLive = targetResults.find(item => ['queued', 'running', 'stopping'].includes(item.run.status));
+    const targetCapture = target && target.id === session?.id ? capture : null;
+    if (!target || requestStarting.current || requestBusy || targetLive || (!pendingRequest.current && (!canGenerate || !providers.state)) || composing.current) return;
+    if (nextAction === 'subvert' && !pendingRequest.current && (!subversion || !target.selectedScope.trim() || target.selectedScope === 'Whole working version')) {
       setNotice('Name the convention and choose a transformation before exploring its subversion.'); return;
     }
     requestStarting.current = true; setRequestBusy(true); setNotice('');
     try {
       await store.flush();
-      const current = store.state.sessions.find(item => item.id === session.id)!;
-      if (!pendingRequest.current && !candidate && capture && (capture.generation !== current.workingGeneration || current.workingText.slice(capture.from, capture.to) !== capture.text)) throw new Error('The selected passage changed. Select it again before exploring.');
+      const current = store.state.sessions.find(item => item.id === target.id)!;
+      const isCurrentSession = current.id === session?.id;
+      if (!pendingRequest.current && isCurrentSession && !candidate && targetCapture && (targetCapture.generation !== current.workingGeneration || current.workingText.slice(targetCapture.from, targetCapture.to) !== targetCapture.text)) throw new Error('The selected passage changed. Select it again before exploring.');
       const selectedAction = ACTIONS.find(item => item.id === nextAction) ?? ACTIONS[0];
-      const candidateDimension = nextAction === 'directions' && candidate && result?.output
-        ? `Compare alternatives along the existing dimension: ${result.output.dimension}.\nUse the selected candidate as an unaccepted starting point. Preserve author-chosen invariants and Keep fixed details; vary this dimension rather than replacing the whole idea.` : '';
-      const instruction = [selectedAction.instruction, candidateDimension, nextAction === 'subvert' ? `Convention to transform: ${current.selectedScope}.\nTransformation: ${subversion}.` : '', current.composer].filter(Boolean).join('\n\n');
+      const candidateDimension = nextAction === 'directions' && candidate && targetResult?.output
+        ? `Compare alternatives along the existing dimension: ${targetResult.output.dimension}.\nUse the selected candidate as an unaccepted starting point. Preserve author-chosen invariants and Keep fixed details; vary this dimension rather than replacing the whole idea.` : '';
+      const organizationInstruction = current.lens === 'notebook' && current.selectedScope === NOTES_ORGANIZATION_SCOPE && nextAction === 'directions' && !candidate && !targetCapture
+        ? ORGANIZE_NOTES_INSTRUCTION : '';
+      const instruction = [selectedAction.instruction, organizationInstruction, candidateDimension, nextAction === 'subvert' ? `Convention to transform: ${current.selectedScope}.\nTransformation: ${subversion}.` : '', current.composer].filter(Boolean).join('\n\n');
       pendingRequest.current ??= { operationId: crypto.randomUUID(), exploration: {
         sessionId: current.id, expectedVersion: store.version, workingGeneration: current.workingGeneration,
-        action: nextAction, instruction, selectedScope: nextAction === 'voiceGuidance' ? 'Voice qualities from the sample' : candidate?.title ?? (capture ? 'Selected passage in working version' : current.selectedScope), selectedText: candidate?.content ?? capture?.text ?? (nextAction === 'voiceGuidance' ? current.workingText : ''),
-        workingSelection: nextAction !== 'voiceGuidance' && !candidate && capture ? { from: capture.from, to: capture.to, text: capture.text } : null,
+        action: nextAction, instruction, selectedScope: nextAction === 'voiceGuidance' ? 'Voice qualities from the sample' : candidate?.title ?? (isCurrentSession && targetCapture ? 'Selected passage in working version' : current.selectedScope), selectedText: candidate?.content ?? (isCurrentSession ? targetCapture?.text : undefined) ?? (nextAction === 'voiceGuidance' && isCurrentSession ? current.workingText : ''),
+        workingSelection: nextAction !== 'voiceGuidance' && !candidate && isCurrentSession && targetCapture ? { from: targetCapture.from, to: targetCapture.to, text: targetCapture.text } : null,
       }, selection: structuredClone(providers.state!.settings.active) };
       const pending = pendingRequest.current;
       const started = await startWorkshop(access, pending.operationId, pending.exploration, pending.selection);
@@ -392,6 +429,7 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
   const fixed = session.selectedDetails.filter(detail => detail.fixed);
   const protectedChoices = state.decisions.filter(decision => decision.fixed && decision.documentId === session.focusDocumentId);
   const visibleResult = result ? { ...result, stale: result.stale || result.workingGeneration !== session.workingGeneration } : null;
+  const organizeNotesDisabled = !canOrganizeNotes();
 
   return <div className={`story-workshop ${contextOpen ? '' : 'context-hidden'}`} aria-label="Story Workshop" inert={navigationBusy} aria-busy={navigationBusy ? 'true' : undefined}>
     <aside className="workshop-navigation" aria-label="Development lenses">
@@ -400,15 +438,16 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
       <nav aria-label="Saved explorations">{state.sessions.map(item => <button key={item.id} aria-current={session.id === item.id ? 'true' : undefined} disabled={adopting || requestBusy || !!pendingRequest.current || !!adoptionOperation.current} onClick={() => chooseExploration(item.id)}>{item.branchKind === 'whatIf' ? 'What if · ' : ''}{item.title}</button>)}</nav>
       <p className="small-copy">Begin anywhere. Write whenever you want.</p>
     </aside>
-    <main className="workshop-workbench" aria-label="Current exploration" onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}>
+    <main className="workshop-workbench" aria-label="Current exploration" onCompositionStart={() => { composing.current = true; setComposingState(true); }} onCompositionEnd={() => { composing.current = false; setComposingState(false); }}>
       <div className="workshop-mobile-navigation"><label>Development lens<select value={session.lens} onChange={event => chooseLens(event.target.value as WorkshopLens)}>{LENSES.map(lens => <option key={lens.id} value={lens.id}>{lens.label}</option>)}</select></label><label>Exploration<select value={session.id} disabled={adopting || requestBusy || !!pendingRequest.current} onChange={event => chooseExploration(event.target.value)}>{state.sessions.map(item => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label><button onClick={() => addSession()}>New exploration</button></div>
       <header className="workshop-heading"><div><h1 ref={heading} tabIndex={-1}>{session.lens === 'overview' && !session.brief ? 'What are you excited about?' : LENSES.find(lens => lens.id === session.lens)!.label}</h1><p>{session.branchKind === 'whatIf' ? 'What-if exploration · separate from your working story' : 'Find a direction. Keep the details that matter.'}</p></div><button aria-expanded={contextOpen} onClick={() => setContextOpen(!contextOpen)}>{contextOpen ? 'Hide working story' : 'Working story & context'}</button></header>
       <div className="workshop-save-status" role="status">{store.status}{store.error && <> · {store.error} <button onClick={() => { void store.flush().catch(report); }}>Retry saving</button></>}</div>
       <details className="workshop-brief" open={!result}><summary>{result ? 'Starting idea · edit or bring notes' : 'Begin with what interests you'}</summary>
          <label>{session.lens === 'overview' ? 'Your idea, image, dialogue, or attraction' : 'What you want to explore'}<textarea value={session.brief} disabled={adopting || store.locked} maxLength={20000} rows={3} onChange={event => edit(current => ({ ...current, brief: event.target.value, title: current.title === 'A new exploration' ? event.target.value.trim().slice(0, 70) || current.title : current.title }))} placeholder="A city where people repair broken magic…" /></label>
         <div className="workshop-actions"><button disabled={adopting} onClick={() => { setAction('directions'); chooseQuestion('What are three different ways to begin with this attraction?', 'Compare a few mechanisms before committing to a setting, character, or ending.'); }}>Start with an idea</button><button disabled={adopting} onClick={() => { setAction('directions'); edit(current => ({ ...current, composer: 'Help me find a direction. Offer three contrasting starting attractions without assuming a genre, cast, or ending.' })); }}>Help me find a direction</button><button aria-expanded={notesOpen} onClick={() => setNotesOpen(!notesOpen)}>Bring existing notes</button></div>
-         {notesOpen && <div><label>Saved material<select value="" onChange={event => { void bringDocument(event.target.value); }}><option value="">Choose existing notes…</option>{material.map(document => <option key={document.head.documentId} value={document.head.documentId}>{document.title}</option>)}</select></label><label>Or paste notes to preserve<textarea value={session.originalNotes} disabled={adopting || store.locked} onChange={event => edit(current => ({ ...current, originalNotes: event.target.value, brief: event.target.value }))} maxLength={20000} /></label><p className="small-copy">Your original stays saved here. Organization is a proposal for you to edit.</p></div>}
+       {notesOpen && <div><label>Saved material<select value="" onChange={event => { void bringDocument(event.target.value); }}><option value="">Choose existing notes…</option>{material.map(document => <option key={document.head.documentId} value={document.head.documentId}>{document.title}</option>)}</select></label><label>Or paste notes to preserve<textarea value={session.originalNotes} disabled={adopting || store.locked} onChange={event => edit(current => ({ ...current, originalNotes: event.target.value, ...(current.lens === 'notebook' && current.selectedScope === NOTES_ORGANIZATION_SCOPE ? {} : { brief: event.target.value }) }), true)} maxLength={20000} /></label><p className="small-copy">Your original stays saved here. Organization is a proposal for you to edit.</p></div>}
       </details>
+      {!!session.originalNotes.trim() && <section className="workshop-notes-organization" aria-label="Original notes organization"><h2>Original notes organization</h2><p className="small-copy">Open a separate editable proposal from these exact notes. Your original notes and current working draft stay unchanged until you choose a version.</p><button disabled={organizeNotesDisabled} onClick={organizeNotes}>Organize these notes</button></section>}
       {result?.output && <details key={result.run.id} className="workshop-interpretation" open><summary>How this request interpreted your idea</summary><section aria-label="AI interpretation"><h3>AI suggestion</h3><dl><dt>You said</dt><dd>{result.output.interpretation.youSaid}</dd><dt>Possible direction</dt><dd>{result.output.interpretation.possibleDirection}</dd><dt>Still open</dt><dd>{result.output.interpretation.stillOpen}</dd></dl></section><section aria-label="Current interpretation"><h3>Current interpretation</h3><p className="small-copy">Edit these fields as your working interpretation. The AI suggestion stays above for reference.</p><label>You said<textarea aria-label="Current interpretation · You said" value={session.brief} maxLength={20000} disabled={adopting || store.locked} onChange={event => edit(current => ({ ...current, brief: event.target.value }))} /></label><button disabled={adopting || store.locked} onClick={() => edit(current => ({ ...current, brief: result.output!.interpretation.youSaid }))}>Use suggested You said</button><label>Possible direction<textarea aria-label="Current interpretation · Possible direction" value={session.direction} maxLength={12000} disabled={adopting || store.locked} onChange={event => edit(current => ({ ...current, direction: event.target.value }))} /></label><button disabled={adopting || store.locked} onClick={() => edit(current => ({ ...current, direction: result.output!.interpretation.possibleDirection }))}>Use suggested Possible direction</button><label>Still open<textarea aria-label="Current interpretation · Still open" value={session.stillOpen} maxLength={6000} disabled={adopting || store.locked} onChange={event => edit(current => ({ ...current, stillOpen: event.target.value }))} /></label><button disabled={adopting || store.locked} onClick={() => edit(current => ({ ...current, stillOpen: result.output!.interpretation.stillOpen }))}>Use suggested Still open</button></section><h3>Suggested next question</h3><p>{result.output.question}</p><p>{result.output.questionReason}</p><button disabled={adopting || store.locked} onClick={() => chooseQuestion(result.output!.question, result.output!.questionReason)}>Explore this question</button></details>}
       <section className="workshop-question"><h2>{session.focusQuestion}</h2><p>{session.focusReason}</p><div className="workshop-actions"><button onClick={() => questionStatus('notNow')}>Not now</button><button onClick={() => questionStatus('notRelevant')}>Not relevant</button><button onClick={() => questionStatus('keepMysterious')}>Keep mysterious</button><button onClick={differentQuestion}>Show a different question</button></div>
         {session.lens === 'world' && <details><summary>Explore a different part of this world slice</summary>{WORLD_QUESTIONS.map(question => <button key={question.title} onClick={() => chooseQuestion(question.text, question.reason)}>{question.title}</button>)}<label>Depth<select value={session.depth} onChange={event => edit(current => ({ ...current, depth: event.target.value as WorkshopSession['depth'] }))}><option value="sketch">Sketch</option><option value="develop">Develop</option><option value="document">Document</option></select></label></details>}

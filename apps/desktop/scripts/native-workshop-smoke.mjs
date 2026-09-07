@@ -81,6 +81,12 @@ function documents() {
   return database.prepare('SELECT id,kind,title,body_json FROM documents WHERE trashed=0 ORDER BY position').all().map(row => ({ ...row }));
 }
 
+function storyDocuments() {
+  // Workshop request anchors are persisted note rows but remain hidden
+  // implementation records, not author manuscript material.
+  return documents().filter(document => !document.id.startsWith('workshop-'));
+}
+
 function documentText(document) {
   const snapshot = JSON.parse(document.body_json);
   return (snapshot.body.content ?? []).map(block => (block.content ?? []).map(inline => inline.type === 'text' ? inline.text : '\n').join('')).join('\n');
@@ -1143,6 +1149,107 @@ try {
   assert(w30Decision && w30Decision.access === 'authorRoom', 'Explicit what-if adoption must create an author-room decision');
   await page.screenshot({ path: resolve(output, 'what-if-adoption-committed.png') });
   checks.push('W30 forks an independent what-if with its own anchor and exploration preference, preserves the parent across save/reopen and comparison, leaves story documents and providers untouched through preview, and changes only the existing world after explicit adoption while chapters remain unchanged');
+
+  // W06: paste existing notes through the visible entry flow, then use the
+  // explicit organization action.  The resulting Notebook is independent;
+  // candidate review/development remains author-only until adoption.
+  const w06PreviousSessionId = workshopState().state.currentSessionId;
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const w06BriefDetails = page.locator('details.workshop-brief');
+  if (await w06BriefDetails.getAttribute('open') === null) await w06BriefDetails.locator(':scope > summary').click();
+  await w06BriefDetails.getByRole('button', { name: 'Bring existing notes', exact: true }).click();
+  const w06OriginalNotes = [
+    'A paper map marks three doors in the archive.',
+    'Maybe the third door is only a metaphor; leave this unresolved.',
+    'Author wish: keep the caretaker ordinary and let the cost stay visible.',
+  ].join('\n');
+  await w06BriefDetails.getByRole('textbox', { name: 'Or paste notes to preserve', exact: true }).fill(w06OriginalNotes);
+  await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
+  const w06ParentId = workshopState().state.currentSessionId;
+  assert(w06ParentId && w06ParentId !== w06PreviousSessionId, 'W06 notes must belong to a fresh exploration');
+  await waitForDatabase(() => workshopState()?.state.sessions.some(session => session.id === w06ParentId && session.originalNotes === w06OriginalNotes), 'W06 original notes save');
+  const w06BeforeOrganize = workshopState();
+  const w06ParentBeforeOrganize = structuredClone(w06BeforeOrganize.state.sessions.find(session => session.id === w06ParentId));
+  assert(w06ParentBeforeOrganize, 'W06 parent exploration must be saved before organization');
+  const w06DocumentsBeforeOrganize = structuredClone(storyDocuments());
+  const w06DecisionsBeforeOrganize = structuredClone(w06BeforeOrganize.state.decisions);
+  const w06RunsBeforeOrganize = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  const w06AdoptionReceiptsBeforeOrganize = database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n;
+
+  await page.getByRole('button', { name: 'Organize these notes', exact: true }).click();
+  await waitForDatabase(() => {
+    const current = workshopState();
+    return current?.state.currentSessionId !== w06ParentId
+      && current?.state.sessions.some(session => session.id !== w06ParentId && session.lens === 'notebook' && session.originalNotes === w06OriginalNotes);
+  }, 'W06 organization Notebook');
+  const w06OrganizeState = workshopState();
+  const w06ChildId = w06OrganizeState.state.currentSessionId;
+  const w06Child = w06OrganizeState.state.sessions.find(session => session.id === w06ChildId);
+  assert(w06Child && w06Child.id !== w06ParentId, 'W06 organization must create an independent session');
+  assert.equal(w06Child.title, 'Organize original notes');
+  assert.equal(w06Child.workingTitle, 'Organized notes');
+  assert.equal(w06Child.lens, 'notebook');
+  assert.equal(w06Child.parentSessionId, null);
+  assert.equal(w06Child.branchKind, 'working');
+  assert.equal(w06Child.brief, 'Organize the preserved notes without deciding their uncertainties.');
+  assert.equal(w06Child.direction, '');
+  assert.equal(w06Child.stillOpen, '');
+  assert.equal(w06Child.focusDocumentId, null);
+  assert.equal(w06Child.relationshipId ?? null, null);
+  assert.equal(w06Child.outsideDirection, false);
+  assert.deepEqual(w06Child.includedDocumentIds, []);
+  assert.equal(w06Child.selectedScope, 'Original notes organization');
+  assert.equal(w06Child.originalNotes, w06OriginalNotes);
+  assert.equal(w06Child.workingText, '');
+  assert.deepEqual(w06Child.selectedDetails, []);
+  assert.deepEqual(w06Child.choices, []);
+  assert.deepEqual(w06OrganizeState.state.sessions.find(session => session.id === w06ParentId), w06ParentBeforeOrganize, 'W06 organization must preserve the parent exploration');
+  assert.deepEqual(storyDocuments(), w06DocumentsBeforeOrganize, 'W06 organization must not write story documents');
+  assert.deepEqual(w06OrganizeState.state.decisions, w06DecisionsBeforeOrganize, 'W06 organization must not create a story decision');
+
+  await waitForDatabase(() => {
+    const run = database.prepare('SELECT status FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+    return database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n === w06RunsBeforeOrganize + 1 && run?.status === 'completed';
+  }, 'W06 organization mock run');
+  await page.getByText('Generation complete', { exact: true }).waitFor({ timeout: 30_000 });
+  const w06Cards = page.locator('.candidate-card');
+  await w06Cards.first().waitFor();
+  assert.equal(await w06Cards.count(), 3, 'W06 organization must expose three reviewable candidates');
+  assert((await w06Cards.first().innerText()).trim(), 'W06 candidate review must expose candidate content');
+
+  // Developing is an explicit author action.  It may change only the
+  // organization child; no adoption is performed in this scenario.
+  await w06Cards.first().getByRole('button', { name: 'Develop this', exact: true }).click();
+  const w06Working = page.getByRole('textbox', { name: 'Develop or edit directly', exact: true });
+  await w06Working.waitFor();
+  const w06DevelopedText = await w06Working.inputValue();
+  assert(w06DevelopedText.trim(), 'W06 candidate development must populate the editable working version');
+  await page.locator('.workshop-save-status').filter({ hasText: 'Saved on this computer' }).waitFor();
+  await waitForDatabase(() => workshopState()?.state.sessions.find(session => session.id === w06ChildId)?.workingText === w06DevelopedText, 'W06 candidate development save');
+  assert.deepEqual(workshopState().state.sessions.find(session => session.id === w06ParentId), w06ParentBeforeOrganize, 'W06 candidate development must preserve source notes and parent manuscript');
+  assert.equal(workshopState().state.sessions.find(session => session.id === w06ChildId)?.originalNotes, w06OriginalNotes);
+  assert.deepEqual(storyDocuments(), w06DocumentsBeforeOrganize, 'W06 review/develop must not change the manuscript without adoption');
+  assert.deepEqual(workshopState().state.decisions, w06DecisionsBeforeOrganize, 'W06 review/develop must not adopt a story decision');
+  assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, w06AdoptionReceiptsBeforeOrganize, 'W06 review/develop must not adopt a story receipt');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, w06RunsBeforeOrganize + 1, 'W06 review/develop must not generate another run');
+  await page.screenshot({ path: resolve(output, 'w06-notes-organization-review.png') });
+
+  // Reopen through Library to prove the independent Notebook and author-only
+  // working version survive the normal project boundary.
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();
+  await ensureDevelopMode();
+  await page.getByRole('heading', { name: 'Notebook', exact: true }).waitFor();
+  await waitForDatabase(() => workshopState()?.state.currentSessionId === w06ChildId, 'W06 Notebook reopen');
+  assert.equal(await page.getByRole('textbox', { name: 'Develop or edit directly', exact: true }).inputValue(), w06DevelopedText);
+  const w06Reopened = workshopState();
+  assert.deepEqual(w06Reopened.state.sessions.find(session => session.id === w06ParentId), w06ParentBeforeOrganize, 'W06 Library reopen must preserve source notes and parent manuscript');
+  assert.equal(w06Reopened.state.sessions.find(session => session.id === w06ChildId)?.originalNotes, w06OriginalNotes);
+  assert.deepEqual(storyDocuments(), w06DocumentsBeforeOrganize, 'W06 Library reopen must preserve the manuscript without adoption');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, w06RunsBeforeOrganize + 1, 'W06 Library reopen must not generate');
+  assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, w06AdoptionReceiptsBeforeOrganize, 'W06 Library reopen must preserve the no-adoption boundary');
+  checks.push('W06 pastes exact existing notes, creates an independent parentless Notebook with no source pins or working material, runs one mock organization request, and keeps the source notes/manuscript unchanged through explicit candidate development and Library reopen without adoption');
 
   assert.deepEqual(pageErrors, [], `Native Workshop page errors: ${pageErrors.join('; ')}`);
   await writeFile(resolve(output, 'report.json'), JSON.stringify({

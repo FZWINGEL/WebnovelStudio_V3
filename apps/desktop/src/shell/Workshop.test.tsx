@@ -10,7 +10,7 @@ import type {
   WorkshopState, WorkshopView,
 } from '../ipc/workshop';
 import { Workshop, type WorkshopHandle } from './Workshop';
-import { LENSES, WORLD_QUESTIONS } from '../workshop/catalog';
+import { LENSES, NOTES_ORGANIZATION_BRIEF, NOTES_ORGANIZATION_SCOPE, ORGANIZE_NOTES_INSTRUCTION, WORLD_QUESTIONS } from '../workshop/catalog';
 
 const mocks = vi.hoisted(() => ({
   readWorkshop: vi.fn(),
@@ -317,6 +317,108 @@ describe('Story Workshop behavioral contracts', () => {
     expect(currentView.state.sessions[0]).toMatchObject({ brief: source.brief, direction: 'New model direction', stillOpen: source.stillOpen });
     expect(fields().map(field => field.value)).toEqual([source.brief, 'New model direction', source.stillOpen]);
     expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
+
+  it('opens original notes in an independent Notebook proposal before dispatch and leaves the parent working material untouched', async () => {
+    const source = session({ brief: 'Source interpretation', direction: 'Unrelated parent direction', stillOpen: 'Parent question', originalNotes: 'Exact note one.\nAmbiguous note two.',
+      focusDocumentId: 'world-1', includedDocumentIds: ['world-1'], workingText: 'Parent working draft.',
+      selectedDetails: [{ id: 'parent-detail', candidateId: 'parent-candidate', text: 'Parent selected detail.', fixed: false }],
+      choices: [{ candidateId: 'parent-candidate', status: 'saved', rationale: 'Keep for parent.', includeInContext: true }] });
+    const preference: WorkshopPreference = { id: 'source-preference', label: 'Source-only preference', family: 'World', meaning: 'Keep this exploration local.', examples: '', timing: '', polarity: 'want', strength: 'soft', scope: 'exploration', targetId: source.id, confirmed: true };
+    let savedChildBeforeDispatch = false;
+    mocks.startWorkshop.mockImplementationOnce(async (_access, _operationId, exploration) => {
+      savedChildBeforeDispatch = currentView.state.sessions.some(item => item.id === exploration.sessionId && item.composer === '');
+      const started = start();
+      currentView = { ...currentView, results: [result({ sessionId: exploration.sessionId, run: started.run })] };
+      return started;
+    });
+    await render(view({ state: state({ sessions: [source], preferences: [preference] }) }));
+    const parentWorking = host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!;
+    await act(async () => {
+      parentWorking.focus();
+      parentWorking.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', ctrlKey: true, bubbles: true }));
+      parentWorking.select();
+      parentWorking.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', code: 'KeyA', ctrlKey: true, bubbles: true }));
+      document.dispatchEvent(new Event('selectionchange', { bubbles: true }));
+    });
+    await waitFor(() => expect(host.textContent).toContain('Feedback scope: selected passage'));
+    expect(host.textContent).toContain('Parent working draft.');
+    await act(async () => exactButton('Organize these notes').click());
+    await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
+
+    const child = currentView.state.sessions.find(item => item.id !== source.id)!;
+    expect(savedChildBeforeDispatch).toBe(true);
+    expect(currentView.state.sessions.find(item => item.id === source.id)).toEqual(source);
+    expect(child).toMatchObject({ title: 'Organize original notes', workingTitle: 'Organized notes', parentSessionId: null, branchKind: 'working',
+      lens: 'notebook', brief: NOTES_ORGANIZATION_BRIEF, direction: '', stillOpen: '', originalNotes: source.originalNotes, workingText: '', selectedDetails: [], choices: [],
+      focusDocumentId: null, includedDocumentIds: [], selectedScope: NOTES_ORGANIZATION_SCOPE, focusQuestion: 'How should these notes be organized for future writing?' });
+    expect(child.id).not.toBe(source.id);
+    expect(currentView.state.preferences).toEqual([preference, expect.objectContaining({ ...preference, id: expect.any(String), targetId: child.id })]);
+    expect(currentView.state.preferences[1].id).not.toBe(preference.id);
+    const request = mocks.startWorkshop.mock.calls[0][2];
+    expect(request).toMatchObject({ sessionId: child.id, action: 'directions', selectedScope: NOTES_ORGANIZATION_SCOPE, selectedText: '', workingSelection: null });
+    expect(request.instruction).toContain(ORGANIZE_NOTES_INSTRUCTION);
+    expect(mocks.saveWorkshop.mock.invocationCallOrder.at(-1)!).toBeLessThan(mocks.startWorkshop.mock.invocationCallOrder[0]);
+    expect(mocks.previewWorkshopAdoption).not.toHaveBeenCalled();
+    expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(host.textContent).toContain('Direction a'));
+    await act(async () => exactButton('Develop this').click());
+    await act(async () => workshopHandle.current!.flush());
+    expect(currentView.state.sessions.find(item => item.id === source.id)).toEqual(source);
+    expect(currentView.state.sessions.find(item => item.id === child.id)?.workingText).toContain('A concrete direction for a.');
+    expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
+  });
+
+  it('keeps organization evidence changes in the child task brief and marks retained candidates stale', async () => {
+    const organization = session({ lens: 'notebook', brief: NOTES_ORGANIZATION_BRIEF, originalNotes: 'Original notes to organize.', selectedScope: NOTES_ORGANIZATION_SCOPE });
+    const savedResult = result({ sessionId: organization.id, workingGeneration: '0' });
+    await render(view({ state: state({ sessions: [organization] }), results: [savedResult] }));
+    await act(async () => exactButton('Bring existing notes').click());
+    const notes = [...host.querySelectorAll<HTMLTextAreaElement>('.workshop-brief textarea')].at(-1)!;
+    await act(async () => setValue(notes, 'Changed notes require a fresh proposal.'));
+    await waitFor(() => expect(host.textContent).toContain('Stale result'));
+    await act(async () => workshopHandle.current!.flush());
+
+    expect(currentView.state.sessions[0]).toMatchObject({ brief: NOTES_ORGANIZATION_BRIEF, originalNotes: 'Changed notes require a fresh proposal.', workingGeneration: '1' });
+    expect(currentView.results[0].workingGeneration).toBe('0');
+    expect(currentView.state.sessions[0].workingText).toBe('');
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
+
+  it('keeps notes organization explicit after paste and blocks it when the provider is unavailable', async () => {
+    await render();
+    expect(host.querySelector('.workshop-notes-organization')).toBeNull();
+    await act(async () => exactButton('Bring existing notes').click());
+    const notesFields = () => [...host.querySelectorAll<HTMLTextAreaElement>('.workshop-brief textarea')];
+    await act(async () => setValue(notesFields().at(-1)!, 'Pasted notes remain author material.'));
+    await waitFor(() => expect(exactButton('Organize these notes').disabled).toBe(false));
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+
+    mocks.providers.state = providerState(false);
+    await render(view({ state: state({ sessions: [session({ originalNotes: 'Unavailable provider notes.' })] }) }));
+    const before = structuredClone(currentView.state);
+    expect(exactButton('Organize these notes').disabled).toBe(true);
+    await act(async () => exactButton('Organize these notes').click());
+    expect(currentView.state).toEqual(before);
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
+
+  it('retries uncertain notes organization with the same child and pending request identity', async () => {
+    mocks.startWorkshop.mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'Notes organization acknowledgment was lost.' }).mockResolvedValueOnce(start());
+    const source = session({ originalNotes: 'Retry these exact notes.' });
+    await render(view({ state: state({ sessions: [source] }) }));
+    await act(async () => exactButton('Organize these notes').click());
+    await waitFor(() => expect(host.textContent).toContain('Notes organization acknowledgment was lost.'));
+    const firstCall = structuredClone(mocks.startWorkshop.mock.calls[0]);
+    const childId = currentView.state.currentSessionId;
+    expect(currentView.state.sessions).toHaveLength(2);
+    expect(exactButton('Organize these notes').disabled).toBe(true);
+    await act(async () => exactButton('Check request status').click());
+    await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledTimes(2));
+    expect(currentView.state.sessions).toHaveLength(2);
+    expect(currentView.state.currentSessionId).toBe(childId);
+    expect(mocks.startWorkshop.mock.calls[1]).toEqual(firstCall);
   });
 
   it('blocks leaving while Explore is saving its request basis before a run identity exists', async () => {

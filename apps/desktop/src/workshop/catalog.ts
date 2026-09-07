@@ -24,6 +24,15 @@ export const ACTIONS = [
   { id: 'synthesize', label: 'Combine selected details', instruction: 'Make a coherent working proposal from the author-selected details. Preserve their literal wording unless the author explicitly edited them. Identify substantive changes and assumptions; do not quietly replace the chosen mechanism.' },
 ] as const;
 export type WorkshopAction = typeof ACTIONS[number]['id'];
+export const NOTES_ORGANIZATION_SCOPE = 'Original notes organization';
+export const NOTES_ORGANIZATION_BRIEF = 'Organize the preserved notes without deciding their uncertainties.';
+export const ORGANIZE_NOTES_INSTRUCTION = [
+  'Organize the exact author material in originalNotes into three genuinely different organization structures.',
+  'Use originalNotes as the only source for the organization. Preserve its detail, ambiguities, and conflicts as unresolved rather than deciding between them.',
+  'Clearly separate quotations or near-verbatim notes, supported facts or claims, author wishes, and open questions.',
+  'Do not invent events, characters, settings, rules, relationships, or automatic story decisions.',
+  'Put the complete organization in each editable candidate content. Outlines are optional; no mandatory form is required.',
+].join('\n');
 export const SUBVERSIONS = ['Invert the power relationship', 'Change who pays the cost', 'Literalize the metaphor', 'Keep the emotional reward, change the mechanism'] as const;
 
 export const WORLD_QUESTIONS = [
