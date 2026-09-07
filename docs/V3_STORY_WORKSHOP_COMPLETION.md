@@ -79,7 +79,12 @@ warning remains. No native app or desktop keyboard automation was launched.
 
 Native WebView2 execution, fresh live-provider coverage, current installer
 qualification, and the author study remain open. W44 has no author observations.
-The latest hosted CI attempt, [34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258),
-was blocked before test steps by the reported billing/spending-limit condition.
+Hosted [CI 34164413029](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34164413029)
+for pushed head `074fc96d9fa37a5924ea36878346f82e733bcb0e` finished with failure.
+Both `contracts` and `windows-native` had empty step lists: GitHub refused job
+admission because recent account payments failed or the spending limit needs
+to be increased. No hosted test or native step ran. Run/job data and both check
+annotations are retained in `.local/workshop-completion-hosted*.json`. No manual
+rerun or package dispatch was made.
 Passing local checks does not close those gates. The author-study facilitator
 kit is ready; author observations must come from actual participants.

@@ -39,8 +39,10 @@ relationship references, and adoption-request integrity.
 
 This checkpoint does not claim full specification acceptance. Native/live/
 installer coverage remains open, and W44 has no author observations. Hosted CI
-run [34160853258](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34160853258)
-was blocked before steps by the reported billing/spending-limit condition.
+run [34164413029](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34164413029)
+for pushed head `074fc96` was blocked before steps in both jobs by GitHub's
+reported billing/spending-limit condition. No hosted test steps ran; job data
+and annotations are retained in `.local/workshop-completion-hosted*.json`.
 The debug executable is rebuilt without a native launch. Full specification
 acceptance remains open until those external evaluation gates have evidence.
 The preceding recap/sample/context and candidate-alternatives checkpoints below

@@ -18,6 +18,13 @@ modified `2026-09-07T21:41:16.3227704Z`. The log and JSON identity are
 is not a clean-source installer candidate and does not qualify native runtime
 or author experience. See the [completion record](V3_STORY_WORKSHOP_COMPLETION.md).
 
+Hosted [CI 34164413029](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34164413029)
+for pushed head `074fc96` failed before any step in `contracts` or
+`windows-native`. Both annotations report an account payment/spending-limit
+problem. `.local/workshop-completion-hosted*.json` retains the exact job and
+annotation evidence. No native runtime result or installer was produced, and no
+manual rerun or package dispatch was made.
+
 ## Preceding notes-organization checkpoint
 
 The preceding notes-organization source is
