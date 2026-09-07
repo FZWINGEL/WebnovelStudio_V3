@@ -1,21 +1,48 @@
 # Story Workshop implementation and acceptance
 
-**Current source:** `7eb94fbff3380688786c54a78e2e3dcdaea815bc`.
-The fresh [CI run 34156441884](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156441884)
-and [package run 34156451569](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156451569)
-were refused before job steps started. GitHub reports an account billing or
-spending-limit issue. No current hosted tests or installer build ran; the local
-evidence below remains distinct. Read-only run/annotation evidence is retained
-under `.local/workshop-context-samples-hosted/`. No automatic retry was started.
+**Current source:** `7832c2a68952db88ad5428077856e60ee8c57b34`.
+Automatic [CI run 34158319509](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509)
+created a [contracts job](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509/job/101854675961)
+and a [windows-native job](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509/job/101854675925),
+but both were refused before steps (`steps=[]`) with billing/payment/spending-limit
+annotations. No hosted test or package step ran, and no manual retry or package
+dispatch was made. Run/job evidence is retained under
+`.local/workshop-interpretation-hosted/`.
 
 This work implements [the Story Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md),
 fetched at `c83a127`, in the existing Rust/Tauri V3 application. The specification
 is the target; this ledger records implementation and evidence separately. The
 previous private 3.0.0 installer predates this work and does not qualify it.
-The current checkpoint is the recap/sample/context slice with local
-headless evidence and a final debug build; fresh hosted native and
-package qualification remain pending. The preceding candidate-alternatives
-checkpoint is pushed at
+The latest checkpoint makes **You said**, **Possible direction**, and **Still open**
+directly editable. Author values survive clear and reopen without copying
+immutable AI suggestions or changing preferences or working prose; each new
+result reveals its panel, and uncertain adoption disables duplicate fields while
+leaving reconciliation available. Rust freezes actor-owned `session.brief` as
+top-level string `authorBrief` in the final `story-workshop-request.v1` instruction,
+separately from exact current-element and original-notes fields, with a short
+role instruction. Strict nested metadata/schema-36 shape remains unchanged;
+historical instruction/packet hashes are preserved. The new final instruction is
+stored, hash-bound, and replay-stable. Request context prefers the final
+schema-tagged request message and shows the exact brief
+and `stillOpen`; it does not reconstruct a historical missing brief.
+
+The final local wrapper (`.local/workshop-interpretation-final-check.log`) passed
+770 Rust tests (73 core unit, 624 integration, 73 desktop; one intentional
+ignore), 562 frontend tests in 50 files, and 11 tooling checks, plus formatting,
+strict Clippy, TypeScript, and production build. SQLite integration proves
+scoped prose is unchanged, corrections survive reopen, fresh packets contain the
+correction, old packets replay byte-equivalently, and explicit clear is delivered.
+Unit tests refuse malformed/oversized briefs. The actual Workshop headless fixture
+passes at 1440 and 800 pixels with no overflow, errors, generation, or adoption
+calls (`.local/workshop-interpretation-qa/report.json`); the 800-pixel screenshot
+was inspected. Native harness syntax and static review pass; native runtime has
+not been executed. The debug build succeeded through `spike` and was not
+launched; its identity is recorded in the Windows qualification document.
+
+No author-study observations exist; full specification acceptance remains open.
+The preceding recap/sample/context and candidate-alternatives checkpoints below
+are historical evidence and do not qualify this source. The preceding
+candidate-alternatives checkpoint is pushed at
 `16540ea9f968e969f63b57817f36c2a187894516`. Its [Workshop
 installer](WINDOWS_PACKAGE_QUALIFICATION.md) passed the bounded installed
 lifecycle in package run
@@ -46,7 +73,7 @@ failure JSON, text, and screenshot are under
 `.local/ci-workshop-34153931657/native-spike-evidence/workshop/`.
 Package run [34153949693](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34153949693)
 passed the bounded installed lifecycle for that preceding checkpoint; it does
-not qualify the current recap/sample/context slice.
+not qualify the newer interpretation checkpoint.
 
 The follow-up native harness adds read-only aliases readiness waits for the new
 blank project, Writer reopen, and project reopen checks. Those changes are
@@ -61,7 +88,7 @@ or adoption call (`.local/workshop-alternatives-qa/` and
 `.local/workshop-stale-preview-qa/`). This is local exploration-version evidence,
 not a substitute for concurrent target-document CAS qualification.
 
-The current recap surface respects disposed questions, requires deliberate
+The preceding recap surface respects disposed questions, requires deliberate
 reopening, labels the draft as untouched, and distinguishes the chosen
 historical version from current navigation. The noncanon moment card has a
 dedicated voice-guidance route for whole-sample and exact-selection use; it does
@@ -456,8 +483,8 @@ green mock/frontend run alone.
 | W03 | 4, 16 | Dedicated three-zone workbench, collapsible context; full generic editor retained | Dedicated Workshop frontend and generic Write surface are present; three-zone/collapsible-context and native focus qualification remain pending. |
 | W04 | 4, 16 | Story Bible projects exact chosen document material and provenance | Six direct regressions cover exact current/historical sources, unavailable or mismatched revisions, deleted sources, project switching, source callbacks and focus. CI 34152622887 passed exact chosen history, superseded exclusion, preserved historical text after a manual source edit, and focus return without generation. Broader native unavailable-source cases remain open. |
 | W05 | 4, 15 | Responsive comparison/list/drawer, keyboard/focus, save feedback, composition-safe input | Comparison UI and save-watermark path are implemented; fixture has no overflow at four widths, while native keyboard/focus/composition evidence is pending. |
-| W06 | 5 | Fragment, direction help, existing notes; preserve originals; no genre/MC/ending gate | The native checkpoint covers seed save and local working edit; broader brief/direction preservation and native quality evidence remain pending. |
-| W07 | 5, 12 | Editable You said / Possible direction / Still open; question, reason, free alternatives | Direction and open-question fields are present in the Workshop state/UI; full question/reason/free-alternative qualification is pending. |
+| W06 | 5 | Fragment, direction help, existing notes; preserve originals; no genre/MC/ending gate | Direct editing now covers the author interpretation fields and preserves author values through clear/reopen without copying immutable AI suggestions or changing preferences or working prose. Existing brought-in notes remain saved, but a dedicated editable organization proposal for those notes is still missing; current directions are generic. Native and quality evidence remain pending. |
+| W07 | 5, 12 | Editable You said / Possible direction / Still open; question, reason, free alternatives | **You said**, **Possible direction**, and **Still open** are directly editable. UI/mock-store evidence covers clear/reopen persistence; SQLite proves a correction survives reopen, reaches a fresh packet, and explicit clear is delivered. Each new result reveals its panel, while uncertain adoption disables duplicate fields and keeps reconciliation available. Question/reason/free-alternative quality and native qualification remain pending. |
 | W08 | 6 | Three concise typed candidates with explicit differing dimensions and expandable details | CI 34133645198 passed one explicit mock generation returning three directions; broader candidate comparison and quality evidence remain pending. |
 | W09 | 6 | Develop, select details, save later; visible editable tray; preserved details in synthesis | CI 34133645198 passed the detail tray and local working edit, with reopened working/chosen history preserved; broader synthesis and native quality evidence remain pending. |
 | W10 | 6, 13 | Scoped direct/natural-language edits protect unselected and Keep fixed material | Candidate steering/edit paths exist and paragraph-level protected-content boundaries are covered locally; full scope projection and native/quality evidence remain pending. |
@@ -482,7 +509,7 @@ green mock/frontend run alone.
 | W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Protection remains effective across archive/supersession, explicitly removable in the UI, relevant to request context, and independently enforced for adoption targets. Three core protection regressions plus UI/headless checks pass. Broader native/access/evidence qualification remains pending. |
 | W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | Implemented locally, native qualification pending: branch graph and immutable ancestry checks; branch-local draft protection; inherited chosen context; parent/alternate text, fields, decision revisions and linked impact evidence; explicit preview/adopt. Focused core, component and shell tests pass. A 21st hosted Workshop group now covers real fork/reopen/compare/preview/adoption. Broader creative-quality and author evidence remain open. |
 | W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | AdoptionImpacts exposes reasons and four categories. Core tests cover candidate/relationship provenance and uncertain claims defaulting to possibleTension/needsReview without repair. CI 34133645198 adds relationship-impact decision provenance with zero chapter writes. Broader category/review quality remains unqualified. |
-| W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | `NextExplorationContext` now previews current material, selected details, related chosen source versions/rationales, relevant protection, and deliberately included alternatives before sending. Four component tests and integrated headless checks pass. `RequestContext` still reads the actual saved packet; preview metadata does not replace exact delivered-source inspection. Broader native/delivered-context qualification remains pending. |
+| W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | `NextExplorationContext` previews current material, selected details, chosen source versions/rationales, relevant protection, and deliberately included alternatives before sending. Rust freezes the actor-owned brief separately from exact editable prose and original notes in the final request. `RequestContext` reads that final message without reconstructing historical missing briefs. SQLite proves correction-reopen, fresh-packet delivery, byte-equivalent old-packet replay, and explicit clear; unit tests refuse malformed/oversized briefs. Five saved-request UI tests cover final-envelope selection, exact/empty briefs, legacy absence, relationship context, and stale-read refusal. The context preview retains its component/headless coverage. Native delivered-context qualification remains pending. |
 | W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | A persisted core request test excludes unrelated note/chat text, rejected and archived prose, and an unadopted vignette; only the explicitly included saved alternative and rejection rationale remain. Raw excluded results stay recoverable and the exact packet survives reopen. Native delivered-context qualification remains pending. |
 | W34 | 14 | Outside-current-direction retains hard constraints; budget omissions visible | A core request test proves outside-direction retains complete original notes, fixed details and hard exclusions. Mandatory overflow refuses preparation without a run or changed Workshop state; an ample budget preserves the inputs. Native budget/conflict messaging remains unqualified. |
 | W35 | 13–14 | Author secrets/intent cross into restricted writing only through explicit existing paths | Local Rust boundary coverage confirms a chosen author-room secret is excluded from a restricted snapshot/search; native/live writing qualification remains pending. |

@@ -4,41 +4,23 @@
 
 WebnovelStudio is an AI writing application with the author directing, reviewing, and accepting the work. The author manages several projects, develops story material in any order, asks the AI to draft chapters or develop ideas, and gives whole-document or selected-text feedback. Manual writing and editing remain available throughout.
 
-Current product source `7eb94fb` is pushed and the debug executable is rebuilt.
-Fresh hosted CI and packaging did not start because GitHub reported an account
-billing or spending-limit issue. Those attempts provide no new qualification;
-see the [current implementation status](docs/IMPLEMENTATION_STATUS.md).
+Current product source `7832c2a` is pushed and the debug executable is rebuilt.
+Workshop interpretations now open with a result and let the author edit
+**You said**, **Possible direction**, and **Still open** directly. Explicit
+suggestion-copy actions leave the original AI reading visible. Corrections and
+clears persist without changing the working prose or permanent preferences.
+The next request receives the corrected brief separately from editable prose;
+saved context inspection shows the exact brief that request received.
 
-The current recap/sample/context slice improves recaps, noncanon voice samples,
-and the preview of an exploration's context. Its full wrapper passed 767 Rust,
-557 frontend, and 11 tooling checks. A final unprotected-text label correction
-then passed 41 focused checks and TypeScript, followed by a fresh debug build.
-Hosted native and package qualification remain pending. The preceding controls checkpoint keeps
-consequence comparisons provisional, includes relationship endpoint preferences,
-preserves protection when a choice is archived, and honors deliberate question
-dispositions. The preceding candidate-level Give alternatives action retains
-its comparison dimension and asks to preserve chosen invariants; its full
-wrapper passed 766 Rust, 546 frontend, and 11 tooling checks. The preceding
-candidate checkpoint's package passes its bounded installed lifecycle.
-Complete Workshop native acceptance and author qualification remain open.
-The [Workshop ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md) records the exact
-evidence and remaining specification gates.
-
-The preceding candidate checkpoint's hosted native run passed 19 Workshop
-groups, including stale-preview refusal and author recovery, then stopped at an
-aliases textbox assertion that read before waiting for alias-load readiness;
-earlier save/DB/reopen checks passed, so it provides no alias-loss evidence.
-That checkpoint's package passed its bounded installed write/reopen, normal-close,
-and same-version retention lifecycle. Current local component headless checks at 1440 and 800 pixels pass with
-no overflow, page errors, model calls, or adoption calls. The integrated
-NextContext preview is covered by 57 focused UI checks across four files, and
-the preceding full wrapper passes 767 Rust / 557 frontend / 11 tooling checks
-plus formatting, strict Clippy, TypeScript, and production build. After the
-final protected-text condition correction, focused component and Workshop
-checks pass 41 tests and TypeScript. The final debug rebuild after that
-correction is recorded in the Windows qualification document and was not
-launched locally. Fresh full-wrapper, native, and package qualification for the
-current slice remain pending.
+The final local wrapper passes 770 Rust, 562 frontend, and 11 tooling checks,
+plus formatting, strict Clippy, TypeScript, and production build. Headless
+Workshop checks pass at 1440 and 800 pixels. [CI
+34158319509](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509)
+could not start its jobs because GitHub reported an account billing or spending-limit
+issue; no hosted test steps ran. Current native and package qualification, a
+dedicated organization proposal for brought-in notes, and author evaluation
+remain open. The [Workshop ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md)
+records implementation and qualification separately.
 
 **Workspace direction, 7 September 2026:** each project has persistent Chapters,
 Worldbuilding, Characters, Plot & themes, and Notes tabs. Chapters share one

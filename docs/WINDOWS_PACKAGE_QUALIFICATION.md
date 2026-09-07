@@ -1,6 +1,27 @@
 # Windows package qualification
 
-The current recap/sample/context source is
+The current interpretation source is
+`7832c2a68952db88ad5428077856e60ee8c57b34`. [CI
+34158319509](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34158319509)
+failed before any steps ran in either job. GitHub's annotations report an
+account billing or spending-limit issue. Evidence is retained in
+`.local/workshop-interpretation-hosted/`. No manual package retry was dispatched;
+hosted native and current-source installer qualification remain pending.
+
+## Current interpretation debug build — 7 September 2026
+
+`desktop.ps1 -Command spike` rebuilt the current source without launching it.
+The executable is `D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`,
+48,696,832 bytes, ProductVersion `3.0.0`, SHA-256
+`8772457faf9fb53cd4ca54dc9d645f93e689dd85f0475201bc07a4befef717b8`,
+modified at `2026-09-07T20:09:39.5739342Z`. The build log and identity are
+`.local/workshop-interpretation-debug-build.log` and
+`.local/workshop-interpretation-debug-build.json`. The final local wrapper
+passes 770 Rust / 562 frontend / 11 tooling checks; this is not hosted native
+or installed-package qualification. The native interpretation harness is
+syntax-checked and statically reviewed only.
+
+The preceding recap/sample/context source is
 `7eb94fbff3380688786c54a78e2e3dcdaea815bc`. Fresh
 [CI 34156441884](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156441884)
 and [package run 34156451569](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34156451569)
@@ -39,9 +60,9 @@ it provides no alias-loss evidence. `pageErrors=[]`, and the evidence under
 alias-loss observation. This does not establish a broad native pass or qualify
 the current recap/sample/context slice.
 
-## Current recap/sample/context debug build — 7 September 2026
+## Preceding recap/sample/context debug build — 7 September 2026
 
-The current debug executable was rebuilt after the protected-text correction
+That checkpoint's debug executable was rebuilt after the protected-text correction
 from the uncommitted recap/sample/context sources. It is
 `D:\WebnovelStudio_V3\target\debug\webnovel-desktop.exe`, 48,690,688 bytes,
 ProductVersion `3.0.0`, SHA-256
