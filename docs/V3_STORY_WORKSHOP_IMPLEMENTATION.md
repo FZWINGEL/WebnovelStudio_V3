@@ -44,6 +44,23 @@ build. The context inspector native addition reads the actual immutable packet
 and verifies confirmed local-mock delivery; it does not imply live-provider
 understanding. The expanded native flow has 20 intended check groups.
 
+Hosted [CI 34138626172](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34138626172)
+on `0cd1c956aa07545fdf47f41c544c9bfe21aec20a` passed Ubuntu and the Windows
+Rust/frontend/build steps. Workshop passed 19 groups with no page errors on
+WebView2 `151.0.4129.101`, including exact delivered context inspection, exact
+Story Bible history and focus, all six lenses, and persisted preset definition
+editing/reuse. The final untitled-project group failed at a test selector:
+the blank screen has both an h1 and h2 named “What are you excited about?”.
+The harness now requests the level-one heading; a headless blank-Workshop
+reproduction confirms the old two matches and the corrected unique match.
+Later native suites were skipped, so this run is not a complete native pass.
+Evidence is under `.local/ci-workshop-34138626172/workshop/`. Fresh installer run
+[34138625419](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34138625419)
+uses the same application source and remains in progress. The local debug build
+from that source is 48,421,376 bytes, ProductVersion 3.0.0, SHA-256
+`894008b51e800008fa3751c99d9d380056a6deac0d7bb8cf3ced47e31599a961`, built at
+`2026-09-07T15:32:16.7406333Z`; see `.local/workshop-hardening-debug-build.json`.
+
 ## Boundaries
 
 Documents remain the saved story material. Workshop sessions retain exploration
@@ -265,7 +282,7 @@ green mock/frontend run alone.
 | W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | Workshop question actions, durable statuses, unknown-to fields, and the local recap are implemented; the focused frontend question-cycle test passes. Native/quality evidence remains pending. |
 | W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | CI 34133645198 passed history UI and full Library reopen preserving seed, working, chosen, relationship, and history without generation; broader recap quality remains pending. |
 | W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Rationale and protected-content paths are implemented, with multiline/paragraph boundary checks covered locally; independent authority/access/evidence qualification remains pending. |
-| W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | What-if and existing-parent compare are implemented in the Workshop paths; reviewed acceptance and native/quality evidence remain pending. |
+| W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | Partial: the local fork copies the session and scoped preferences, and acceptance still uses explicit preview/adopt. The comparison shows prose only; changed decisions and likely affected material are missing. Core checks parent existence but still needs branch-kind, self-parent, and cycle validation. Dedicated branch creation/isolation/compare/adoption regressions and native qualification remain open. |
 | W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | AdoptionImpacts exposes reasons and four categories. Core tests cover candidate/relationship provenance and uncertain claims defaulting to possibleTension/needsReview without repair. CI 34133645198 adds relationship-impact decision provenance with zero chapter writes. Broader category/review quality remains unqualified. |
 | W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Explicit read of saved packets is implemented in `RequestContext.tsx` and context IPC; queued wording now says “saved”. The bounded live smoke passed the unchanged-anchor/manual/no-chapter path, while complete delivered-context qualification remains pending. |
 | W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | A persisted core request test excludes unrelated note/chat text, rejected and archived prose, and an unadopted vignette; only the explicitly included saved alternative and rejection rationale remain. Raw excluded results stay recoverable and the exact packet survives reopen. Native delivered-context qualification remains pending. |
@@ -282,6 +299,19 @@ green mock/frontend run alone.
 | W44 | 18 | Counterbalanced formative author study, same model/budget, ownership/coherence/usefulness | Pending observed author participation; protocol is prepared but no study evidence exists. |
 
 ## Qualification
+
+### Next implementation slice: complete what-if comparison
+
+1. Validate that working sessions have no parent and what-if sessions have a
+   valid distinct parent; reject cycles before persisting or preparing adoption.
+   Retain legitimate nested alternatives and existing source ownership checks.
+2. Extend comparison to identify the relevant chosen decisions, changed working
+   material, and evidence-backed likely impacts with reasons and source links.
+   Unknown effects stay unknown; opening comparison must not generate or write
+   story documents. Acceptance continues through the existing reviewed adoption.
+3. Add focused branch creation/reopen, parent-preservation, invalid-parent,
+   comparison, and explicit acceptance regressions, then a hosted native branch
+   flow. The current native check does not qualify these missing behaviors.
 
 Use synthetic temporary projects for contracts and native fixtures. Preserve
 existing writing and provider regression coverage; register core integration

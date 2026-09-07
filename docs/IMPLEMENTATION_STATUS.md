@@ -33,6 +33,14 @@ integration), 488 frontend tests and 11 tooling checks. It includes the retained
 trashed-source revision read with unchanged live-document/restore restrictions,
 plus symmetric preference conflict handling. The expanded native harness has
 20 intended check groups; execution is still required on the new source.
+The first hosted attempt, [CI 34138626172](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34138626172)
+on `0cd1c95`, passed Ubuntu and Windows Rust/frontend/build, then 19 Workshop
+groups with zero page errors. It stopped on an ambiguous heading selector in the
+final untitled-project group; the harness correction is locally reproduced.
+The later native suites were skipped. Fresh package run
+[34138625419](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34138625419)
+is still building the same application source. `target/debug/webnovel-desktop.exe`
+has been rebuilt from `0cd1c95`; exact identity is recorded in the Workshop ledger.
 
 The Develop/Write shell and dedicated six-lens Workshop frontend are implemented
 with editable brief/current direction/original notes, typed three-candidate

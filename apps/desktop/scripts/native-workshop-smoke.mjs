@@ -654,7 +654,7 @@ try {
   await page.getByRole('textbox', { name: 'Project title', exact: true }).fill('');
   await page.getByRole('button', { name: 'Create project', exact: true }).click();
   await page.getByRole('button', { name: 'Develop a story', exact: true }).click();
-  await page.getByRole('heading', { name: 'What are you excited about?', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'What are you excited about?', exact: true, level: 1 }).waitFor();
   const secondLibrary = await invoke('library_snapshot');
   const untitled = secondLibrary.entries.find(item => item.title === 'Untitled project' && item.path !== entry.path);
   assert(untitled, 'A project title must be optional');
