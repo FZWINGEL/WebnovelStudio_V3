@@ -40,6 +40,16 @@ historical output and selected details remain saveable. New generation and adopt
 refuse mismatched candidate authority. Unrelated relationship edits leave independent
 requests fresh; the UI refreshes completed-result status after a relationship save.
 
+This slice is pushed as `e61640a4738128b9744919275e362e402c7ed0d8`.
+Fresh [CI 34145255173](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145255173)
+and [package run 34145254658](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145254658)
+are confirmed in progress on that exact source. No installer reuse was requested.
+The local debug rebuild failed because Windows could not replace the open
+`target/debug/webnovel-desktop.exe` (process 55084, started 18:14:33 Berlin).
+The author application was not closed or controlled; its executable remains the
+earlier `ff276eb` build. Rebuild after it is closed; current log:
+`.local/workshop-relationship-debug-build.log`.
+
 The preceding hosted what-if run [CI 34141998962](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34141998962)
 on exact source `ff276eb5eecfec3b38da3af758ca1f6377add8a4` ended after 20
 Workshop checks with no page errors when W30 could not reach its button behind

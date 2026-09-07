@@ -412,6 +412,16 @@ Log: `.local/workshop-relationship-final-check.log`. A completed relationship
 response is refreshed in the UI after a deliberate relationship edit; a fresh
 proposal is required before adoption when the saved relationship scope changed.
 
+Published source is `e61640a4738128b9744919275e362e402c7ed0d8`. Fresh
+[CI 34145255173](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145255173)
+and [installer qualification 34145254658](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145254658)
+are in progress on that exact source. The local debug rebuild could not replace
+the running executable: Windows returned access denied for
+`target/debug/webnovel-desktop.exe`, owned by process 55084 since 18:14:33 Berlin.
+No author application was closed. The executable still belongs to the earlier
+`ff276eb` build; the failed attempt is recorded in
+`.local/workshop-relationship-debug-build.log`.
+
 The relationship and taste-test work described above is implemented locally and
 covered by focused UI/headless checks. Relationship-only adoption was not added:
 adoption still requires an explicit destination and the ordinary preview path.
