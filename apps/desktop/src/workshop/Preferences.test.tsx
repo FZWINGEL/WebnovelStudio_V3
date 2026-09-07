@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { exportWorkshopPreset, importWorkshopPreset, type WorkshopPreference, type WorkshopPreset, type WorkshopState } from '../ipc/workshop';
+import { exportWorkshopPreset, importWorkshopPreset, type WorkshopPreference, type WorkshopPreset, type WorkshopRelationship, type WorkshopState } from '../ipc/workshop';
 import { preferenceConflict, Preferences } from './Preferences';
 import { emptyWorkshop, newSession } from './store';
 
@@ -39,6 +39,51 @@ function projectPreference(overrides: Partial<WorkshopPreference> = {}): Worksho
 function presetPayload(name: string, preference = projectPreference()) {
   return JSON.stringify({ schemaVersion: 'workshop-preset.v1', name, preferences: [preference] });
 }
+
+function relationship(): WorkshopRelationship {
+  return {
+    id: 'relationship-1', fromDocumentId: 'person-a', toDocumentId: 'person-b', type: 'trusts',
+    description: 'A directional bond.', uncertainty: 'The reason remains open.', status: 'tentative',
+    sourceHeads: [
+      { documentId: 'person-a', version: '1', bodyHash: 'hash-a' },
+      { documentId: 'person-b', version: '1', bodyHash: 'hash-b' },
+    ],
+  };
+}
+
+function elementPreference(id: string, targetId: string, label: string): WorkshopPreference {
+  return projectPreference({ id, targetId, label, scope: 'element' });
+}
+
+it('shows both validated relationship endpoint preferences and excludes unrelated elements', () => {
+  const session = { ...newSession('people'), relationshipId: 'relationship-1' };
+  const state: WorkshopState = {
+    ...emptyWorkshop(), currentSessionId: session.id, sessions: [session], relationships: [relationship()],
+    preferences: [
+      elementPreference('from', 'person-a', 'From endpoint preference'),
+      elementPreference('to', 'person-b', 'To endpoint preference'),
+      elementPreference('other', 'person-other', 'Unrelated endpoint preference'),
+    ],
+  };
+  act(() => root.render(<Preferences state={state} session={session} onChange={vi.fn()} />));
+  expect(host.textContent).toContain('From endpoint preference');
+  expect(host.textContent).toContain('To endpoint preference');
+  expect(host.textContent).not.toContain('Unrelated endpoint preference');
+});
+
+it('keeps ordinary focused-element preference behavior when no relationship is bound', () => {
+  const session = { ...newSession('people'), focusDocumentId: 'person-a' };
+  const state: WorkshopState = {
+    ...emptyWorkshop(), currentSessionId: session.id, sessions: [session], relationships: [relationship()],
+    preferences: [
+      elementPreference('focused', 'person-a', 'Focused element preference'),
+      elementPreference('other', 'person-b', 'Other element preference'),
+    ],
+  };
+  act(() => root.render(<Preferences state={state} session={session} onChange={vi.fn()} />));
+  expect(host.textContent).toContain('Focused element preference');
+  expect(host.textContent).not.toContain('Other element preference');
+});
 
 it('keeps rejection local until an edited preference and scope are explicitly saved', async () => {
   const session = newSession('world');

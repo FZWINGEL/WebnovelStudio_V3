@@ -10,6 +10,7 @@ import type {
   WorkshopState, WorkshopView,
 } from '../ipc/workshop';
 import { Workshop, type WorkshopHandle } from './Workshop';
+import { LENSES, WORLD_QUESTIONS } from '../workshop/catalog';
 
 const mocks = vi.hoisted(() => ({
   readWorkshop: vi.fn(),
@@ -179,10 +180,13 @@ async function waitFor(check: () => void): Promise<void> {
   check();
 }
 
-async function render(value = currentView, projectValue = project): Promise<void> {
+async function render(value = currentView, projectValue = project, navigationBusy = false): Promise<void> {
   currentView = value;
-  await act(async () => root.render(<Workshop ref={workshopHandle} project={projectValue} onOpenDocument={vi.fn()} onDocumentsChanged={onDocumentsChanged} onError={vi.fn()} />));
+  await act(async () => root.render(<Workshop ref={workshopHandle} project={projectValue} navigationBusy={navigationBusy} onOpenDocument={vi.fn()} onDocumentsChanged={onDocumentsChanged} onError={vi.fn()} />));
   await waitFor(() => expect(host.textContent).toContain('Develop or edit directly'));
+}
+async function setNavigationBusy(value: boolean): Promise<void> {
+  await act(async () => root.render(<Workshop ref={workshopHandle} project={project} navigationBusy={value} onOpenDocument={vi.fn()} onDocumentsChanged={onDocumentsChanged} onError={vi.fn()} />));
 }
 
 beforeEach(() => {
@@ -225,6 +229,78 @@ afterEach(async () => {
 });
 
 describe('Story Workshop behavioral contracts', () => {
+  it('keeps protection visible and removable after archiving a fixed story choice', async () => {
+    const decision: WorkshopState['decisions'][number] = { id: 'fixed-choice', sessionId: 'session-1', title: 'Mixed motives', documentId: 'world-1', revisionId: 'protected-revision', head: project.documents[0].head, candidateIds: [], rationale: 'Preserve credible safety concerns.', status: 'chosen', fixed: true, protectedText: ['The guild tests dangerous repairs.'], access: 'authorRoom', supersedesId: null };
+    await render(view({ state: state({ sessions: [session({ focusDocumentId: 'world-1' })], decisions: [decision] }) }));
+    expect(host.querySelector('[aria-label="Protection for this material"]')!.textContent).toContain('Mixed motives');
+    await act(async () => exactButton('Archive choice').click());
+    await act(async () => workshopHandle.current!.flush());
+    expect(currentView.state.decisions[0]).toMatchObject({ status: 'archived', fixed: true });
+    const details = host.querySelector('.workshop-decisions details')!;
+    expect(details.querySelector('summary')!.textContent).toContain('archived · Keep fixed');
+    await act(async () => details.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    await act(async () => workshopHandle.current!.flush());
+    expect(currentView.state.decisions[0]).toMatchObject({ status: 'archived', fixed: false });
+    expect(host.querySelector('[aria-label="Protection for this material"]')).toBeNull();
+    expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
+  it('blocks leaving while Explore is saving its request basis before a run identity exists', async () => {
+    await render();
+    let releaseSave!: () => void;
+    mocks.saveWorkshop.mockImplementationOnce((request: { state: WorkshopState }) => new Promise<WorkshopSnapshot>(resolve => {
+      releaseSave = () => {
+        currentView = { ...currentView, version: String(Number(currentView.version) + 1), state: structuredClone(request.state) };
+        resolve({ version: currentView.version, state: structuredClone(request.state) });
+      };
+    }));
+    await act(async () => setValue(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!, 'An unsaved idea to explore.'));
+    await act(async () => exactButton('Explore').click());
+    await waitFor(() => expect(releaseSave).toBeTypeOf('function'));
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    await expect(workshopHandle.current!.flush()).rejects.toThrow(/pending Workshop request/);
+    await act(async () => releaseSave());
+    await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
+    await act(async () => workshopHandle.current!.flush());
+    expect(mocks.startWorkshop).toHaveBeenCalledOnce();
+  });
+  it('keeps world, lens, and generated questions set aside until the author explicitly reopens them', async () => {
+    const world = WORLD_QUESTIONS[0];
+    const people = LENSES.find(lens => lens.id === 'people')!;
+    const offered = result().output!.question;
+    const questions: WorkshopSession['questions'] = [
+      { id: 'world-question', text: world.text, reason: world.reason, status: 'keepMysterious', unknownTo: 'reader' },
+      { id: 'people-question', text: people.question, reason: people.reason, status: 'notRelevant', unknownTo: 'both' },
+      { id: 'offered-question', text: offered, reason: 'Saved for later.', status: 'notNow', unknownTo: 'author' },
+    ];
+    await render(view({ state: state({ sessions: [session({ lens: 'world', focusQuestion: 'A current question', questions })] }), results: [result()] }));
+    await act(async () => exactButton(world.title).click());
+    expect(host.querySelector('.workshop-question h2')!.textContent).toBe('A current question');
+    expect(host.textContent).toContain('This question is marked Keep mysterious.');
+    await act(async () => exactButton('People').click());
+    expect(host.querySelector('.workshop-question h2')!.textContent).toBe('A current question');
+    expect(host.textContent).toContain('This question is marked Not relevant.');
+    await act(async () => exactButton('Explore this question').click());
+    expect(host.querySelector('.workshop-question h2')!.textContent).toBe('A current question');
+    expect(host.textContent).toContain('This question is marked Not now.');
+    await act(async () => exactButton('World').click());
+    const record = [...host.querySelectorAll('.workshop-question-record')].find(element => element.querySelector('p')!.textContent === world.text)!;
+    await act(async () => {
+      const select = record.querySelector('select')!;
+      select.value = 'open'; select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => exactButton(world.title).click());
+    expect(host.querySelector('.workshop-question h2')!.textContent).toBe(world.text);
+    expect(host.querySelector('.workshop-question > p')!.textContent).toBe(world.reason);
+    await act(async () => exactButton('Not now').click());
+    await act(async () => workshopHandle.current!.flush());
+    expect(currentView.state.sessions[0].questions.find(question => question.id === 'world-question')).toMatchObject({ status: 'notNow', unknownTo: 'reader' });
+    await act(async () => root.unmount()); root = createRoot(host);
+    await render(currentView);
+    await act(async () => exactButton(world.title).click());
+    expect(host.textContent).toContain('This question is marked Not now.');
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
   it('keeps unfinished names in the Workshop across lens changes and refuses leaving or another material until resolved', async () => {
     const fixture = relationshipFixture();
     await render(fixture.view, fixture.project);
@@ -326,10 +402,17 @@ describe('Story Workshop behavioral contracts', () => {
 
   it('reconciles an uncertain request with the same identity even after going offline', async () => {
     mocks.startWorkshop.mockRejectedValueOnce({ code: 'UncertainOutcome', detail: 'Acknowledgment lost.' });
-    await render();
+    await render(view({ state: state({ sessions: [session(), session({ id: 'other-session', anchorDocumentId: 'other-anchor', title: 'Another exploration' })] }) }));
     await act(async () => exactButton('Explore').click());
     await waitFor(() => expect(host.textContent).toContain('Acknowledgment lost.'));
     const original = structuredClone(mocks.startWorkshop.mock.calls[0]);
+    expect(exactButton('Another exploration').disabled).toBe(true);
+    await act(async () => selectValue('Exploration', 'other-session'));
+    await act(async () => exactButton('New exploration').click());
+    await act(async () => exactButton('Explore a what-if').click());
+    expect(currentView.state.currentSessionId).toBe('session-1');
+    expect(currentView.state.sessions).toHaveLength(2);
+    expect(host.textContent).toContain('Check the pending request before opening another exploration.');
     mocks.providers.state = providerState(false);
     await render();
     expect(exactButton('Check request status').disabled).toBe(false);
@@ -424,6 +507,58 @@ describe('Story Workshop behavioral contracts', () => {
     await act(async () => exactButton('Confirm Use this version').click());
     await waitFor(() => expect(onDocumentsChanged).toHaveBeenCalledOnce());
     expect(savedDocuments.map(document => document.head.documentId)).toContain('new-document');
+  });
+
+  it('prepares consequence rejection locally and carries exact provisional context through save and reopen', async () => {
+    const existingChoice = { candidateId: 'a', status: 'saved' as const, rationale: 'Keep the hopeful pressure', includeInContext: false };
+    const existingDetail = { id: 'existing-detail', candidateId: null, text: 'The author draft stays intact.', fixed: false };
+    const source = session({ workingText: 'The author draft stays intact.', composer: 'Keep my original direction.', selectedDetails: [existingDetail], choices: [existingChoice] });
+    await render(view({ state: state({ sessions: [source] }), results: [result()] }));
+    await act(async () => exactButton('Select details').click());
+    const card = host.querySelector('.candidate-card')!;
+    const implicationActions = card.querySelectorAll<HTMLButtonElement>('.candidate-implication-actions button');
+    await act(async () => implicationActions[1].click());
+    await waitFor(() => expect(currentView.state.sessions[0].composer).toContain('Questioned candidate: Direction a'));
+
+    const prepared = currentView.state.sessions[0];
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(prepared).toMatchObject({
+      workingText: source.workingText,
+      selectedScope: 'Direction a',
+      choices: [existingChoice],
+      selectedDetails: [existingDetail],
+    });
+    expect(prepared.composer).toContain('Questioned candidate: Direction a');
+    expect(prepared.composer).toContain('Candidate direction: A concrete direction for a.');
+    expect(prepared.composer).toContain('Implication: A possible consequence');
+    expect(prepared.composer).toContain('Basis: the proposed mechanism');
+    expect(prepared.composer).toContain('Assumption: the practice remains accessible');
+    expect(prepared.composer).toContain('Reject this assumption');
+    expect(savedDocuments).toEqual(project.documents);
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await render(currentView);
+    expect(host.querySelector<HTMLTextAreaElement>('[aria-label="Steer this exploration"] textarea')?.value).toContain('Keep my original direction.');
+    await act(async () => exactButton('Explore').click());
+    await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
+    const exploration = mocks.startWorkshop.mock.calls[0][2] as { instruction: string; selectedScope: string; selectedText: string };
+    expect(exploration).toMatchObject({ selectedScope: 'Direction a', selectedText: '' });
+    expect(exploration.instruction).toContain('Questioned candidate: Direction a');
+    expect(exploration.instruction).toContain('Basis: the proposed mechanism');
+    expect(exploration.instruction).toContain('Reject this assumption');
+    expect(savedDocuments).toEqual(project.documents);
+  });
+
+  it('targets a candidate for exploration without adding it to the tray or changing the working body', async () => {
+    const source = session({ workingText: 'The author draft stays intact.' });
+    await render(view({ state: state({ sessions: [source] }), results: [result()] }));
+    await act(async () => exactButton('Select details').click());
+    await act(async () => exactButton('Show consequences').click());
+    await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
+    expect(currentView.state.sessions[0]).toMatchObject({ workingText: source.workingText, selectedDetails: [], choices: [] });
+    expect(mocks.startWorkshop.mock.calls[0][2]).toMatchObject({ action: 'consequences', selectedScope: 'Direction a', selectedText: candidate('a').content });
+    expect(savedDocuments).toEqual(project.documents);
   });
 
   it('links two new character and world destinations by their stable target IDs before confirmation', async () => {
@@ -558,10 +693,17 @@ describe('Story Workshop behavioral contracts', () => {
     await render(view({ results: [result()] }));
     await act(async () => exactButton('Select details').click());
     await act(async () => exactButton('Subvert this direction').click());
+    expect(currentView.state.sessions[0].choices).toEqual([]);
+    expect(currentView.state.sessions[0].selectedDetails).toEqual([]);
     expect(mocks.startWorkshop).not.toHaveBeenCalled();
     const labeled = (name: string) => [...host.querySelectorAll('label')].find(label => label.firstChild?.textContent === name)!;
     const transformation = labeled('Transformation').querySelector('select')!;
+    expect(labeled('Convention to transform').querySelector('input')!.value).toBe('');
     expect(transformation.value).toBe('');
+    await act(async () => {
+      transformation.value = 'Change who pays the cost';
+      transformation.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     await act(async () => exactButton('Explore').click());
     expect(mocks.startWorkshop).not.toHaveBeenCalled();
     await act(async () => {
@@ -754,5 +896,45 @@ describe('Story Workshop behavioral contracts', () => {
     await waitFor(() => expect(currentView.state.sessions[0].workingText).toBe('My newer manual world draft.'));
     expect(currentView.state.sessions[0].focusDocumentId).toBe(null);
     expect(host.textContent).toContain('Your exploration changed while these notes opened.');
+  });
+  it('makes the Workshop inert during navigation and rejects a composition flush until input ends', async () => {
+    await render();
+    const workshop = host.querySelector('.story-workshop')!;
+    expect(workshop.hasAttribute('inert')).toBe(false);
+    await setNavigationBusy(true);
+    expect(workshop.hasAttribute('inert')).toBe(true);
+    expect(workshop.getAttribute('aria-busy')).toBe('true');
+    await setNavigationBusy(false);
+    expect(workshop.hasAttribute('inert')).toBe(false);
+    expect(workshop.getAttribute('aria-busy')).toBe(null);
+
+    const workbench = host.querySelector('.workshop-workbench')!;
+    await act(async () => workbench.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })));
+    await expect(workshopHandle.current!.flush()).rejects.toThrow(/entering the current text/i);
+    await act(async () => workbench.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })));
+    await expect(workshopHandle.current!.flush()).resolves.toBeUndefined();
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
+  it('ignores a notes read that crosses navigation busy and resumes local editing after the boundary releases', async () => {
+    const fixture = relationshipFixture();
+    fixture.view.state.sessions[0].selectedDetails = [];
+    let finish!: (document: DocumentRecord) => void;
+    mocks.readDocument.mockImplementation(() => new Promise<DocumentRecord>(resolve => { finish = resolve; }));
+    await render(fixture.view, fixture.project);
+    await act(async () => exactButton('Bring existing notes').click());
+    await act(async () => selectValue('Saved material', 'guild'));
+    await setNavigationBusy(true);
+    expect(host.querySelector('.story-workshop')?.hasAttribute('inert')).toBe(true);
+    await act(async () => finish(fixture.documents[1]));
+    await setNavigationBusy(false);
+    await waitFor(() => expect(host.querySelector('.story-workshop')?.hasAttribute('inert')).toBe(false));
+    expect(currentView.state.sessions[0]).toMatchObject({ workingText: fixture.original.workingText, focusDocumentId: null });
+    expect(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')?.value).toBe(fixture.original.workingText);
+
+    const resumedDraft = 'Local draft after navigation releases.';
+    await act(async () => setValue(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!, resumedDraft));
+    await waitFor(() => expect(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')?.value).toBe(resumedDraft));
+    expect(currentView.state.sessions[0].focusDocumentId).toBe(null);
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
   });
 });

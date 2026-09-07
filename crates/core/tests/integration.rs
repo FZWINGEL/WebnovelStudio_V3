@@ -92,4 +92,5 @@ suites! {
     windows_process,
     workshop,
     workshop_boundaries,
+    workshop_protection,
 }

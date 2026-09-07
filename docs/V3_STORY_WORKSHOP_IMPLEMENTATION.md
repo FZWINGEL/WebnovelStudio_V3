@@ -9,12 +9,61 @@ installed lifecycle, and [CI 34133645198](https://github.com/FZWINGEL/WebnovelSt
 passed all 15 Workshop native checks plus the existing native suites. Full
 specification acceptance and author evaluation remain open.
 
-Current names/aliases source is
+The current controls checkpoint adds implication-specific keep, reject, and
+contrast actions. Reject/contrast preparation preserves the author composer,
+choices, selected tray, and working text; the exact questioned candidate,
+implication, basis, and assumption remain provisional request context. Explicit
+Explore is still required. Candidate exploration no longer silently selects a
+direction, and subversion requires the author to name a convention and choose
+a transformation.
+
+Relationship exploration now includes confirmed preferences for both validated
+endpoints in the UI and frozen packet. Fixed decision protection survives
+archive and supersession, with explicit unfix available in the UI; relevant
+protection alone enters a request, while adoption checks every changed target.
+Focused material shows its protection before adoption. All question entry paths
+respect saved dispositions and preserve who the mystery is unknown to.
+Pending request preparation/reconciliation prevents switching explorations,
+forking, or leaving the project without disabling ordinary draft editing.
+
+The standard wrapper passed 766 Rust tests (70 core unit, 623 integration,
+73 desktop; one intentional subprocess ignore), 544 frontend tests in 48
+files, 11 tooling checks, formatting, strict Clippy, TypeScript and production
+build. The final frontend-only check after the request-navigation and explicit
+convention corrections also passed 544/48. Logs are
+`.local/workshop-controls-check.log` and
+`.local/workshop-controls-final-frontend.log`. The 32-test Workshop integration
+sweep passed in parallel after assertions were bound to the intended run ID;
+the former positional assertion depended on the order of two generated runs.
+Headless fixtures at 1440 and 800 pixels cover consequence preparation,
+navigation and deliberate question reopening, and archived protection/unfix
+under `.local/workshop-consequences-qa/`, `.local/workshop-navigation-qa/`, and
+`.local/workshop-protection-qa/`. No page errors or horizontal overflow occurred.
+Native and fresh package qualification of this checkpoint remain pending.
+
+The preceding names/aliases source is
 `b801ae9cfc00203a37c7de05da8de801a0214af1`. Fresh
 [CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
 and [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
-are running against it. Local checks and the new debug build are recorded
-below; native and installed results for this source are pending.
+ran against it. CI passed the contract steps, then failed after 16 Workshop
+groups because the aliases harness searched for the exact tab name
+`Characters`, while the native accessible name was `Characters 2`. The retained
+failure report and screenshot are in `.local/ci-workshop-34147701184/workshop/`;
+there were no page errors. Both affected selectors now match the existing
+count-bearing tab convention, but the correction awaits a fresh native run.
+The installer run passed its synthetic installed write/reopen, normal-close,
+and same-version uninstall/reinstall retention lifecycle. It does not exercise
+the aliases controls or the newer corrections below; see the exact package
+identity in [Windows qualification](WINDOWS_PACKAGE_QUALIFICATION.md).
+
+The current navigation correction makes the full Workshop inert during a
+workspace switch, fences delayed notes/relationship reads, and refuses a flush
+while text composition is active. The navigation additions are included in the current 35-test Workshop suite.
+Headless Chromium at 1440 and 800 pixels verifies keyboard/focus exclusion
+during navigation, preserved saved text, discarded late notes after the
+boundary releases, and resumed manual editing without AI calls or overflow
+(`.local/workshop-navigation-qa/report.json`). This is synthetic frontend
+evidence; native qualification remains separate.
 
 The earlier local hardening checkpoint added reusable saved preset definitions, coherent
 name/text editing, and explicit definition updates without adopting preferences.
@@ -311,16 +360,16 @@ green mock/frontend run alone.
 | W17 | 7 | Optional local rejection rationale, explicit promotion; no hidden global learning | A rejection can be reviewed into a scoped, editable preference in `Preferences.tsx`; `Preferences.test.tsx` covers author editing and scope selection. Native and quality evidence remains pending. |
 | W18 | 7 | Subversion distinct from inclusion/exclusion and explicitly selected transformation | `catalog.ts` exposes explicit convention-transformation operations and `Workshop.test.tsx` covers the required convention and selected operation; core/native and quality evidence remain pending. |
 | W19 | 8 | World slices and four optional lenses; depth choice, ordinary life, open mysteries | Six-lens Workshop surface is implemented; depth, ordinary-life, and open-mystery quality evidence remains pending. |
-| W20 | 8 | Conditional consequences expose basis/assumptions; accept/reject/contrast | Consequence exploration is present in the Workshop path; basis/assumption and accept/reject/contrast qualification remains pending. |
+| W20 | 8 | Conditional consequences expose basis/assumptions; accept/reject/contrast | Implication-specific keep/reject/contrast actions preserve provisional evidence and author choices. Focused tests and 1440/800 headless flows pass; the native harness now covers local rejection/contrast. Native and creative-quality qualification remain pending. |
 | W21 | 9 | Behavior-first people, optional spine and tentative situation responses | The people lens, behavior-first situation action, and durable session/decision fields provide the prompt-led path; no structured people database is required for this behavior. Focused/native quality evidence remains pending. |
 | W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | The World/People surfaces prepare an independent named-direction exploration, preserve uncertainty, and pin both exact endpoint heads; RequestContext shows the immutable relationship envelope. Focused UI/headless checks cover stale/late reads, two sources, and an explicit destination. Native relationship qualification remains pending after the bounded harness failure below. |
 | W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | Existing `document_aliases` metadata now has atomic read and source-epoch CAS write paths. World/People saved-material and Writer **Names & aliases** surfaces save Unicode aliases/transliterations explicitly, reconcile uncertain writes read-only, protect dirty navigation/close, preserve title/body, and exclude aliases from restricted context. Component focused checks pass 11, Workshop checks 28, and Writer/session checks 42. The 19:22 wrapper passes 763 Rust tests, 534 frontend tests in 48 files, 11 tooling checks, formatting, strict Clippy, TypeScript, and production build; the pinned 19:24 frontend-only check also passes 534/48 after the accessibility markup correction. Source-final headless evidence is in `.local/workshop-aliases-qa/report.json`; fresh native aliases CI, full specification, and author-study evidence remain pending. |
 | W24 | 10 | Themes as open questions; reader tone distinct from intensity | Themes & tone is represented by the six-lens Workshop surface; distinction/quality evidence remains pending. |
 | W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | Moment responses now require two or three same-situation treatments; a one-treatment raw response is rejected recoverably. The existing voice-guidance path remains explicitly reviewed before Develop/Use this version, with no automatic documents, decisions, or adoption. Broader voice/noncanon quality remains pending. |
 | W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | The Story possibilities lens, optional arc action, prompt template fields, and durable session/decision hooks provide the prompt-led story-engine path without a structured engine database. Quality qualification remains pending. |
-| W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | Workshop question actions, durable statuses, unknown-to fields, and the local recap are implemented; the focused frontend question-cycle test passes. Native/quality evidence remains pending. |
+| W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | World, lens, and generated question selection respect saved dispositions until explicitly reopened; question-specific reasons and unknown-to distinctions persist. Focused and 1440/800 headless checks pass. Native/quality evidence remains pending. |
 | W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | CI 34133645198 passed history UI and full Library reopen preserving seed, working, chosen, relationship, and history without generation; broader recap quality remains pending. |
-| W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Rationale and protected-content paths are implemented, with multiline/paragraph boundary checks covered locally; independent authority/access/evidence qualification remains pending. |
+| W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Protection remains effective across archive/supersession, explicitly removable in the UI, relevant to request context, and independently enforced for adoption targets. Three core protection regressions plus UI/headless checks pass. Broader native/access/evidence qualification remains pending. |
 | W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | Implemented locally, native qualification pending: branch graph and immutable ancestry checks; branch-local draft protection; inherited chosen context; parent/alternate text, fields, decision revisions and linked impact evidence; explicit preview/adopt. Focused core, component and shell tests pass. A 21st hosted Workshop group now covers real fork/reopen/compare/preview/adoption. Broader creative-quality and author evidence remain open. |
 | W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | AdoptionImpacts exposes reasons and four categories. Core tests cover candidate/relationship provenance and uncertain claims defaulting to possibleTension/needsReview without repair. CI 34133645198 adds relationship-impact decision provenance with zero chapter writes. Broader category/review quality remains unqualified. |
 | W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Explicit read of saved packets is implemented in `RequestContext.tsx` and context IPC; queued wording now says “saved”. The bounded live smoke passed the unchanged-anchor/manual/no-chapter path, while complete delivered-context qualification remains pending. |

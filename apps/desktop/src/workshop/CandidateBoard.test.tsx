@@ -69,6 +69,32 @@ describe('CandidateBoard', () => {
     await click('Select selected text'); expect(select).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), exact);
   });
 
+  it('keeps implication basis visible and offers explicit accept, reject, and contrast actions', async () => {
+    const implicationOnly = { ...candidate('implication-only'), assumptions: [], implications: [{
+      text: 'Repair cooperatives spread beyond the guild.', basis: 'restricted guild teaching', assumption: 'residents can perform limited repairs safely with shared instruction',
+    }] };
+    const select = vi.fn(); const steer = vi.fn(); const explore = vi.fn();
+    render({ result: result([implicationOnly]), onSelectDetail: select, onSteer: steer, onExplore: explore });
+    await click('Select details');
+    const card = host.querySelector('.candidate-card')!;
+    expect(card.textContent).toContain('restricted guild teaching');
+    expect(card.textContent).toContain('residents can perform limited repairs safely with shared instruction');
+    const actions = [...card.querySelectorAll<HTMLButtonElement>('.candidate-implication-actions button')];
+    expect(actions.map(action => action.textContent)).toEqual(['Keep this implication in my tray', 'Reject this assumption', 'Prepare a contrasting implication']);
+    await act(async () => actions[0].click());
+    await act(async () => actions[1].click());
+    await act(async () => actions[2].click());
+    expect(select).toHaveBeenCalledWith(implicationOnly, implicationOnly.implications[0].text);
+    expect(steer).toHaveBeenCalledTimes(2);
+    expect(steer.mock.calls[0][1]).toContain('Implication: Repair cooperatives spread beyond the guild.');
+    expect(steer.mock.calls[0][1]).toContain('Basis: restricted guild teaching');
+    expect(steer.mock.calls[0][1]).toContain('Assumption: residents can perform limited repairs safely with shared instruction');
+    expect(steer.mock.calls[0][1]).toContain('Reject this assumption');
+    expect(steer.mock.calls[1][1]).toContain('Prepare a contrasting implication');
+    expect(steer.mock.calls[1][1]).not.toBe(steer.mock.calls[0][1]);
+    expect(explore).not.toHaveBeenCalled();
+  });
+
   it('saves with local rationale and only lets saved choices enter future context', async () => {
     const choice = vi.fn(); render({ onChoice: choice });
     const rationale = host.querySelector('#candidate-rationale-a') as HTMLTextAreaElement;

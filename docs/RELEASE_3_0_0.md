@@ -15,8 +15,12 @@ The current aliases source `b801ae9cfc00203a37c7de05da8de801a0214af1`
 has a successful local debug build. Fresh
 [CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
 and [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
-are in progress on that source; the earlier installer below does not qualify
-the new names/aliases UI or IPC.
+ran on that source. CI failed after 16 Workshop groups on the aliases harness's
+exact `Characters` selector (the native tab is `Characters 2`); contract steps
+passed, and the harness correction still needs native qualification. The
+installer run passed its synthetic installed write/reopen and same-version
+retention lifecycle. That lifecycle does not exercise the names/aliases controls
+or qualify the subsequent product corrections.
 
 ## Candidate scope
 

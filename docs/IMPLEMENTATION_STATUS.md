@@ -5,12 +5,26 @@
 **Current branch:** `codex/v3-persistence`
 **Overall:** in progress; the full V3 goal is not complete.
 
-The names/aliases implementation is pushed at
+The current Workshop controls checkpoint preserves provisional consequence
+comparisons, includes relationship endpoint preferences, keeps protection
+independent of decision status, respects question dispositions, and guards
+navigation while a request is being prepared or reconciled. The standard
+wrapper passes 766 Rust / 544 frontend / 11 tooling checks; the final frontend
+check also passes 544 tests after the last UI corrections. Exact local,
+headless and pending native/package evidence is recorded in the
+[Workshop ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
+
+The preceding names/aliases implementation is pushed at
 `b801ae9cfc00203a37c7de05da8de801a0214af1`. Fresh
 [CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
 and [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
-are in progress on that exact source. Their results remain unqualified until
-the hosted jobs finish; no prior installer was reused for this product change.
+ran on that exact source. CI passed the contract steps, then failed after 16
+Workshop groups on a count-bearing `Characters 2` tab selector; the harness
+correction is awaiting a fresh native run. The installer job passed its
+synthetic installed write/reopen and same-version retention lifecycle.
+No prior installer was reused for this product change. The current corrections
+and exact qualification boundaries are recorded in the
+[Workshop ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
 
 ### Story Workshop — implementation in progress
 

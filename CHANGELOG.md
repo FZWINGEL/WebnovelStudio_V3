@@ -8,6 +8,9 @@ WebnovelStudio V3 is a native Windows desktop writing workspace for English web 
 
 ### Added
 
+- Story Workshop consequence actions for keeping an implication, rejecting its assumption, or preparing a contrast without silently selecting the candidate. Subversion requires an explicit convention and transformation.
+- Relationship exploration uses both participants' scoped preferences. Keep fixed survives archiving and supersession, remains explicitly removable, and enters request context only when relevant.
+- Question dispositions survive every question-selection path, and pending request checks prevent accidental exploration switches while manual development remains available.
 - Per-project tabs for Chapters, Worldbuilding, Characters, Plot & Themes, and Notes, with documents available in the order that fits the project.
 - AI-first writing flows for drafting, continuing, and developing a story while keeping the author in control of briefs, candidates, feedback, and explicit application of changes.
 - A V2-style model picker with provider browsing, search, favorites, keyboard selection, reasoning effort, and fast/service-tier controls.
@@ -20,6 +23,7 @@ WebnovelStudio V3 is a native Windows desktop writing workspace for English web 
 
 ### Current verification
 
+- The controls checkpoint passes 766 Rust tests, 544 frontend tests in 48 files, 11 tooling checks, formatting, strict Clippy, TypeScript, and production build. Final frontend checks also pass 544/48 after the last UI corrections. Synthetic headless flows cover consequence actions, navigation, deliberate question reopening, and archived protection at 1440 and 800 pixels; fresh native and package qualification remains pending. Details are in the Workshop ledger.
 - The W23 aliases slice passes component focused checks (11), Workshop checks (28), and Writer/session checks (42). The 19:22 final wrapper passed 763 Rust tests (70 core unit, 620 grouped integration, 73 desktop; one intentional subprocess ignore), 534 frontend tests in 48 files, 11 tooling checks, formatting, strict Clippy, TypeScript, and production build; the pre-existing large-chunk warning remains. The pinned frontend-only check at 19:24 also passed 534 tests in 48 files after the accessibility markup correction. Evidence is in `.local/workshop-aliases-final-check.log` and `.local/workshop-aliases-final-frontend.log`.
 - The source-final aliases headless fixture passed 1440 and 800 pixel checks for Unicode/transliterations, dirty navigation refusal, exactly one lost-ack current-read confirmation, close/reopen, and no AI/manuscript calls, errors, or overflow; report: `.local/workshop-aliases-qa/report.json`. Fresh native aliases CI, upgrade, full specification, and author qualification remain pending.
 - CI 34145255173 reached 21 Workshop groups, including relationship exploration and preset/lens/new-project flows, before the W30 sidebar-close harness failure; later auxiliary suites were skipped. The native harness now contains names/aliases checks, with fresh CI 34147701184 and installer run 34147720364 now in progress on `b801ae9`.

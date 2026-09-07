@@ -237,6 +237,22 @@ try {
 
   const firstCard = page.locator('.candidate-card').filter({ hasText: 'Local workshop direction 1' }).first();
   await firstCard.getByRole('button', { name: 'Select details', exact: true }).click();
+  const beforeConsequence = workshopState().state.sessions.find(session => session.id === workshopState().state.currentSessionId);
+  const implicationActions = firstCard.locator('.candidate-implication-actions').first();
+  await implicationActions.getByRole('button', { name: 'Reject this assumption', exact: true }).click();
+  await waitForDatabase(() => workshopState().state.sessions.some(session => session.composer.includes('Reject this assumption')), 'local assumption rejection');
+  await implicationActions.getByRole('button', { name: 'Prepare a contrasting implication', exact: true }).click();
+  await waitForDatabase(() => workshopState().state.sessions.some(session => session.composer.includes('Prepare a contrasting implication')), 'local consequence contrast');
+  const afterConsequence = workshopState().state.sessions.find(session => session.id === beforeConsequence.id);
+  assert.equal(afterConsequence.workingText, beforeConsequence.workingText);
+  assert.deepEqual(afterConsequence.choices, beforeConsequence.choices);
+  assert.deepEqual(afterConsequence.selectedDetails, beforeConsequence.selectedDetails);
+  assert(afterConsequence.composer.includes('the selected workshop material'));
+  assert(afterConsequence.composer.includes('the author wants the change explored'));
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, 1, 'Preparing a contrast must not generate');
+  await page.getByRole('textbox', { name: 'Your direction', exact: true }).fill(beforeConsequence.composer);
+  await waitForDatabase(() => workshopState().state.sessions.some(session => session.id === beforeConsequence.id && session.composer === beforeConsequence.composer), 'restore author direction');
+  checks.push('Rejecting an implication assumption and preparing a contrast preserve candidate choices, selected details, and the working body while saving exact provisional evidence without generation');
   await firstCard.getByRole('button', { name: 'Select full direction', exact: true }).click();
   await page.locator('.workshop-tray textarea').first().waitFor();
   assert.match(await page.locator('.workshop-tray textarea').first().inputValue(), /deterministic workshop alternative/);
@@ -586,7 +602,7 @@ try {
   await workshopNames.getByRole('button', { name: 'Close names', exact: true }).click();
 
   await page.getByRole('tab', { name: 'Write', exact: true }).click();
-  await page.getByRole('tab', { name: 'Characters', exact: true }).click();
+  await page.getByRole('tab', { name: /^Characters/ }).click();
   await page.getByRole('button', { name: newCharacterTitle, exact: true }).click();
   const writer = page.getByRole('main', { name: 'Writing desk', exact: true });
   await writer.waitFor();
@@ -651,7 +667,7 @@ try {
   assert.equal(contextSourceEpoch(), namesEpochBefore + 2);
   await namesAfterRefusal.getByRole('button', { name: 'Close names', exact: true }).click();
   await page.getByRole('tab', { name: 'Write', exact: true }).click();
-  await page.getByRole('tab', { name: 'Characters', exact: true }).click();
+  await page.getByRole('tab', { name: /^Characters/ }).click();
   await page.getByRole('button', { name: newCharacterTitle, exact: true }).click();
   await page.getByRole('main', { name: 'Writing desk', exact: true }).waitFor();
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, namesRunsBefore, 'Saved names flow must still avoid generation');

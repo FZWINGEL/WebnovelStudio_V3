@@ -16,9 +16,27 @@ its native and installer qualification requires the fresh hosted runs.
 Current source `b801ae9cfc00203a37c7de05da8de801a0214af1` is being checked by
 [CI 34147701184](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147701184)
 and fresh [installer run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364).
-Both were confirmed in progress; no installed aliases result is claimed yet.
+CI is terminal: contract steps passed, then the Workshop harness failed after
+16 groups because the tab selector omitted the visible character count. Its
+correction awaits a fresh native run. The installer job passed the bounded
+installed lifecycle below; it does not exercise the aliases controls.
 
 ## Last qualified Workshop package — 7 September 2026
+
+Fresh [package run 34147720364](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34147720364)
+passed on clean builder and qualification source
+`b801ae9cfc00203a37c7de05da8de801a0214af1`. ProductVersion is `3.0.0`, SHA-256
+`e932b1c02f8f93e9df7c66cd069a3f09a58b0c23d97d2cb78a4057eb6376bb6a`.
+The evidence records synthetic project/document creation, text entry/readback,
+reopen, successful normal close without forced process stop, and retained
+project/document/text after same-version uninstall/reinstall. It completed at
+`2026-09-07T17:45:34.0829893Z` with no errors. It does not qualify true upgrades,
+offline runtime installation, live providers, author data, or the later product
+corrections. Metadata and lifecycle evidence are retained under
+`.local/package-workshop-34147720364/`; the installer remains the hosted
+`windows-installer` artifact and was not downloaded locally.
+
+## Previous Workshop package
 
 Fresh [package run 34145254658](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34145254658)
 passed on clean builder and qualification source

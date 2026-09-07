@@ -390,6 +390,23 @@ pub fn from_session_with_material(
         ));
     }
     validate_working_selection(&exploration, &session.working_text)?;
+    let relationship = resolved_material.relationship;
+    match (session.relationship_id.as_deref(), relationship.as_ref()) {
+        (None, None) => {}
+        (Some(session_id), Some(relationship)) if session_id == relationship.id => {
+            validate_relationship_metadata(relationship)?;
+        }
+        (Some(_), None) => {
+            return Err(invalid(
+                "The relationship exploration is missing its validated relationship.",
+            ));
+        }
+        (None, Some(_)) | (Some(_), Some(_)) => {
+            return Err(invalid(
+                "The relationship does not belong to this workshop session.",
+            ));
+        }
+    }
     let selected_details = session
         .selected_details
         .iter()
@@ -407,7 +424,9 @@ pub fn from_session_with_material(
     let preferences = state
         .preferences
         .iter()
-        .filter(|preference| preference.confirmed && preference_applies(preference, session))
+        .filter(|preference| {
+            preference.confirmed && preference_applies(preference, session, relationship.as_ref())
+        })
         .map(format_preference)
         .collect::<Vec<_>>();
     let hard_constraints = state
@@ -417,7 +436,7 @@ pub fn from_session_with_material(
             preference.confirmed
                 && preference.strength == super::workshop::PreferenceStrength::Hard
                 && preference.polarity != super::workshop::PreferencePolarity::Neutral
-                && preference_applies(preference, session)
+                && preference_applies(preference, session, relationship.as_ref())
         })
         .map(|preference| format!("hard constraint: {}", format_preference(preference)))
         .collect::<Vec<_>>();
@@ -429,12 +448,17 @@ pub fn from_session_with_material(
         .collect::<Vec<_>>();
     fixed_details.extend(resolved_material.fixed_details);
     let mut fixed_source_refs = Vec::new();
-    // A Keep fixed decision is a project-level protection. It can have been
-    // recorded from another exploration session and still constrain this
-    // request; status/access are checked here, while the actor has already
-    // resolved the exact source revision and protected literals.
+    // Keep fixed protection remains durable across decision status changes,
+    // but only relevant source decisions belong in this request packet. The
+    // actor resolves exact source revisions before calling this builder.
     for decision in state.decisions.iter().filter(|decision| {
-        decision.fixed && decision.status == super::workshop::WorkshopDecisionStatus::Chosen
+        decision.fixed
+            && super::workshop::fixed_decision_is_relevant(
+                state,
+                session,
+                decision,
+                relationship.as_ref(),
+            )
     }) {
         fixed_details.extend(decision.protected_text.iter().cloned());
         fixed_source_refs.push(format!(
@@ -455,7 +479,6 @@ pub fn from_session_with_material(
     .find(|value| !value.trim().is_empty())
     .unwrap_or("No working story element has been chosen yet.")
     .to_owned();
-    let relationship = resolved_material.relationship;
     let mut included_document_ids = session.included_document_ids.clone();
     if let Some(relationship) = relationship.as_ref() {
         for document_id in [&relationship.from_document_id, &relationship.to_document_id] {
@@ -879,10 +902,19 @@ fn validate_voice_guidance_metadata(metadata: &WorkshopPacketMetadata) -> CoreRe
     Ok(())
 }
 
-fn preference_applies(preference: &WorkshopPreference, session: &WorkshopSession) -> bool {
+fn preference_applies(
+    preference: &WorkshopPreference,
+    session: &WorkshopSession,
+    relationship: Option<&WorkshopRelationship>,
+) -> bool {
+    let targets_element = preference.target_id.as_deref().is_some_and(|target| {
+        session.focus_document_id.as_deref() == Some(target)
+            || relationship.is_some_and(|relationship| {
+                relationship.from_document_id == target || relationship.to_document_id == target
+            })
+    });
     matches!(preference.scope, super::workshop::PreferenceScope::Project)
-        || (preference.scope == super::workshop::PreferenceScope::Element
-            && preference.target_id.as_deref() == session.focus_document_id.as_deref())
+        || (preference.scope == super::workshop::PreferenceScope::Element && targets_element)
         || (preference.scope == super::workshop::PreferenceScope::Exploration
             && preference.target_id.as_deref() == Some(session.id.as_str()))
 }
@@ -1494,8 +1526,8 @@ mod tests {
     }
 
     #[test]
-    fn fixed_project_decisions_from_another_session_stay_protected() {
-        let session = WorkshopSession {
+    fn fixed_decisions_are_scoped_but_protection_survives_status_changes() {
+        let mut session = WorkshopSession {
             id: "session-1".into(),
             title: "Current exploration".into(),
             lens: Lens::Overview,
@@ -1536,12 +1568,33 @@ mod tests {
                 head: context().expected,
                 candidate_ids: Vec::new(),
                 rationale: "Keep this rule visible across explorations.".into(),
-                status: super::super::workshop::WorkshopDecisionStatus::Chosen,
+                status: super::super::workshop::WorkshopDecisionStatus::Archived,
                 fixed: true,
                 protected_text: vec!["The older session's protected rule".into()],
                 access: "authorRoom".into(),
                 supersedes_id: None,
             });
+        let generated = from_session(
+            start_request("directions"),
+            &session,
+            &state,
+            context().expected,
+        )
+        .unwrap();
+        assert!(
+            !generated
+                .context
+                .fixed_details
+                .contains(&"The older session's protected rule".to_owned())
+        );
+        assert!(
+            !generated
+                .context
+                .fixed_source_refs
+                .contains(&"world-1@7".to_owned())
+        );
+
+        session.included_document_ids.push("world-1".into());
         let generated = from_session(
             start_request("directions"),
             &session,
@@ -1561,6 +1614,7 @@ mod tests {
                 .fixed_source_refs
                 .contains(&"world-1@7".to_owned())
         );
+        assert!(generated.context.chosen_details.is_empty());
     }
 
     #[test]

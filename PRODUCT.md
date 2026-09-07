@@ -4,6 +4,14 @@
 
 WebnovelStudio is an AI writing application with the author directing, reviewing, and accepting the work. The author manages several projects, develops story material in any order, asks the AI to draft chapters or develop ideas, and gives whole-document or selected-text feedback. Manual writing and editing remain available throughout.
 
+The current Workshop controls keep consequence comparisons provisional, include
+relationship endpoint preferences, preserve protection when a choice is
+archived, and honor deliberate question dispositions. Request reconciliation
+stays with its originating exploration. Local checks pass 766 Rust and 544
+frontend tests; fresh native/package and author qualification remain open.
+The [Workshop ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md) records the exact
+evidence and remaining specification gates.
+
 **Workspace direction, 7 September 2026:** each project has persistent Chapters,
 Worldbuilding, Characters, Plot & themes, and Notes tabs. Chapters share one
 writing workspace with an ordered chapter list, previous/next navigation, the
@@ -36,8 +44,7 @@ relationship/taste changes have focused local and headless evidence; their
 hosted rerun is recorded as a harness failure, so no broad native pass is
 claimed. Full specification acceptance,
 broader native/provider coverage, and author evaluation remain open; exact
-evidence and source identities are recorded in the qualification documents. The
-The previous relationship slice adds no-call directional relationship exploration with exact
+evidence and source identities are recorded in the qualification documents. The previous relationship slice adds no-call directional relationship exploration with exact
 endpoint heads and a two-or-three-treatment noncanon moment contract; schema 36
 preserves older Workshop state, context, packet bytes, and hashes.
 

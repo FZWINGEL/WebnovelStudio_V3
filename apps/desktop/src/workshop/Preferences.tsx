@@ -28,8 +28,22 @@ export function preferenceConflict(preferences: WorkshopPreference[], incoming: 
   const currentDirection = conflicting.polarity === 'avoid' ? 'Avoid' : 'Want';
   return `Your ${incomingDirection} preference for “${incoming.label}” conflicts with the current ${conflicting.scope} ${currentDirection} preference for “${conflicting.label}”. Edit either preference before saving.`;
 }
+function relationshipEndpointIds(state: WorkshopState, session: WorkshopSession): Set<string> {
+  if (!session.relationshipId) return new Set();
+  const relationship = state.relationships.find(item => item.id === session.relationshipId);
+  if (!relationship || relationship.status === 'archived' || relationship.fromDocumentId === relationship.toDocumentId || relationship.sourceHeads.length !== 2) return new Set();
+  const sourceIds = new Set(relationship.sourceHeads.map(head => head.documentId));
+  if (!sourceIds.has(relationship.fromDocumentId) || !sourceIds.has(relationship.toDocumentId)) return new Set();
+  return new Set([relationship.fromDocumentId, relationship.toDocumentId]);
+}
+function preferenceScopeApplies(preference: WorkshopPreference, session: WorkshopSession, endpoints: Set<string>): boolean {
+  return preference.scope === 'project'
+    || preference.scope === 'element' && (preference.targetId === session.focusDocumentId || !!preference.targetId && endpoints.has(preference.targetId))
+    || preference.scope === 'exploration' && preference.targetId === session.id;
+}
 export function applicablePreferences(state: WorkshopState, session: WorkshopSession) {
-  return state.preferences.filter(preference => preference.confirmed && preference.polarity !== 'neutral' && (preference.scope === 'project' || preference.scope === 'element' && preference.targetId === session.focusDocumentId || preference.scope === 'exploration' && preference.targetId === session.id));
+  const endpoints = relationshipEndpointIds(state, session);
+  return state.preferences.filter(preference => preference.confirmed && preference.polarity !== 'neutral' && preferenceScopeApplies(preference, session, endpoints));
 }
 export function preferenceLabel(preference: WorkshopPreference) { return preference.polarity === 'neutral' ? 'Unspecified' : preference.strength === 'hard' ? preference.polarity === 'want' ? 'Must' : 'Never' : preference.polarity === 'want' ? 'Want' : 'Avoid'; }
 
@@ -38,7 +52,8 @@ export function Preferences({ state, session, onChange }: { state: WorkshopState
   const [editing, setEditing] = useState<WorkshopPreference | null>(null); const [error, setError] = useState('');
   const [presetText, setPresetText] = useState(''); const [presetOpen, setPresetOpen] = useState(false); const [presetName, setPresetName] = useState('My starting preferences');
   const [presetNotice, setPresetNotice] = useState(''); const [reviewedPresetId, setReviewedPresetId] = useState<string | null>(null);
-  const applicable = state.preferences.filter(item => item.scope === 'project' || item.scope === 'element' && item.targetId === session.focusDocumentId || item.scope === 'exploration' && item.targetId === session.id);
+  const endpoints = relationshipEndpointIds(state, session);
+  const applicable = state.preferences.filter(item => preferenceScopeApplies(item, session, endpoints));
   const rejectedReasons = session.choices.filter(choice => choice.status === 'rejected' && choice.rationale.trim());
   const suggestions = PREFERENCE_SUGGESTIONS.filter(item => (!query || `${item.label} ${item.meaning} ${item.family}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) && (browse || item.lenses.includes(session.lens))).slice(0, browse ? 30 : 3);
   function draft(suggestion?: PreferenceSuggestion): WorkshopPreference {

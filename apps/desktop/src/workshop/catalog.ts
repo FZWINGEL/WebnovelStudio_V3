@@ -27,10 +27,10 @@ export type WorkshopAction = typeof ACTIONS[number]['id'];
 export const SUBVERSIONS = ['Invert the power relationship', 'Change who pays the cost', 'Literalize the metaphor', 'Keep the emotional reward, change the mechanism'] as const;
 
 export const WORLD_QUESTIONS = [
-  { title: 'How it works', text: 'Which rules, resources, costs, or exceptions matter here?' },
-  { title: 'How people live', text: 'What does an ordinary day feel like here?' },
-  { title: 'Who disagrees', text: 'Whose interests or interpretations differ, and why?' },
-  { title: 'What remains unexplored', text: 'What do you want to leave unknown, distant, or mysterious?' },
+  { title: 'How it works', text: 'Which rules, resources, costs, or exceptions matter here?', reason: 'Limits and costs shape what people can do here and who gets access.' },
+  { title: 'How people live', text: 'What does an ordinary day feel like here?', reason: 'Work, food, travel, and small routines make this place tangible beyond its rules.' },
+  { title: 'Who disagrees', text: 'Whose interests or interpretations differ, and why?', reason: 'Different interests give people and institutions reasons to make different choices.' },
+  { title: 'What remains unexplored', text: 'What do you want to leave unknown, distant, or mysterious?', reason: 'Choosing what stays unknown leaves room for discovery without requiring an answer now.' },
 ] as const;
 
 export const FAMILIES = ['Genre & tradition', 'Reader experience', 'Story ingredients', 'Relationships', 'World mechanisms', 'Themes', 'Style', 'Content boundaries'] as const;

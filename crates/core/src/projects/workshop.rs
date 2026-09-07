@@ -1582,6 +1582,28 @@ fn session_is_ancestor(
     false
 }
 
+/// A fixed decision constrains a request when the request names its source,
+/// explicitly includes its source, explores a validated relationship endpoint,
+/// or descends from the decision's exploration. Protection remains durable
+/// across decision status changes; this predicate only controls packet context.
+pub(crate) fn fixed_decision_is_relevant(
+    state: &WorkshopState,
+    session: &WorkshopSession,
+    decision: &WorkshopDecision,
+    relationship: Option<&WorkshopRelationship>,
+) -> bool {
+    session.focus_document_id.as_deref() == Some(decision.document_id.as_str())
+        || session
+            .included_document_ids
+            .iter()
+            .any(|document_id| document_id == &decision.document_id)
+        || relationship.is_some_and(|relationship| {
+            relationship.from_document_id == decision.document_id
+                || relationship.to_document_id == decision.document_id
+        })
+        || session_is_ancestor(state, &session.id, &decision.session_id)
+}
+
 fn candidate_relationship_matches_session(
     state: &WorkshopState,
     session_id: &str,
@@ -1817,9 +1839,10 @@ fn target_fixed_text(
         .map(|detail| detail.text.clone())
         .collect::<Vec<_>>();
     for decision in state.decisions.iter().filter(|decision| {
-        decision.fixed
-            && decision.status == WorkshopDecisionStatus::Chosen
-            && decision.document_id == document.head.document_id
+        // Protection is independent from decision status. Archiving or
+        // superseding a decision must not release its protected source; the
+        // author must explicitly clear Keep fixed first.
+        decision.fixed && decision.document_id == document.head.document_id
     }) {
         if decision.protected_text.is_empty() {
             protected.push(body_text(
@@ -2682,20 +2705,28 @@ impl OwnedProject {
         }
         let mut chosen_details = Vec::new();
         let mut fixed_details = Vec::new();
-        for decision in state
-            .decisions
-            .iter()
-            .filter(|decision| decision.status == WorkshopDecisionStatus::Chosen)
-        {
+        for decision in &state.decisions {
+            let in_lineage = decision.status == WorkshopDecisionStatus::Chosen
+                && session_is_ancestor(&state, &session.id, &decision.session_id);
+            let relevant_fixed = decision.fixed
+                && fixed_decision_is_relevant(&state, &session, decision, relationship.as_ref());
+            let needs_full_protected_body = relevant_fixed && decision.protected_text.is_empty();
+            if !in_lineage && !needs_full_protected_body {
+                continue;
+            }
+            // Resolve the exact saved revision only for chosen lineage
+            // material or a relevant fixed decision whose protection is a
+            // whole source body. Unrelated fixed decisions stay out of the
+            // packet entirely.
             let revision = read_revision(self.db()?, &decision.revision_id)?;
             let body = body_text(&revision.body);
-            if session_is_ancestor(&state, &session.id, &decision.session_id) {
+            if in_lineage {
                 chosen_details.push(format!(
                     "{}: {}\nAuthor rationale: {}",
                     decision.title, body, decision.rationale
                 ));
             }
-            if decision.fixed && decision.protected_text.is_empty() {
+            if needs_full_protected_body {
                 fixed_details.push(body);
             }
         }

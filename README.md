@@ -8,6 +8,12 @@ See the [release preparation](docs/RELEASE_3_0_0.md) and [changelog](CHANGELOG.m
 
 The Story Context Engine retains original evidence, freezes each request’s permitted sources, and records the exact input sent to the assistant. Generate source-linked chapter memory explicitly, inspect what a discussion received, and keep generated summaries separate from author-reviewed material. Native Codex maintenance routing stays on the fixed Luna/xhigh/priority profile even when the author selects another writing model; configured HTTP Story Memory uses Luna/xhigh without a service tier.
 
+In Story Workshop, keep a consequence, reject its assumption, or prepare a
+contrast before explicitly exploring it. Relationship explorations include both
+participants' preferences. Archived choices retain Keep fixed until you remove
+it, and questions set aside stay that way until reopened. Current implementation
+and qualification are recorded in the [Workshop ledger](docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md).
+
 Codex is the primary provider focus. Claude and configurable OpenAI-compatible
 endpoints remain available as development integrations; further adapter ports
 are deferred.

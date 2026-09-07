@@ -27,6 +27,28 @@ const explorationActions = [
 
 const rationaleOptions = ['Too familiar', 'Wrong mood', 'Breaks a rule'] as const;
 
+function provisionalConsequenceInstruction(
+  candidate: WorkshopCandidate,
+  assumption: string,
+  implication: { text: string; basis: string } | null,
+  action: 'reject' | 'contrast',
+): string {
+  const implicationText = implication?.text ?? '(No specific implication was recorded for this assumption.)';
+  const basis = implication?.basis ?? '(Candidate-level assumption.)';
+  const direction = action === 'reject'
+    ? 'Reject this assumption as a premise for the next exploration. Show what could follow without relying on it.'
+    : 'Prepare a contrasting implication. Show what could follow if this assumption does not hold, without treating the candidate as accepted story material.';
+  return [
+    'This is an unaccepted possibility for comparison.',
+    `Questioned candidate: ${candidate.title}`,
+    `Candidate direction: ${candidate.content}`,
+    `Implication: ${implicationText}`,
+    `Basis: ${basis}`,
+    `Assumption: ${assumption}`,
+    direction,
+  ].join('\n');
+}
+
 function shortContent(content: string, maxWords = 140): { text: string; truncated: boolean } {
   const words = content.trim().split(/\s+/u).filter(Boolean);
   if (words.length <= maxWords) return { text: content.trim(), truncated: false };
@@ -320,8 +342,8 @@ function CandidateCard({
     {detailsOpen && <section className="candidate-details" aria-label={`${candidate.title} details`}>
       <h4>Select exact details</h4>
       <p className="candidate-detail-note">Choose a whole paragraph or select an exact substring in the text area. The selected text is forwarded exactly as shown; expanding this section makes no model request.</p>
-      <CandidateEvidence candidate={candidate} />
-      {onSteer && !!candidate.assumptions.length && <div className="candidate-assumption-actions"><h4>Decide which assumptions to explore</h4>{candidate.assumptions.map(assumption => <div key={assumption}><p>{assumption}</p><button disabled={disabled} onClick={() => onSelectParagraph(assumption)}>Keep this assumption in my tray</button><button disabled={disabled} onClick={() => onSteer(`Reject this assumption: ${assumption}. Explore a contrasting implication without relying on it.`)}>Prepare a contrasting implication</button></div>)}</div>}
+      <CandidateEvidence candidate={candidate} disabled={disabled} onSelectDetail={onSelectParagraph} onSteer={onSteer} />
+      {onSteer && !!candidate.assumptions.length && <div className="candidate-assumption-actions"><h4>Decide which assumptions to explore</h4>{candidate.assumptions.map(assumption => <div key={assumption}><p>{assumption}</p><button disabled={disabled} onClick={() => onSelectParagraph(assumption)}>Keep this assumption in my tray</button><button disabled={disabled} onClick={() => onSteer(provisionalConsequenceInstruction(candidate, assumption, null, 'reject'))}>Reject this assumption</button><button disabled={disabled} onClick={() => onSteer(provisionalConsequenceInstruction(candidate, assumption, null, 'contrast'))}>Prepare a contrasting implication</button></div>)}</div>}
       <textarea className="candidate-exact-text" aria-label={`Exact text from ${candidate.title}`} readOnly value={candidate.content} onSelect={onRememberSelection} onKeyUp={onRememberSelection} onMouseUp={onRememberSelection} />
       <div className="candidate-select-actions"><button type="button" className="secondary-button" disabled={disabled} onClick={onSelectFull}>Select full direction</button><button type="button" className="secondary-button" disabled={disabled || !selectedText} onClick={onSelectRange}>Select selected text</button></div>
       {selectedText && <p className="candidate-selection-preview">Ready to select exactly: “{selectedText}”</p>}
@@ -331,9 +353,15 @@ function CandidateCard({
   </article>;
 }
 
-function CandidateEvidence({ candidate, compact = false }: { candidate: WorkshopCandidate; compact?: boolean }) {
+function CandidateEvidence({ candidate, compact = false, disabled = false, onSelectDetail, onSteer }: {
+  candidate: WorkshopCandidate;
+  compact?: boolean;
+  disabled?: boolean;
+  onSelectDetail?: (text: string) => void;
+  onSteer?: (instruction: string) => void;
+}) {
   return <div className={`candidate-evidence${compact ? ' candidate-evidence-compact' : ''}`}>
     {!compact && <div className="candidate-preserved-changed"><div><h5>Preserved</h5>{candidate.preservedDetails.length ? <ul>{candidate.preservedDetails.map(item => <li key={item}>{item}</li>)}</ul> : <p>Nothing recorded.</p>}</div><div><h5>Changed</h5>{candidate.changedDetails.length ? <ul>{candidate.changedDetails.map(item => <li key={item}>{item}</li>)}</ul> : <p>Nothing recorded.</p>}</div></div>}
-    <div className="candidate-implications"><h4>Implications, basis, and assumptions</h4>{candidate.implications.length ? <ul>{candidate.implications.map((implication, index) => <li key={`${candidate.id}-implication-${index}`}><strong>{implication.text}</strong><span><b>Based on:</b> {implication.basis}</span><span><b>Assumption:</b> {implication.assumption}</span></li>)}</ul> : <p>No implications were recorded for this direction.</p>}{candidate.assumptions.length > 0 && <><h5>Open assumptions</h5><ul>{candidate.assumptions.map(item => <li key={item}>{item}</li>)}</ul></>}</div>
+    <div className="candidate-implications"><h4>Implications, basis, and assumptions</h4>{candidate.implications.length ? <ul>{candidate.implications.map((implication, index) => <li key={`${candidate.id}-implication-${index}`}><strong>{implication.text}</strong><span><b>Based on:</b> {implication.basis}</span><span><b>Assumption:</b> {implication.assumption}</span>{!compact && (onSelectDetail || onSteer) && <div className="candidate-implication-actions">{onSelectDetail && <button type="button" disabled={disabled} onClick={() => onSelectDetail(implication.text)}>Keep this implication in my tray</button>}{onSteer && <><button type="button" disabled={disabled} onClick={() => onSteer(provisionalConsequenceInstruction(candidate, implication.assumption, implication, 'reject'))}>Reject this assumption</button><button type="button" disabled={disabled} onClick={() => onSteer(provisionalConsequenceInstruction(candidate, implication.assumption, implication, 'contrast'))}>Prepare a contrasting implication</button></>}</div>}</li>)}</ul> : <p>No implications were recorded for this direction.</p>}{candidate.assumptions.length > 0 && <><h5>Open assumptions</h5><ul>{candidate.assumptions.map(item => <li key={item}>{item}</li>)}</ul></>}</div>
   </div>;
 }

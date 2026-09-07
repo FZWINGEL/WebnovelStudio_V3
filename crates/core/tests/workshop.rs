@@ -731,6 +731,26 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
             body: body("The court remembers every oath."),
         })
         .unwrap();
+    project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "relationship-generation-unrelated".into(),
+            document_id: "unrelated-document".into(),
+            title: "Unrelated note".into(),
+            kind: "note".into(),
+            body: body("This note is outside the relationship."),
+        })
+        .unwrap();
+    project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "relationship-generation-normal-anchor".into(),
+            document_id: "workshop-normal-session".into(),
+            title: "Normal focus anchor".into(),
+            kind: "note".into(),
+            body: body("Anchor"),
+        })
+        .unwrap();
     let mut workshop_session = session("relationship-session");
     workshop_session.anchor_document_id = Some("workshop-relationship-session".into());
     workshop_session.relationship_id = Some("relationship-one".into());
@@ -751,6 +771,51 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         status: WorkshopRelationshipStatus::Tentative,
         source_heads: vec![from.head.clone(), to.head.clone()],
     });
+    let mut normal_session = session("normal-session");
+    normal_session.anchor_document_id = Some("workshop-normal-session".into());
+    normal_session.focus_document_id = Some(from.head.document_id.clone());
+    state.sessions.push(normal_session);
+    state.preferences = vec![
+        WorkshopPreference {
+            id: "relationship-from-preference".into(),
+            label: "Keep Mira close to the oath".into(),
+            family: "voice".into(),
+            meaning: "Stay near Mira's felt experience.".into(),
+            examples: String::new(),
+            timing: String::new(),
+            polarity: PreferencePolarity::Want,
+            strength: PreferenceStrength::Soft,
+            scope: PreferenceScope::Element,
+            target_id: Some(from.head.document_id.clone()),
+            confirmed: true,
+        },
+        WorkshopPreference {
+            id: "relationship-to-preference".into(),
+            label: "Keep the court uncertain".into(),
+            family: "tone".into(),
+            meaning: "Do not resolve the court's motives too quickly.".into(),
+            examples: String::new(),
+            timing: String::new(),
+            polarity: PreferencePolarity::Avoid,
+            strength: PreferenceStrength::Hard,
+            scope: PreferenceScope::Element,
+            target_id: Some(to.head.document_id.clone()),
+            confirmed: true,
+        },
+        WorkshopPreference {
+            id: "unrelated-preference".into(),
+            label: "Unrelated material preference".into(),
+            family: "scope".into(),
+            meaning: "This must stay outside the relationship request.".into(),
+            examples: String::new(),
+            timing: String::new(),
+            polarity: PreferencePolarity::Want,
+            strength: PreferenceStrength::Soft,
+            scope: PreferenceScope::Element,
+            target_id: Some("unrelated-document".into()),
+            confirmed: true,
+        },
+    ];
     let saved = project
         .save_workshop(SaveWorkshop {
             access: access.clone(),
@@ -764,7 +829,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         operation_id: "relationship-generation-start".into(),
         exploration: WorkshopExploration {
             session_id: "relationship-session".into(),
-            expected_version: saved.version,
+            expected_version: saved.version.clone(),
             working_generation: "0".into(),
             action: "directions".into(),
             instruction: "Explore what this bond could force into the open.".into(),
@@ -786,6 +851,22 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
     assert_eq!(relationship.source_heads, vec![from.head.clone(), to.head.clone()]);
     assert_eq!(relationship.description, "Mira's oath binds the court's gatekeeper, but neither side knows the full price.");
     assert_eq!(relationship.uncertainty, "The debt may be inherited rather than chosen.");
+    assert!(metadata
+        .preferences
+        .iter()
+        .any(|preference| preference.contains("Keep Mira close to the oath")));
+    assert!(metadata
+        .preferences
+        .iter()
+        .any(|preference| preference.contains("Keep the court uncertain")));
+    assert!(metadata
+        .hard_constraints
+        .iter()
+        .any(|preference| preference.contains("Keep the court uncertain")));
+    assert!(!metadata
+        .preferences
+        .iter()
+        .any(|preference| preference.contains("Unrelated material preference")));
     assert_eq!(started.packet.receipt.mandatory_source_handles.len(), 2);
     let context_message: Value = serde_json::from_str(
         &started
@@ -843,14 +924,50 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         webnovel_core::projects::discussions::DiscussionRunStatus::Completed
     );
     let first_view = project.read_workshop(access.clone()).unwrap();
-    let candidate_id = first_view.results[0]
+    let relationship_result = first_view
+        .results
+        .iter()
+        .find(|result| result.run.id == started.run.id)
+        .expect("relationship result");
+    let candidate_id = relationship_result
         .output
         .as_ref()
         .unwrap()
         .candidates[0]
         .id
         .clone();
-    assert!(!first_view.results[0].stale);
+    assert!(!relationship_result.stale);
+
+    let normal_started = project
+        .start_workshop(StartWorkshop {
+            access: access.clone(),
+            operation_id: "normal-focus-generation-start".into(),
+            exploration: WorkshopExploration {
+                session_id: "normal-session".into(),
+                expected_version: first_view.version.clone(),
+                working_generation: "0".into(),
+                action: "directions".into(),
+                instruction: "Explore the selected endpoint normally.".into(),
+                selected_scope: "The selected endpoint".into(),
+                selected_text: String::new(),
+                working_selection: None,
+            },
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
+        })
+        .unwrap();
+    let normal_metadata = webnovel_core::projects::workshop_generation::metadata_from_instruction(
+        &normal_started.packet.messages.last().unwrap().content,
+    )
+    .unwrap();
+    assert!(normal_metadata
+        .preferences
+        .iter()
+        .any(|preference| preference.contains("Keep Mira close to the oath")));
+    assert!(!normal_metadata
+        .preferences
+        .iter()
+        .any(|preference| preference.contains("Keep the court uncertain")));
 
     let mut cleared = first_view.state.clone();
     cleared.sessions[0].relationship_id = None;
@@ -864,7 +981,12 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         .unwrap();
     let cleared_view = project.read_workshop(access.clone()).unwrap();
     assert_eq!(cleared_view.version, cleared_saved.version);
-    assert!(cleared_view.results[0].stale);
+    let cleared_relationship = cleared_view
+        .results
+        .iter()
+        .find(|result| result.run.id == started.run.id)
+        .expect("cleared relationship result");
+    assert!(cleared_relationship.stale);
 
     let mut restored = cleared_view.state.clone();
     restored.sessions[0].relationship_id = Some("relationship-one".into());
@@ -878,7 +1000,12 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         .unwrap();
     let restored_view = project.read_workshop(access.clone()).unwrap();
     assert_eq!(restored_view.version, restored_saved.version);
-    assert!(!restored_view.results[0].stale);
+    let restored_relationship = restored_view
+        .results
+        .iter()
+        .find(|result| result.run.id == started.run.id)
+        .expect("restored relationship result");
+    assert!(!restored_relationship.stale);
 
     let mut unrelated = restored_view.state.clone();
     unrelated.relationships.push(WorkshopRelationship {
@@ -901,7 +1028,12 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         .unwrap();
     let unrelated_view = project.read_workshop(access.clone()).unwrap();
     assert_eq!(unrelated_view.version, unrelated_saved.version);
-    assert!(!unrelated_view.results[0].stale);
+    let unrelated_relationship = unrelated_view
+        .results
+        .iter()
+        .find(|result| result.run.id == started.run.id)
+        .expect("unrelated relationship result");
+    assert!(!unrelated_relationship.stale);
 
     let mut changed = unrelated_view.state.clone();
     changed.relationships[0].description =
@@ -916,7 +1048,12 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         .unwrap();
     let stale_view = project.read_workshop(access.clone()).unwrap();
     assert_eq!(stale_view.version, changed.version);
-    assert!(stale_view.results[0].stale);
+    let stale_relationship = stale_view
+        .results
+        .iter()
+        .find(|result| result.run.id == started.run.id)
+        .expect("stale relationship result");
+    assert!(stale_relationship.stale);
 
     let preview_error = project
         .preview_workshop_adoption(PreviewWorkshopAdoption {

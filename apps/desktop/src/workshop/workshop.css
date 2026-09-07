@@ -17,6 +17,8 @@
 .workshop-workbench h3 { font-size: 17px; line-height: 1.4; }
 .workshop-workbench h4 { font-size: 15px; }
 .workshop-save-status { font-size: 12px; color: #465c78; margin: 18px 0 24px; }
+.workshop-protection { margin: 0 0 24px; padding: 12px 16px; border-left: 3px solid #b5c7e8; background: #f6f8fc; font-size: 13px; overflow-wrap: anywhere; }
+.workshop-protection p { margin: 8px 0; line-height: 1.5; }
 .workshop-workbench > section, .workshop-workbench > details { margin: 0 0 32px; }
 .workshop-workbench > .workshop-brief { margin-bottom: 10px; }
 .workshop-workbench > .workshop-interpretation { margin-bottom: 16px; padding-block: 6px; }
