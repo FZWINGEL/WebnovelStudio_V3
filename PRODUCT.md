@@ -27,9 +27,12 @@ document-backed material; documents and immutable revisions remain the story
 authority. Schema-35 Rust storage and actor boundaries cover Workshop persistence,
 reopen/replay, atomic multi-target adoption, stale refusal without partial writes,
 chapter isolation, restricted-context secret exclusion, and local hard-preference
-conflicts. These are development checks: the full Workshop specification, native
-WebView2 behavior, live Workshop providers, the current installer, and author
-evaluation remain unqualified.
+conflicts. One bounded headless Codex request and its persisted reopen are
+verified, and the fresh installer passed its synthetic installed write/reopen
+and same-version retention lifecycle. The full Workshop specification, native
+Workshop flow, broader live-provider behavior, and author evaluation remain
+open; exact evidence and source identities are recorded in the qualification
+documents.
 
 **Provider direction (development surface):** Codex compatibility is checked
 against the installed CLI at connection time and recorded per request; V3 must

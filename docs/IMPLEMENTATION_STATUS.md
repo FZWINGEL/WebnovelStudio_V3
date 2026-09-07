@@ -78,16 +78,16 @@ adoption **Kind** selector. It recorded no page errors on WebView2
 `.local/ci-workshop-34127175895/workshop/failure.*`. A headless reproduction
 showed the harness's exact-label `getByLabel` lookup failing while the exact
 role/combobox lookup resolves. The initial harness correction was then exercised
-by the native-first rerun below; this is not a broad native pass. Live Workshop qualification, current
-Workshop installer qualification, and the author study remain pending. The
+by the native-first rerun below; this is not a broad native pass. Live Workshop qualification, broader installer/quality coverage, and the author
+study remain pending. The
 native-first rerun [CI 34129236987](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34129236987)
 on source `2a97a39` also failed in the six bounded Workshop groups at the
 prefilled **Content** selector: the exact-label lookup found no element while
 the exact textbox role resolved. Ubuntu and Windows checks/build passed; later
-native gates were skipped. The harness now uses exact textbox/combobox roles and
-a fresh rerun is pending. Package run `34129253871` was intentionally cancelled
-because the product fix requires a fresh installer; package qualification remains
-pending.
+native gates were skipped. The harness correction was exercised by the later 341307 run. Earlier
+package run `34129253871` was intentionally cancelled because the product
+fix required a fresh installer; the later package result below qualifies the
+current installed lifecycle.
 
 The next hosted run [CI 34130744589](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130744589)
 on exact source `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf` completed as a harness
@@ -102,11 +102,42 @@ reopen, line 344 waited on a hidden starting-idea textarea because
 before querying the exact textbox role; the remaining five Workshop groups and
 all later native suites were skipped and remain unqualified. This is a harness
 failure, not a product failure or broad native pass. Artifacts are under
-`.local/ci-workshop-34130744589/workshop/`. A fresh CI rerun is pending.
-The fresh package run [34130743953](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130743953)
-remains in progress building the exact `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf`
-product source. It was not cancelled because the new changes are harness/docs
-only; no package result is claimed yet.
+`.local/ci-workshop-34130744589/workshop/`. The next hosted rerun is recorded
+below.
+Package run [34130743953](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130743953)
+succeeded against the exact clean builder and qualification source
+`df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf`, completing at
+`2026-09-07T14:20:03.2244053Z` on Windows Server 2025 `10.0.26100` with
+WebView2 `151.0.4129.101`. ProductVersion was exactly `3.0.0`; installed-release
+creation, synthetic project/chapter creation, English text save/reopen, normal
+close, in-place uninstall without delete-data, and identical-version reinstall
+with project/document/text retention passed with `errors=[]` and
+`forcedProcessStop=false`. Metadata/results were read and
+`.local/ci-package-34130743953/run-20260907-141852-540/result.json` plus
+`.local/ci-package-34130743953/build-metadata.json` were verified;
+`.local/builds/3.0.0-workshop-df747b6/WebnovelStudio V3_3.0.0_x64-setup.exe`
+is 269,716,613 bytes with SHA-256
+`8ea09a47e8e4a5408a46cf1645b60330e3314234e3256f5baa6dd1d3d97a85ef`, matching
+metadata/results, and `same-version-reinstall.png` was visually inspected. This
+qualifies the installed lifecycle only; offline/no-runtime installation, true
+upgrade, live-provider behavior, author data, and full Workshop-native/quality
+qualification remain open. The next hosted run [CI 34132271096](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34132271096)
+on exact source `9ad3b0b4042ac0c33c2059a3a6bdb26247e53af7` completed as a harness
+failure after 10 of 15 intended Workshop groups. It had no page errors on
+WebView2 `151.0.4129.101`; Ubuntu and Windows checks/build passed, while all
+later native suites were skipped. After reopen, the harness used the Overview
+brief label, but the People lens labels the same field “What you want to
+explore” (`Workshop.tsx:278`), so line 346 waited for a textbox name that was
+absent. This is a harness failure; it does not establish a broad native pass.
+The harness uses the correct role and asserts the People heading in commit
+`47a50d9f230fe06c3f46eba700fbac57b03bff11`; the headless DOM reproduction now
+passes collapsed-summary expansion and seed reading through the correct role,
+with the old role absent. Artifacts are under
+`.local/ci-workshop-34132271096/workshop`; the reproduction is
+`apps/desktop/node_modules/.cache/workshop-qa/reopen-brief.mjs`. New CI
+[34133645198](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34133645198)
+is running against exact source `47a50d9f230fe06c3f46eba700fbac57b03bff11`;
+broader native and Workshop-quality evidence remain pending.
 The [formative study protocol](STORY_WORKSHOP_AUTHOR_STUDY.md) is prepared; no
 observed human study is claimed.
 

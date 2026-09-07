@@ -2,51 +2,40 @@
 
 The initial distribution target is Windows x64 with an NSIS installer. Package configuration is implementation work; a successful build alone does not establish offline installation, accessibility, recovery, or author-trial acceptance. Current executed evidence is recorded in [implementation status](IMPLEMENTATION_STATUS.md).
 
-## Current development build — 7 September 2026
+## Current Workshop package — 7 September 2026
 
-A fresh debug executable from source `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf` is available at
-`target/debug/webnovel-desktop.exe`. It is 48,414,720 bytes, was built at
-`2026-09-07T14:02:46.9371672Z`, and has SHA-256
+Package run [34130743953](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130743953)
+succeeded against the exact clean builder and qualification source
+`df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf`, completing at
+`2026-09-07T14:20:03.2244053Z` on Windows Server 2025 `10.0.26100` with
+WebView2 `151.0.4129.101`. ProductVersion was exactly `3.0.0`. The installer is
+`.local/builds/3.0.0-workshop-df747b6/WebnovelStudio V3_3.0.0_x64-setup.exe`,
+269,716,613 bytes, SHA-256
+`8ea09a47e8e4a5408a46cf1645b60330e3314234e3256f5baa6dd1d3d97a85ef`, matching
+the recorded metadata and results.
+
+The installed lifecycle passed synthetic project/chapter creation, English text
+save/reopen, normal close, in-place uninstall without delete-data, and
+identical-version reinstall with project/document/text retained. The result has
+`errors=[]` and `forcedProcessStop=false`. Evidence is in
+`.local/ci-package-34130743953/build-metadata.json` and
+`.local/ci-package-34130743953/run-20260907-141852-540/result.json`; the
+same-version reinstall screenshot was visually inspected. This qualifies the
+installed lifecycle only: offline/no-runtime installation, true upgrade,
+live-provider behavior, author data, and full Workshop-native/quality
+qualification remain open.
+
+The current debug executable from source
+`df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf` is
+`target/debug/webnovel-desktop.exe`, 48,414,720 bytes, built at
+`2026-09-07T14:02:46.9371672Z`, with SHA-256
 `ad0210a80bf8e83045906ae4d36d30662af96fcf076663f90e27a373cc830c85`.
-This is a development executable identity, not an installer or installed-release
-qualification. Hosted CI run [34130744589](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130744589)
-on exact source `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf` completed as a harness
-failure at 14:14:09 UTC. Ubuntu, Windows frontend/Clippy/Rust/build, and the
-WebView2 `151.0.4129.101` environment passed; the Workshop path passed 10 of
-15 intended groups with no page errors, including explicit mock generation,
-detail selection/manual edit, adoption preview without writes, one world
-adoption with zero chapters and an authorRoom decision, the Develop-to-Write
-barrier, directional relationships with two exact heads, and history UI. After
-reopen, line 344 waited on a hidden starting-idea textarea because
-`details.workshop-brief` was collapsed. The harness now expands the summary
-before querying the exact textbox role; the remaining five Workshop groups and
-all later native suites were skipped and remain unqualified. This is a harness
-failure, not a product failure or broad native pass. Artifacts are under
-`.local/ci-workshop-34130744589/workshop/`. A fresh CI rerun is pending. The
-fresh package run [34130743953](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130743953)
-remains in progress building this exact source; it was not cancelled because
-the new changes are harness/docs only, and no package result is claimed yet.
-Earlier hosted CI run
-([34127175895](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34127175895))
-passed Ubuntu, Windows Rust/frontend/build, and the existing 52-check native
-suite, then passed six bounded Workshop native groups before timing out at the
-adoption **Kind** selector. It recorded no page errors on WebView2
-`151.0.4129.101`; later native suites were skipped. Failure artifacts are under
-`.local/ci-workshop-34127175895/workshop/failure.*`. The headless cause was an
-exact-label `getByLabel` lookup that fails for this selector while the exact
-role/combobox lookup resolves. The native-first rerun [34129236987](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34129236987)
-on source `2a97a39` also failed in the six bounded Workshop groups at the
-prefilled **Content** selector: the exact-label lookup found no element while the
-exact textbox role resolved. Ubuntu and Windows checks/build passed; later native
-gates were skipped. The harness now uses exact textbox/combobox roles and a fresh
-rerun is pending. A bounded headless live smoke on this source completed one
-Luna/xhigh/priority request with three valid directions and held unchanged-anchor,
-manual-path, and no-chapter boundaries; it exposed internal anchor and
-`affectedTargets` metadata, which was then fixed in current/historical flag
-projection and backend anchor-override handling while preserving raw responses
-and real flags. Package run `34129253871` was intentionally cancelled because the
-product fix requires a fresh installer; no package run has been completed for
-this build.
+Current source
+`47a50d9f230fe06c3f46eba700fbac57b03bff11` differs only in Workshop native
+harness and documentation; [CI 34133645198](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34133645198)
+remains pending. Retained native harness-failure histories and broader evidence
+are recorded in the [implementation status](IMPLEMENTATION_STATUS.md) and
+[Story Workshop implementation ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md).
 
 ## Historical 3.0.0 private candidate installer
 
