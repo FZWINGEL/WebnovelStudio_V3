@@ -25,9 +25,11 @@ export function RequestContext({ access, packetId }: { access: ProjectAccess; pa
     return () => { disposed = true; };
   }, [access.projectId, access.operationNamespace, access.writerLease, access.session, packetId]);
   const exploration = context?.exploration && typeof context.exploration === 'object' ? context.exploration as Envelope : null;
+  const voice = context?.voiceGuidance && typeof context.voiceGuidance === 'object' ? context.voiceGuidance as Envelope : null;
   return <details className="workshop-frozen-context"><summary>Exact creative direction supplied</summary>{!loaded && <p role="status">Opening the saved request…</p>}{error && <p role="alert">{error}</p>}{loaded && !error && !context && <p>This saved packet has no Workshop context envelope.</p>}{context && <>
     {exploration && <><h4>Instruction and editable scope</h4><p>{string(exploration.instruction)}</p><p>{string(exploration.selectedScope)}</p>{string(exploration.selectedText) && <blockquote>{string(exploration.selectedText)}</blockquote>}</>}
     <h4>Current element</h4><p className="workshop-preserve-lines">{string(context.currentElement)}</p>
+    {voice && <section><h4>Voice evidence supplied</h4><blockquote className="workshop-preserve-lines">{string(voice.sample)}</blockquote><p>{string(voice.authorInstruction)}</p><ul>{texts(voice.dimensions).map(dimension => <li key={dimension}>{dimension}</li>)}</ul><p>Source for style guidance only. The sample’s events are not adopted by this request.</p></section>}
     <p>Lens: {string(context.lens)} · Depth: {string(context.depth)}</p>
     {string(context.originalNotes) && <details><summary>Original notes supplied</summary><p className="workshop-preserve-lines">{string(context.originalNotes)}</p></details>}
     <h4>Direction</h4><p>{context.outsideDirection === true ? 'Explored outside the current direction. Hard constraints remained in force.' : string(context.direction) || 'No direction was chosen.'}</p>

@@ -1,10 +1,10 @@
 # WebnovelStudio V3 product requirements
 
-**Status:** native development application with persistent English writing, project management, discussion, scoped Apply, context inspection, bounded Codex integration, an implemented opt-in C6 story lookup development route, author-only exact chapter review, schema-19 story continuation, schema-20 reviewed export, schema-21 passage-backed reviewed story details, schema-22 structured paragraph/whole-chapter suggestions, schema-23 passage-backed promise history, C4-A chapter navigation memory, C5-A evidence history, and schema-8 V2 import. Full V3, author-trial, and release gates remain open, 6 September 2026. Current evidence and qualification boundaries are maintained in [implementation status](docs/IMPLEMENTATION_STATUS.md).
+**Status:** native development application with persistent English writing, project management, discussion, scoped Apply, context inspection, bounded Codex integration, an implemented Story Workshop development surface, an opt-in C6 story lookup development route, author-only exact chapter review, schema-19 story continuation, schema-20 reviewed export, schema-21 passage-backed reviewed story details, schema-22 structured paragraph/whole-chapter suggestions, schema-23 passage-backed promise history, C4-A chapter navigation memory, C5-A evidence history, and schema-8 V2 import. Full V3, author-trial, and release gates remain open, 7 September 2026. Current evidence and qualification boundaries are maintained in [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 WebnovelStudio is an AI writing application with the author directing, reviewing, and accepting the work. The author manages several projects, develops story material in any order, asks the AI to draft chapters or develop ideas, and gives whole-document or selected-text feedback. Manual writing and editing remain available throughout.
 
-**Workspace direction, 6 September 2026:** each project has persistent Chapters,
+**Workspace direction, 7 September 2026:** each project has persistent Chapters,
 Worldbuilding, Characters, Plot & themes, and Notes tabs. Chapters share one
 writing workspace with an ordered chapter list, previous/next navigation, the
 manuscript, and the writing assistant. The other tabs organize their own saved
@@ -14,9 +14,22 @@ worldbuilding or character setup. Opening a project or tab never starts paid
 generation. Reasoning effort and Fast/service tier are visible beside the
 active model; provider configuration stays in Settings.
 
-**Provider scope, 6 September 2026:** Codex is the primary use case. Finish the
+**Provider scope, 7 September 2026:** Codex is the primary use case. Finish the
 Claude checkpoint and retain OpenAI-compatible endpoints; further adapter ports
 are deferred at the author's request.
+
+**Story Workshop development surface, 7 September 2026:** Develop provides six
+author-room lenses—Overview, World, People, Themes, Possibilities, and Notebook—
+for saved briefs, working versions, typed alternatives, selected details,
+questions, scoped preferences, and local relationships. Provider responses remain
+alternatives until the author explicitly uses a version. Story Bible shows chosen
+document-backed material; documents and immutable revisions remain the story
+authority. Schema-35 Rust storage and actor boundaries cover Workshop persistence,
+reopen/replay, atomic multi-target adoption, stale refusal without partial writes,
+chapter isolation, restricted-context secret exclusion, and local hard-preference
+conflicts. These are development checks: the full Workshop specification, native
+WebView2 behavior, live Workshop providers, the current installer, and author
+evaluation remain unqualified.
 
 **Provider direction (development surface):** Codex compatibility is checked
 against the installed CLI at connection time and recorded per request; V3 must
@@ -60,19 +73,21 @@ broader live-provider support remain open. See the
 - **Honest context:** the product distinguishes evidence stored in the project, permitted sources available for lookup, the packet actually delivered to a model, and what the model appears to understand (an evaluation question). Context maintenance does not run paid analysis on autosave, automatically write canon, or replace source text with a large rolling summary.
 - **Language and genre:** English is the authoring, UI, and export language. Translated-webnovel, wuxia, and xianxia register or terminology may be optional style support; Chinese authoring is not a product requirement, and no genre's stages, chapter lengths, or schedule are mandatory.
 
-The current project database reader floor is schema 34, and the library model
+The current project database reader floor is schema 35, and the library model
 preferences/endpoint profile schema is 4. Schema 27 adds the reader-floor
 boundary for author-selected Codex bindings; schema 28 adds the frozen
 source-title reader boundary, schema 29 adds optional memory HTTP delivery
 receipts, and schema 30 adds nullable Claude reported-model evidence. Schema 31 fences author-room structured development records from older readers. Schema 32 adds optional immutable accepted narrative summaries to reviewed stages and bundles; schema 33 adds reviewed character knowledge, and schema 34 adds the reader boundary for typed reviewed-memory lookups. Legacy
 Codex packet bytes and hashes, plus absent legacy delivery
-values, remain preserved. The library catalog stores sanitized
+values, remain preserved. Schema 35 adds the durable Story Workshop state,
+immutable Workshop snapshots/adoption previews/receipts, and reader validation
+for those tables. The library catalog stores sanitized
 model metadata, defaults, observed CLI identity, and discovery time, without
 credentials. Cached catalog rows do not establish readiness.
 
 ## Current native surface
 
-The native Library/Workspace supports blank projects and optional chapter, character, world, theme, hook, scene, and note documents. It connects rich-text editing to Rust-owned SQLite autosave, flush-before-switch, rename, duplicate, archive, native folder/backup/recovery dialogs, saved versions, and exact Markdown/TXT export previews. Current author projects use schema 34, retaining schema-19 continuation, schema-20 reviewed-export, schema-21 reviewed-evidence, schema-22 structured-suggestion, and schema-23 promise-history records; schema 24 adds bounded lookup invocation and read records, schema 25 adds optional observed provider runtime identity, schema 26 adds optional HTTP delivery receipts for provider results, schema 27 adds the reader-floor boundary for dynamic author Codex bindings, schema 28 adds frozen source-title validation, schema 29 adds optional memory HTTP delivery receipts, and schema 30 adds nullable Claude reported-model evidence without rewriting historical packet bytes. The historical C6 checkpoint [CI 34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes both contract jobs and all 47 strict native checks; its wrapper counts are dated at 593 active Rust tests (552 core and 41 desktop) and 353 frontend tests in 27 files. Current local and native evidence is maintained in [implementation status](docs/IMPLEMENTATION_STATUS.md). The final Story Memory HTTP native fixture passes six synthetic POSTs with zero live calls and no page errors; hosted/live-provider, author-trial, and release qualification remain open. Non-secret model preferences and endpoint profiles use library schema 4. Recovered projects have independent identities and operation namespaces. Copied history cannot authorize new operations.
+The native Library/Workspace supports blank projects and optional chapter, character, world, theme, hook, scene, and note documents. It connects rich-text editing to Rust-owned SQLite autosave, flush-before-switch, rename, duplicate, archive, native folder/backup/recovery dialogs, saved versions, and exact Markdown/TXT export previews. Current author projects use schema 35, retaining schema-19 continuation, schema-20 reviewed-export, schema-21 reviewed-evidence, schema-22 structured-suggestion, and schema-23 promise-history records; schema 24 adds bounded lookup invocation and read records, schema 25 adds optional observed provider runtime identity, schema 26 adds optional HTTP delivery receipts for provider results, schema 27 adds the reader-floor boundary for dynamic author Codex bindings, schema 28 adds frozen source-title validation, schema 29 adds optional memory HTTP delivery receipts, schema 30 adds nullable Claude reported-model evidence, and schema 35 adds Story Workshop storage without rewriting historical packet bytes. The historical C6 checkpoint [CI 34038325733](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34038325733) passes both contract jobs and all 47 strict native checks; its wrapper counts are dated at 593 active Rust tests (552 core and 41 desktop) and 353 frontend tests in 27 files. Current local and native evidence is maintained in [implementation status](docs/IMPLEMENTATION_STATUS.md). The final Story Memory HTTP native fixture passes six synthetic POSTs with zero live calls and no page errors; hosted/live-provider, author-trial, and release qualification remain open. Non-secret model preferences and endpoint profiles use library schema 4. Recovered projects have independent identities and operation namespaces. Copied history cannot authorize new operations.
 
 The Claude author development surface uses the existing discussion ownership and proposal Apply paths for Discuss, Propose edits, and Continue. Each `claude-stdin.author.v1` binding freezes observed CLI identity, the selected static model, and exact effort with 24 KiB stdin and 64 KiB retained output caps; it does not pin a future version or executable hash. Claude has no memory or lookup route. Completed results require an exact requested/reported model match; unknown or mismatched identity fails safely while retaining the raw result, and usage/effective identity remain unknown. Stop, failed local saves, and recovery never replay a Claude request. Native picker and synthetic transport checks pass; live Claude generation remains unqualified. See the [Claude author ADR](docs/ADR_0026_CLAUDE_AUTHOR.md).
 

@@ -24,6 +24,31 @@ const MAX_TEXT_BYTES: usize = 32 * 1024;
 const MAX_DETAIL_BYTES: usize = 8 * 1024;
 const MAX_CANDIDATE_BYTES: usize = 128 * 1024;
 const MAX_CANDIDATES: usize = 3;
+const VOICE_GUIDANCE_ACTION: &str = "voiceGuidance";
+const VOICE_GUIDANCE_DIMENSIONS: [&str; 5] = [
+    "Sentence density",
+    "Viewpoint distance",
+    "Humor",
+    "Exposition",
+    "Dialogue rhythm",
+];
+const WORKSHOP_ACTIONS: &[&str] = &[
+    "directions",
+    "explore",
+    "findDirection",
+    "findDirections",
+    "concrete",
+    "consequences",
+    "challenge",
+    "ordinaryLife",
+    "situation",
+    "moment",
+    VOICE_GUIDANCE_ACTION,
+    "arc",
+    "scale",
+    "subvert",
+    "synthesize",
+];
 
 /// The renderer sends only this exploration intent. The project actor fills
 /// the remaining request fields from its current workshop state and anchor
@@ -113,6 +138,19 @@ pub struct WorkshopPacketMetadata {
     pub questions: Vec<WorkshopQuestion>,
     pub original_notes: String,
     pub outside_direction: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_guidance: Option<WorkshopVoiceGuidance>,
+}
+
+/// Frozen author material for a voice-guidance request. This is evidence for
+/// reviewable style instructions only; it is never a canon or writing record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkshopVoiceGuidance {
+    pub sample: String,
+    pub author_instruction: String,
+    pub dimensions: Vec<String>,
+    pub adopt_events: bool,
 }
 
 impl WorkshopPacketMetadata {
@@ -182,6 +220,19 @@ impl WorkshopPacketMetadata {
         );
         fixed.sort();
         fixed.dedup();
+        let voice_guidance = if is_voice_guidance_action(&exploration.action) {
+            Some(WorkshopVoiceGuidance {
+                sample: exploration.selected_text.clone(),
+                author_instruction: exploration.instruction.clone(),
+                dimensions: VOICE_GUIDANCE_DIMENSIONS
+                    .iter()
+                    .map(|dimension| (*dimension).to_owned())
+                    .collect(),
+                adopt_events: false,
+            })
+        } else {
+            None
+        };
         Ok(Self {
             exploration,
             lens: context.lens,
@@ -202,6 +253,7 @@ impl WorkshopPacketMetadata {
             questions: context.questions.clone(),
             original_notes: context.original_notes.clone(),
             outside_direction: context.outside_direction,
+            voice_guidance,
         })
     }
 }
@@ -465,6 +517,7 @@ pub fn metadata_from_instruction(instruction: &str) -> CoreResult<WorkshopPacket
     let metadata: WorkshopPacketMetadata = serde_json::from_value(metadata.clone())
         .map_err(|error| invalid(&format!("The workshop metadata is invalid: {error}")))?;
     validate_exploration(&metadata.exploration)?;
+    validate_voice_guidance_metadata(&metadata)?;
     for (field, outer, embedded) in [
         (
             "action",
@@ -574,14 +627,18 @@ pub fn validate_workshop_output(
     ] {
         validate_text(text, MAX_TEXT_BYTES, "interpretation")?;
     }
-    let expected = if is_direction_action(&metadata.exploration.action) {
+    let expected = if is_direction_action(&metadata.exploration.action)
+        || is_voice_guidance_action(&metadata.exploration.action)
+    {
         3..=3
     } else {
         1..=MAX_CANDIDATES
     };
     if !expected.contains(&output.candidates.len()) {
         return Err(invalid(
-            if is_direction_action(&metadata.exploration.action) {
+            if is_direction_action(&metadata.exploration.action)
+                || is_voice_guidance_action(&metadata.exploration.action)
+            {
                 "A direction workshop response must contain exactly three candidates."
             } else {
                 "A workshop refinement response must contain one to three candidates."
@@ -596,6 +653,9 @@ pub fn validate_workshop_output(
     let mut dimensions = BTreeSet::new();
     for (index, candidate) in output.candidates.iter_mut().enumerate() {
         validate_candidate(candidate, metadata, run_id, index)?;
+        if is_voice_guidance_action(&metadata.exploration.action) {
+            validate_voice_guidance_candidate(candidate, metadata)?;
+        }
         dimensions.insert(candidate.dimension_value.to_ascii_lowercase());
         candidate.id = format!("{run_id}-{index}");
     }
@@ -662,36 +722,41 @@ fn validate_candidate(
         validate_id(&target.document_id, "affected document ID")?;
         validate_text(&target.reason, MAX_DETAIL_BYTES, "affected target reason")?;
     }
-    let editable_scope = editable_scope_text(metadata);
-    let whole_or_synthesis = is_whole_or_synthesis_scope(&metadata.exploration.selected_scope)
-        && metadata.exploration.working_selection.is_none();
-    let mut required = metadata
-        .fixed_details
-        .iter()
-        .filter(|literal| editable_scope.contains(literal.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    // A whole-work synthesis can include selected tray material even when the
-    // current element does not repeat it verbatim. Scoped replacements must
-    // leave fixed facts outside their captured range to the surrounding
-    // working text and must not be forced to duplicate them.
-    if whole_or_synthesis {
-        required.extend(
-            metadata
-                .selected_details
-                .iter()
-                .filter(|detail| detail.fixed)
-                .map(|detail| detail.text.clone()),
-        );
-    }
-    required.sort();
-    required.dedup();
-    for literal in required {
-        if !literal.is_empty() && !candidate.content.contains(&literal) {
-            return Err(invalid(&format!(
-                "Candidate {} does not preserve the fixed detail in its editable scope.",
-                index + 1
-            )));
+    // Voice guidance describes style; it does not rewrite the selected sample
+    // or working story, so protected story literals remain context constraints
+    // and must not be forced into STYLE instructions.
+    if !is_voice_guidance_action(&metadata.exploration.action) {
+        let editable_scope = editable_scope_text(metadata);
+        let whole_or_synthesis = is_whole_or_synthesis_scope(&metadata.exploration.selected_scope)
+            && metadata.exploration.working_selection.is_none();
+        let mut required = metadata
+            .fixed_details
+            .iter()
+            .filter(|literal| editable_scope.contains(literal.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        // A whole-work synthesis can include selected tray material even when
+        // the current element does not repeat it verbatim. Scoped replacements
+        // must leave fixed facts outside their captured range to the surrounding
+        // working text and must not be forced to duplicate them.
+        if whole_or_synthesis {
+            required.extend(
+                metadata
+                    .selected_details
+                    .iter()
+                    .filter(|detail| detail.fixed)
+                    .map(|detail| detail.text.clone()),
+            );
+        }
+        required.sort();
+        required.dedup();
+        for literal in required {
+            if !literal.is_empty() && !candidate.content.contains(&literal) {
+                return Err(invalid(&format!(
+                    "Candidate {} does not preserve the fixed detail in its editable scope.",
+                    index + 1
+                )));
+            }
         }
     }
     let _ = run_id;
@@ -725,6 +790,67 @@ fn is_direction_action(action: &str) -> bool {
         action,
         "directions" | "explore" | "findDirection" | "findDirections"
     )
+}
+
+fn is_voice_guidance_action(action: &str) -> bool {
+    action == VOICE_GUIDANCE_ACTION
+}
+
+fn is_supported_action(action: &str) -> bool {
+    WORKSHOP_ACTIONS.contains(&action)
+}
+
+fn validate_voice_guidance_candidate(
+    candidate: &WorkshopCandidate,
+    metadata: &WorkshopPacketMetadata,
+) -> CoreResult<()> {
+    let content = candidate.content.to_ascii_lowercase();
+    if !content.contains("style") {
+        return Err(invalid(
+            "A voice-guidance candidate must contain explicit STYLE instructions.",
+        ));
+    }
+    for dimension in VOICE_GUIDANCE_DIMENSIONS {
+        if !content.contains(&dimension.to_ascii_lowercase()) {
+            return Err(invalid(&format!(
+                "A voice-guidance candidate must address {dimension}."
+            )));
+        }
+    }
+    let sample = metadata.exploration.selected_text.trim();
+    if !sample.is_empty() && candidate.content.contains(sample) {
+        return Err(invalid(
+            "A voice-guidance candidate must not copy the sample or its events into style instructions.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_voice_guidance_metadata(metadata: &WorkshopPacketMetadata) -> CoreResult<()> {
+    if is_voice_guidance_action(&metadata.exploration.action) {
+        let guidance = metadata
+            .voice_guidance
+            .as_ref()
+            .ok_or_else(|| invalid("Voice-guidance metadata is missing from the request."))?;
+        if guidance.sample != metadata.exploration.selected_text
+            || guidance.author_instruction != metadata.exploration.instruction
+            || guidance.dimensions
+                != VOICE_GUIDANCE_DIMENSIONS
+                    .iter()
+                    .map(|dimension| (*dimension).to_owned())
+                    .collect::<Vec<_>>()
+            || guidance.adopt_events
+        {
+            return Err(invalid(
+                "Voice-guidance metadata does not match the frozen author request.",
+            ));
+        }
+    } else if metadata.voice_guidance.is_some() {
+        return Err(invalid(
+            "Voice-guidance metadata is not allowed for another workshop action.",
+        ));
+    }
+    Ok(())
 }
 
 fn preference_applies(preference: &WorkshopPreference, session: &WorkshopSession) -> bool {
@@ -774,6 +900,9 @@ fn validate_exploration(exploration: &WorkshopExploration) -> CoreResult<()> {
         return Err(invalid("The workshop action is empty."));
     }
     validate_text(&exploration.action, 128, "workshop action")?;
+    if !is_supported_action(&exploration.action) {
+        return Err(invalid("The workshop action is unsupported."));
+    }
     validate_text(
         &exploration.instruction,
         MAX_TEXT_BYTES,
@@ -790,6 +919,12 @@ fn validate_exploration(exploration: &WorkshopExploration) -> CoreResult<()> {
     )?;
     if exploration.selected_scope.trim().is_empty() {
         return Err(invalid("The workshop selected scope is empty."));
+    }
+    if is_voice_guidance_action(&exploration.action) && exploration.selected_text.trim().is_empty()
+    {
+        return Err(invalid(
+            "Voice guidance requires an author-selected or current sample.",
+        ));
     }
     if let Some(selection) = &exploration.working_selection {
         validate_text(&selection.text, MAX_DETAIL_BYTES, "working selection")?;
@@ -1065,6 +1200,68 @@ mod tests {
             "candidates": [candidate("same"), candidate("same"), candidate("same")]
         });
         assert!(validate_workshop_output(&bad.to_string(), &metadata, "run-2").is_err());
+    }
+
+    #[test]
+    fn voice_guidance_freezes_sample_and_requires_three_style_sets() {
+        let sample = "Rain ticked against the workshop glass while she counted each drop.";
+        let mut request = start_request(VOICE_GUIDANCE_ACTION);
+        request.exploration.selected_text = sample.into();
+        request.exploration.instruction =
+            "Use the sample as voice evidence. The author prefers restrained warmth.".into();
+        let generation = WorkshopGenerationRequest {
+            access: request.access,
+            operation_id: request.operation_id,
+            exploration: request.exploration,
+            context: context(),
+            budget: request.budget,
+            provider_binding: request.provider_binding,
+        };
+        let (start, expected) = generation.into_discussion().unwrap();
+        assert_eq!(start.intent, FeedbackIntent::WorkshopExplore);
+        assert!(start.basis.is_none());
+        assert!(start.scope.is_none());
+        assert!(start.safe_brief.is_none());
+        assert!(start.previous_run_id.is_none());
+        let frozen = metadata_from_instruction(&start.instruction).unwrap();
+        let guidance = frozen.voice_guidance.as_ref().unwrap();
+        assert_eq!(guidance.sample, sample);
+        assert_eq!(
+            guidance.author_instruction,
+            expected.exploration.instruction
+        );
+        assert_eq!(guidance.dimensions.len(), VOICE_GUIDANCE_DIMENSIONS.len());
+        assert!(!guidance.adopt_events);
+
+        let style_candidate = |dimension: &str| {
+            let mut value = candidate(dimension);
+            value["content"] = Value::String(format!(
+                "STYLE guidance\nSentence density: use {dimension} sentence lengths.\nViewpoint distance: stay close to perception.\nHumor: use restrained warmth.\nExposition: reveal context through selected detail.\nDialogue rhythm: let turns breathe."
+            ));
+            value
+        };
+        let raw = serde_json::json!({
+            "schemaVersion": WORKSHOP_SCHEMA_VERSION,
+            "requestKind": "refinement",
+            "question": "Which voice qualities should carry forward?",
+            "questionReason": "The author is comparing style treatments.",
+            "dimension": "Voice treatment",
+            "interpretation": {"youSaid":"A sample and optional style explanation", "possibleDirection":"Review style guidance", "stillOpen":"The author decides what to keep"},
+            "candidates": [style_candidate("restrained"), style_candidate("brisk"), style_candidate("lyrical")]
+        })
+        .to_string();
+        let output = validate_workshop_output(&raw, &frozen, "run-voice").unwrap();
+        assert_eq!(output.candidates.len(), 3);
+        assert!(
+            output
+                .candidates
+                .iter()
+                .all(|candidate| candidate.content.contains("STYLE guidance"))
+        );
+
+        let mut copied = serde_json::from_str::<Value>(&raw).unwrap();
+        copied["candidates"][0]["content"] = Value::String(sample.into());
+        assert!(validate_workshop_output(&copied.to_string(), &frozen, "run-voice-copy").is_err());
     }
 
     #[test]

@@ -32,9 +32,16 @@ export interface WorkshopRelationship {
 }
 export interface WorkshopImpact {
   id: string; decisionId: string; documentId: string;
+  candidateId?: string | null; relationshipId?: string | null;
   kind: 'contradiction' | 'possibleTension' | 'dependentAssumption' | 'styleSuggestion';
   reason: string; status: 'needsReview' | 'acknowledged' | 'intentional';
 }
+export interface WorkshopRelationshipDraft {
+  id: string; fromDocumentId: string; toDocumentId: string; type: string; description: string; uncertainty: string;
+  fromExpected: Head | null; toExpected: Head | null;
+}
+export interface WorkshopImpactDraft { documentId: string; kind: WorkshopImpact['kind']; reason: string }
+export interface WorkshopAdoptionImpact extends WorkshopImpactDraft { candidateId: string; status: WorkshopImpact['status'] }
 export interface WorkshopPreset { id: string; name: string; preferences: WorkshopPreference[] }
 export interface WorkshopState {
   schemaVersion: 1; currentSessionId: string | null; sessions: WorkshopSession[];
@@ -72,10 +79,12 @@ export interface WorkshopAdoptionTarget {
 export interface PreviewWorkshopAdoption {
   access: ProjectAccess; sessionId: string; expectedVersion: string; candidateIds: string[];
   targets: WorkshopAdoptionTarget[]; rationale: string; protectedText: string[];
+  relationships?: WorkshopRelationshipDraft[]; impactDrafts?: WorkshopImpactDraft[];
 }
 export interface WorkshopAdoptionPreview {
   id: string; sessionId: string; expectedVersion: string; targets: WorkshopAdoptionTarget[];
   before: DocumentRecord[]; rationale: string; protectedText: string[]; candidateIds: string[];
+  relationships?: WorkshopRelationship[]; endpointSources?: DocumentRecord[]; impacts?: WorkshopAdoptionImpact[];
 }
 export interface WorkshopAdoptionAck { snapshot: WorkshopSnapshot; documents: DocumentRecord[]; decisionIds: string[] }
 

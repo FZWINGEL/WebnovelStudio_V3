@@ -176,17 +176,19 @@ export function CandidateBoard({
   const visibleCandidates = showMore ? candidateCards : candidateCards.slice(0, 3);
   const hiddenCount = Math.max(0, candidateCards.length - 3);
   const moment = result.action === 'moment';
+  const voiceGuidance = result.action === 'voiceGuidance';
 
   return <section className="candidate-board" aria-label="Candidate comparison">
     <header className="candidate-board-heading">
       <div>
 
-        <h2>Compare directions</h2>
+        <h2>{voiceGuidance ? 'Compare voice guidance' : 'Compare directions'}</h2>
       </div>
       <div className="candidate-board-status" aria-live="polite">
         <span className="candidate-status">{runStatusLabel(result.run.status)}</span>
         {result.stale && <span className="candidate-status candidate-status-stale">Stale result</span>}
         {moment && <span className="candidate-status candidate-status-noncanon">Noncanon experiment</span>}
+        {voiceGuidance && <span className="candidate-status">Proposed style instructions</span>}
       </div>
     </header>
 

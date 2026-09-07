@@ -180,8 +180,10 @@ beforeEach(() => {
   });
   mocks.workshopHistory.mockResolvedValue([]);
   mocks.startWorkshop.mockResolvedValue(start());
-  mocks.previewWorkshopAdoption.mockImplementation(async (request: { sessionId: string; expectedVersion: string; targets: unknown[]; rationale: string; candidateIds: string[] }) => ({
+  mocks.previewWorkshopAdoption.mockImplementation(async (request: { sessionId: string; expectedVersion: string; targets: any[]; rationale: string; candidateIds: string[]; relationships?: any[]; impactDrafts?: any[] }) => ({
     id: 'preview-1', sessionId: request.sessionId, expectedVersion: request.expectedVersion, targets: request.targets, before: [], rationale: request.rationale, protectedText: [], candidateIds: request.candidateIds,
+    relationships: request.relationships?.map(link => ({ ...link, status: 'tentative', sourceHeads: [link.fromExpected, link.toExpected].filter(Boolean) })),
+    impacts: request.impactDrafts?.map((impact, index) => ({ ...impact, id: `impact-${index + 1}`, decisionId: 'preview-decision', candidateId: request.candidateIds[index] ?? request.candidateIds[0] ?? 'candidate', status: 'needsReview' })),
   }));
   mocks.adoptWorkshop.mockResolvedValue({ snapshot: { version: '9', state: state({ decisions: [{ id: 'decision-1', sessionId: 'session-1', title: 'Direction a', documentId: 'new-document', revisionId: 'revision-1', head: { documentId: 'new-document', version: '1', bodyHash: 'new-hash' }, candidateIds: ['candidate-a'], rationale: 'A considered choice', status: 'chosen', fixed: false, protectedText: [], access: 'authorRoom', supersedesId: null }] }) }, documents: [record('new-document', 'Direction a')], decisionIds: ['decision-1'] });
   mocks.readDocument.mockResolvedValue(record('world-1', 'Existing world'));
@@ -294,6 +296,136 @@ describe('Story Workshop behavioral contracts', () => {
     await act(async () => exactButton('Confirm Use this version').click());
     await waitFor(() => expect(onDocumentsChanged).toHaveBeenCalledOnce());
     expect(savedDocuments.map(document => document.head.documentId)).toContain('new-document');
+  });
+
+  it('links two new character and world destinations by their stable target IDs before confirmation', async () => {
+    const linked = candidate('linked', 'Mira learns the archive language.\n\nThe archive answers only to patient hands.');
+    const seeded = session({
+      lens: 'people', workingTitle: 'Mira', workingText: linked.content,
+      selectedDetails: [{ id: 'selected-linked', candidateId: linked.id, text: linked.content, fixed: false }],
+    });
+    await render(view({
+      state: state({ sessions: [seeded] }),
+      results: [result({ output: { ...result().output!, candidates: [linked] } })],
+    }));
+    await act(async () => exactButton('Use this version').click());
+    await waitFor(() => expect(host.textContent).toContain('Where should this version go?'));
+
+    await act(async () => exactButton('Include related material in this decision').click());
+    const materialFields = () => [...host.querySelectorAll<HTMLFieldSetElement>('.workshop-adoption fieldset')]
+      .filter(fieldset => fieldset.querySelector('legend')?.textContent?.startsWith('Material'));
+    const second = materialFields()[1];
+    expect(second).toBeTruthy();
+    const secondSelects = second.querySelectorAll<HTMLSelectElement>('select');
+    await act(async () => setValue(second.querySelector<HTMLInputElement>('input[required]')!, 'The patient archive'));
+    await act(async () => {
+      secondSelects[1].value = 'world';
+      secondSelects[1].dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => setValue(second.querySelector<HTMLTextAreaElement>('textarea')!, 'The archive answers only to patient hands.'));
+    await act(async () => exactButton('Include a relationship').click());
+    const relationships = host.querySelector<HTMLElement>('[aria-label="Relationships in this adoption"]')!;
+    const relationshipSelects = relationships.querySelectorAll<HTMLSelectElement>('select');
+    const newParticipantIds = [...relationshipSelects[0].options]
+      .filter(option => option.textContent?.includes('New in this decision')).map(option => option.value);
+    expect(newParticipantIds).toHaveLength(2);
+    await act(async () => {
+      relationshipSelects[0].value = newParticipantIds[0];
+      relationshipSelects[0].dispatchEvent(new Event('change', { bubbles: true }));
+      relationshipSelects[1].value = newParticipantIds[1];
+      relationshipSelects[1].dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => setValue(relationships.querySelector<HTMLTextAreaElement>('textarea')!, 'Mira trusts the archive with her unfinished translations.'));
+
+    await act(async () => exactButton('Preview all changes').click());
+    await waitFor(() => expect(mocks.previewWorkshopAdoption).toHaveBeenCalledOnce());
+    const previewRequest = mocks.previewWorkshopAdoption.mock.calls[0][0] as {
+      targets: Array<{ documentId: string; kind: string; title: string }>;
+      relationships: Array<{ fromDocumentId: string; toDocumentId: string; description: string }>;
+    };
+    expect(previewRequest.targets).toHaveLength(2);
+    expect(new Set(previewRequest.targets.map(target => target.documentId)).size).toBe(2);
+    expect(previewRequest.targets.map(target => target.kind).sort()).toEqual(['character', 'world']);
+    expect(previewRequest.targets.map(target => target.documentId)).toEqual(expect.not.arrayContaining(['world-1']));
+    expect(previewRequest.relationships).toHaveLength(1);
+    expect(previewRequest.relationships[0].fromDocumentId).toBe(previewRequest.targets[0].documentId);
+    expect(previewRequest.relationships[0].toDocumentId).toBe(previewRequest.targets[1].documentId);
+    expect(previewRequest.relationships[0].description).toContain('unfinished translations');
+    expect(host.textContent).toContain('Relationships to choose');
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+
+    await act(async () => exactButton('Confirm Use this version').click());
+    await waitFor(() => expect(onDocumentsChanged).toHaveBeenCalledOnce());
+  });
+
+  it('sends affected target classifications and reasons as review flags without editing source documents', async () => {
+    const affected = candidate('affected', 'The archive grants access by patience.');
+    affected.affectedTargets = [{ documentId: 'world-1', reason: 'This direction may tension the archive access rule.' }];
+    const seeded = session({
+      lens: 'world', workingTitle: 'Archive access', workingText: affected.content,
+      selectedDetails: [{ id: 'selected-affected', candidateId: affected.id, text: affected.content, fixed: false }],
+    });
+    await render(view({
+      state: state({ sessions: [seeded] }),
+      results: [result({ output: { ...result().output!, candidates: [affected] } })],
+    }));
+    await act(async () => exactButton('Use this version').click());
+    await waitFor(() => expect(host.querySelector('[aria-label="Review affected material"]')).toBeTruthy());
+    expect(host.textContent).toContain('Possible tension');
+    expect(host.textContent).toContain('This direction may tension the archive access rule.');
+
+    await act(async () => exactButton('Preview all changes').click());
+    await waitFor(() => expect(mocks.previewWorkshopAdoption).toHaveBeenCalledOnce());
+    const previewRequest = mocks.previewWorkshopAdoption.mock.calls[0][0] as {
+      targets: Array<{ documentId: string }>;
+      impactDrafts: Array<{ documentId: string; kind: string; reason: string }>;
+    };
+    expect(previewRequest.impactDrafts).toEqual([{
+      documentId: 'world-1', kind: 'possibleTension', reason: 'This direction may tension the archive access rule.',
+    }]);
+    expect(previewRequest.targets.some(target => target.documentId === 'world-1')).toBe(false);
+    expect(host.textContent).toContain('Review flags to save');
+    expect(host.textContent).toContain('Existing world · Possible tension');
+    expect(host.textContent).toContain('Needs review; its content will not be automatically repaired.');
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+  });
+
+  it('prepares voice guidance as an explicit action without starting or adopting a request', async () => {
+    const themed = session({ lens: 'themes', workingTitle: 'Voice sample', workingText: 'A short sample with a measured rhythm.' });
+    await render(view({ state: state({ sessions: [themed] }) }));
+    await act(async () => exactButton('Propose voice guidance from this sample').click());
+    const action = [...host.querySelectorAll<HTMLLabelElement>('label')]
+      .find(label => label.textContent?.startsWith('Next action'))?.querySelector<HTMLSelectElement>('select');
+    expect(action?.value).toBe('voiceGuidance');
+    await waitFor(() => {
+      const direction = [...host.querySelectorAll<HTMLLabelElement>('label')]
+        .find(label => label.textContent?.startsWith('Your direction'))?.querySelector<HTMLTextAreaElement>('textarea');
+      expect(direction?.value).toContain('voice qualities');
+    });
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+  });
+
+  it('requires a convention and an explicit transformation before subversion generates', async () => {
+    await render(view({ results: [result()] }));
+    await act(async () => exactButton('Select details').click());
+    await act(async () => exactButton('Subvert this direction').click());
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    const labeled = (name: string) => [...host.querySelectorAll('label')].find(label => label.firstChild?.textContent === name)!;
+    const transformation = labeled('Transformation').querySelector('select')!;
+    expect(transformation.value).toBe('');
+    await act(async () => exactButton('Explore').click());
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    await act(async () => {
+      setValue(labeled('Convention to transform').querySelector('input')!, 'Inherited special power');
+      transformation.value = 'Change who pays the cost';
+      transformation.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => exactButton('Explore').click());
+    await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
+    expect(mocks.startWorkshop.mock.calls[0][2]).toMatchObject({ action: 'subvert', selectedScope: 'Inherited special power' });
+    expect(mocks.startWorkshop.mock.calls[0][2].instruction).toContain('Transformation: Change who pays the cost');
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
   });
 
   it('does not replace a manually edited working version when a late result arrives', async () => {

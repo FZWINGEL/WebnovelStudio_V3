@@ -17,7 +17,7 @@ The Develop/Write shell and dedicated six-lens Workshop frontend are implemented
 with editable brief/current direction/original notes, typed three-candidate
 comparison, detail selection, working draft and local history, scoped
 preferences, custom tags, preset review/import/export UI, relationships for
-existing document endpoints, noncanon moments/guidance, what-if and existing
+existing and new document endpoints in one adoption, noncanon moments/guidance, what-if and existing
 parent comparison, and a source-based Story Bible that projects exact chosen
 revisions. Explicit saved-packet reads are available in the Workshop context
 view. The 14:45 checkpoint passed the full frontend build and 465 tests
@@ -37,13 +37,27 @@ cover atomic stale refusal, exact history, chapter preservation, author-secret
 exclusion, hard preference conflicts, and multiline protection. Hosted native
 and requirement-specific quality checks remain pending.
 
-No new native run, live Workshop provider call, current Workshop installer
-qualification, or author study has been performed for this change. The
-[formative study protocol](STORY_WORKSHOP_AUTHOR_STUDY.md) is prepared; its human
-evidence gate remains open. Known unfinished breadth includes atomic creation or
-adoption of relationships with new-document endpoints (the current UI covers
-existing documents), richer four-category/candidate-target impact review, and
-explicit promotion of rejection rationale, which remains manual.
+The subsequent development changes add atomic relationship adoption with stable
+new endpoints, candidate-derived impact flags with author classifications,
+explicit rejection-to-preference promotion, reviewed voice-guidance generation,
+an explicit subversion choice, and a recap based on actual saved decisions.
+The 15:23 local `desktop.ps1 -Command check` passed 746 Rust tests (plus one
+intentional subprocess entry-point ignore), 474 frontend tests in 41 files,
+11 tooling checks, formatting, strict workspace Clippy, TypeScript, and the
+production build. Candidate IDs and relationship IDs remain attached to impact
+flags; changed relationship endpoints reference their exact adoption decisions.
+The hosted qualification remains pending below the earlier source checkpoint.
+
+[CI 34124050562](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34124050562)
+on `a023511` passed the existing Windows native suite. Ubuntu frontend checks
+passed 464 of 465 tests; the chapter-review test read the screen before async
+summary validation finished. Its local synchronization fix passes all 33 focused
+ReviewPanel tests. The new Workshop native suite stopped at its synthetic path
+containment guard with a Windows short-name temp directory. The harness now
+canonicalizes its temp root before comparing paths; the guard remains intact.
+The hosted rerun, live Workshop qualification, current Workshop installer, and
+author study remain pending. The [formative study protocol](STORY_WORKSHOP_AUTHOR_STUDY.md)
+is prepared; no observed human study is claimed.
 
 ### V3.0.0 workspace preparation — 7 September
 

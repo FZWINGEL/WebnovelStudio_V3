@@ -19,6 +19,7 @@ export function Preferences({ state, session, onChange }: { state: WorkshopState
   const [presetText, setPresetText] = useState(''); const [presetOpen, setPresetOpen] = useState(false); const [presetName, setPresetName] = useState('My starting preferences');
   const [presetNotice, setPresetNotice] = useState('');
   const applicable = state.preferences.filter(item => item.scope === 'project' || item.scope === 'element' && item.targetId === session.focusDocumentId || item.scope === 'exploration' && item.targetId === session.id);
+  const rejectedReasons = session.choices.filter(choice => choice.status === 'rejected' && choice.rationale.trim());
   const suggestions = PREFERENCE_SUGGESTIONS.filter(item => (!query || `${item.label} ${item.meaning} ${item.family}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) && (browse || item.lenses.includes(session.lens))).slice(0, browse ? 30 : 3);
   function draft(suggestion?: PreferenceSuggestion): WorkshopPreference {
     return { id: crypto.randomUUID(), label: suggestion?.label ?? '', family: suggestion?.family ?? FAMILIES[0], meaning: suggestion?.meaning ?? '', examples: '', timing: '', polarity: 'want', strength: 'soft', scope: 'exploration', targetId: session.id, confirmed: true };
@@ -52,8 +53,19 @@ export function Preferences({ state, session, onChange }: { state: WorkshopState
   return <section className="workshop-preferences" aria-label="Creative preferences">
     <div className="workshop-section-heading"><h3>Creative preferences</h3><button onClick={() => { setEditing(draft()); setError(''); }}>Add preference</button></div>
     <p className="small-copy">Unspecified stays open. Your wording is the instruction.</p>
+    {session.lens === 'themes' && <div className="workshop-actions">
+      <button onClick={() => setEditing({ ...draft(), label: 'Reader experience', family: 'Reader experience', meaning: '', polarity: 'neutral' })}>Choose reader experience</button>
+      <button onClick={() => setEditing({ ...draft(), label: 'Content intensity', family: 'Content boundaries', meaning: '', polarity: 'neutral' })}>Choose content intensity</button>
+      <p className="small-copy">Warmth and hope can coexist with danger. Describe the feeling separately from limits on explicit detail or distress.</p>
+    </div>}
     {applicable.map(preference => <button className="workshop-preference" key={preference.id} onClick={() => { setEditing({ ...preference }); setError(''); }}><strong>{preferenceLabel(preference)}</strong> {preference.label}<small>{preference.scope === 'project' ? 'Project' : preference.scope === 'element' ? 'This element' : 'This exploration'}</small></button>)}
     {!applicable.length && <p className="small-copy">No preferences chosen. Any genre or direction is still possible.</p>}
+    {!!rejectedReasons.length && <details><summary>Turn a rejection reason into a preference</summary>
+      <p className="small-copy">These reasons belong to individual choices. Edit the instruction and choose its scope before keeping it as a preference.</p>
+      {rejectedReasons.map(choice => <div key={choice.candidateId}><blockquote>{choice.rationale}</blockquote><button onClick={() => {
+        setEditing({ ...draft(), meaning: choice.rationale, polarity: 'neutral' }); setError('');
+      }}>Review as a preference</button></div>)}
+    </details>}
     <details><summary>Find a preference or preset</summary>
       <label>Search preferences<input type="search" value={query} onChange={event => { setQuery(event.target.value); setBrowse(true); }} /></label>
       <div className="workshop-suggestions">{suggestions.map(suggestion => <button key={suggestion.label} onClick={() => setEditing(draft(suggestion))}>{suggestion.label}</button>)}</div>

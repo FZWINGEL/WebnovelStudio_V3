@@ -243,11 +243,53 @@ pub struct WorkshopRelationship {
     pub source_heads: Vec<Head>,
 }
 
+/// A relationship proposed as part of an atomic adoption.  This remains a
+/// request shape until the adoption commits the exact endpoint heads into a
+/// `WorkshopRelationship` record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkshopRelationshipDraft {
+    pub id: String,
+    pub from_document_id: String,
+    pub to_document_id: String,
+    #[serde(rename = "type")]
+    pub relationship_type: String,
+    pub description: String,
+    pub uncertainty: String,
+    pub from_expected: Option<Head>,
+    pub to_expected: Option<Head>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopImpact {
     pub id: String,
     pub decision_id: String,
+    pub document_id: String,
+    pub kind: WorkshopImpactKind,
+    pub reason: String,
+    pub status: WorkshopImpactStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_id: Option<String>,
+}
+
+/// An author classification supplied with an adoption preview.  It is tied
+/// to a candidate affected target and becomes an immutable impact provenance
+/// record when the adoption commits.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkshopImpactDraft {
+    pub document_id: String,
+    pub kind: WorkshopImpactKind,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkshopAdoptionImpact {
+    pub candidate_id: String,
     pub document_id: String,
     pub kind: WorkshopImpactKind,
     pub reason: String,
@@ -405,6 +447,10 @@ pub struct PreviewWorkshopAdoption {
     pub targets: Vec<WorkshopAdoptionTarget>,
     pub rationale: String,
     pub protected_text: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationships: Vec<WorkshopRelationshipDraft>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub impact_drafts: Vec<WorkshopImpactDraft>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -418,6 +464,12 @@ pub struct WorkshopAdoptionPreview {
     pub rationale: String,
     pub protected_text: Vec<String>,
     pub candidate_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationships: Vec<WorkshopRelationship>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endpoint_sources: Vec<DocumentRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub impacts: Vec<WorkshopAdoptionImpact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -864,6 +916,18 @@ fn validate_state_shape(state: &WorkshopState) -> CoreResult<()> {
         check_id(&impact.decision_id)?;
         check_id(&impact.document_id)?;
         validate_text(&impact.reason, "impact reason", MAX_DETAIL_BYTES)?;
+        if let Some(candidate_id) = &impact.candidate_id {
+            check_id(candidate_id)?;
+        }
+        if let Some(relationship_id) = &impact.relationship_id {
+            check_id(relationship_id)?;
+        }
+        if impact.candidate_id.is_some() && impact.relationship_id.is_some() {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A workshop impact cannot mix candidate and relationship provenance.",
+            ));
+        }
     }
     for preset in &state.presets {
         check_id(&preset.id)?;
@@ -988,13 +1052,51 @@ fn validate_state_references(
         }
     }
     for impact in &state.impacts {
-        if !decision_map.contains_key(impact.decision_id.as_str())
-            || !document_ids.contains(&impact.document_id)
-        {
+        let Some(decision) = decision_map.get(impact.decision_id.as_str()) else {
             return Err(CoreError::new(
                 "InvalidRequest",
                 "A workshop impact references an unknown decision.",
             ));
+        };
+        if !document_ids.contains(&impact.document_id) {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A workshop impact references an unknown document.",
+            ));
+        }
+        if let Some(candidate_id) = &impact.candidate_id
+            && !decision.candidate_ids.contains(candidate_id)
+        {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A workshop impact references a candidate outside its decision.",
+            ));
+        }
+        if let Some(relationship_id) = &impact.relationship_id {
+            let Some(relationship) = state
+                .relationships
+                .iter()
+                .find(|relationship| relationship.id == *relationship_id)
+            else {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A workshop impact references an unknown relationship.",
+                ));
+            };
+            if relationship.from_document_id != impact.document_id
+                && relationship.to_document_id != impact.document_id
+            {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A relationship impact targets a document outside the relationship.",
+                ));
+            }
+            if decision.document_id != impact.document_id {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A relationship impact is bound to the wrong adoption decision.",
+                ));
+            }
         }
     }
     for relationship in &state.relationships {
@@ -1072,6 +1174,8 @@ fn validate_state_references(
                 || old.document_id != impact.document_id
                 || old.kind != impact.kind
                 || old.reason != impact.reason
+                || old.candidate_id != impact.candidate_id
+                || old.relationship_id != impact.relationship_id
             {
                 return Err(CoreError::new(
                     "InvalidRequest",
@@ -1164,6 +1268,23 @@ fn workshop_candidate_records_with_filter(
     operation_namespace: Option<&str>,
     source_epoch: Option<&str>,
 ) -> CoreResult<HashMap<String, (String, String)>> {
+    Ok(workshop_candidate_outputs_with_filter(
+        connection,
+        project_id,
+        operation_namespace,
+        source_epoch,
+    )?
+    .into_iter()
+    .map(|(candidate_id, (session_id, candidate))| (candidate_id, (session_id, candidate.content)))
+    .collect())
+}
+
+fn workshop_candidate_outputs_with_filter(
+    connection: &Connection,
+    project_id: Option<&str>,
+    operation_namespace: Option<&str>,
+    source_epoch: Option<&str>,
+) -> CoreResult<HashMap<String, (String, WorkshopCandidate)>> {
     let mut statement = connection.prepare(
         "SELECT id,packet_id,output_text FROM discussion_runs WHERE status='completed' AND dispatch_state='delivered' ORDER BY rowid",
     )?;
@@ -1220,10 +1341,11 @@ fn workshop_candidate_records_with_filter(
             Err(_) => continue,
         };
         for candidate in output.candidates {
+            let candidate_id = candidate.id.clone();
             if candidates
                 .insert(
-                    candidate.id,
-                    (metadata.exploration.session_id.clone(), candidate.content),
+                    candidate_id,
+                    (metadata.exploration.session_id.clone(), candidate),
                 )
                 .is_some()
             {
@@ -1235,6 +1357,96 @@ fn workshop_candidate_records_with_filter(
         }
     }
     Ok(candidates)
+}
+
+fn build_adoption_impacts(
+    connection: &Connection,
+    project_id: &str,
+    operation_namespace: &str,
+    source_epoch: &str,
+    candidate_ids: &[String],
+    targets: &[WorkshopAdoptionTarget],
+    impact_drafts: &[WorkshopImpactDraft],
+) -> CoreResult<Vec<WorkshopAdoptionImpact>> {
+    if impact_drafts.len() > MAX_LIST {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The adoption contains too many impact classifications.",
+        ));
+    }
+    let mut overrides = HashMap::new();
+    for draft in impact_drafts {
+        check_id(&draft.document_id)?;
+        validate_text(&draft.reason, "impact reason", MAX_DETAIL_BYTES)?;
+        if draft.reason.trim().is_empty() {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "An impact classification requires a reason.",
+            ));
+        }
+        if overrides
+            .insert(draft.document_id.as_str(), draft)
+            .is_some()
+        {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "An impact classification may appear only once per target.",
+            ));
+        }
+    }
+    let mut available = existing_document_ids(connection)?;
+    available.extend(targets.iter().map(|target| target.document_id.clone()));
+    let candidates = workshop_candidate_outputs_with_filter(
+        connection,
+        Some(project_id),
+        Some(operation_namespace),
+        Some(source_epoch),
+    )?;
+    let mut actual_targets = HashSet::new();
+    let mut impacts = Vec::new();
+    for candidate_id in candidate_ids {
+        let Some((_, candidate)) = candidates.get(candidate_id) else {
+            return Err(CoreError::new(
+                "InvalidWorkshopCandidate",
+                "A workshop candidate is not a completed validated result from this project.",
+            ));
+        };
+        for affected in &candidate.affected_targets {
+            if !available.contains(&affected.document_id) {
+                return Err(CoreError::new(
+                    "InvalidWorkshopImpactTarget",
+                    "A candidate affected target does not belong to this project or adoption.",
+                ));
+            }
+            actual_targets.insert(affected.document_id.as_str());
+            let (kind, reason) =
+                if let Some(override_draft) = overrides.get(affected.document_id.as_str()) {
+                    (override_draft.kind, override_draft.reason.clone())
+                } else {
+                    // Model output can identify affected material, but only the
+                    // author may classify a contradiction or another stronger
+                    // impact category.
+                    (WorkshopImpactKind::PossibleTension, affected.reason.clone())
+                };
+            impacts.push(WorkshopAdoptionImpact {
+                candidate_id: candidate_id.clone(),
+                document_id: affected.document_id.clone(),
+                kind,
+                reason,
+                status: WorkshopImpactStatus::NeedsReview,
+            });
+        }
+    }
+    if overrides
+        .keys()
+        .any(|document_id| !actual_targets.contains(document_id))
+    {
+        return Err(CoreError::new(
+            "InvalidWorkshopImpactTarget",
+            "An impact classification must refer to an actual candidate affected target.",
+        ));
+    }
+    Ok(impacts)
 }
 
 fn session_is_ancestor(
@@ -1558,6 +1770,344 @@ fn validate_adoption_targets(
         }
     }
     Ok(before)
+}
+
+fn validate_relationship_draft_fields(draft: &WorkshopRelationshipDraft) -> CoreResult<()> {
+    check_id(&draft.id)?;
+    for (document_id, expected) in [
+        (&draft.from_document_id, &draft.from_expected),
+        (&draft.to_document_id, &draft.to_expected),
+    ] {
+        check_id(document_id)?;
+        if let Some(expected) = expected {
+            if expected.document_id != *document_id || !valid_hash(&expected.body_hash) {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "A relationship endpoint has an invalid expected head.",
+                ));
+            }
+            parse_version(&expected.version)?;
+        }
+    }
+    if draft.from_document_id == draft.to_document_id {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A workshop relationship cannot connect a document to itself.",
+        ));
+    }
+    for (value, label) in [
+        (&draft.relationship_type, "relationship type"),
+        (&draft.description, "relationship description"),
+        (&draft.uncertainty, "relationship uncertainty"),
+    ] {
+        validate_text(value, label, MAX_DETAIL_BYTES)?;
+    }
+    if draft.relationship_type.trim().is_empty() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A workshop relationship requires a type.",
+        ));
+    }
+    if draft.description.trim().is_empty() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A workshop relationship requires a description.",
+        ));
+    }
+    Ok(())
+}
+
+fn projected_target_heads(
+    connection: &Connection,
+    targets: &[WorkshopAdoptionTarget],
+) -> CoreResult<HashMap<String, Head>> {
+    let mut heads = HashMap::new();
+    for target in targets {
+        let (_, body_hash) = canonical_body(&target.body)?;
+        let version = match read_document(connection, &target.document_id) {
+            Ok(current) => parse_version(&current.head.version)?
+                .checked_add(1)
+                .ok_or_else(|| {
+                    CoreError::new("VersionLimit", "The document version limit was reached.")
+                })?,
+            Err(error) if error.code == "DocumentNotFound" => 0,
+            Err(error) => return Err(error),
+        };
+        heads.insert(
+            target.document_id.clone(),
+            Head {
+                document_id: target.document_id.clone(),
+                version: version.to_string(),
+                body_hash,
+            },
+        );
+    }
+    Ok(heads)
+}
+
+fn validate_relationship_drafts(
+    connection: &Connection,
+    state: &WorkshopState,
+    targets: &[WorkshopAdoptionTarget],
+    drafts: &[WorkshopRelationshipDraft],
+) -> CoreResult<Vec<WorkshopRelationship>> {
+    if drafts.len() > MAX_RELATIONSHIPS {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The adoption contains too many relationship drafts.",
+        ));
+    }
+    let target_map: HashMap<&str, &WorkshopAdoptionTarget> = targets
+        .iter()
+        .map(|target| (target.document_id.as_str(), target))
+        .collect();
+    let mut ids: HashSet<&str> = state
+        .relationships
+        .iter()
+        .map(|relationship| relationship.id.as_str())
+        .collect();
+    let projected = projected_target_heads(connection, targets)?;
+    let mut resolved = Vec::with_capacity(drafts.len());
+    for draft in drafts {
+        validate_relationship_draft_fields(draft)?;
+        if !ids.insert(draft.id.as_str()) {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A relationship draft ID is already in use.",
+            ));
+        }
+        let mut endpoint_heads = Vec::with_capacity(2);
+        for (document_id, expected) in [
+            (&draft.from_document_id, &draft.from_expected),
+            (&draft.to_document_id, &draft.to_expected),
+        ] {
+            let current = match read_document(connection, document_id) {
+                Ok(current) => Some(current),
+                Err(error) if error.code == "DocumentNotFound" => None,
+                Err(error) => return Err(error),
+            };
+            let head = if let Some(current) = current {
+                if !["character", "world"].contains(&current.kind.as_str()) {
+                    return Err(CoreError::new(
+                        "InvalidRequest",
+                        "Workshop relationships may only connect character or world documents.",
+                    ));
+                }
+                let Some(expected) = expected else {
+                    return Err(CoreError::new(
+                        "InvalidRequest",
+                        "An existing relationship endpoint requires its current head.",
+                    ));
+                };
+                if expected != &current.head {
+                    let mut error = CoreError::new(
+                        "VersionConflict",
+                        "A relationship endpoint changed since this adoption was prepared.",
+                    );
+                    error.current_head = Some(current.head);
+                    return Err(error);
+                }
+                if let Some(target) = target_map.get(document_id.as_str())
+                    && target.kind != current.kind
+                {
+                    return Err(CoreError::new(
+                        "InvalidRequest",
+                        "A relationship endpoint kind does not match its adoption target.",
+                    ));
+                }
+                projected
+                    .get(document_id.as_str())
+                    .cloned()
+                    .unwrap_or(current.head)
+            } else {
+                if expected.is_some() {
+                    return Err(CoreError::new(
+                        "InvalidRequest",
+                        "A new relationship endpoint must not include an expected head.",
+                    ));
+                }
+                let Some(target) = target_map.get(document_id.as_str()) else {
+                    return Err(CoreError::new(
+                        "DocumentNotFound",
+                        "A relationship endpoint does not belong to this project or adoption.",
+                    ));
+                };
+                if target.expected.is_some() || target.mode != AdoptionMode::Add {
+                    return Err(CoreError::new(
+                        "VersionConflict",
+                        "A new relationship endpoint must be an added adoption target.",
+                    ));
+                }
+                if !["character", "world"].contains(&target.kind.as_str()) {
+                    return Err(CoreError::new(
+                        "InvalidRequest",
+                        "Workshop relationships may only connect character or world documents.",
+                    ));
+                }
+                projected
+                    .get(document_id.as_str())
+                    .cloned()
+                    .ok_or_else(|| {
+                        CoreError::new(
+                            "InvalidProject",
+                            "A relationship endpoint has no projected adoption head.",
+                        )
+                    })?
+            };
+            endpoint_heads.push(head);
+        }
+        resolved.push(WorkshopRelationship {
+            id: draft.id.clone(),
+            from_document_id: draft.from_document_id.clone(),
+            to_document_id: draft.to_document_id.clone(),
+            relationship_type: draft.relationship_type.clone(),
+            description: draft.description.clone(),
+            uncertainty: draft.uncertainty.clone(),
+            status: WorkshopRelationshipStatus::Chosen,
+            source_heads: endpoint_heads,
+        });
+    }
+    Ok(resolved)
+}
+
+fn materialize_relationship_drafts(
+    drafts: &[WorkshopRelationshipDraft],
+    heads: &HashMap<String, Head>,
+) -> CoreResult<Vec<WorkshopRelationship>> {
+    drafts
+        .iter()
+        .map(|draft| {
+            let from = heads.get(&draft.from_document_id).cloned().ok_or_else(|| {
+                CoreError::new(
+                    "InvalidProject",
+                    "A committed relationship endpoint head is missing.",
+                )
+            })?;
+            let to = heads.get(&draft.to_document_id).cloned().ok_or_else(|| {
+                CoreError::new(
+                    "InvalidProject",
+                    "A committed relationship endpoint head is missing.",
+                )
+            })?;
+            Ok(WorkshopRelationship {
+                id: draft.id.clone(),
+                from_document_id: draft.from_document_id.clone(),
+                to_document_id: draft.to_document_id.clone(),
+                relationship_type: draft.relationship_type.clone(),
+                description: draft.description.clone(),
+                uncertainty: draft.uncertainty.clone(),
+                status: WorkshopRelationshipStatus::Chosen,
+                source_heads: vec![from, to],
+            })
+        })
+        .collect()
+}
+
+fn relationship_endpoint_sources(
+    connection: &Connection,
+    drafts: &[WorkshopRelationshipDraft],
+) -> CoreResult<Vec<DocumentRecord>> {
+    let mut seen = HashSet::new();
+    let mut sources = Vec::new();
+    for document_id in drafts
+        .iter()
+        .flat_map(|draft| [&draft.from_document_id, &draft.to_document_id])
+    {
+        if !seen.insert(document_id.clone()) {
+            continue;
+        }
+        match read_document(connection, document_id) {
+            Ok(document) => sources.push(document),
+            Err(error) if error.code == "DocumentNotFound" => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(sources)
+}
+
+fn validate_preview_relationships(
+    request: &PreviewWorkshopAdoption,
+    preview: &WorkshopAdoptionPreview,
+) -> CoreResult<()> {
+    if request.relationships.len() != preview.relationships.len() {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "An adoption preview has mismatched relationship provenance.",
+        ));
+    }
+    for (draft, relationship) in request.relationships.iter().zip(&preview.relationships) {
+        validate_relationship_draft_fields(draft)?;
+        if relationship.id != draft.id
+            || relationship.from_document_id != draft.from_document_id
+            || relationship.to_document_id != draft.to_document_id
+            || relationship.relationship_type != draft.relationship_type
+            || relationship.description != draft.description
+            || relationship.uncertainty != draft.uncertainty
+            || relationship.status != WorkshopRelationshipStatus::Chosen
+            || relationship.source_heads.len() != 2
+            || relationship.source_heads[0].document_id != draft.from_document_id
+            || relationship.source_heads[1].document_id != draft.to_document_id
+        {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "An adoption preview relationship is not bound to its request.",
+            ));
+        }
+        for head in &relationship.source_heads {
+            parse_version(&head.version)?;
+            if !valid_hash(&head.body_hash) {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "An adoption preview relationship has an invalid source hash.",
+                ));
+            }
+        }
+    }
+    for impact in &preview.impacts {
+        check_id(&impact.candidate_id)?;
+        check_id(&impact.document_id)?;
+        validate_text(&impact.reason, "impact reason", MAX_DETAIL_BYTES)?;
+        if impact.status != WorkshopImpactStatus::NeedsReview
+            || !request.candidate_ids.contains(&impact.candidate_id)
+        {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "An adoption preview impact has invalid provenance.",
+            ));
+        }
+    }
+    let mut relationship_heads = preview
+        .relationships
+        .iter()
+        .flat_map(|relationship| relationship.source_heads.iter())
+        .map(|head| {
+            (
+                head.document_id.as_str(),
+                head.version.as_str(),
+                head.body_hash.as_str(),
+            )
+        })
+        .collect::<HashSet<_>>();
+    relationship_heads.extend(preview.before.iter().map(|record| {
+        (
+            record.head.document_id.as_str(),
+            record.head.version.as_str(),
+            record.head.body_hash.as_str(),
+        )
+    }));
+    for source in &preview.endpoint_sources {
+        if !relationship_heads.contains(&(
+            source.head.document_id.as_str(),
+            source.head.version.as_str(),
+            source.head.body_hash.as_str(),
+        )) {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "An adoption preview endpoint source is not bound to a relationship head.",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_target_dependencies(
@@ -2161,6 +2711,18 @@ impl OwnedProject {
             Some(&request.session_id),
             &request.candidate_ids,
         )?;
+        let relationships =
+            validate_relationship_drafts(self.db()?, &state, &targets, &request.relationships)?;
+        let impacts = build_adoption_impacts(
+            self.db()?,
+            &self.info.project_id,
+            &request.access.operation_namespace,
+            &source_epoch,
+            &request.candidate_ids,
+            &targets,
+            &request.impact_drafts,
+        )?;
+        let endpoint_sources = relationship_endpoint_sources(self.db()?, &request.relationships)?;
         validate_protected_texts_for_targets(
             self.db()?,
             &state,
@@ -2180,6 +2742,9 @@ impl OwnedProject {
             rationale: request.rationale,
             protected_text: request.protected_text,
             candidate_ids: request.candidate_ids.clone(),
+            relationships,
+            endpoint_sources,
+            impacts,
         };
         let preview_json =
             serde_json::to_string(&crate::canonicalize_value(serde_json::to_value(&preview)?))?;
@@ -2304,6 +2869,23 @@ impl OwnedProject {
             Some(&preview.session_id),
             &preview.candidate_ids,
         )?;
+        let expected_relationships =
+            validate_relationship_drafts(&tx, &state, &targets, &stored_request.relationships)?;
+        let expected_impacts = build_adoption_impacts(
+            &tx,
+            &current_project_id,
+            &access.operation_namespace,
+            &source_epoch,
+            &preview.candidate_ids,
+            &targets,
+            &stored_request.impact_drafts,
+        )?;
+        if expected_relationships != preview.relationships || expected_impacts != preview.impacts {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "The adoption preview relationship or impact provenance changed.",
+            ));
+        }
         if !same_document_records(&before, &preview.before) {
             return Err(CoreError::new(
                 "VersionConflict",
@@ -2385,6 +2967,23 @@ impl OwnedProject {
             decisions.push(decision);
             resulting_documents.push(record);
         }
+        let mut committed_heads = changed_heads.clone();
+        for relationship in &expected_relationships {
+            for document_id in [&relationship.from_document_id, &relationship.to_document_id] {
+                if !committed_heads.contains_key(document_id) {
+                    committed_heads
+                        .insert(document_id.clone(), read_document(&tx, document_id)?.head);
+                }
+            }
+        }
+        let committed_relationships =
+            materialize_relationship_drafts(&stored_request.relationships, &committed_heads)?;
+        if committed_relationships != expected_relationships {
+            return Err(CoreError::new(
+                "VersionConflict",
+                "A relationship endpoint changed while the adoption was being committed.",
+            ));
+        }
         if !changed_heads.is_empty() {
             tx.execute(
                 "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
@@ -2410,34 +3009,61 @@ impl OwnedProject {
         }
         state.current_session_id = Some(preview.session_id.clone());
         state.decisions.extend(decisions.clone());
-        for relationship in &state.relationships {
-            let affected = relationship
+        let existing_relationships = state.relationships.clone();
+        state.relationships.extend(committed_relationships);
+        for relationship in &existing_relationships {
+            for source in relationship
                 .source_heads
                 .iter()
-                .any(|head| changed_heads.contains_key(&head.document_id));
-            if affected {
-                let document_id = relationship.from_document_id.clone();
+                .filter(|head| changed_heads.contains_key(&head.document_id))
+            {
                 let decision_id = decisions
                     .iter()
-                    .find(|decision| decision.document_id == document_id)
-                    .or_else(|| decisions.first())
+                    .find(|decision| decision.document_id == source.document_id)
                     .map(|decision| decision.id.clone())
                     .ok_or_else(|| {
                         CoreError::new(
                             "InvalidRequest",
-                            "A relationship impact has no adoption decision.",
+                            "A relationship impact has no adoption decision for its changed source.",
                         )
                     })?;
                 state.impacts.push(WorkshopImpact {
                     id: new_id(),
                     decision_id,
-                    document_id,
+                    document_id: source.document_id.clone(),
                     kind: WorkshopImpactKind::PossibleTension,
-                    reason: "A relationship source changed during adoption and requires review."
-                        .into(),
+                    reason: format!(
+                        "Relationship {} uses changed source {}; review whether it still holds.",
+                        relationship.id, source.document_id
+                    ),
                     status: WorkshopImpactStatus::NeedsReview,
+                    candidate_id: None,
+                    relationship_id: Some(relationship.id.clone()),
                 });
             }
+        }
+        for impact in expected_impacts {
+            let decision_id = decisions
+                .iter()
+                .find(|decision| decision.document_id == impact.document_id)
+                .or_else(|| decisions.first())
+                .map(|decision| decision.id.clone())
+                .ok_or_else(|| {
+                    CoreError::new(
+                        "InvalidRequest",
+                        "A candidate impact has no adoption decision.",
+                    )
+                })?;
+            state.impacts.push(WorkshopImpact {
+                id: new_id(),
+                decision_id,
+                document_id: impact.document_id,
+                kind: impact.kind,
+                reason: impact.reason,
+                status: WorkshopImpactStatus::NeedsReview,
+                candidate_id: Some(impact.candidate_id),
+                relationship_id: None,
+            });
         }
         let next_version = expected.checked_add(1).ok_or_else(|| {
             CoreError::new("VersionLimit", "The workshop version limit was reached.")
@@ -2612,6 +3238,8 @@ pub(crate) fn validate_storage(connection: &Connection) -> CoreResult<()> {
             })?;
         let parsed: WorkshopAdoptionPreview = serde_json::from_str(&preview)
             .map_err(|_| CoreError::new("InvalidBackup", "A workshop preview is invalid."))?;
+        validate_preview_relationships(&request, &parsed)
+            .map_err(|error| CoreError::new("InvalidBackup", &error.detail))?;
         let canonical_request =
             serde_json::to_string(&crate::canonicalize_value(serde_json::to_value(&request)?))?;
         let mut canonical_targets = request.targets.clone();

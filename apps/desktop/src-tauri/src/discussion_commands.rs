@@ -825,6 +825,7 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
         } else {
             "refinement"
         };
+        let is_voice_guidance = action == "voiceGuidance";
         let selected_text = request
             .get("selectedText")
             .and_then(serde_json::Value::as_str)
@@ -850,25 +851,59 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
         }
         preserved.sort();
         preserved.dedup();
-        let candidates = (0..if kind == "directions" { 3 } else { 1 })
+        let candidates = (0..if kind == "directions" || is_voice_guidance {
+            3
+        } else {
+            1
+        })
             .map(|index| {
-                let dimension = format!("Local test axis {}", index + 1);
-                let content = format!(
-                    "{}\n{}\nThis is a deterministic workshop alternative for axis {}.",
-                    current,
-                    preserved.join("\n"),
-                    index + 1
-                );
+                let dimension = if is_voice_guidance {
+                    ["restrained", "brisk", "lyrical"][index].to_owned()
+                } else {
+                    format!("Local test axis {}", index + 1)
+                };
+                let (title, content, preserved_details, changed_details) =
+                    if is_voice_guidance {
+                        let style = dimension.as_str();
+                        (
+                            format!("Local STYLE guidance set {}", index + 1),
+                            format!(
+                                "STYLE guidance set {}.\n\
+                                 Sentence density: use {} sentence lengths.\n\
+                                 Viewpoint distance: stay close to the author's perception.\n\
+                                 Humor: use restrained warmth only when it supports the scene.\n\
+                                 Exposition: reveal context through selected detail, not event claims.\n\
+                                 Dialogue rhythm: let turns breathe and vary interruption.\n\
+                                 Events from the sample remain noncanon and are not adopted.",
+                                index + 1,
+                                style
+                            ),
+                            vec!["The sample remains voice evidence only.".to_owned()],
+                            vec![format!("{} style qualities", style)],
+                        )
+                    } else {
+                        (
+                            format!("Local workshop direction {}", index + 1),
+                            format!(
+                                "{}\n{}\nThis is a deterministic workshop alternative for axis {}.",
+                                current,
+                                preserved.join("\n"),
+                                index + 1
+                            ),
+                            preserved.clone(),
+                            vec![format!("Local test axis {}", index + 1)],
+                        )
+                    };
                 serde_json::json!({
                     "id": "",
-                    "title": format!("Local workshop direction {}", index + 1),
+                    "title": title,
                     "content": content,
                     "dimensionValue": dimension,
                     "implications": [{"text": "This could change a related decision.", "basis": "the selected workshop material", "assumption": "the author wants the change explored"}],
                     "assumptions": ["This is a proposed alternative, not canon."],
                     "affectedTargets": [],
-                    "preservedDetails": preserved,
-                    "changedDetails": [format!("Local test axis {}", index + 1)]
+                    "preservedDetails": preserved_details,
+                    "changedDetails": changed_details
                 })
             })
             .collect::<Vec<_>>();
@@ -880,7 +915,11 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
             "dimension": "Local test axis",
             "interpretation": {
                 "youSaid": workshop.get("direction").and_then(serde_json::Value::as_str).unwrap_or_default(),
-                "possibleDirection": current,
+                "possibleDirection": if is_voice_guidance {
+                    "Review style qualities only; sample events remain untouched."
+                } else {
+                    current
+                },
                 "stillOpen": workshop.get("stillOpen").and_then(serde_json::Value::as_str).unwrap_or_default()
             },
             "candidates": candidates
@@ -1241,6 +1280,117 @@ mod tests {
             output.candidates[0]
                 .content
                 .contains("Keep this fixed detail")
+        );
+        clean_project(project);
+    }
+
+    #[test]
+    fn mock_voice_guidance_completes_three_candidates_without_changing_source_events() {
+        let path = std::env::temp_dir().join(format!(
+            "wns-desktop-worker-voice-guidance-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project = ProjectSession::create(path, "Voice guidance worker test").unwrap();
+        let access = project.attach("test-session".into()).unwrap();
+        let source_text = "Rain ticked against the workshop glass while she counted each drop.";
+        let document = project
+            .create_document(CreateDocument {
+                access: access.clone(),
+                operation_id: "create-voice-anchor".into(),
+                document_id: "workshop-voice-anchor".into(),
+                title: "Voice sample".into(),
+                kind: "note".into(),
+                body: serde_json::json!({
+                    "schemaVersion": 1,
+                    "body": {
+                        "type": "doc",
+                        "content": [{
+                            "type": "paragraph",
+                            "attrs": {"id": "p1"},
+                            "content": [{"type": "text", "text": source_text}]
+                        }]
+                    }
+                }),
+            })
+            .unwrap();
+        let request = webnovel_core::projects::workshop_generation::WorkshopGenerationRequest {
+            access: access.clone(),
+            operation_id: "voice-guidance-operation".into(),
+            exploration: webnovel_core::projects::workshop_generation::WorkshopExploration {
+                session_id: "session-voice".into(),
+                expected_version: "0".into(),
+                working_generation: "0".into(),
+                action: "voiceGuidance".into(),
+                instruction: "Use this sample as voice evidence only; do not adopt its events."
+                    .into(),
+                selected_scope: "Voice qualities from the sample".into(),
+                selected_text: source_text.into(),
+                working_selection: None,
+            },
+            context: webnovel_core::projects::workshop_generation::WorkshopContext {
+                expected: document.head,
+                lens: webnovel_core::projects::workshop::Lens::Themes,
+                depth: webnovel_core::projects::workshop::WorkshopDepth::Develop,
+                current_element: source_text.into(),
+                direction: "Voice sample".into(),
+                still_open: "The scene events remain noncanon.".into(),
+                focus_question: "Which qualities should carry forward?".into(),
+                focus_reason: "Compare reviewable style guidance sets.".into(),
+                selected_details: vec![],
+                chosen_details: vec![],
+                fixed_details: vec![],
+                fixed_source_refs: vec![],
+                preferences: vec![],
+                hard_constraints: vec![],
+                included_document_ids: vec![],
+                included_alternatives: vec![],
+                rejected_rationales: vec![],
+                questions: vec![],
+                original_notes: String::new(),
+                outside_direction: false,
+            },
+            budget: MockContextBudget::new("100000", "4096", "1024"),
+            provider_binding: None,
+        };
+        let (start, metadata) = request.into_discussion().unwrap();
+        let started = project.start_discussion(start).unwrap();
+        let recovery = DiscussionRecovery::default();
+        let dispatch = recovery.claim(&project, &started.run).unwrap();
+        run_mock_with_pause(project.clone(), recovery, dispatch, || {});
+
+        let view = project
+            .read_discussion(access.clone(), "workshop-voice-anchor".into())
+            .unwrap();
+        assert_eq!(view.runs[0].status, DiscussionRunStatus::Completed);
+        let output = webnovel_core::projects::workshop_generation::validate_workshop_output(
+            &view.runs[0].output_text,
+            &metadata,
+            &view.runs[0].id,
+        )
+        .unwrap();
+        assert_eq!(output.candidates.len(), 3);
+        assert!(
+            output
+                .candidates
+                .iter()
+                .all(|candidate| candidate.content.contains("STYLE guidance"))
+        );
+        assert!(
+            output
+                .candidates
+                .iter()
+                .all(|candidate| !candidate.content.contains(source_text))
+        );
+        assert_eq!(
+            project
+                .document(access, "workshop-voice-anchor".into())
+                .unwrap()
+                .body["body"]["content"][0]["content"][0]["text"],
+            source_text
         );
         clean_project(project);
     }

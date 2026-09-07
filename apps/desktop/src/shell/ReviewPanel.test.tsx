@@ -122,7 +122,7 @@ describe('author review', () => {
     const oldSummary: ipc.SummaryRevision = { id: 'old-summary', text: 'The old chapter held the gate.', audience: 'authorRoom', source: { projectId: access.projectId, documentId: oldHead.documentId, revisionId: oldRevision.id, bodyHash: oldHead.bodyHash }, dependencies: [] };
     vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'changedProse', activeBundleId: 'bundle', pendingStageId: null, reason: 'Writing changed since review.', canStage: true });
     vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue({ bundleId: 'bundle', projectId: access.projectId, operationNamespace: access.operationNamespace, target: oldHead, revision: oldRevision, records: [], current: false, summary: oldSummary, summaryHash: await summaryHashFor(oldSummary) });
-    await render(); expect(host.textContent).toContain('belongs to another saved chapter');
+    await render(); await waitFor(() => expect(host.textContent).toContain('belongs to another saved chapter'));
     await click('Review saved chapter'); expect(ipc.stageAuthorReview).not.toHaveBeenCalled(); expect(host.textContent).toContain('Use this summary');
     await click('Clear summary'); await click('Review saved chapter');
     expect(vi.mocked(ipc.stageAuthorReview).mock.calls[0][0].summary).toEqual({ kind: 'clear' });
@@ -136,7 +136,7 @@ describe('author review', () => {
     vi.mocked(ipc.chapterReviewStatus).mockResolvedValue({ documentId: 'chapter', title: record.title, head: record.head, state: 'changedProse', activeBundleId: 'bundle', pendingStageId: null, reason: 'Writing changed since review.', canStage: true });
     vi.mocked(ipc.readReviewedRecordSet).mockResolvedValue({ bundleId: 'bundle', projectId: access.projectId, operationNamespace: access.operationNamespace, target: oldHead, revision: oldRevision, records: [], current: false, summary: oldSummary, summaryHash: await summaryHashFor(oldSummary) });
     vi.mocked(ipc.stageAuthorReview).mockImplementation(async _request => { const result = structuredClone(staged); delete result.summary; delete result.summaryHash; return result; });
-    await render(); await click('Clear summary'); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
+    await render(); await waitFor(() => expect(button('Clear summary')).toBeDefined()); await click('Clear summary'); await click('Review saved chapter'); await waitFor(() => expect(button('Mark this version reviewed')).toBeDefined());
     await click('Edit'); const selects = host.querySelectorAll('select'); await act(async () => { (selects[2] as HTMLSelectElement).value = 'earlier'; selects[2].dispatchEvent(new Event('change', { bubbles: true })); });
     await click('Keep detail'); await waitFor(() => expect(button('Save reviewed details')).toBeDefined()); await click('Save reviewed details');
     expect(vi.mocked(ipc.stageAuthorReview).mock.calls[1][0].summary).toEqual({ kind: 'clear' });

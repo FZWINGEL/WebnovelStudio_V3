@@ -17,7 +17,9 @@ const executable = process.env.WNS_V3_NATIVE_EXE
   : resolve(root, 'target/debug/webnovel-desktop.exe');
 const output = resolve(root, '.local/native-results/workshop');
 await mkdir(output, { recursive: true });
-const data = await mkdtemp(resolve(tmpdir(), 'wns-v3-workshop-native-'));
+// Resolve Windows short temp names/junctions before comparing them with the
+// canonical project paths returned by the native library.
+const data = await realpath(await mkdtemp(resolve(tmpdir(), 'wns-v3-workshop-native-')));
 
 async function reservePort() {
   const server = createServer();
@@ -85,7 +87,7 @@ function workshopState() {
 function projectInside(projectPath) {
   const child = relative(toNamespacedPath(data), toNamespacedPath(projectPath));
   assert(child && !isAbsolute(child) && child !== '..' && !child.startsWith(`..${sep}`),
-    'Workshop fixture must stay inside this synthetic run');
+    `Workshop fixture must stay inside this synthetic run: ${projectPath} under ${data}`);
 }
 
 async function chooseLocalMock() {

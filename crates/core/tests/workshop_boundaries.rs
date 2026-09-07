@@ -134,6 +134,8 @@ fn preview_request(
         targets,
         rationale: "A deliberate author-room choice".into(),
         protected_text: Vec::new(),
+        relationships: Vec::new(),
+        impact_drafts: Vec::new(),
     }
 }
 

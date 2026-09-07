@@ -37,6 +37,7 @@
 .story-workshop button.primary-button:not(:disabled):hover { background-color: #194ba9; }
 .workshop-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .workshop-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.workshop-navigation .workshop-section-heading { flex-wrap: wrap; gap: 6px; }
 .workshop-section-heading > h2, .workshop-section-heading > h3 { margin: 0; }
 .workshop-question { padding-top: 24px; border-top: 1px solid #d6dfeb; }
 .workshop-question > p { color: #465c78; line-height: 1.6; }

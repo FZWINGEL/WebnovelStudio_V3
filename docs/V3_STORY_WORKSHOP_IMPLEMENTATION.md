@@ -20,9 +20,10 @@ provider dispatch and owned Stop/recovery paths. Summary and story-memory jobs
 retain their independent Luna/xhigh policy.
 
 The Rust boundary validates project/session identity, expected versions,
-protected content, and adoption targets. Schema-35 storage, actor, adoption, and
-provider-command integration pass the local standard check; native execution
-remains pending. An uncertain save or Apply retains its immutable
+protected content, and adoption targets. Existing schema-35 storage, actor,
+adoption, and provider-command integration passed the local standard check;
+the newly broadened same-packet relationship/impact path still awaits its final
+focused storage checks. Native execution remains pending. An uncertain save or Apply retains its immutable
 operation identity for receipt reconciliation. A provider response is intended
 to remain an alternative until an author uses it; it cannot replace a working
 version edited after dispatch.
@@ -61,14 +62,28 @@ regressions. A synthetic headless Chromium fixture reported no page errors and n
 horizontal overflow at 600, 800, 1024, and 1440 pixels; captures are under
 `.local/workshop-qa/` and are ignored. This is frontend/fixture evidence only.
 
-The full `desktop.ps1 -Command check` passed: formatting, strict workspace Clippy,
-all Rust workspace tests, production build, frontend tests, and 11 tooling checks.
+The earlier full `desktop.ps1 -Command check` passed formatting, strict workspace
+Clippy, all Rust workspace tests, the production build, frontend tests, and 11
+tooling checks. The hosted checkpoint for source `a023511` failed its Ubuntu
+ReviewPanel async-summary test (464 of 465 frontend tests passed)
+([CI 34124050562](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34124050562)).
+A local synchronization fix passes all 33 focused ReviewPanel tests, but no
+hosted rerun is claimed here. The existing
+`test:native` suite passed at `a023511`; the current Workshop native smoke still
+needs a rerun after the short-temp realpath guard was fixed syntactically.
+The 15:23 local checkpoint then passed `desktop.ps1 -Command check`: 746 Rust
+tests (plus one intentional subprocess entry-point ignore), 474 frontend tests
+in 41 files, 11 tooling checks, formatting, strict workspace Clippy, TypeScript,
+and the production build. This includes atomic new-endpoint relationships,
+candidate and relationship impact provenance, destination identity, explicit
+rejection promotion and subversion, and reviewed voice guidance. There is no
+current broad live provider, installer, or author-study evidence.
 Schema-35 tests cover the resolved chosen/alternative distinction, supersession,
 exact before/after revisions, protected multiline additions, frozen ranges,
 and operation replay. Five `workshop_boundaries` tests cover multi-target
 atomicity, chapter preservation, secret exclusion, preference conflict, and
-paragraph protection. There has been no new native run, live Workshop
-provider run, current Workshop installer qualification, or author study. The
+paragraph protection. The new Workshop native run has not passed; there has
+been no live Workshop provider run, current Workshop installer qualification, or author study. The
 fetched specification above is unchanged.
 
 | Status phrase | Meaning in this checkpoint |
@@ -94,40 +109,40 @@ green mock/frontend run alone.
 | W07 | 5, 12 | Editable You said / Possible direction / Still open; question, reason, free alternatives | Direction and open-question fields are present in the Workshop state/UI; full question/reason/free-alternative qualification is pending. |
 | W08 | 6 | Three concise typed candidates with explicit differing dimensions and expandable details | Implemented in `CandidateBoard.tsx` and `crates/core/src/projects/workshop_generation.rs`; frontend tests/fixture evidence exist, native/quality evidence pending. |
 | W09 | 6 | Develop, select details, save later; visible editable tray; preserved details in synthesis | Detail tray, working draft, and local history are implemented in Workshop/CandidateBoard/store; native persistence and synthesis qualification pending. |
-| W10 | 6, 13 | Scoped direct/natural-language edits protect unselected and Keep fixed material | Candidate steering/edit paths exist, but protected additions and scope projection remain under review; requirement is partial and native/quality pending. |
+| W10 | 6, 13 | Scoped direct/natural-language edits protect unselected and Keep fixed material | Candidate steering/edit paths exist and paragraph-level protected-content boundaries are covered locally; full scope projection and native/quality evidence remain pending. |
 | W11 | 6 | Concrete, consequences, alternatives, challenge, ordinary life, moment actions | Workshop exploration actions are present in the development surface; requirement-specific behavior and quality evidence remain pending. |
-| W12 | 6, 16 | Use this version previews add/replace destination, exact source and complete packet | Adoption preview/read path is implemented in Workshop IPC/core; atomic new-document destination creation and complete-packet/native evidence remain pending. |
-| W13 | 6, 13 | Recoverable alternatives, separate saved/chosen/archived/superseded and access | Working/local history and recoverable choice paths exist; chosen-versus-alternative and supersession review fixes remain in progress. |
+| W12 | 6, 16 | Use this version previews add/replace destination, exact source and complete packet | Adoption preview/read path and atomic multi-target add/replace are covered by the local Rust boundary tests; complete-packet and native evidence remain pending. |
+| W13 | 6, 13 | Recoverable alternatives, separate saved/chosen/archived/superseded and access | Schema-35 tests cover chosen/alternative resolution, supersession, authorRoom access, and replay; native/quality evidence remains pending. |
 | W14 | 7 | Neutral/Want/Avoid, optional Must/Never; meaning, examples, temporal intent and scopes | Scoped preferences are implemented in `apps/desktop/src/workshop/Preferences.tsx` and core Workshop state; semantic/native quality evidence pending. |
-| W15 | 7 | Hard project/local conflicts explicit; unknown semantic conflicts never claimed solved | Local/project conflict handling is present; broader hard-conflict and unknown-semantic-conflict qualification remains pending. |
+| W15 | 7 | Hard project/local conflicts explicit; unknown semantic conflicts never claimed solved | Rust and frontend local project-conflict handling, including neutral behavior, is covered; unknown semantic conflicts remain unclaimed and native/quality evidence remains pending. |
 | W16 | 7 | Contextual suggestions, search/Browse all, families, custom tags, editable presets | Custom tags, preset review, and import/export UI are implemented in `Preferences.tsx`, `catalog.ts`, and Tauri preset commands; native/quality evidence pending. |
-| W17 | 7 | Optional local rejection rationale, explicit promotion; no hidden global learning | Local rejection rationale is present; explicit promotion remains manual, so this row is partial. |
-| W18 | 7 | Subversion distinct from inclusion/exclusion and explicitly selected transformation | No executed qualification recorded; remains pending. |
+| W17 | 7 | Optional local rejection rationale, explicit promotion; no hidden global learning | A rejection can be reviewed into a scoped, editable preference in `Preferences.tsx`; `Preferences.test.tsx` covers author editing and scope selection. Native and quality evidence remains pending. |
+| W18 | 7 | Subversion distinct from inclusion/exclusion and explicitly selected transformation | `catalog.ts` exposes explicit convention-transformation operations and `Workshop.test.tsx` covers the required convention and selected operation; core/native and quality evidence remain pending. |
 | W19 | 8 | World slices and four optional lenses; depth choice, ordinary life, open mysteries | Six-lens Workshop surface is implemented; depth, ordinary-life, and open-mystery quality evidence remains pending. |
 | W20 | 8 | Conditional consequences expose basis/assumptions; accept/reject/contrast | Consequence exploration is present in the Workshop path; basis/assumption and accept/reject/contrast qualification remains pending. |
-| W21 | 9 | Behavior-first people, optional spine and tentative situation responses | No executed qualification recorded for this complete people slice; remains pending. |
-| W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | Existing-document relationship UI/state is implemented in `Relationships.tsx` and core Workshop; native/quality pending. |
+| W21 | 9 | Behavior-first people, optional spine and tentative situation responses | The people lens, behavior-first situation action, and durable session/decision fields provide the prompt-led path; no structured people database is required for this behavior. Focused/native quality evidence remains pending. |
+| W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | Existing-document relationship UI/state is implemented in `Relationships.tsx` and the adoption packet carries the relationship source heads; the new same-packet focused storage checks remain pending. |
 | W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | No executed qualification recorded; remains pending. |
 | W24 | 10 | Themes as open questions; reader tone distinct from intensity | Themes & tone is represented by the six-lens Workshop surface; distinction/quality evidence remains pending. |
-| W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | Noncanon moments and guidance are implemented in the Workshop frontend/core paths; native and derived-guidance quality evidence pending. |
-| W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | Story possibilities lens is present, but the full story-engine/promise/payoff behavior is not evidenced in this checkpoint. |
+| W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | Same-situation noncanon treatments and explicit `voiceGuidance` are implemented in the Workshop frontend/core paths. The voice-guidance source slice passes seven focused core tests and two focused desktop tests, including the native mock lifecycle; live/native quality evidence remains pending. |
+| W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | The Story possibilities lens, optional arc action, prompt template fields, and durable session/decision hooks provide the prompt-led story-engine path without a structured engine database. Quality qualification remains pending. |
 | W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | No executed qualification recorded; remains pending. |
 | W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | Local history exists; saved-decision recap/handoff qualification remains pending. |
-| W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Rationale/protection paths are under review; protected additions and authority/access/evidence qualification remain pending. |
+| W29 | 13 | Editable rationale, protected passages, independent authority/access/evidence axes | Rationale and protected-content paths are implemented, with multiline/paragraph boundary checks covered locally; independent authority/access/evidence qualification remains pending. |
 | W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | What-if and existing-parent compare are implemented in the Workshop paths; reviewed acceptance and native/quality evidence remain pending. |
-| W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | Current impact review only exposes relationship source-change flags and possible tension; richer four categories and candidate-affected targets are incomplete. |
+| W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | `AdoptionImpacts.tsx` exposes reviewable reasons and four categories, and the same adoption packet carries impact drafts without automatic repair. The new focused storage checks for relationship/impact provenance remain pending. |
 | W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Explicit read of saved packets is implemented in `RequestContext.tsx` and context IPC; complete delivered-context qualification remains pending. |
 | W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | No executed qualification recorded for this complete exclusion/rationale contract; remains pending. |
 | W34 | 14 | Outside-current-direction retains hard constraints; budget omissions visible | No executed qualification recorded; remains pending. |
-| W35 | 13–14 | Author secrets/intent cross into restricted writing only through explicit existing paths | No new restricted-writing/native evidence was produced in this checkpoint; remains pending. |
-| W36 | 15 | One explicit request, visible model/scope/status, no generation on navigation or save | Provider-command integration is underway in `workshop_generation_commands.rs`; native generation/lifecycle evidence is pending. |
+| W35 | 13–14 | Author secrets/intent cross into restricted writing only through explicit existing paths | Local Rust boundary coverage confirms a chosen author-room secret is excluded from a restricted snapshot/search; native/live writing qualification remains pending. |
+| W36 | 15 | One explicit request, visible model/scope/status, no generation on navigation or save | Provider-command integration is present in `workshop_generation_commands.rs` and passes the local standard check; native generation/lifecycle evidence remains pending. |
 | W37 | 15 | Independent manual saves; late response stays alternative and requires explicit refresh | Save/retry paths exist, but retry payload/scope projection review remains in progress; native late-response evidence pending. |
 | W38 | 15 | Partial/failed/stopped distinct; retry/recovery no blind provider replay; cost wording | Retry/recovery work is present but not finally verified; provider, stop, partial/failed, and cost qualification remain pending. |
-| W39 | 15 | Offline manual development, preferences/history/organization and restart resume | Manual Workshop UI, scoped preferences, and local history are implemented; Rust schema-35/restart/provider qualification is pending. |
-| W40 | 16 | Source-bound facets, stale-source refusal, no second truth database | Existing-document source binding is implemented in core Workshop adoption/relationship paths; stale-source and full source-bound qualification remain pending. |
-| W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Rust schema-35 actor/adoption is compiling at checkpoints; atomic new-document/dependent creation and final stale/no-chapter verification remain pending. |
+| W39 | 15 | Offline manual development, preferences/history/organization and restart resume | Manual Workshop UI and scoped preferences are implemented; schema-35 persistence, reopen, replay, and local history pass the standard check, while native/provider evidence remains pending. |
+| W40 | 16 | Source-bound facets, stale-source refusal, no second truth database | Existing-document source binding and stale multi-target refusal are covered in core Workshop tests; broader source-bound qualification remains pending. |
+| W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Schema-35 actor/adoption passes the local standard check; focused tests cover atomic new-document plus existing-target adoption, stale refusal without partial writes, exact history, and no chapter mutation. Dependent-target breadth and native evidence remain pending. |
 | W42 | 17 | Exportable/importable editable project presets with explicit adoption of preferences | Import/export UI and preset review are implemented; native adoption and quality evidence pending. |
-| W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | Frontend build/fixture evidence exists; no new native run or full end-to-end quality qualification has been performed. |
+| W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | Frontend build/fixture evidence and five focused core boundary tests cover hard conflicts, neutral preferences, secret isolation, and multi-target adoption; no new native run or full end-to-end quality qualification has been performed. |
 | W44 | 18 | Counterbalanced formative author study, same model/budget, ownership/coherence/usefulness | Pending observed author participation; protocol is prepared but no study evidence exists. |
 
 ## Qualification
