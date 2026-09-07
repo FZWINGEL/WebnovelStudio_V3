@@ -374,6 +374,30 @@ built `2026-09-07T16:11:10.8753042Z`. Identity is retained in
 `.local/workshop-branch-debug-build.json`. It was not launched on the author's
 desktop. The earlier qualified installer remains a separate, older artifact.
 
+### Next implementation slice: scoped exploration and taste-test comparison
+
+A source audit after W30 identified two concrete remaining gaps, beyond missing
+qualification:
+
+- The `moment` response currently accepts one to three candidates in
+  `workshop_generation.rs`, and the shared packet instruction repeats that
+  refinement range. Specification section 10 requires two or three treatments of
+  the same situation. Give taste tests their own minimum of two, retain ordinary
+  refinement behavior, and verify rejection of a single treatment without losing
+  its recoverable raw output.
+- `Relationships.tsx` currently offers review and source navigation but no direct
+  exploration action. Its local person/group filter is initialized from the
+  session without following later session changes. Add an explicit preparation
+  action for relationship/element exploration, with named scope, source context,
+  and no dispatch until Explore. Verify switching sessions does not retain another
+  exploration's filter or editing state. Bringing notes should establish a clear
+  element scope rather than inheriting an unrelated previous scope label.
+
+Possible arcs and intended payoffs already remain author-room exploration text;
+section 11 does not itself require a second structured truth database. Verify
+that workflow before adding new persistence types. Full specification and author
+study acceptance remain open after these slices.
+
 Use synthetic temporary projects for contracts and native fixtures. Preserve
 existing writing and provider regression coverage; register core integration
 files in `crates/core/tests/integration.rs`. The 14:45 frontend checkpoint passed
