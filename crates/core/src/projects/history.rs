@@ -91,7 +91,9 @@ impl ProjectSession {
     }
 
     /// Read exactly one retained revision body after its document ownership is
-    /// checked. The body fingerprint is revalidated by `read_revision`.
+    /// checked. This explicit read may inspect a trashed source; active
+    /// history listing and all writing paths still require a live document.
+    /// The body fingerprint is revalidated by `read_revision`.
     pub fn read_document_revision(
         &self,
         access: ProjectAccess,
@@ -380,8 +382,24 @@ fn read_document_revision(
 ) -> CoreResult<Revision> {
     check_id(document_id)?;
     check_id(revision_id)?;
-    ensure_document_exists(connection, document_id)?;
+    ensure_document_retained(connection, document_id)?;
     read_revision_checked(connection, document_id, revision_id)
+}
+
+fn ensure_document_retained(connection: &Connection, document_id: &str) -> CoreResult<()> {
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM documents WHERE id=?)",
+        [document_id],
+        |row| row.get(0),
+    )?;
+    if exists {
+        Ok(())
+    } else {
+        Err(CoreError::new(
+            "DocumentNotFound",
+            "This document is not available in this project.",
+        ))
+    }
 }
 
 /// Validate restore decisions represented by shared command receipts when a

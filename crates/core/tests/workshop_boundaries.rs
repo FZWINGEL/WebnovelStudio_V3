@@ -1,15 +1,20 @@
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use uuid::Uuid;
+use webnovel_core::context::packet::MockContextBudget;
 use webnovel_core::context::{Audience, BasisKind, ContextPurpose, InformationPolicy};
+use webnovel_core::projects::discussions::{
+    DiscussionBegin, DiscussionFinish, DiscussionStart, FeedbackIntent, StartDiscussion,
+};
 use webnovel_core::projects::story_context::{FreezeStory, SearchMode, SearchStory};
 use webnovel_core::projects::workshop::{
-    AdoptionMode, Lens, PreferencePolarity, PreferenceScope, PreferenceStrength,
-    PreviewWorkshopAdoption, SaveWorkshop, WorkshopAdoptionTarget, WorkshopBranchKind,
-    WorkshopDepth, WorkshopPreference, WorkshopSession, WorkshopState,
+    AdoptionMode, CandidateChoice, CandidateChoiceStatus, Lens, PreferencePolarity,
+    PreferenceScope, PreferenceStrength, PreviewWorkshopAdoption, SaveWorkshop, SelectedDetail,
+    WorkshopAdoptionTarget, WorkshopBranchKind, WorkshopDepth, WorkshopPreference, WorkshopSession,
+    WorkshopState,
 };
 use webnovel_core::projects::workshop_generation::{
-    StartWorkshop, WorkshopExploration, from_session,
+    StartWorkshop, WorkshopExploration, from_session, metadata_from_instruction,
 };
 use webnovel_core::projects::{CreateDocument, Head, ProjectSession, SaveCause, SaveSnapshot};
 
@@ -102,6 +107,321 @@ fn save_state(
         .expect("save workshop state")
 }
 
+fn context_request(
+    project: &ProjectSession,
+    access: &webnovel_core::projects::ProjectAccess,
+    operation: &str,
+    action: &str,
+    window: &str,
+) -> StartWorkshop {
+    let saved = project.read_workshop(access.clone()).unwrap();
+    let session = &saved.state.sessions[0];
+    StartWorkshop {
+        access: access.clone(),
+        operation_id: operation.into(),
+        exploration: WorkshopExploration {
+            session_id: session.id.clone(),
+            expected_version: saved.version,
+            working_generation: session.working_generation.clone(),
+            action: action.into(),
+            instruction: "Explore the supplied author request".into(),
+            selected_scope: "Whole working version".into(),
+            selected_text: String::new(),
+            working_selection: None,
+        },
+        budget: MockContextBudget::new(window, "100", "100"),
+        provider_binding: None,
+    }
+}
+
+fn complete_context_fixture(project: &ProjectSession, started: &DiscussionStart, text: String) {
+    let owner = started.run.owner.clone();
+    project
+        .begin_discussion_run(DiscussionBegin {
+            owner: owner.clone(),
+        })
+        .unwrap();
+    project.mark_discussion_delivered(owner.clone()).unwrap();
+    project
+        .finish_discussion(DiscussionFinish {
+            owner,
+            expected_sequence: "0".into(),
+            event_id: format!("finish-{}", started.run.id),
+            assistant_text: text,
+        })
+        .unwrap();
+}
+
+fn context_candidates(kind: &str, contents: &[&str]) -> String {
+    serde_json::to_string(&json!({
+        "schemaVersion": "story-workshop-output.v1",
+        "requestKind": kind,
+        "question": "Which direction fits?",
+        "questionReason": "Compare what each choice makes possible.",
+        "dimension": "Approach",
+        "interpretation": {"youSaid":"A seed", "possibleDirection":"A path", "stillOpen":"Its cost"},
+        "candidates": contents.iter().enumerate().map(|(index, content)| json!({
+            "id":"", "title":format!("Direction {index}"), "content":content,
+            "dimensionValue":format!("Approach {index}"), "implications":[],
+            "assumptions":[], "affectedTargets":[], "preservedDetails":[], "changedDetails":["direction"]
+        })).collect::<Vec<_>>()
+    })).unwrap()
+}
+
+#[test]
+fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opted_in_alternative()
+{
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("context-boundaries".into()).unwrap();
+    project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "unrelated-note".into(),
+            document_id: "unrelated-note".into(),
+            title: "Unrelated note".into(),
+            kind: "note".into(),
+            body: body("note", "UNRELATED_NOTE_PROSE"),
+        })
+        .unwrap();
+    let anchor = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "context-anchor".into(),
+            document_id: "workshop-context".into(),
+            title: "Context fixture".into(),
+            kind: "note".into(),
+            body: json!({"schemaVersion": 1, "body": {"type": "doc", "content": [{
+                "type": "paragraph", "attrs": {"id": "anchor"}, "content": []
+            }]}}),
+        })
+        .unwrap();
+    let (mut state, _) = state_with_session("context-session");
+    state.sessions[0].anchor_document_id = Some(anchor.head.document_id.clone());
+    save_state(&project, &access, "context-state", "0", state);
+    let chat = project
+        .start_discussion(StartDiscussion {
+            access: access.clone(),
+            operation_id: "ordinary-chat".into(),
+            expected: anchor.head,
+            instruction: "UNRELATED_CHAT_INSTRUCTION".into(),
+            intent: FeedbackIntent::Discuss,
+            basis: None,
+            scope: None,
+            pinned_document_ids: vec![],
+            safe_brief: None,
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
+            previous_run_id: None,
+            lookup: None,
+        })
+        .unwrap();
+    complete_context_fixture(&project, &chat, "UNRELATED_CHAT_ANSWER".into());
+    let directions = project
+        .start_workshop(context_request(
+            &project,
+            &access,
+            "directions",
+            "directions",
+            "100000",
+        ))
+        .unwrap();
+    complete_context_fixture(
+        &project,
+        &directions,
+        context_candidates(
+            "directions",
+            &[
+                "REJECTED_CANDIDATE_PROSE",
+                "INCLUDED_ALTERNATIVE_PROSE",
+                "ARCHIVED_CANDIDATE_PROSE",
+            ],
+        ),
+    );
+    let moment = project
+        .start_workshop(context_request(
+            &project, &access, "moment", "moment", "100000",
+        ))
+        .unwrap();
+    complete_context_fixture(
+        &project,
+        &moment,
+        context_candidates("refinement", &["NONCANON_VIGNETTE_PROSE"]),
+    );
+    let view = project.read_workshop(access.clone()).unwrap();
+    let candidates = &view
+        .results
+        .iter()
+        .find(|result| result.run.id == directions.run.id)
+        .unwrap()
+        .output
+        .as_ref()
+        .unwrap()
+        .candidates;
+    let mut state = view.state.clone();
+    state.sessions[0].choices = vec![
+        CandidateChoice {
+            candidate_id: candidates[0].id.clone(),
+            status: CandidateChoiceStatus::Rejected,
+            rationale: "Avoid solving this problem through inherited privilege".into(),
+            include_in_context: true,
+        },
+        CandidateChoice {
+            candidate_id: candidates[1].id.clone(),
+            status: CandidateChoiceStatus::Saved,
+            rationale: "Keep for comparison".into(),
+            include_in_context: true,
+        },
+        CandidateChoice {
+            candidate_id: candidates[2].id.clone(),
+            status: CandidateChoiceStatus::Archived,
+            rationale: String::new(),
+            include_in_context: true,
+        },
+    ];
+    save_state(&project, &access, "choose-context", &view.version, state);
+    let next = project
+        .start_workshop(context_request(
+            &project,
+            &access,
+            "filtered-context",
+            "directions",
+            "100000",
+        ))
+        .unwrap();
+    let serialized = serde_json::to_string(&next.packet).unwrap();
+    for excluded in [
+        "UNRELATED_NOTE_PROSE",
+        "UNRELATED_CHAT_INSTRUCTION",
+        "UNRELATED_CHAT_ANSWER",
+        "REJECTED_CANDIDATE_PROSE",
+        "ARCHIVED_CANDIDATE_PROSE",
+        "NONCANON_VIGNETTE_PROSE",
+    ] {
+        assert!(
+            !serialized.contains(excluded),
+            "unexpected context: {excluded}"
+        );
+    }
+    let metadata =
+        metadata_from_instruction(&next.packet.messages.last().unwrap().content).unwrap();
+    assert_eq!(
+        metadata.included_alternatives,
+        ["INCLUDED_ALTERNATIVE_PROSE"]
+    );
+    assert!(
+        metadata.chosen_details.is_empty(),
+        "including an alternative must not adopt it"
+    );
+    assert_eq!(metadata.rejected_rationales.len(), 1);
+    assert!(
+        metadata.rejected_rationales[0]
+            .contains("Avoid solving this problem through inherited privilege")
+    );
+    assert!(serialized.contains("excluded from workshop context by default"));
+    let retained = project.read_workshop(access.clone()).unwrap();
+    assert!(
+        retained
+            .results
+            .iter()
+            .any(|result| result.run.output_text.contains("NONCANON_VIGNETTE_PROSE"))
+    );
+    let packet_id = next.run.packet_id;
+    let exact_packet = next.packet;
+    drop(project);
+    let reopened = ProjectSession::open(&temp.0).unwrap();
+    let access = reopened.attach("context-reopen".into()).unwrap();
+    assert_eq!(
+        reopened.prepared_context(access, packet_id).unwrap(),
+        exact_packet
+    );
+}
+
+#[test]
+fn outside_direction_keeps_hard_exclusions_and_refuses_budget_without_truncating_author_context() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("outside-context".into()).unwrap();
+    let (mut state, _) = state_with_session("outside-session");
+    let session = &mut state.sessions[0];
+    session.anchor_document_id = Some("workshop-outside".into());
+    session.outside_direction = true;
+    session.direction = "Start in a coastal city".into();
+    session.working_text = "The sister survives. The city can change.".into();
+    session.selected_details = vec![SelectedDetail {
+        id: "fixed-sister".into(),
+        candidate_id: None,
+        text: "The sister survives.".into(),
+        fixed: true,
+    }];
+    session.original_notes = "Preserve every author note. ".repeat(80);
+    state.preferences = vec![WorkshopPreference {
+        id: "no-inherited-gift".into(),
+        label: "Inherited power".into(),
+        family: "progression".into(),
+        meaning: "Abilities cannot be granted by ancestry".into(),
+        examples: "No bloodline unlock".into(),
+        timing: "Throughout this project".into(),
+        polarity: PreferencePolarity::Avoid,
+        strength: PreferenceStrength::Hard,
+        scope: PreferenceScope::Project,
+        target_id: None,
+        confirmed: true,
+    }];
+    let saved = save_state(&project, &access, "save-outside", "0", state);
+    let error = project
+        .start_workshop(context_request(
+            &project,
+            &access,
+            "small-context",
+            "directions",
+            "201",
+        ))
+        .unwrap_err();
+    assert_eq!(error.code, "ContextPreparationFailed");
+    assert!(
+        error
+            .detail
+            .contains("do not fit the reserved input budget")
+    );
+    let after = project.read_workshop(access.clone()).unwrap();
+    assert!(
+        after.results.is_empty(),
+        "budget refusal must not create a provider run"
+    );
+    assert_eq!(
+        after.state, saved.state,
+        "budget refusal must preserve manual work and preferences"
+    );
+    let started = project
+        .start_workshop(context_request(
+            &project,
+            &access,
+            "ample-context",
+            "directions",
+            "100000",
+        ))
+        .unwrap();
+    let metadata =
+        metadata_from_instruction(&started.packet.messages.last().unwrap().content).unwrap();
+    assert!(metadata.outside_direction);
+    assert_eq!(
+        metadata.original_notes,
+        saved.state.sessions[0].original_notes
+    );
+    assert!(
+        metadata
+            .fixed_details
+            .iter()
+            .any(|text| text == "The sister survives.")
+    );
+    assert_eq!(metadata.hard_constraints.len(), 1);
+    assert!(metadata.hard_constraints[0].contains("avoid Inherited power"));
+    assert!(metadata.hard_constraints[0].contains("strength=hard"));
+    assert!(metadata.hard_constraints[0].contains("Throughout this project"));
+    assert_eq!(project.read_workshop(access).unwrap().state, saved.state);
+}
+
 fn target(
     document_id: &str,
     expected: Option<Head>,
@@ -148,23 +468,56 @@ fn fixed_literals_preserve_paragraph_and_hard_break_boundaries() {
     let (mut state, _) = state_with_session("session-one");
     state.sessions[0].working_text = literal.into();
     let saved = save_state(&project, &access, "save-workshop", "0", state);
-    assert_eq!(project.read_workshop(access.clone()).unwrap().state.sessions[0].working_text, literal);
-    let mut request = preview_request(&access, "session-one", &saved.version, vec![
-        WorkshopAdoptionTarget {
-            document_id: "new-world".into(), expected: None, title: "World".into(), kind: "world".into(), mode: AdoptionMode::Add,
+    assert_eq!(
+        project
+            .read_workshop(access.clone())
+            .unwrap()
+            .state
+            .sessions[0]
+            .working_text,
+        literal
+    );
+    let mut request = preview_request(
+        &access,
+        "session-one",
+        &saved.version,
+        vec![WorkshopAdoptionTarget {
+            document_id: "new-world".into(),
+            expected: None,
+            title: "World".into(),
+            kind: "world".into(),
+            mode: AdoptionMode::Add,
             body: json!({"schemaVersion":1,"body":{"type":"doc","content":[
                 {"type":"paragraph","attrs":{"id":"first"},"content":[{"type":"text","text":"First line"},{"type":"hardBreak"},{"type":"text","text":"Second line"}]},
                 {"type":"paragraph","attrs":{"id":"second"},"content":[{"type":"text","text":"Third line"}]}
             ]}}),
-        }
-    ]);
+        }],
+    );
     request.protected_text = vec![literal.into()];
     let preview = project.preview_workshop_adoption(request).unwrap();
-    let adopted = project.adopt_workshop(access.clone(), "adopt-lines".into(), preview.id).unwrap();
-    let replacement = preview_request(&access, "session-one", &adopted.snapshot.version, vec![
-        target("new-world", Some(adopted.documents[0].head.clone()), "World", "world", "First line Second line Third line", AdoptionMode::Replace)
-    ]);
-    assert_eq!(project.preview_workshop_adoption(replacement).unwrap_err().code, "ProtectedContentChanged");
+    let adopted = project
+        .adopt_workshop(access.clone(), "adopt-lines".into(), preview.id)
+        .unwrap();
+    let replacement = preview_request(
+        &access,
+        "session-one",
+        &adopted.snapshot.version,
+        vec![target(
+            "new-world",
+            Some(adopted.documents[0].head.clone()),
+            "World",
+            "world",
+            "First line Second line Third line",
+            AdoptionMode::Replace,
+        )],
+    );
+    assert_eq!(
+        project
+            .preview_workshop_adoption(replacement)
+            .unwrap_err()
+            .code,
+        "ProtectedContentChanged"
+    );
 }
 
 #[test]

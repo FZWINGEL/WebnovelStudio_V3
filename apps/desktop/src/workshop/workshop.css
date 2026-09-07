@@ -50,6 +50,8 @@
 .workshop-preference { display: block; text-align: left; width: 100%; background: #fff; border: 1px solid #ccd7e6; margin: 7px 0; padding: 9px; }
 .workshop-preference strong { font-size: 11px; margin-right: 7px; }
 .workshop-preference small { display: block; margin-top: 3px; color: #465c78; }
+.workshop-saved-preset { margin-block: 16px; overflow-wrap: anywhere; }
+.workshop-saved-preset > small { display: block; margin-top: 3px; color: #465c78; }
 .workshop-suggestions { display: flex; flex-wrap: wrap; gap: 5px; }
 .workshop-suggestions button { border: 1px solid #ccd7e6; border-radius: 4px; background: #fff; padding: 7px 9px; }
 .workshop-preference-form { margin-top: 16px; padding-block: 12px; border-block: 1px solid #afbed2; }

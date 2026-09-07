@@ -9,6 +9,41 @@ installed lifecycle, and [CI 34133645198](https://github.com/FZWINGEL/WebnovelSt
 passed all 15 Workshop native checks plus the existing native suites. Full
 specification acceptance and author evaluation remain open.
 
+The next local checkpoint adds reusable saved preset definitions, coherent
+name/text editing, and explicit definition updates without adopting preferences.
+Story Bible isolates unavailable sources, verifies exact current or historical
+bodies, and retains each choice and rationale when its source cannot be read.
+Rust refuses competing chosen decisions for one document and normalizes confirmed
+hard-project conflicts across Unicode case and surrounding whitespace. Unconfirmed
+and neutral preferences remain inactive for conflict enforcement.
+The exact-revision reader also permits retained text from a trashed source,
+while ordinary history listing, restore, and live writing continue to refuse
+that source. A core regression checks document/project ownership and those
+read-versus-write boundaries; the UI reports an unavailable item if the exact
+retained revision itself cannot be read. Preference conflict detection is
+symmetric when the author adds the hard project rule after a softer preference.
+
+The 17:19 Berlin standard check passed 749 Rust tests (69 core unit, 607 integration,
+73 desktop; one intentional subprocess entry-point ignore), 488 frontend tests in
+42 files, 11 tooling checks, strict Clippy, formatting, TypeScript, and build.
+The subsequent source-unavailable copy and preset spacing correction passed the
+16 focused frontend tests and the 17:22 Berlin final standard check with the same
+749 Rust / 488 frontend / 11 tooling totals. Headless Chromium checks of preset review/reuse and a
+mixed available/unavailable Story Bible passed at 1440 and 800 pixels without
+page errors or horizontal overflow; screenshots were inspected under
+`.local/workshop-hardening-qa/`. This is frontend fixture evidence only.
+The native harness now includes exact Story Bible history after a manual source
+edit, all six lenses, persisted preset definition review/edit/reuse, and an
+untitled second project. These additions and the changed application still need
+a new hosted native run and fresh installer qualification; the earlier artifacts
+below retain their original source identities.
+The final reviewed-source standard check at 17:29 Berlin passed 750 Rust tests
+(69 core unit, 608 integration, 73 desktop; one intentional ignore), 488 frontend
+tests in 42 files, 11 tooling checks, formatting, strict Clippy, TypeScript and
+build. The context inspector native addition reads the actual immutable packet
+and verifies confirmed local-mock delivery; it does not imply live-provider
+understanding. The expanded native flow has 20 intended check groups.
+
 ## Boundaries
 
 Documents remain the saved story material. Workshop sessions retain exploration
@@ -204,7 +239,7 @@ green mock/frontend run alone.
 | W01 | 4–5 | Develop/Write, optional title, lightweight blank-project choice; existing-project resume | Implemented in Workshop/store. CI 34133645198 covers blank Develop, zero chapters, seed save, and Library reopen preserving seed/working/chosen/relationship/history without generation. Optional-title and other existing-project cases remain unqualified. |
 | W02 | 4 | Overview, World, People, Themes & tone, Story possibilities, Notebook; free movement | All six lenses are implemented in catalog/Workshop. CI 34133645198 starts in Overview and navigates World, People, and Themes & tone; World navigation caused zero generation. Story possibilities, Notebook, and broader navigation quality remain unqualified. |
 | W03 | 4, 16 | Dedicated three-zone workbench, collapsible context; full generic editor retained | Dedicated Workshop frontend and generic Write surface are present; three-zone/collapsible-context and native focus qualification remain pending. |
-| W04 | 4, 16 | Story Bible projects exact chosen document material and provenance | Implemented in `apps/desktop/src/shell/StoryBible.tsx` with Workshop IPC/source records; native and provenance qualification pending. |
+| W04 | 4, 16 | Story Bible projects exact chosen document material and provenance | Six direct Story Bible regressions cover exact current/historical sources, unavailable or mismatched revisions, deleted sources, project switching, source callbacks and focus. Valid material remains readable when another item is unavailable. Headless fixture inspected; expanded native history check pending. |
 | W05 | 4, 15 | Responsive comparison/list/drawer, keyboard/focus, save feedback, composition-safe input | Comparison UI and save-watermark path are implemented; fixture has no overflow at four widths, while native keyboard/focus/composition evidence is pending. |
 | W06 | 5 | Fragment, direction help, existing notes; preserve originals; no genre/MC/ending gate | The native checkpoint covers seed save and local working edit; broader brief/direction preservation and native quality evidence remain pending. |
 | W07 | 5, 12 | Editable You said / Possible direction / Still open; question, reason, free alternatives | Direction and open-question fields are present in the Workshop state/UI; full question/reason/free-alternative qualification is pending. |
@@ -213,9 +248,9 @@ green mock/frontend run alone.
 | W10 | 6, 13 | Scoped direct/natural-language edits protect unselected and Keep fixed material | Candidate steering/edit paths exist and paragraph-level protected-content boundaries are covered locally; full scope projection and native/quality evidence remain pending. |
 | W11 | 6 | Concrete, consequences, alternatives, challenge, ordinary life, moment actions | Workshop exploration actions are present in the development surface; requirement-specific behavior and quality evidence remain pending. |
 | W12 | 6, 16 | Use this version previews add/replace destination, exact source and complete packet | CI 34133645198 passed an adoption preview with zero writes and a world adoption; complete-packet and broader adoption quality evidence remain pending. |
-| W13 | 6, 13 | Recoverable alternatives, separate saved/chosen/archived/superseded and access | Schema-35 tests cover chosen/alternative resolution, supersession, authorRoom access, and replay. CI 34133645198 adds an authorRoom decision and history/Library reopen preserving chosen material. Broader recoverability and access quality remain unqualified. |
+| W13 | 6, 13 | Recoverable alternatives, separate saved/chosen/archived/superseded and access | Schema-35 tests cover chosen/alternative resolution, supersession, authorRoom access, replay, and atomic refusal of a saved state re-promoting an older decision while another version is chosen. Archived history is retained. CI 34133645198 adds an authorRoom decision and history/Library reopen. Broader recoverability and access quality remain unqualified. |
 | W14 | 7 | Neutral/Want/Avoid, optional Must/Never; meaning, examples, temporal intent and scopes | Scoped preferences are implemented in `apps/desktop/src/workshop/Preferences.tsx` and core Workshop state; semantic/native quality evidence pending. |
-| W15 | 7 | Hard project/local conflicts explicit; unknown semantic conflicts never claimed solved | Rust and frontend local project-conflict handling, including neutral behavior, is covered; unknown semantic conflicts remain unclaimed and native/quality evidence remains pending. |
+| W15 | 7 | Hard project/local conflicts explicit; unknown semantic conflicts never claimed solved | Rust and frontend check confirmed hard-project conflicts with trimmed Unicode case normalization, including other project preferences. Local tests cover unconfirmed/neutral behavior and atomic refusal. Unknown semantic conflicts remain unclaimed; native/quality evidence remains pending. |
 | W16 | 7 | Contextual suggestions, search/Browse all, families, custom tags, editable presets | Custom tags, preset review, and import/export UI are implemented in `Preferences.tsx`, `catalog.ts`, and Tauri preset commands; native/quality evidence pending. |
 | W17 | 7 | Optional local rejection rationale, explicit promotion; no hidden global learning | A rejection can be reviewed into a scoped, editable preference in `Preferences.tsx`; `Preferences.test.tsx` covers author editing and scope selection. Native and quality evidence remains pending. |
 | W18 | 7 | Subversion distinct from inclusion/exclusion and explicitly selected transformation | `catalog.ts` exposes explicit convention-transformation operations and `Workshop.test.tsx` covers the required convention and selected operation; core/native and quality evidence remain pending. |
@@ -233,8 +268,8 @@ green mock/frontend run alone.
 | W30 | 13 | Isolated what-if fork/compare; accepting proposes reviewed changes only | What-if and existing-parent compare are implemented in the Workshop paths; reviewed acceptance and native/quality evidence remain pending. |
 | W31 | 13 | Affected material with links/reasons and four impact categories; no automatic repair | AdoptionImpacts exposes reasons and four categories. Core tests cover candidate/relationship provenance and uncertain claims defaulting to possibleTension/needsReview without repair. CI 34133645198 adds relationship-impact decision provenance with zero chapter writes. Broader category/review quality remains unqualified. |
 | W32 | 14 | Actual delivered context with direction/preferences/current/chosen/fixed/included alternatives | Explicit read of saved packets is implemented in `RequestContext.tsx` and context IPC; queued wording now says “saved”. The bounded live smoke passed the unchanged-anchor/manual/no-chapter path, while complete delivered-context qualification remains pending. |
-| W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | No executed qualification recorded for this complete exclusion/rationale contract; remains pending. |
-| W34 | 14 | Outside-current-direction retains hard constraints; budget omissions visible | No executed qualification recorded; remains pending. |
+| W33 | 14 | Exclude unrelated chat/rejected/noncanon by default; rationale independently usable | A persisted core request test excludes unrelated note/chat text, rejected and archived prose, and an unadopted vignette; only the explicitly included saved alternative and rejection rationale remain. Raw excluded results stay recoverable and the exact packet survives reopen. Native delivered-context qualification remains pending. |
+| W34 | 14 | Outside-current-direction retains hard constraints; budget omissions visible | A core request test proves outside-direction retains complete original notes, fixed details and hard exclusions. Mandatory overflow refuses preparation without a run or changed Workshop state; an ample budget preserves the inputs. Native budget/conflict messaging remains unqualified. |
 | W35 | 13–14 | Author secrets/intent cross into restricted writing only through explicit existing paths | Local Rust boundary coverage confirms a chosen author-room secret is excluded from a restricted snapshot/search; native/live writing qualification remains pending. |
 | W36 | 15 | One explicit request, visible model/scope/status, no generation on navigation or save | CI 34133645198 passed one explicit mock request with three directions and the Develop-to-Write barrier; broader generation/lifecycle quality remains pending. |
 | W37 | 15 | Independent manual saves; late response stays alternative and requires explicit refresh | Offline manual editing/save, immutable lost-ack request replay, frozen selection scope, stale-result refusal, and late-response preservation are covered by focused Workshop tests and the current full check. Native late-response evidence remains pending. |
@@ -242,7 +277,7 @@ green mock/frontend run alone.
 | W39 | 15 | Offline manual development, preferences/history/organization and restart resume | CI 34133645198 passed manual seed/working persistence and full Library reopen preservation without generation; broader offline organization/restart quality remains pending. |
 | W40 | 16 | Source-bound facets, stale-source refusal, no second truth database | Existing-document source binding and stale multi-target refusal are covered in core Workshop tests; broader source-bound qualification remains pending. |
 | W41 | 16–17 | Atomic multi-target adoption, dependent creation, stale refusal, no chapter mutation | Core tests cover linked atomic adoption, stale refusal without partial writes, exact history, and no chapter mutation. CI 34133645198 adds existing-world/new-character relationship adoption with exact heads, impact decision provenance, and zero chapter writes. Broader native stale/failure cases remain unqualified. |
-| W42 | 17 | Exportable/importable editable project presets with explicit adoption of preferences | Import/export UI and preset review are implemented; native adoption and quality evidence pending. |
+| W42 | 17 | Exportable/importable editable project presets with explicit adoption of preferences | Ten preference tests cover JSON/name synchronization, reopened saved definitions, explicit definition edits and reuse without duplicate definitions, adoption boundaries, invalid input and native file error handling. Headless review/reuse passed; native persistence/reuse and file-dialog qualification remain pending. |
 | W43 | 18 | End-to-end behavioral acceptance scenarios, including hard conflicts and secret isolation | CI 34133645198 passed all 15 intended Workshop groups plus the listed auxiliary native suites with clean runtime observations; this is bounded native evidence, not full specification, physical keyboard/accessibility, late/stale/failure UI, quality, or author-study completion. |
 | W44 | 18 | Counterbalanced formative author study, same model/budget, ownership/coherence/usefulness | Pending observed author participation; protocol is prepared but no study evidence exists. |
 

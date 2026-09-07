@@ -204,6 +204,29 @@ try {
   await page.screenshot({ path: resolve(output, 'three-mock-directions.png') });
   checks.push('One UI Explore request completes on the deterministic mock and renders exactly three alternatives');
 
+  const firstRun = database.prepare('SELECT packet_id,dispatch_state FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+  assert.equal(firstRun.dispatch_state, 'delivered');
+  const firstPacket = JSON.parse(database.prepare('SELECT packet_json FROM context_packets WHERE id=?').get(firstRun.packet_id).packet_json);
+  const firstEnvelope = firstPacket.messages.flatMap(message => {
+    try { return JSON.parse(message.content).workshop ?? []; } catch { return []; }
+  })[0];
+  assert(firstEnvelope?.currentElement.includes(seed), 'The delivered Workshop envelope must retain the actual seed');
+  const revealContext = page.getByRole('button', { name: 'Working story & context', exact: true });
+  if (await revealContext.isVisible()) await revealContext.click();
+  const frozenCreativeContext = page.locator('.workshop-frozen-context');
+  await frozenCreativeContext.locator('summary').click();
+  await frozenCreativeContext.getByText(firstEnvelope.currentElement, { exact: true }).waitFor();
+  const sourceContext = page.locator('.context-inspector');
+  await sourceContext.locator(':scope > summary').click();
+  await sourceContext.getByText('Sources supplied for this response. Opening a source reads its saved version.', { exact: true }).waitFor();
+  assert.equal(await sourceContext.getByText(/Delivery has not been confirmed/).count(), 0);
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, 1, 'Inspecting delivered context must not generate');
+  await page.screenshot({ path: resolve(output, 'delivered-workshop-context.png') });
+  const closeContext = page.getByRole('button', { name: 'Close working story', exact: true });
+  if (await closeContext.isVisible()) await closeContext.click();
+  else await page.getByRole('button', { name: 'Hide working story', exact: true }).click();
+  checks.push('Saved context inspection matches the exact delivered Workshop envelope and reports confirmed mock delivery without another generation');
+
   const firstCard = page.locator('.candidate-card').filter({ hasText: 'Local workshop direction 1' }).first();
   await firstCard.getByRole('button', { name: 'Select details', exact: true }).click();
   await firstCard.getByRole('button', { name: 'Select full direction', exact: true }).click();
@@ -521,6 +544,135 @@ try {
   assert.equal(database.prepare("SELECT count(*) AS n FROM workshop_receipts WHERE operation_kind='adoptWorkshop'").get().n, adoptionReceiptsBeforeVoice, 'Developing voice guidance must not adopt automatically');
   await page.screenshot({ path: resolve(output, 'voice-guidance-alternatives.png') });
   checks.push('Themes & tone sends a second explicit local-mock voice-guidance request, renders three STYLE alternatives, preserves the sample until author development, and keeps guidance out of adoption');
+
+  const runsBeforeBible = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  await page.getByRole('button', { name: 'Story Bible', exact: true }).click();
+  const bible = page.getByRole('dialog', { name: 'Story Bible', exact: true });
+  const characterChoice = bible.locator('article').filter({ has: page.getByRole('heading', { name: newCharacterTitle, exact: true }) });
+  await characterChoice.locator('.workshop-prose').waitFor();
+  assert.equal(await characterChoice.locator('.workshop-prose').innerText(), newCharacterText);
+  const worldChoice = bible.locator('article').filter({ has: page.getByRole('heading', { name: 'The Ember Archive', exact: true }) });
+  assert.equal(await worldChoice.count(), 1, 'Superseded world choices must not compete with the current choice');
+  await characterChoice.getByRole('button', { name: `Open source: ${newCharacterTitle}`, exact: true }).click();
+  await page.getByRole('heading', { name: newCharacterTitle, exact: true }).waitFor();
+  const newerCharacterText = 'Later author edit: the keeper has left the archive for the harbor.';
+  await page.getByRole('textbox', { name: 'Manuscript', exact: true }).fill(newerCharacterText);
+  await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
+  await waitForDatabase(() => documentText(documents().find(document => document.id === newCharacter.id)) === newerCharacterText, 'changed chosen source save');
+  await page.getByRole('button', { name: 'Story Bible', exact: true }).click();
+  await characterChoice.getByText(/Source changed since this choice/).waitFor();
+  assert.equal(await characterChoice.locator('.workshop-prose').innerText(), newCharacterText, 'The Bible must show the exact chosen historical version after its source changes');
+  assert.equal(await worldChoice.count(), 1, 'The other chosen material remains available');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, runsBeforeBible, 'Reading chosen history and manual edits must not generate');
+  await page.screenshot({ path: resolve(output, 'story-bible-exact-history.png') });
+  await bible.getByRole('button', { name: 'Close Story Bible', exact: true }).click();
+  await page.getByRole('button', { name: 'Story Bible', exact: true }).evaluate(button => {
+    if (document.activeElement !== button) return new Promise(resolvePromise => requestAnimationFrame(resolvePromise));
+  });
+  assert.equal(await page.getByRole('button', { name: 'Story Bible', exact: true }).evaluate(button => document.activeElement === button), true, 'Closing the Bible restores its launch button focus');
+  checks.push('Story Bible opens exact chosen sources, excludes superseded choices, preserves historical text after a source edit, and restores focus without generation');
+
+  await page.getByRole('tab', { name: 'Develop', exact: true }).click();
+  await ensureDevelopMode();
+  const navigationDocuments = documents();
+  const navigationRuns = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  for (const [label, lens] of [['Overview', 'overview'], ['World', 'world'], ['People', 'people'], ['Themes & tone', 'themes'], ['Story possibilities', 'possibilities'], ['Notebook', 'notebook']]) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await page.getByRole('heading', { name: label, exact: true }).waitFor();
+    await waitForDatabase(() => {
+      const current = workshopState()?.state;
+      return current?.sessions.find(session => session.id === current.currentSessionId)?.lens === lens;
+    }, `${label} saved navigation`);
+  }
+  assert.deepEqual(documents(), navigationDocuments, 'Lens navigation must leave all documents untouched');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, navigationRuns);
+  checks.push('All six development lenses are reachable and save their position without changing documents or generating');
+
+  async function openPreferenceShelf() {
+    const reveal = page.getByRole('button', { name: 'Working story & context', exact: true });
+    if (await reveal.isVisible()) await reveal.click();
+    const preferences = page.getByRole('region', { name: 'Creative preferences', exact: true });
+    const summary = preferences.getByText('Find a preference or preset', { exact: true });
+    if (!await summary.evaluate(node => node.closest('details').open)) await summary.click();
+    return preferences;
+  }
+  let preferences = await openPreferenceShelf();
+  const preferencesBefore = workshopState().state.preferences;
+  const presetsBefore = workshopState().state.presets.length;
+  const presetRunsBefore = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  const preset = { schemaVersion: 'workshop-preset.v1', name: 'Archive boundaries', preferences: [{
+    label: 'Inherited exceptionalism', family: 'Story ingredients', meaning: 'No inherited gift solves the central conflict.',
+    examples: 'No bloodline unlock', timing: 'Throughout this project', polarity: 'avoid', strength: 'hard',
+  }] };
+  await preferences.getByRole('button', { name: 'Export or import preferences', exact: true }).click();
+  const presetReview = page.getByRole('region', { name: 'Review preference preset', exact: true });
+  await presetReview.getByRole('textbox', { name: 'Preset text', exact: true }).fill(JSON.stringify(preset, null, 2));
+  assert.equal(await presetReview.getByRole('textbox', { name: 'Preset name', exact: true }).inputValue(), preset.name);
+  assert.deepEqual(workshopState().state.preferences, preferencesBefore, 'Reviewing imported text must not adopt it');
+  assert.equal(workshopState().state.presets.length, presetsBefore, 'Draft preset review must not save a definition');
+  await presetReview.getByRole('button', { name: 'Add these project preferences', exact: true }).click();
+  await waitForDatabase(() => workshopState()?.state.presets.some(item => item.name === preset.name), 'explicit preset adoption');
+  const savedPreset = workshopState().state.presets.find(item => item.name === preset.name);
+  const adoptedPreferences = workshopState().state.preferences;
+  assert.equal(adoptedPreferences.length, preferencesBefore.length + 1);
+  assert(adoptedPreferences.some(item => item.scope === 'project' && item.confirmed && item.polarity === 'avoid' && item.strength === 'hard' && item.label === preset.preferences[0].label));
+
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();
+  await ensureDevelopMode();
+  await page.getByRole('heading', { name: 'Notebook', exact: true }).waitFor();
+  preferences = await openPreferenceShelf();
+  await preferences.getByText('Saved project presets', { exact: true }).click();
+  const savedPresetCard = preferences.locator('.workshop-saved-preset').filter({ hasText: preset.name });
+  await savedPresetCard.getByRole('button', { name: 'Review saved preset', exact: true }).click();
+  assert.equal(JSON.parse(await presetReview.getByRole('textbox', { name: 'Preset text', exact: true }).inputValue()).name, preset.name);
+  assert.deepEqual(workshopState().state.preferences, adoptedPreferences, 'Reopening a definition must not adopt it again');
+  await presetReview.getByRole('textbox', { name: 'Preset name', exact: true }).fill('Archive boundaries revised');
+  const revisedPreset = JSON.parse(await presetReview.getByRole('textbox', { name: 'Preset text', exact: true }).inputValue());
+  assert.equal(revisedPreset.name, 'Archive boundaries revised', 'Name field edits must update the review text');
+  revisedPreset.preferences[0].label = 'Unrevealed ancestry';
+  revisedPreset.preferences[0].meaning = 'Keep ancestry outside the central explanation.';
+  await presetReview.getByRole('textbox', { name: 'Preset text', exact: true }).fill(JSON.stringify(revisedPreset, null, 2));
+  await presetReview.getByRole('button', { name: 'Save preset definition', exact: true }).click();
+  await waitForDatabase(() => workshopState()?.state.presets.some(item => item.id === savedPreset.id && item.name === revisedPreset.name), 'edited preset definition');
+  assert.equal(workshopState().state.presets.length, presetsBefore + 1, 'Definition edits retain the saved identity');
+  assert.deepEqual(workshopState().state.preferences, adoptedPreferences, 'Saving a definition must not change active preferences');
+  await preferences.locator('.workshop-saved-preset').filter({ hasText: revisedPreset.name }).getByRole('button', { name: 'Review saved preset', exact: true }).click();
+  await presetReview.getByRole('button', { name: 'Add these project preferences', exact: true }).click();
+  await waitForDatabase(() => workshopState()?.state.preferences.length === adoptedPreferences.length + 1, 'explicit saved preset reuse');
+  assert.equal(workshopState().state.presets.length, presetsBefore + 1, 'Reusing a saved preset must not duplicate its definition');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, presetRunsBefore, 'Review, save, reuse, and reopen do not generate');
+  assert.deepEqual(documents(), navigationDocuments, 'Preset operations do not alter story documents');
+  await page.screenshot({ path: resolve(output, 'saved-preset-reuse.png') });
+  checks.push('Preset names follow JSON and field edits, explicit adoption persists across Library reopen, and saved definitions can be edited and reused without duplicate definitions or automatic preference adoption');
+
+  const firstProjectState = workshopState().state;
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Project title', exact: true }).fill('');
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  await page.getByRole('button', { name: 'Develop a story', exact: true }).click();
+  await page.getByRole('heading', { name: 'What are you excited about?', exact: true }).waitFor();
+  const secondLibrary = await invoke('library_snapshot');
+  const untitled = secondLibrary.entries.find(item => item.title === 'Untitled project' && item.path !== entry.path);
+  assert(untitled, 'A project title must be optional');
+  const untitledPath = await realpath(untitled.path);
+  projectInside(untitledPath);
+  const secondDatabase = new DatabaseSync(resolve(untitledPath, 'project.sqlite3'), { readOnly: true });
+  try {
+    assert.equal(secondDatabase.prepare('SELECT count(*) AS n FROM documents').get().n, 0, 'Blank development requires no chapter, character, or world document');
+    assert.equal(secondDatabase.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, 0, 'Project creation must not generate');
+  } finally { secondDatabase.close(); }
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();
+  await ensureDevelopMode();
+  await page.getByRole('heading', { name: 'Notebook', exact: true }).waitFor();
+  assert.deepEqual(workshopState().state, firstProjectState, 'A separate blank project must not alter the original Workshop state');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, presetRunsBefore);
+  checks.push('An untitled second project can begin development without story prerequisites or generation; returning restores the first project’s Workshop and preferences');
 
   assert.deepEqual(pageErrors, [], `Native Workshop page errors: ${pageErrors.join('; ')}`);
   await writeFile(resolve(output, 'report.json'), JSON.stringify({

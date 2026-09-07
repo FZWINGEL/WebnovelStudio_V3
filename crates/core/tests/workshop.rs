@@ -4,9 +4,10 @@ use uuid::Uuid;
 use webnovel_core::context::packet::MockContextBudget;
 use webnovel_core::projects::discussions::{DiscussionBegin, DiscussionFinish};
 use webnovel_core::projects::workshop::{
-    AdoptionMode, Lens, PreviewWorkshopAdoption, SaveWorkshop, WorkshopAdoptionTarget,
-    WorkshopBranchKind, WorkshopDepth, WorkshopImpactDraft, WorkshopImpactKind,
-    WorkshopImpactStatus, WorkshopRelationship, WorkshopRelationshipDraft,
+    AdoptionMode, Lens, PreferencePolarity, PreferenceScope, PreferenceStrength,
+    PreviewWorkshopAdoption, SaveWorkshop, WorkshopAdoptionTarget, WorkshopBranchKind,
+    WorkshopDecisionStatus, WorkshopDepth, WorkshopImpactDraft, WorkshopImpactKind,
+    WorkshopImpactStatus, WorkshopPreference, WorkshopRelationship, WorkshopRelationshipDraft,
     WorkshopRelationshipStatus, WorkshopSession, WorkshopState,
 };
 use webnovel_core::projects::workshop_generation::{StartWorkshop, WorkshopExploration};
@@ -439,7 +440,152 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
         3
     );
     assert_eq!(second.documents[0].head.version, "2");
-    assert_eq!(project.documents(access).unwrap().len(), 1);
+    assert_eq!(project.documents(access.clone()).unwrap().len(), 1);
+
+    let mut archived = final_view.state.clone();
+    let previous_id = first.decision_ids[0].clone();
+    archived
+        .decisions
+        .iter_mut()
+        .find(|decision| decision.id == previous_id)
+        .expect("previous decision")
+        .status = WorkshopDecisionStatus::Archived;
+    let archived_snapshot = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "workshop-archive-previous".into(),
+            expected_version: final_view.version.clone(),
+            state: archived,
+        })
+        .unwrap();
+    assert_eq!(
+        archived_snapshot
+            .state
+            .decisions
+            .iter()
+            .filter(|decision| decision.status == WorkshopDecisionStatus::Chosen)
+            .count(),
+        1
+    );
+
+    let mut conflicting = archived_snapshot.state.clone();
+    conflicting
+        .decisions
+        .iter_mut()
+        .find(|decision| decision.id == previous_id)
+        .expect("archived previous decision")
+        .status = WorkshopDecisionStatus::Chosen;
+    let error = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "workshop-repromote-previous".into(),
+            expected_version: archived_snapshot.version.clone(),
+            state: conflicting,
+        })
+        .unwrap_err();
+    assert_eq!(error.code, "InvalidRequest");
+    assert!(error.detail.contains("more than one chosen"));
+    let after_rejection = project.read_workshop(access.clone()).unwrap();
+    assert_eq!(after_rejection.version, archived_snapshot.version);
+    assert_eq!(after_rejection.state, archived_snapshot.state);
+}
+
+#[test]
+fn hard_preference_conflicts_normalize_confirmed_labels_and_ignore_neutral_polarity() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project
+        .attach("workshop-preference-conflicts".into())
+        .unwrap();
+    let mut state = WorkshopState {
+        current_session_id: Some("session-one".into()),
+        ..WorkshopState::default()
+    };
+    state.sessions.push(session("session-one"));
+    let project_preference = WorkshopPreference {
+        id: "project-preference".into(),
+        label: "  Élan  ".into(),
+        family: "structure".into(),
+        meaning: "Keep the story moving".into(),
+        examples: String::new(),
+        timing: String::new(),
+        polarity: PreferencePolarity::Want,
+        strength: PreferenceStrength::Hard,
+        scope: PreferenceScope::Project,
+        target_id: None,
+        confirmed: true,
+    };
+    let local_preference = WorkshopPreference {
+        id: "local-preference".into(),
+        label: "élan".into(),
+        family: "structure".into(),
+        meaning: "Avoid slowing this exploration".into(),
+        examples: String::new(),
+        timing: String::new(),
+        polarity: PreferencePolarity::Avoid,
+        strength: PreferenceStrength::Soft,
+        scope: PreferenceScope::Exploration,
+        target_id: Some("session-one".into()),
+        confirmed: true,
+    };
+    state.preferences = vec![project_preference, local_preference];
+    let conflict = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "workshop-preference-conflict".into(),
+            expected_version: "0".into(),
+            state: state.clone(),
+        })
+        .unwrap_err();
+    assert_eq!(conflict.code, "PreferenceConflict");
+
+    state.preferences[1].confirmed = false;
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "workshop-preference-unconfirmed".into(),
+            expected_version: "0".into(),
+            state: state.clone(),
+        })
+        .unwrap();
+    assert_eq!(saved.version, "1");
+
+    state.preferences[1].confirmed = true;
+    state.preferences[1].polarity = PreferencePolarity::Neutral;
+    state.preferences.push(WorkshopPreference {
+        id: "second-project-preference".into(),
+        label: " ÉLAN ".into(),
+        family: "structure".into(),
+        meaning: "Slow the story down".into(),
+        examples: String::new(),
+        timing: String::new(),
+        polarity: PreferencePolarity::Avoid,
+        strength: PreferenceStrength::Soft,
+        scope: PreferenceScope::Project,
+        target_id: None,
+        confirmed: true,
+    });
+    let second_project_conflict = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "workshop-second-project-conflict".into(),
+            expected_version: saved.version.clone(),
+            state: state.clone(),
+        })
+        .unwrap_err();
+    assert_eq!(second_project_conflict.code, "PreferenceConflict");
+
+    state.preferences[1].polarity = PreferencePolarity::Neutral;
+    state.preferences[2].polarity = PreferencePolarity::Neutral;
+    let neutral = project
+        .save_workshop(SaveWorkshop {
+            access,
+            operation_id: "workshop-preference-neutral".into(),
+            expected_version: saved.version,
+            state,
+        })
+        .unwrap();
+    assert_eq!(neutral.version, "2");
 }
 
 #[test]

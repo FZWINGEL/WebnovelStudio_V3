@@ -2,7 +2,11 @@
 
 The initial distribution target is Windows x64 with an NSIS installer. Package configuration is implementation work; a successful build alone does not establish offline installation, accessibility, recovery, or author-trial acceptance. Current executed evidence is recorded in [implementation status](IMPLEMENTATION_STATUS.md).
 
-## Current Workshop package — 7 September 2026
+## Last qualified Workshop package — 7 September 2026
+
+The subsequent preset/Story Bible hardening changes are not in this installer.
+They require a fresh builder and installed-lifecycle run; this retained artifact
+continues to identify the earlier source below.
 
 Package run [34130743953](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34130743953)
 succeeded against the exact clean builder and qualification source

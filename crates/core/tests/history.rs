@@ -144,6 +144,71 @@ fn history_is_bounded_and_reads_one_owned_body() {
 }
 
 #[test]
+fn exact_revision_read_survives_trashed_source_but_live_paths_do_not() {
+    let temp = TempProject::new();
+    let project = temp.create();
+    let (access, initial) = setup(&project);
+    let source = checkpoint(&project, &access, &initial.head);
+    project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "history-create-other".into(),
+            document_id: "other-document".into(),
+            title: "Other document".into(),
+            kind: "world".into(),
+            body: body("Other", "other"),
+        })
+        .expect("create second document");
+    drop(project);
+
+    let database = temp.path.join("project.sqlite3");
+    let connection = Connection::open(&database).expect("open test db");
+    connection
+        .execute("UPDATE documents SET trashed=1 WHERE id=?", ["chapter-one"])
+        .expect("hide source document");
+    drop(connection);
+
+    let project = ProjectSession::open(&temp.path).expect("reopen hidden source project");
+    let access = project.attach("history-hidden-renderer".into()).unwrap();
+    let retained = project
+        .read_document_revision(access.clone(), "chapter-one".into(), source.id.clone())
+        .expect("read exact retained revision");
+    assert_eq!(retained.body, initial.body);
+    assert_eq!(retained.head, source.head);
+
+    let history_error = project
+        .list_document_history(access.clone(), "chapter-one".into(), None, 50)
+        .expect_err("active history must refuse a hidden source");
+    assert_eq!(history_error.code, "DocumentNotFound");
+    let foreign_document_error = project
+        .read_document_revision(access.clone(), "other-document".into(), source.id.clone())
+        .expect_err("a revision must remain owned by its document");
+    assert_eq!(foreign_document_error.code, "RevisionDocumentMismatch");
+
+    let other_temp = TempProject::new();
+    let other_project = other_temp.create();
+    let other_access = other_project
+        .attach("other-history-renderer".into())
+        .unwrap();
+    let wrong_project_error = project
+        .read_document_revision(other_access, "chapter-one".into(), source.id.clone())
+        .expect_err("a revision read must remain project-bound");
+    assert_eq!(wrong_project_error.code, "WrongProjectSession");
+
+    let restore_error = project
+        .restore_revision(RestoreRevision {
+            access,
+            operation_id: "restore-hidden-source".into(),
+            expected: initial.head,
+            revision_id: source.id,
+            revision_hash: source.head.body_hash,
+            local_generation: "1".into(),
+        })
+        .expect_err("restore must refuse a hidden source");
+    assert_eq!(restore_error.code, "DocumentNotFound");
+}
+
+#[test]
 fn restore_advances_head_records_receipt_and_replays_latest_document() {
     let temp = TempProject::new();
     let project = temp.create();

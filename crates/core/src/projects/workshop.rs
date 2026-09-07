@@ -658,20 +658,21 @@ fn validate_hard_preference_conflicts(state: &WorkshopState) -> CoreResult<()> {
     for project in state.preferences.iter().filter(|preference| {
         preference.scope == PreferenceScope::Project
             && preference.strength == PreferenceStrength::Hard
+            && preference.confirmed
     }) {
-        for local in state
+        for other in state
             .preferences
             .iter()
-            .filter(|preference| preference.scope != PreferenceScope::Project)
+            .filter(|preference| preference.confirmed && preference.id != project.id)
         {
-            if project.label.eq_ignore_ascii_case(&local.label)
+            if project.label.trim().to_lowercase() == other.label.trim().to_lowercase()
                 && project.polarity != PreferencePolarity::Neutral
-                && local.polarity != PreferencePolarity::Neutral
-                && project.polarity != local.polarity
+                && other.polarity != PreferencePolarity::Neutral
+                && project.polarity != other.polarity
             {
                 return Err(CoreError::new(
                     "PreferenceConflict",
-                    "A local workshop preference conflicts with a hard project preference.",
+                    "A workshop preference conflicts with a hard project preference.",
                 ));
             }
         }
@@ -829,12 +830,21 @@ fn validate_state_shape(state: &WorkshopState) -> CoreResult<()> {
         "preset preferences",
     )?;
     let mut decision_ids = HashSet::new();
+    let mut chosen_documents = HashSet::new();
     for decision in &state.decisions {
         check_id(&decision.id)?;
         if !decision_ids.insert(&decision.id) {
             return Err(CoreError::new(
                 "InvalidRequest",
                 "Workshop decision IDs must be unique.",
+            ));
+        }
+        if decision.status == WorkshopDecisionStatus::Chosen
+            && !chosen_documents.insert(decision.document_id.as_str())
+        {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A document cannot have more than one chosen workshop decision.",
             ));
         }
         check_id(&decision.session_id)?;

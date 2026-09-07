@@ -16,6 +16,24 @@ passed all 15 Workshop native checks and the existing native suites. The fresh
 write/reopen and same-version retention lifecycle. Full specification acceptance,
 broader provider/native coverage, and author evaluation remain open.
 
+The subsequent local hardening checkpoint fixes saved preset reuse/name editing,
+definition-only updates, and per-source Story Bible failure isolation with exact
+revision verification. Rust now rejects competing chosen decisions and trims/
+case-normalizes confirmed hard-project preference conflicts. New persisted-request
+tests cover rejection/noncanon/chat exclusions and mandatory context-budget refusal
+without losing author notes. The 17:19 Berlin standard check passed 749 Rust,
+488 frontend (42 files), and 11 tooling checks; the later copy/spacing adjustment
+passed 16 focused frontend tests and the 17:22 Berlin final standard check with
+the same totals. Synthetic Chromium review/reuse and unavailable
+Story Bible checks passed at 1440 and 800 pixels with no page errors or overflow.
+The expanded native harness is ready for a new hosted run. The earlier installer
+does not contain these changes; current qualification is tracked in the ledger.
+The final reviewed-source check at 17:29 Berlin passes 750 Rust tests (608 grouped
+integration), 488 frontend tests and 11 tooling checks. It includes the retained
+trashed-source revision read with unchanged live-document/restore restrictions,
+plus symmetric preference conflict handling. The expanded native harness has
+20 intended check groups; execution is still required on the new source.
+
 The Develop/Write shell and dedicated six-lens Workshop frontend are implemented
 with editable brief/current direction/original notes, typed three-candidate
 comparison, detail selection, working draft and local history, scoped

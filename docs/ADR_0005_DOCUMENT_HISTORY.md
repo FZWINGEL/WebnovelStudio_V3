@@ -33,6 +33,13 @@ The transaction starts and closes an editor history event, so immediate Undo res
 
 History pages contain up to 100 metadata entries; the interface requests 50. The exclusive cursor is the last returned working version. One selected body is read and hash-validated before display. Sequence and project/document/lease ownership guards discard late success and failure responses.
 
+The Story Bible may explicitly read an exact retained revision of a trashed
+source document. This read still checks project/session access, the retained
+document identity, revision ownership, and body fingerprint. It does not make
+the source an active document: ordinary history listing, editing, restore, and
+writing eligibility retain their existing live-document checks. An unavailable
+revision stays unavailable rather than being replaced with current prose.
+
 The preview renders restricted prose and formatting as inert elements. It creates no second editor and renders no raw HTML or active links. **Restore this version** explicitly states that current writing will remain in history. Restore progress stays visible while the request is pending; history reads are disabled while the session requires reconciliation.
 
 This slice does not promise an unlimited persisted undo stack, automatic inverse application after intervening edits, or replacement of an open project's database. See [ADR 0004](ADR_0004_PROPOSAL_APPLY.md) for suggestion-specific authority and scope checks.
