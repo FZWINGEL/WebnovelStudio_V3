@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 35;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 36;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -188,6 +188,13 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         }
         if version < 35 {
             tx.execute_batch(include_str!("035_workshop.sql"))?;
+        }
+        // Schema 36 raises the reader floor for the typed relationship
+        // identity carried by Workshop sessions and frozen context packets.
+        // Those optional fields live in existing immutable JSON rows, so the
+        // migration deliberately performs no rewrite.
+        if version < 36 {
+            tx.execute_batch(include_str!("036_workshop_relationship_context.sql"))?;
         }
         // Schema 30 adds the nullable Claude terminal model claim. NULL keeps
         // historical Codex and HTTP receipts byte-compatible while the reader

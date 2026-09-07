@@ -985,11 +985,12 @@ impl OwnedProject {
     }
 
     /// Schema 33 adds reviewed character-knowledge columns. Schema 34 raises
-    /// the reader floor for reviewed-memory lookup packets without changing
-    /// their table shape. A database can
-    /// be manually copied or have its user_version altered without running
-    /// the migration, so opening it must verify the physical floor before
-    /// any review rows are read.
+    /// the reader floor for reviewed-memory lookup packets, and schema 35
+    /// adds Story Workshop storage. Schema 36 raises the floor for the
+    /// optional typed relationship identity carried by immutable Workshop
+    /// state and context packet JSON. A database can be manually copied or
+    /// have its user_version altered without running the migration, so opening
+    /// it must verify the physical floor before any retained rows are read.
     fn validate_schema_floor(connection: &Connection) -> CoreResult<()> {
         let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         if version < 33 {
@@ -1054,7 +1055,32 @@ impl OwnedProject {
                 if !present {
                     return Err(CoreError::new(
                         "UnsupportedSchema",
-                        "This project claims schema 35 but is missing Story Workshop tables.",
+                        "This project claims schema 35 or newer but is missing Story Workshop tables.",
+                    ));
+                }
+            }
+        }
+        if version >= 36 {
+            for (table, column) in [
+                ("workshop_state", "state_json"),
+                ("workshop_snapshots", "state_json"),
+                ("workshop_adoption_previews", "request_json"),
+                ("workshop_adoption_previews", "preview_json"),
+                ("context_packets", "request_json"),
+                ("context_packets", "packet_json"),
+                ("context_packets", "input_hash"),
+            ] {
+                let present: bool = connection.query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name=?)"
+                    ),
+                    [column],
+                    |row| row.get(0),
+                )?;
+                if !present {
+                    return Err(CoreError::new(
+                        "UnsupportedSchema",
+                        "This project claims schema 36 but is missing typed Workshop relationship storage.",
                     ));
                 }
             }

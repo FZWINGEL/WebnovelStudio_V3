@@ -456,6 +456,7 @@ mod windows {
             selected_scope: "Whole working version".into(),
             original_notes: "Synthetic qualification fixture; no author material.".into(),
             active_run_id: None,
+            relationship_id: None,
         }
     }
 

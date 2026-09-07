@@ -17,6 +17,7 @@ export interface WorkshopSession {
   id: string; title: string; lens: Lens; parentSessionId: string | null; branchKind: 'working' | 'whatIf';
   brief: string; direction: string; stillOpen: string; focusQuestion: string; focusReason: string;
   focusDocumentId: string | null; anchorDocumentId: string | null; depth: 'sketch' | 'develop' | 'document';
+  relationshipId?: string | null;
   outsideDirection: boolean; includedDocumentIds: string[]; workingText: string; workingTitle: string;
   workingGeneration: string; selectedDetails: SelectedDetail[]; choices: CandidateChoice[]; questions: WorkshopQuestion[];
   composer: string; selectedScope: string; originalNotes: string; activeRunId: string | null;

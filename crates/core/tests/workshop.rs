@@ -60,6 +60,7 @@ fn session(id: &str) -> WorkshopSession {
         selected_scope: String::new(),
         original_notes: String::new(),
         active_run_id: None,
+        relationship_id: None,
     }
 }
 
@@ -651,6 +652,16 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
     };
     let started = project.start_workshop(request.clone()).unwrap();
     assert_eq!(started.run.target.document_id, "workshop-session-one");
+    let legacy_user: Value = serde_json::from_str(
+        &started
+            .packet
+            .messages
+            .last()
+            .expect("workshop request message")
+            .content,
+    )
+    .unwrap();
+    assert!(legacy_user["workshop"].get("relationship").is_none());
     let anchor = project
         .document(access.clone(), "workshop-session-one".into())
         .unwrap();
@@ -693,6 +704,455 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
     replay_request.access = reopened_access;
     let replay_after_reopen = reopened.start_workshop(replay_request).unwrap();
     assert_eq!(replay_after_reopen.run.id, started.run.id);
+}
+
+#[test]
+fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-relationship-generation".into()).unwrap();
+    let from = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "relationship-generation-from".into(),
+            document_id: "relationship-from".into(),
+            title: "Mira".into(),
+            kind: "character".into(),
+            body: body("Mira keeps the old promise."),
+        })
+        .unwrap();
+    let to = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "relationship-generation-to".into(),
+            document_id: "relationship-to".into(),
+            title: "The Lantern Court".into(),
+            kind: "world".into(),
+            body: body("The court remembers every oath."),
+        })
+        .unwrap();
+    let mut workshop_session = session("relationship-session");
+    workshop_session.anchor_document_id = Some("workshop-relationship-session".into());
+    workshop_session.relationship_id = Some("relationship-one".into());
+    workshop_session.composer = "Do not let the relationship record replace the author's question."
+        .into();
+    let mut state = WorkshopState {
+        current_session_id: Some(workshop_session.id.clone()),
+        ..WorkshopState::default()
+    };
+    state.sessions.push(workshop_session);
+    state.relationships.push(WorkshopRelationship {
+        id: "relationship-one".into(),
+        from_document_id: from.head.document_id.clone(),
+        to_document_id: to.head.document_id.clone(),
+        relationship_type: "owes a hidden debt to".into(),
+        description: "Mira's oath binds the court's gatekeeper, but neither side knows the full price.".into(),
+        uncertainty: "The debt may be inherited rather than chosen.".into(),
+        status: WorkshopRelationshipStatus::Tentative,
+        source_heads: vec![from.head.clone(), to.head.clone()],
+    });
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "relationship-generation-state".into(),
+            expected_version: "0".into(),
+            state,
+        })
+        .unwrap();
+    let request = StartWorkshop {
+        access: access.clone(),
+        operation_id: "relationship-generation-start".into(),
+        exploration: WorkshopExploration {
+            session_id: "relationship-session".into(),
+            expected_version: saved.version,
+            working_generation: "0".into(),
+            action: "directions".into(),
+            instruction: "Explore what this bond could force into the open.".into(),
+            selected_scope: "Relationship between the selected endpoints".into(),
+            selected_text: String::new(),
+            working_selection: None,
+        },
+        budget: MockContextBudget::new("100000", "100", "100"),
+        provider_binding: None,
+    };
+    let started = project.start_workshop(request).unwrap();
+    let metadata = webnovel_core::projects::workshop_generation::metadata_from_instruction(
+        &started.packet.messages.last().unwrap().content,
+    )
+    .unwrap();
+    let relationship = metadata.relationship.expect("typed relationship metadata");
+    assert_eq!(relationship.id, "relationship-one");
+    assert_eq!(relationship.relationship_type, "owes a hidden debt to");
+    assert_eq!(relationship.source_heads, vec![from.head.clone(), to.head.clone()]);
+    assert_eq!(relationship.description, "Mira's oath binds the court's gatekeeper, but neither side knows the full price.");
+    assert_eq!(relationship.uncertainty, "The debt may be inherited rather than chosen.");
+    assert_eq!(started.packet.receipt.mandatory_source_handles.len(), 2);
+    let context_message: Value = serde_json::from_str(
+        &started
+            .packet
+            .messages
+            .iter()
+            .find(|message| message.role == "user" && message.content.contains("context.packet"))
+            .expect("compiled context message")
+            .content,
+    )
+    .unwrap();
+    let source_document_ids = context_message["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|source| source["source"]["documentId"].as_str())
+        .collect::<Vec<_>>();
+    assert!(source_document_ids.contains(&from.head.document_id.as_str()));
+    assert!(source_document_ids.contains(&to.head.document_id.as_str()));
+
+    let owner = started.run.owner.clone();
+    project
+        .begin_discussion_run(DiscussionBegin {
+            owner: owner.clone(),
+        })
+        .unwrap();
+    project.mark_discussion_delivered(owner.clone()).unwrap();
+    let output = json!({
+        "schemaVersion": "story-workshop-output.v1",
+        "requestKind": "directions",
+        "question": "What does the debt demand?",
+        "questionReason": "The exact relationship remains open.",
+        "dimension": "Consequence",
+        "interpretation": {
+            "youSaid": "Explore the saved relationship.",
+            "possibleDirection": "The debt becomes visible under pressure.",
+            "stillOpen": "Who chose the debt?"
+        },
+        "candidates": [
+            {"id":"","title":"Public claim","content":"The court demands a public repayment.","dimensionValue":"public","implications":[],"assumptions":[],"affectedTargets":[],"preservedDetails":[],"changedDetails":["relationship"]},
+            {"id":"","title":"Private bargain","content":"Mira offers a private bargain to the gatekeeper.","dimensionValue":"private","implications":[],"assumptions":[],"affectedTargets":[],"preservedDetails":[],"changedDetails":["relationship"]},
+            {"id":"","title":"Inherited debt","content":"The debt belongs to an oath neither endpoint remembers making.","dimensionValue":"inherited","implications":[],"assumptions":[],"affectedTargets":[],"preservedDetails":[],"changedDetails":["relationship"]}
+        ]
+    });
+    let completed = project
+        .finish_discussion(DiscussionFinish {
+            owner,
+            expected_sequence: "0".into(),
+            event_id: "relationship-generation-finish".into(),
+            assistant_text: serde_json::to_string(&output).unwrap(),
+        })
+        .unwrap();
+    assert_eq!(
+        completed.status,
+        webnovel_core::projects::discussions::DiscussionRunStatus::Completed
+    );
+    let first_view = project.read_workshop(access.clone()).unwrap();
+    let candidate_id = first_view.results[0]
+        .output
+        .as_ref()
+        .unwrap()
+        .candidates[0]
+        .id
+        .clone();
+    assert!(!first_view.results[0].stale);
+
+    let mut cleared = first_view.state.clone();
+    cleared.sessions[0].relationship_id = None;
+    let cleared_saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "relationship-clear-scope".into(),
+            expected_version: first_view.version,
+            state: cleared,
+        })
+        .unwrap();
+    let cleared_view = project.read_workshop(access.clone()).unwrap();
+    assert_eq!(cleared_view.version, cleared_saved.version);
+    assert!(cleared_view.results[0].stale);
+
+    let mut restored = cleared_view.state.clone();
+    restored.sessions[0].relationship_id = Some("relationship-one".into());
+    let restored_saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "relationship-restore-scope".into(),
+            expected_version: cleared_view.version,
+            state: restored,
+        })
+        .unwrap();
+    let restored_view = project.read_workshop(access.clone()).unwrap();
+    assert_eq!(restored_view.version, restored_saved.version);
+    assert!(!restored_view.results[0].stale);
+
+    let mut unrelated = restored_view.state.clone();
+    unrelated.relationships.push(WorkshopRelationship {
+        id: "relationship-unrelated".into(),
+        from_document_id: from.head.document_id.clone(),
+        to_document_id: to.head.document_id.clone(),
+        relationship_type: "protects".into(),
+        description: "The gatekeeper protects the court's records.".into(),
+        uncertainty: String::new(),
+        status: WorkshopRelationshipStatus::Tentative,
+        source_heads: vec![from.head.clone(), to.head.clone()],
+    });
+    let unrelated_saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "relationship-unrelated-edit".into(),
+            expected_version: restored_view.version,
+            state: unrelated,
+        })
+        .unwrap();
+    let unrelated_view = project.read_workshop(access.clone()).unwrap();
+    assert_eq!(unrelated_view.version, unrelated_saved.version);
+    assert!(!unrelated_view.results[0].stale);
+
+    let mut changed = unrelated_view.state.clone();
+    changed.relationships[0].description =
+        "The debt is now understood as a public obligation.".into();
+    let changed = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "relationship-target-edit".into(),
+            expected_version: unrelated_view.version,
+            state: changed,
+        })
+        .unwrap();
+    let stale_view = project.read_workshop(access.clone()).unwrap();
+    assert_eq!(stale_view.version, changed.version);
+    assert!(stale_view.results[0].stale);
+
+    let preview_error = project
+        .preview_workshop_adoption(PreviewWorkshopAdoption {
+            access: access.clone(),
+            session_id: "relationship-session".into(),
+            expected_version: stale_view.version,
+            candidate_ids: vec![candidate_id],
+            targets: vec![WorkshopAdoptionTarget {
+                document_id: "relationship-adoption-target".into(),
+                expected: None,
+                title: "Relationship note".into(),
+                kind: "world".into(),
+                body: body("Candidate material"),
+                mode: AdoptionMode::Add,
+            }],
+            rationale: "Try the relationship direction explicitly.".into(),
+            protected_text: Vec::new(),
+            relationships: Vec::new(),
+            impact_drafts: Vec::new(),
+        })
+        .unwrap_err();
+    assert_eq!(preview_error.code, "InvalidWorkshopCandidate");
+    assert!(project
+        .document(access, "relationship-adoption-target".into())
+        .is_err());
+}
+
+#[test]
+fn relationship_session_reopens_and_legacy_bytes_omit_optional_id() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-relationship-reopen".into()).unwrap();
+    let mut state = WorkshopState {
+        current_session_id: Some("relationship-session".into()),
+        ..WorkshopState::default()
+    };
+    let mut workshop_session = session("relationship-session");
+    workshop_session.relationship_id = Some("relationship-one".into());
+    state.sessions.push(workshop_session.clone());
+    let saved = project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "relationship-reopen-state".into(),
+            expected_version: "0".into(),
+            state,
+        })
+        .unwrap();
+    assert_eq!(
+        project
+            .read_workshop(access.clone())
+            .unwrap()
+            .state
+            .sessions[0]
+            .relationship_id
+            .as_deref(),
+        Some("relationship-one")
+    );
+    drop(project);
+    let reopened = ProjectSession::open(&temp.0).unwrap();
+    let reopened_access = reopened.attach("workshop-relationship-reopen-2".into()).unwrap();
+    let reopened_view = reopened.read_workshop(reopened_access).unwrap();
+    assert_eq!(reopened_view.version, saved.version);
+    assert_eq!(
+        reopened_view.state.sessions[0].relationship_id.as_deref(),
+        Some("relationship-one")
+    );
+
+    let legacy = session("legacy-session");
+    let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
+    let legacy_value: Value = serde_json::from_slice(&legacy_bytes).unwrap();
+    assert!(legacy_value.get("relationshipId").is_none());
+    let reopened_legacy: WorkshopSession = serde_json::from_slice(&legacy_bytes).unwrap();
+    assert_eq!(reopened_legacy.relationship_id, None);
+    assert_eq!(serde_json::to_vec(&reopened_legacy).unwrap(), legacy_bytes);
+}
+
+#[test]
+fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_anchor() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-relationship-refusal".into()).unwrap();
+    let from = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "relationship-refusal-from".into(),
+            document_id: "relationship-refusal-from".into(),
+            title: "From".into(),
+            kind: "character".into(),
+            body: body("From body"),
+        })
+        .unwrap();
+    let to = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "relationship-refusal-to".into(),
+            document_id: "relationship-refusal-to".into(),
+            title: "To".into(),
+            kind: "world".into(),
+            body: body("To body"),
+        })
+        .unwrap();
+
+    let start = |project: &ProjectSession, access: webnovel_core::projects::ProjectAccess, version: &str, operation_id: &str| {
+        project.start_workshop(StartWorkshop {
+            access,
+            operation_id: operation_id.into(),
+            exploration: WorkshopExploration {
+                session_id: "relationship-refusal-session".into(),
+                expected_version: version.into(),
+                working_generation: "0".into(),
+                action: "directions".into(),
+                instruction: "Explore the saved relationship.".into(),
+                selected_scope: "Relationship".into(),
+                selected_text: String::new(),
+                working_selection: None,
+            },
+            budget: MockContextBudget::new("100000", "100", "100"),
+            provider_binding: None,
+        })
+    };
+    let save_state = |project: &ProjectSession,
+                      access: webnovel_core::projects::ProjectAccess,
+                      operation_id: &str,
+                      relationship_id: &str,
+                      expected_version: &str,
+                      include_relationship: bool,
+                      status: WorkshopRelationshipStatus,
+                      from_head: Head,
+                      to_head: Head| {
+        let mut state = WorkshopState {
+            current_session_id: Some("relationship-refusal-session".into()),
+            ..WorkshopState::default()
+        };
+        let mut workshop_session = session("relationship-refusal-session");
+        workshop_session.anchor_document_id = Some("workshop-refusal-session".into());
+        workshop_session.relationship_id = Some(relationship_id.into());
+        state.sessions.push(workshop_session);
+        if include_relationship {
+            state.relationships.push(WorkshopRelationship {
+                id: relationship_id.into(),
+                from_document_id: from_head.document_id.clone(),
+                to_document_id: to_head.document_id.clone(),
+                relationship_type: "knows".into(),
+                description: "A saved edge".into(),
+                uncertainty: String::new(),
+                status,
+                source_heads: vec![from_head, to_head],
+            });
+        }
+        project.save_workshop(SaveWorkshop {
+            access,
+            operation_id: operation_id.into(),
+            expected_version: expected_version.into(),
+            state,
+        }).unwrap()
+    };
+
+    let missing = save_state(
+        &project,
+        access.clone(),
+        "relationship-refusal-missing-state",
+        "missing-relationship",
+        "0",
+        false,
+        WorkshopRelationshipStatus::Tentative,
+        from.head.clone(),
+        to.head.clone(),
+    );
+    let missing_error = start(
+        &project,
+        access.clone(),
+        &missing.version,
+        "relationship-refusal-missing-start",
+    )
+    .unwrap_err();
+    assert_eq!(missing_error.code, "InvalidWorkshopRelationship");
+    assert!(project
+        .document(access.clone(), "workshop-refusal-session".into())
+        .is_err());
+
+    let archived = save_state(
+        &project,
+        access.clone(),
+        "relationship-refusal-archived-state",
+        "archived-relationship",
+        &missing.version,
+        true,
+        WorkshopRelationshipStatus::Archived,
+        from.head.clone(),
+        to.head.clone(),
+    );
+    let archived_error = start(
+        &project,
+        access.clone(),
+        &archived.version,
+        "relationship-refusal-archived-start",
+    )
+    .unwrap_err();
+    assert_eq!(archived_error.code, "InvalidWorkshopRelationship");
+    assert!(project
+        .document(access.clone(), "workshop-refusal-session".into())
+        .is_err());
+
+    let stale = save_state(
+        &project,
+        access.clone(),
+        "relationship-refusal-stale-state",
+        "stale-relationship",
+        &archived.version,
+        true,
+        WorkshopRelationshipStatus::Tentative,
+        from.head.clone(),
+        to.head.clone(),
+    );
+    project
+        .save(SaveSnapshot {
+            access: access.clone(),
+            operation_id: "relationship-refusal-stale-edit".into(),
+            expected: to.head,
+            local_generation: "1".into(),
+            body: body("To changed after the relationship was saved"),
+            cause: SaveCause::Typing,
+        })
+        .unwrap();
+    let stale_error = start(
+        &project,
+        access.clone(),
+        &stale.version,
+        "relationship-refusal-stale-start",
+    )
+    .unwrap_err();
+    assert_eq!(stale_error.code, "StaleRelationship");
+    assert!(project
+        .document(access.clone(), "workshop-refusal-session".into())
+        .is_err());
+    assert!(project.read_workshop(access).unwrap().results.is_empty());
 }
 
 #[test]

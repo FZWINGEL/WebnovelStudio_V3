@@ -4,6 +4,13 @@ Status: **private Windows development candidate prepared; unreleased**.
 
 This document is the preparation checklist for the current 3.0.0 candidate. It does not announce a public release and does not claim that the complete V3 roadmap is finished.
 
+The candidate identities below record the original release preparation. Later
+Story Workshop implementations and their exact native/package evidence are in
+[implementation status](IMPLEMENTATION_STATUS.md) and
+[Windows package qualification](WINDOWS_PACKAGE_QUALIFICATION.md). They supersede
+the original source for current development without turning these historical
+installer checks into evidence for newer application code.
+
 ## Candidate scope
 
 The candidate is a native Tauri desktop application for English web novels. Wuxia, xianxia, cultivation, progression, and translated-register writing are supported styles within that English authoring scope.
@@ -16,7 +23,7 @@ The implemented development surface includes:
 - GPT-5.6 Luna with xhigh reasoning for summaries and Story Memory maintenance;
 - source-linked story context, reviewed knowledge and promise history, bounded lookup, local SQLite persistence, backup/recovered-project handling, import, and export.
 
-Claude live behavior, hosted HTTP behavior, and broad provider coverage remain qualification boundaries. The primary **Create with AI** workflow redesign remains deferred while development tooling is optimized. The candidate does not claim literary-quality validation or that every planned V3 feature is complete.
+Claude live behavior, hosted HTTP behavior, and broad provider coverage remain qualification boundaries. Story Workshop now implements the subsequent Develop workflow; its full specification and author acceptance remain open in the implementation ledger. The candidate does not claim literary-quality validation or that every planned V3 feature is complete.
 
 ## Identity and data boundaries
 

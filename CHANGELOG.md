@@ -15,6 +15,7 @@ WebnovelStudio V3 is a native Windows desktop writing workspace for English web 
 - A dedicated Story Memory and summary route using GPT-5.6 Luna with xhigh reasoning. The Codex route is the primary development path; Claude and live HTTP behavior remain qualification boundaries.
 - Persistent story context with source-linked evidence, reviewed story knowledge, character and promise history, bounded lookup, context inspection, and guarded passage or structured suggestions.
 - Safe local persistence, explicit Apply/Reject review, backup and recovered-project flows, V2 import support, and draft export.
+- Story Workshop relationship exploration for named directional author intentions with exact endpoint heads, plus noncanon moment taste tests that require two or three treatments. Schema 36 raises the reader floor for optional relationship packet context while preserving older Workshop bytes and hashes.
 
 ### Current verification
 

@@ -9,7 +9,7 @@
 use super::discussions::{FeedbackIntent, StartDiscussion};
 use super::workshop::{
     CandidateChoiceStatus, Lens, WorkshopDepth, WorkshopPreference, WorkshopQuestion,
-    WorkshopSession, WorkshopState,
+    WorkshopRelationship, WorkshopSession, WorkshopState,
 };
 pub use super::workshop::{WorkshopCandidate, WorkshopOutput};
 use super::{CoreError, CoreResult, Head, ProjectAccess};
@@ -111,6 +111,8 @@ pub struct WorkshopContext {
     pub questions: Vec<WorkshopQuestion>,
     pub original_notes: String,
     pub outside_direction: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship: Option<WorkshopRelationship>,
 }
 
 /// Metadata retained inside the immutable discussion request and packet.
@@ -140,6 +142,8 @@ pub struct WorkshopPacketMetadata {
     pub outside_direction: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice_guidance: Option<WorkshopVoiceGuidance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship: Option<WorkshopRelationship>,
 }
 
 /// Frozen author material for a voice-guidance request. This is evidence for
@@ -210,6 +214,9 @@ impl WorkshopPacketMetadata {
         for detail in &context.selected_details {
             validate_text(&detail.text, MAX_DETAIL_BYTES, "selected detail")?;
         }
+        if let Some(relationship) = &context.relationship {
+            validate_relationship_metadata(relationship)?;
+        }
         let mut fixed = context.fixed_details.clone();
         fixed.extend(
             context
@@ -253,6 +260,7 @@ impl WorkshopPacketMetadata {
             questions: context.questions.clone(),
             original_notes: context.original_notes.clone(),
             outside_direction: context.outside_direction,
+            relationship: context.relationship.clone(),
             voice_guidance,
         })
     }
@@ -300,6 +308,8 @@ pub struct WorkshopResolvedMaterial {
     /// not select narrower protected literals. It remains a context
     /// constraint and is only an output literal when it falls inside scope.
     pub fixed_details: Vec<String>,
+    /// Exact directional relationship material resolved by the actor.
+    pub relationship: Option<WorkshopRelationship>,
 }
 
 impl WorkshopGenerationRequest {
@@ -445,6 +455,18 @@ pub fn from_session_with_material(
     .find(|value| !value.trim().is_empty())
     .unwrap_or("No working story element has been chosen yet.")
     .to_owned();
+    let relationship = resolved_material.relationship;
+    let mut included_document_ids = session.included_document_ids.clone();
+    if let Some(relationship) = relationship.as_ref() {
+        for document_id in [&relationship.from_document_id, &relationship.to_document_id] {
+            if !included_document_ids
+                .iter()
+                .any(|existing| existing == document_id)
+            {
+                included_document_ids.push(document_id.clone());
+            }
+        }
+    }
     let context = WorkshopContext {
         expected,
         lens: session.lens,
@@ -460,12 +482,13 @@ pub fn from_session_with_material(
         fixed_source_refs,
         preferences,
         hard_constraints,
-        included_document_ids: session.included_document_ids.clone(),
+        included_document_ids,
         included_alternatives: resolved_material.included_alternatives,
         rejected_rationales,
         questions: session.questions.clone(),
         original_notes: session.original_notes.clone(),
         outside_direction: session.outside_direction,
+        relationship,
     };
     Ok(WorkshopGenerationRequest {
         access,
@@ -627,23 +650,26 @@ pub fn validate_workshop_output(
     ] {
         validate_text(text, MAX_TEXT_BYTES, "interpretation")?;
     }
-    let expected = if is_direction_action(&metadata.exploration.action)
+    let (expected, cardinality_message) = if is_direction_action(&metadata.exploration.action)
         || is_voice_guidance_action(&metadata.exploration.action)
     {
-        3..=3
+        (
+            3..=3,
+            "A direction or voice-guidance workshop response must contain exactly three candidates.",
+        )
+    } else if metadata.exploration.action == "moment" {
+        (
+            2..=MAX_CANDIDATES,
+            "A moment workshop response must contain two or three treatments.",
+        )
     } else {
-        1..=MAX_CANDIDATES
+        (
+            1..=MAX_CANDIDATES,
+            "A workshop refinement response must contain one to three candidates.",
+        )
     };
     if !expected.contains(&output.candidates.len()) {
-        return Err(invalid(
-            if is_direction_action(&metadata.exploration.action)
-                || is_voice_guidance_action(&metadata.exploration.action)
-            {
-                "A direction workshop response must contain exactly three candidates."
-            } else {
-                "A workshop refinement response must contain one to three candidates."
-            },
-        ));
+        return Err(invalid(cardinality_message));
     }
     if output.candidates.len() > MAX_CANDIDATES {
         return Err(invalid(
@@ -1017,6 +1043,53 @@ fn invalid(detail: &str) -> CoreError {
     CoreError::new("InvalidWorkshop", detail)
 }
 
+fn validate_relationship_metadata(relationship: &WorkshopRelationship) -> CoreResult<()> {
+    validate_id(&relationship.id, "relationship ID")?;
+    validate_id(
+        &relationship.from_document_id,
+        "relationship source document ID",
+    )?;
+    validate_id(
+        &relationship.to_document_id,
+        "relationship target document ID",
+    )?;
+    if relationship.from_document_id == relationship.to_document_id {
+        return Err(invalid("A relationship must have different endpoints."));
+    }
+    validate_text(
+        &relationship.relationship_type,
+        MAX_DETAIL_BYTES,
+        "relationship type",
+    )?;
+    validate_text(
+        &relationship.description,
+        MAX_TEXT_BYTES,
+        "relationship description",
+    )?;
+    validate_text(
+        &relationship.uncertainty,
+        MAX_DETAIL_BYTES,
+        "relationship uncertainty",
+    )?;
+    if relationship.source_heads.len() != 2 {
+        return Err(invalid("A relationship must retain both endpoint sources."));
+    }
+    let source_ids = relationship
+        .source_heads
+        .iter()
+        .map(|head| head.document_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if source_ids.len() != 2
+        || !source_ids.contains(relationship.from_document_id.as_str())
+        || !source_ids.contains(relationship.to_document_id.as_str())
+    {
+        return Err(invalid(
+            "A relationship source must match both directional endpoints.",
+        ));
+    }
+    Ok(())
+}
+
 /// Packet metadata is JSON by design so old packet rows can be read without
 /// knowing this feature. This helper is useful to packet and transfer code.
 pub fn metadata_value(metadata: &WorkshopPacketMetadata) -> CoreResult<Value> {
@@ -1077,6 +1150,7 @@ mod tests {
             }],
             original_notes: "A note the author intentionally brought into this exploration.".into(),
             outside_direction: false,
+            relationship: None,
         }
     }
 
@@ -1200,6 +1274,64 @@ mod tests {
             "candidates": [candidate("same"), candidate("same"), candidate("same")]
         });
         assert!(validate_workshop_output(&bad.to_string(), &metadata, "run-2").is_err());
+    }
+
+    #[test]
+    fn moment_output_requires_two_or_three_treatments_but_other_refinements_allow_one() {
+        let response = |dimensions: &[&str]| {
+            serde_json::json!({
+                "schemaVersion": WORKSHOP_SCHEMA_VERSION,
+                "requestKind": "refinement",
+                "question": "Which treatment fits?",
+                "questionReason": "Compare how the same situation feels.",
+                "dimension": "Treatment",
+                "interpretation": {
+                    "youSaid": "A situation to test",
+                    "possibleDirection": "A treatment to compare",
+                    "stillOpen": "The author decides what to keep"
+                },
+                "candidates": dimensions.iter().map(|dimension| candidate(dimension)).collect::<Vec<_>>()
+            })
+            .to_string()
+        };
+        let moment_metadata = metadata("moment");
+        let one_error =
+            validate_workshop_output(&response(&["intimate"]), &moment_metadata, "run-moment-one")
+                .unwrap_err();
+        assert!(one_error.detail.contains("two or three"));
+        assert_eq!(
+            validate_workshop_output(
+                &response(&["intimate", "wondrous"]),
+                &moment_metadata,
+                "run-moment-two"
+            )
+            .unwrap()
+            .candidates
+            .len(),
+            2
+        );
+        assert_eq!(
+            validate_workshop_output(
+                &response(&["intimate", "wondrous", "brisk"]),
+                &moment_metadata,
+                "run-moment-three"
+            )
+            .unwrap()
+            .candidates
+            .len(),
+            3
+        );
+        assert_eq!(
+            validate_workshop_output(
+                &response(&["concrete"]),
+                &metadata("concrete"),
+                "run-refinement-one"
+            )
+            .unwrap()
+            .candidates
+            .len(),
+            1
+        );
     }
 
     #[test]
@@ -1334,6 +1466,7 @@ mod tests {
             selected_scope: "Whole working version".into(),
             original_notes: "An intentionally preserved note.".into(),
             active_run_id: None,
+            relationship_id: None,
         };
         let mut state = WorkshopState::default();
         state.sessions.push(session.clone());
@@ -1388,6 +1521,7 @@ mod tests {
             selected_scope: "Whole working version".into(),
             original_notes: String::new(),
             active_run_id: None,
+            relationship_id: None,
         };
         let mut state = WorkshopState::default();
         state.sessions.push(session.clone());

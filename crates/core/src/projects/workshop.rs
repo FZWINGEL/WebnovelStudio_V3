@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::projects::discussions::DiscussionRun;
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -21,6 +21,8 @@ const MAX_PRESETS: usize = 128;
 const MAX_LIST: usize = 512;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_DETAIL_BYTES: usize = 32 * 1024;
+type WorkshopCandidateRecord = (String, String, Option<WorkshopRelationship>);
+type WorkshopCandidateOutput = (String, WorkshopCandidate, Option<WorkshopRelationship>);
 
 fn storage_valid_id(value: &str) -> bool {
     !value.is_empty()
@@ -209,6 +211,8 @@ pub struct WorkshopSession {
     pub selected_scope: String,
     pub original_notes: String,
     pub active_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1308,11 +1312,13 @@ fn workshop_candidate_sessions(
     project_id: &str,
     operation_namespace: &str,
     source_epoch: Option<&str>,
-) -> CoreResult<HashMap<String, String>> {
+) -> CoreResult<HashMap<String, (String, Option<WorkshopRelationship>)>> {
     Ok(
         workshop_candidate_records(connection, project_id, operation_namespace, source_epoch)?
             .into_iter()
-            .map(|(candidate_id, (session_id, _content))| (candidate_id, session_id))
+            .map(|(candidate_id, (session_id, _content, relationship))| {
+                (candidate_id, (session_id, relationship))
+            })
             .collect(),
     )
 }
@@ -1322,7 +1328,7 @@ fn workshop_candidate_records(
     project_id: &str,
     operation_namespace: &str,
     source_epoch: Option<&str>,
-) -> CoreResult<HashMap<String, (String, String)>> {
+) -> CoreResult<HashMap<String, WorkshopCandidateRecord>> {
     workshop_candidate_records_with_filter(
         connection,
         Some(project_id),
@@ -1334,7 +1340,14 @@ fn workshop_candidate_records(
 fn historical_workshop_candidate_records(
     connection: &Connection,
 ) -> CoreResult<HashMap<String, (String, String)>> {
-    workshop_candidate_records_with_filter(connection, None, None, None)
+    Ok(
+        workshop_candidate_records_with_filter(connection, None, None, None)?
+            .into_iter()
+            .map(|(candidate_id, (session_id, content, _relationship))| {
+                (candidate_id, (session_id, content))
+            })
+            .collect(),
+    )
 }
 
 fn workshop_candidate_records_with_filter(
@@ -1342,7 +1355,7 @@ fn workshop_candidate_records_with_filter(
     project_id: Option<&str>,
     operation_namespace: Option<&str>,
     source_epoch: Option<&str>,
-) -> CoreResult<HashMap<String, (String, String)>> {
+) -> CoreResult<HashMap<String, WorkshopCandidateRecord>> {
     Ok(workshop_candidate_outputs_with_filter(
         connection,
         project_id,
@@ -1350,7 +1363,9 @@ fn workshop_candidate_records_with_filter(
         source_epoch,
     )?
     .into_iter()
-    .map(|(candidate_id, (session_id, candidate))| (candidate_id, (session_id, candidate.content)))
+    .map(|(candidate_id, (session_id, candidate, relationship))| {
+        (candidate_id, (session_id, candidate.content, relationship))
+    })
     .collect())
 }
 
@@ -1359,7 +1374,7 @@ fn workshop_candidate_outputs_with_filter(
     project_id: Option<&str>,
     operation_namespace: Option<&str>,
     source_epoch: Option<&str>,
-) -> CoreResult<HashMap<String, (String, WorkshopCandidate)>> {
+) -> CoreResult<HashMap<String, WorkshopCandidateOutput>> {
     let mut statement = connection.prepare(
         "SELECT id,packet_id,output_text FROM discussion_runs WHERE status='completed' AND dispatch_state='delivered' ORDER BY rowid",
     )?;
@@ -1420,7 +1435,11 @@ fn workshop_candidate_outputs_with_filter(
             if candidates
                 .insert(
                     candidate_id,
-                    (metadata.exploration.session_id.clone(), candidate),
+                    (
+                        metadata.exploration.session_id.clone(),
+                        candidate,
+                        metadata.relationship.clone(),
+                    ),
                 )
                 .is_some()
             {
@@ -1486,7 +1505,7 @@ fn build_adoption_impacts(
     let mut actual_targets = HashSet::new();
     let mut impacts = Vec::new();
     for candidate_id in candidate_ids {
-        let Some((_, candidate)) = candidates.get(candidate_id) else {
+        let Some((_, candidate, _relationship)) = candidates.get(candidate_id) else {
             return Err(CoreError::new(
                 "InvalidWorkshopCandidate",
                 "A workshop candidate is not a completed validated result from this project.",
@@ -1563,6 +1582,32 @@ fn session_is_ancestor(
     false
 }
 
+fn candidate_relationship_matches_session(
+    state: &WorkshopState,
+    session_id: &str,
+    candidate_relationship: Option<&WorkshopRelationship>,
+) -> bool {
+    let Some(session) = state
+        .sessions
+        .iter()
+        .find(|session| session.id == session_id)
+    else {
+        return false;
+    };
+    let candidate_id = candidate_relationship.map(|relationship| relationship.id.as_str());
+    if session.relationship_id.as_deref() != candidate_id {
+        return false;
+    }
+    let Some(expected) = candidate_relationship else {
+        return true;
+    };
+    state
+        .relationships
+        .iter()
+        .find(|relationship| relationship.id == expected.id)
+        .is_some_and(|current| current == expected)
+}
+
 fn validate_candidate_provenance(
     connection: &Connection,
     state: &WorkshopState,
@@ -1584,7 +1629,8 @@ fn validate_candidate_provenance(
         .collect::<HashMap<_, _>>();
     let validate_for = |session_id: &str, ids: &[String]| -> CoreResult<()> {
         for candidate_id in ids {
-            let Some(candidate_session_id) = candidates.get(candidate_id) else {
+            let Some((candidate_session_id, candidate_relationship)) = candidates.get(candidate_id)
+            else {
                 let detail = if historical_candidates.contains_key(candidate_id) {
                     "A workshop candidate was generated against an older source epoch; generate a fresh result before adoption."
                 } else {
@@ -1596,6 +1642,16 @@ fn validate_candidate_provenance(
                 return Err(CoreError::new(
                     "InvalidWorkshopCandidate",
                     "A workshop candidate belongs to another exploration branch.",
+                ));
+            }
+            if !candidate_relationship_matches_session(
+                state,
+                session_id,
+                candidate_relationship.as_ref(),
+            ) {
+                return Err(CoreError::new(
+                    "InvalidWorkshopCandidate",
+                    "A workshop candidate was generated for a different relationship scope; generate a fresh result before adoption.",
                 ));
             }
         }
@@ -2327,11 +2383,19 @@ fn read_workshop_results(
             .sessions
             .iter()
             .find(|session| session.id == metadata.exploration.session_id);
+        let relationship_stale = current_session.is_none_or(|session| {
+            !candidate_relationship_matches_session(
+                state,
+                &session.id,
+                metadata.relationship.as_ref(),
+            )
+        });
         let stale = historical_identity
             || frozen.snapshot.context_source_epoch != source_epoch
             || current_session.is_none_or(|session| {
                 session.working_generation != metadata.exploration.working_generation
-            });
+            })
+            || relationship_stale;
         let (output, validation_error) = if run.status
             == crate::projects::discussions::DiscussionRunStatus::Completed
             && run.dispatch_state == "delivered"
@@ -2391,6 +2455,89 @@ fn store_state(connection: &Connection, version: i64, state: &WorkshopState) -> 
         )?;
     }
     Ok(())
+}
+
+fn resolve_workshop_relationship(
+    connection: &Connection,
+    state: &WorkshopState,
+    session: &WorkshopSession,
+) -> CoreResult<Option<WorkshopRelationship>> {
+    let Some(relationship_id) = session.relationship_id.as_deref() else {
+        return Ok(None);
+    };
+    check_id(relationship_id)?;
+    let relationship = state
+        .relationships
+        .iter()
+        .find(|relationship| relationship.id == relationship_id)
+        .cloned()
+        .ok_or_else(|| {
+            CoreError::new(
+                "InvalidWorkshopRelationship",
+                "The relationship exploration target does not exist.",
+            )
+        })?;
+    if relationship.status == WorkshopRelationshipStatus::Archived {
+        return Err(CoreError::new(
+            "InvalidWorkshopRelationship",
+            "Archived relationships cannot be explored.",
+        ));
+    }
+    if relationship.from_document_id == relationship.to_document_id
+        || relationship.source_heads.len() != 2
+    {
+        return Err(CoreError::new(
+            "InvalidWorkshopRelationship",
+            "The relationship endpoints are incomplete.",
+        ));
+    }
+    let mut source_heads = HashMap::new();
+    for head in &relationship.source_heads {
+        if head.document_id != relationship.from_document_id
+            && head.document_id != relationship.to_document_id
+        {
+            return Err(CoreError::new(
+                "StaleRelationship",
+                "A relationship source does not match its endpoint.",
+            ));
+        }
+        if source_heads
+            .insert(head.document_id.clone(), head.clone())
+            .is_some()
+        {
+            return Err(CoreError::new(
+                "StaleRelationship",
+                "A relationship contains duplicate endpoint sources.",
+            ));
+        }
+    }
+    if source_heads.len() != 2 {
+        return Err(CoreError::new(
+            "StaleRelationship",
+            "A relationship is missing an exact endpoint source.",
+        ));
+    }
+    for document_id in [&relationship.from_document_id, &relationship.to_document_id] {
+        let document = read_document(connection, document_id).map_err(|error| {
+            CoreError::new(
+                "StaleRelationship",
+                &format!("A relationship endpoint is unavailable: {}", error.detail),
+            )
+        })?;
+        if !matches!(document.kind.as_str(), "character" | "world") {
+            return Err(CoreError::new(
+                "InvalidWorkshopRelationship",
+                "Relationship exploration requires character or world endpoints.",
+            ));
+        }
+        if source_heads.get(document_id.as_str()) != Some(&document.head) {
+            return Err(CoreError::new(
+                "StaleRelationship",
+                "A relationship endpoint changed; review the relationship before exploring it.",
+            ));
+        }
+    }
+    Ok(Some(relationship))
 }
 
 impl OwnedProject {
@@ -2494,6 +2641,7 @@ impl OwnedProject {
                 "The workshop working version changed before generation.",
             ));
         }
+        let relationship = resolve_workshop_relationship(self.db()?, &state, &session)?;
         let anchor = self.ensure_workshop_anchor(&session)?;
         let source_epoch = current_context_epoch(self.db()?)?;
         let candidates = workshop_candidate_records(
@@ -2506,7 +2654,9 @@ impl OwnedProject {
         for choice in session.choices.iter().filter(|choice| {
             choice.status == CandidateChoiceStatus::Saved && choice.include_in_context
         }) {
-            let Some((candidate_session_id, content)) = candidates.get(&choice.candidate_id) else {
+            let Some((candidate_session_id, content, candidate_relationship)) =
+                candidates.get(&choice.candidate_id)
+            else {
                 return Err(CoreError::new(
                     "InvalidWorkshopCandidate",
                     "A selected workshop candidate is stale; generate a fresh result before continuing.",
@@ -2516,6 +2666,16 @@ impl OwnedProject {
                 return Err(CoreError::new(
                     "InvalidWorkshopCandidate",
                     "A selected workshop candidate belongs to another exploration branch.",
+                ));
+            }
+            if !candidate_relationship_matches_session(
+                &state,
+                &session.id,
+                candidate_relationship.as_ref(),
+            ) {
+                return Err(CoreError::new(
+                    "InvalidWorkshopCandidate",
+                    "A selected workshop candidate belongs to a different relationship scope.",
                 ));
             }
             included_alternatives.push(content.clone());
@@ -2548,6 +2708,7 @@ impl OwnedProject {
                 chosen_details,
                 included_alternatives,
                 fixed_details,
+                relationship,
             },
         )?;
         let (discussion, _metadata) = generation.into_discussion()?;

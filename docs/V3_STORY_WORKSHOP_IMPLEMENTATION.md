@@ -9,7 +9,7 @@ installed lifecycle, and [CI 34133645198](https://github.com/FZWINGEL/WebnovelSt
 passed all 15 Workshop native checks plus the existing native suites. Full
 specification acceptance and author evaluation remain open.
 
-The next local checkpoint adds reusable saved preset definitions, coherent
+The earlier local hardening checkpoint added reusable saved preset definitions, coherent
 name/text editing, and explicit definition updates without adopting preferences.
 Story Bible isolates unavailable sources, verifies exact current or historical
 bodies, and retains each choice and rationale when its source cannot be read.
@@ -22,6 +22,21 @@ that source. A core regression checks document/project ownership and those
 read-versus-write boundaries; the UI reports an unavailable item if the exact
 retained revision itself cannot be read. Preference conflict detection is
 symmetric when the author adds the hard project rule after a softer preference.
+
+The latest bounded local slice adds schema-36 reader-floor handling for the
+optional typed relationship packet fields. Existing Workshop state, context,
+packet bytes, and hashes remain unchanged through the migration. The World and
+People surfaces can prepare an independent relationship exploration without a
+model call, display its named direction and uncertainty, and pin both endpoint
+heads; stale or late reads are refused or ignored. RequestContext reads the
+immutable relationship envelope. The taste-test contract now requires two or
+three moment treatments, while a one-treatment raw response remains recoverable.
+Focused UI checks pass (32 tests in 3 files); headless checks at 1440 and 800
+pixels covered keyboard use, two sources, an explicit destination, and frozen
+context with no errors or overflow. Two visual rounds were inspected under
+`.local/workshop-relationship-qa/`. After the UI wording correction, the
+standalone frontend build/check passed 514 tests in 46 files; this is not a full
+workspace check.
 
 The 17:19 Berlin standard check passed 749 Rust tests (69 core unit, 607 integration,
 73 desktop; one intentional subprocess entry-point ignore), 488 frontend tests in
@@ -90,11 +105,12 @@ provider dispatch and owned Stop/recovery paths. Summary and story-memory jobs
 retain their independent Luna/xhigh policy.
 
 The Rust boundary validates project/session identity, expected versions,
-protected content, and adoption targets. Existing schema-35 storage, actor,
+protected content, and adoption targets. Schema-36 storage, actor,
 adoption, provider-command integration, and the broadened same-packet
-relationship/impact path passed the current local standard check and focused
-storage checks, including exact endpoint and impact provenance. Broader native
-execution remains pending. An uncertain save or Apply retains its immutable
+relationship/impact path is covered by focused storage checks, including exact
+endpoint and impact provenance. The final relationship-context review passes: changed or cleared relationship
+scope marks earlier results stale and blocks new candidate authority without
+blocking historical saves. Broader native execution remains pending. An uncertain save or Apply retains its immutable
 operation identity for receipt reconciliation. A provider response is intended
 to remain an alternative until an author uses it; it cannot replace a working
 version edited after dispatch.
@@ -118,12 +134,14 @@ version edited after dispatch.
 
 ## Implementation and evidence checkpoint — 7 September 2026
 
-This ledger records the current implementation checkpoint and its bounded native
-pass; full three-slice acceptance and author gates remain open. The frontend implementation
+This ledger records the current implementation checkpoint and its dated bounded
+native evidence; full three-slice acceptance and author gates remain open. The frontend implementation
 is represented by `apps/desktop/src/shell/Workshop.tsx`,
 `apps/desktop/src/workshop/`, `apps/desktop/src/shell/StoryBible.tsx`, and the
 Workshop IPC adapters. Rust persistence and actor/adoption work is represented by
-`crates/core/src/projects/workshop*.rs`, `crates/core/src/storage/035_workshop.sql`,
+`crates/core/src/projects/workshop*.rs`,
+`crates/core/src/storage/035_workshop.sql`, and
+`crates/core/src/storage/036_workshop_relationship_context.sql`,
 `apps/desktop/src-tauri/src/workshop*_commands.rs`, and
 `crates/core/tests/workshop.rs`.
 
@@ -243,7 +261,7 @@ verified the exact frozen packet/input hash, one immutable receipt, raw output, 
 usage with unchanged blank-anchor/manual state and no chapters or decisions; it
 issued no additional model request. Broad live-provider, installer, native, and
 author-study evidence remain pending.
-Schema-35 tests cover the resolved chosen/alternative distinction, supersession,
+Schema-36 tests cover the resolved chosen/alternative distinction, supersession,
 exact before/after revisions, protected multiline additions, frozen ranges,
 operation replay, atomic new-endpoint relationships, and candidate/relationship
 impact provenance. Five `workshop_boundaries` tests cover multi-target
@@ -279,7 +297,7 @@ green mock/frontend run alone.
 | W10 | 6, 13 | Scoped direct/natural-language edits protect unselected and Keep fixed material | Candidate steering/edit paths exist and paragraph-level protected-content boundaries are covered locally; full scope projection and native/quality evidence remain pending. |
 | W11 | 6 | Concrete, consequences, alternatives, challenge, ordinary life, moment actions | Workshop exploration actions are present in the development surface; requirement-specific behavior and quality evidence remain pending. |
 | W12 | 6, 16 | Use this version previews add/replace destination, exact source and complete packet | CI 34133645198 passed an adoption preview with zero writes and a world adoption; complete-packet and broader adoption quality evidence remain pending. |
-| W13 | 6, 13 | Recoverable alternatives, separate saved/chosen/archived/superseded and access | Schema-35 tests cover chosen/alternative resolution, supersession, authorRoom access, replay, and atomic refusal of a saved state re-promoting an older decision while another version is chosen. Archived history is retained. CI 34133645198 adds an authorRoom decision and history/Library reopen. Broader recoverability and access quality remain unqualified. |
+| W13 | 6, 13 | Recoverable alternatives, separate saved/chosen/archived/superseded and access | Schema-36 tests cover chosen/alternative resolution, supersession, authorRoom access, replay, and atomic refusal of a saved state re-promoting an older decision while another version is chosen. Archived history is retained. CI 34133645198 adds an authorRoom decision and history/Library reopen. Broader recoverability and access quality remain unqualified. |
 | W14 | 7 | Neutral/Want/Avoid, optional Must/Never; meaning, examples, temporal intent and scopes | Scoped preferences are implemented in `apps/desktop/src/workshop/Preferences.tsx` and core Workshop state; semantic/native quality evidence pending. |
 | W15 | 7 | Hard project/local conflicts explicit; unknown semantic conflicts never claimed solved | Rust and frontend check confirmed hard-project conflicts with trimmed Unicode case normalization, including other project preferences. Local tests cover unconfirmed/neutral behavior and atomic refusal. Unknown semantic conflicts remain unclaimed; native/quality evidence remains pending. |
 | W16 | 7 | Contextual suggestions, search/Browse all, families, custom tags, editable presets | Custom tags, preset review, and import/export UI are implemented in `Preferences.tsx`, `catalog.ts`, and Tauri preset commands; native/quality evidence pending. |
@@ -288,10 +306,10 @@ green mock/frontend run alone.
 | W19 | 8 | World slices and four optional lenses; depth choice, ordinary life, open mysteries | Six-lens Workshop surface is implemented; depth, ordinary-life, and open-mystery quality evidence remains pending. |
 | W20 | 8 | Conditional consequences expose basis/assumptions; accept/reject/contrast | Consequence exploration is present in the Workshop path; basis/assumption and accept/reject/contrast qualification remains pending. |
 | W21 | 9 | Behavior-first people, optional spine and tentative situation responses | The people lens, behavior-first situation action, and durable session/decision fields provide the prompt-led path; no structured people database is required for this behavior. Focused/native quality evidence remains pending. |
-| W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | CI 34133645198 passed directional relationships with two exact heads and linked atomic existing-world/new-Unicode-character relationship adoption with exact heads; broader relationship quality remains pending. |
+| W22 | 9, 16 | Directional typed relationship between stable existing people/groups; local view | The World/People surfaces prepare an independent named-direction exploration, preserve uncertainty, and pin both exact endpoint heads; RequestContext shows the immutable relationship envelope. Focused UI/headless checks cover stale/late reads, two sources, and an explicit destination. Native relationship qualification remains pending after the bounded harness failure below. |
 | W23 | 9 | English writing preserved; Unicode names, aliases and transliteration supported | CI 34133645198 passed a new Unicode `Érin — Qiao` character and exact English title/body reopen; broader names, aliases, transliteration, and native quality evidence remain pending. |
 | W24 | 10 | Themes as open questions; reader tone distinct from intensity | Themes & tone is represented by the six-lens Workshop surface; distinction/quality evidence remains pending. |
-| W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | CI 34133645198 passed a second explicit STYLE voice-guidance request with five dimensions; the sample stayed unchanged until Develop, with no automatic documents, decisions, or adoption. Broader voice/noncanon quality remains pending. |
+| W25 | 10, 13 | Same-situation noncanon treatments, editable samples, explicit derived voice guidance | Moment responses now require two or three same-situation treatments; a one-treatment raw response is rejected recoverably. The existing voice-guidance path remains explicitly reviewed before Develop/Use this version, with no automatic documents, decisions, or adoption. Broader voice/noncanon quality remains pending. |
 | W26 | 11 | Optional story engines, varied progression, promises/payoffs/possible arcs not events | The Story possibilities lens, optional arc action, prompt template fields, and durable session/decision hooks provide the prompt-led story-engine path without a structured engine database. Quality qualification remains pending. |
 | W27 | 12 | Not now / Not relevant / Keep mysterious; author unknown vs reader unknown | Workshop question actions, durable statuses, unknown-to fields, and the local recap are implemented; the focused frontend question-cycle test passes. Native/quality evidence remains pending. |
 | W28 | 12 | Local saved-decision recap and specific handoff; no paid close summary/completeness score | CI 34133645198 passed history UI and full Library reopen preserving seed, working, chosen, relationship, and history without generation; broader recap quality remains pending. |
@@ -364,9 +382,19 @@ keyboard automation was used. A fresh installer must be built from these product
 changes rather than reusing the previously qualified package.
 
 Implementation is pushed as `ff276eb5eecfec3b38da3af758ca1f6377add8a4`.
-Fresh [CI 34141998962](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34141998962)
-and [installer qualification 34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
-are confirmed in progress on that exact source; no installer reuse was requested.
+[CI 34141998962](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34141998962)
+on that exact source ended in a harness failure after 20 Workshop checks: there
+were no page errors, but W30 could not reach its button while the context overlay
+was open. The harness now closes that overlay through its real button and has 22
+groups including relationship coverage; this run is not a broad native pass.
+Package run [34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
+succeeded on the same source. Its 3.0.0 installer identity is SHA-256
+`954416c66c8982f03113b643550dda6d39539539cfaf3a608be4911f13d1cc01`; the
+installer was not downloaded for this checkpoint. Package evidence does not
+qualify upgrade behavior, live/provider behavior, or the remaining Workshop
+native and quality gates. Final relationship-context freshness checks pass, including unchanged endpoint
+documents, edited/cleared scope, unrelated relationship isolation, and refusal
+of old candidate authority with historical material retained.
 The local debug application was rebuilt successfully at
 `target/debug/webnovel-desktop.exe`, 48,429,056 bytes, ProductVersion 3.0.0,
 SHA-256 `5880578d76ab848a8f07cff43ea7de0131776f40cc722e6e63d8b718e98110ec`,
@@ -374,24 +402,22 @@ built `2026-09-07T16:11:10.8753042Z`. Identity is retained in
 `.local/workshop-branch-debug-build.json`. It was not launched on the author's
 desktop. The earlier qualified installer remains a separate, older artifact.
 
-### Next implementation slice: scoped exploration and taste-test comparison
+### Completed bounded slice: relationship exploration and taste tests
 
-A source audit after W30 identified two concrete remaining gaps, beyond missing
-qualification:
+The final 18:51 Berlin standard wrapper passes 762 Rust tests (70 core unit,
+619 grouped integration, 73 desktop; one intentional subprocess fixture ignore),
+515 frontend tests in 46 files, 11 tooling checks, formatting, strict Clippy,
+TypeScript, and production build. The existing large-chunk warning remains.
+Log: `.local/workshop-relationship-final-check.log`. A completed relationship
+response is refreshed in the UI after a deliberate relationship edit; a fresh
+proposal is required before adoption when the saved relationship scope changed.
 
-- The `moment` response currently accepts one to three candidates in
-  `workshop_generation.rs`, and the shared packet instruction repeats that
-  refinement range. Specification section 10 requires two or three treatments of
-  the same situation. Give taste tests their own minimum of two, retain ordinary
-  refinement behavior, and verify rejection of a single treatment without losing
-  its recoverable raw output.
-- `Relationships.tsx` currently offers review and source navigation but no direct
-  exploration action. Its local person/group filter is initialized from the
-  session without following later session changes. Add an explicit preparation
-  action for relationship/element exploration, with named scope, source context,
-  and no dispatch until Explore. Verify switching sessions does not retain another
-  exploration's filter or editing state. Bringing notes should establish a clear
-  element scope rather than inheriting an unrelated previous scope label.
+The relationship and taste-test work described above is implemented locally and
+covered by focused UI/headless checks. Relationship-only adoption was not added:
+adoption still requires an explicit destination and the ordinary preview path.
+Schema 36 is a reader-floor migration only; it preserves older Workshop state,
+context, packet bytes, and hashes rather than rewriting them. Native execution
+and broader quality evidence remain separate gates.
 
 Possible arcs and intended payoffs already remain author-room exploration text;
 section 11 does not itself require a second structured truth database. Verify

@@ -350,6 +350,69 @@ try {
   await page.screenshot({ path: resolve(output, 'directional-relationship.png') });
   checks.push('People lens records one directional author-room relationship with both participant source heads');
 
+  // A saved relationship prepares a separate scoped exploration.  Opening the
+  // scope must not call a provider; only the explicit Explore action may do so.
+  const relationshipParentId = workshopState().state.currentSessionId;
+  const relationshipRunsBeforeExplore = database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n;
+  const relationshipContextClose = page.getByRole('button', { name: 'Hide working story', exact: true });
+  if (await relationshipContextClose.isVisible()) await relationshipContextClose.click();
+  await relationships.getByRole('button', { name: 'Explore this relationship', exact: true }).click();
+  await waitForDatabase(() => {
+    const current = workshopState();
+    return current?.state.currentSessionId !== relationshipParentId
+      && current?.state.sessions.some(session => session.id === current.state.currentSessionId && session.relationshipId === relationship.id);
+  }, 'relationship exploration scope');
+  const relationshipScopeState = workshopState();
+  const relationshipScopeId = relationshipScopeState.state.currentSessionId;
+  const relationshipScope = relationshipScopeState.state.sessions.find(session => session.id === relationshipScopeId);
+  assert(relationshipScope, 'Relationship exploration must create a saved session');
+  assert.equal(relationshipScope.relationshipId, relationship.id);
+  assert.deepEqual(new Set(relationshipScope.includedDocumentIds), new Set([relationship.fromDocumentId, relationship.toDocumentId]));
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, relationshipRunsBeforeExplore, 'Opening a relationship scope must not call a provider');
+  assert.equal(relationshipScope.workingText, relationship.description);
+  assert((await page.getByRole('region', { name: 'Relationship being explored', exact: true }).innerText()).includes('Only this direction is being explored.'));
+
+  await page.getByRole('button', { name: 'Explore', exact: true }).click();
+  await page.getByText('Generation complete', { exact: true }).waitFor({ timeout: 30_000 });
+  await waitForDatabase(() => database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n === relationshipRunsBeforeExplore + 1, 'relationship packet generation');
+  const relationshipRun = database.prepare('SELECT packet_id,dispatch_state FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+  assert.equal(relationshipRun.dispatch_state, 'delivered');
+  const relationshipPacket = JSON.parse(database.prepare('SELECT packet_json FROM context_packets WHERE id=?').get(relationshipRun.packet_id).packet_json);
+  const relationshipEnvelope = relationshipPacket.messages.flatMap(message => {
+    try { return JSON.parse(message.content).workshop ?? []; } catch { return []; }
+  })[0];
+  assert.equal(relationshipEnvelope?.relationship?.id, relationship.id, 'The frozen packet must retain the chosen relationship identity');
+  assert.equal(relationshipEnvelope?.relationship?.fromDocumentId, relationship.fromDocumentId);
+  assert.equal(relationshipEnvelope?.relationship?.toDocumentId, relationship.toDocumentId);
+  assert.equal(relationshipEnvelope?.relationship?.type, relationship.type);
+  assert.equal(relationshipEnvelope?.relationship?.description, relationship.description);
+  assert.equal(relationshipEnvelope?.relationship?.uncertainty, relationship.uncertainty);
+  assert.equal(relationshipEnvelope?.relationship?.status, 'chosen');
+  const mandatoryHandles = relationshipPacket.receipt?.mandatorySourceHandles ?? [];
+  assert(mandatoryHandles.length >= 2, 'The relationship packet must retain both mandatory endpoint source handles');
+  const pinnedDocumentIds = mandatoryHandles.map(handle => database.prepare('SELECT document_id FROM snapshot_sources WHERE snapshot_id=? AND handle=?').get(relationshipPacket.receipt.snapshotId, handle)?.document_id);
+  assert(pinnedDocumentIds.includes(relationship.fromDocumentId), 'The frozen source pins must include the relationship source endpoint');
+  assert(pinnedDocumentIds.includes(relationship.toDocumentId), 'The frozen source pins must include the relationship target endpoint');
+  await page.screenshot({ path: resolve(output, 'relationship-exploration-packet.png') });
+
+  await page.getByRole('button', { name: 'Use this version', exact: true }).click();
+  const relationshipAdoption = page.getByRole('region', { name: 'Adoption preview', exact: true });
+  await relationshipAdoption.getByRole('heading', { name: 'Where should this version go?', exact: true }).waitFor();
+  assert.equal(await relationshipAdoption.locator('fieldset').count(), 0, 'Relationship adoption must not preselect a character destination');
+  const chooseDestination = relationshipAdoption.getByRole('button', { name: 'Choose a destination', exact: true });
+  await chooseDestination.waitFor();
+  await chooseDestination.click();
+  const relationshipTarget = relationshipAdoption.locator('fieldset').first();
+  const relationshipDestination = relationshipTarget.locator('label').filter({ hasText: /^Destination/ }).locator('select');
+  assert.equal(await relationshipDestination.inputValue(), '', 'Relationship adoption must require an explicit destination choice');
+  await relationshipAdoption.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  const savedExplorationsAfterRelationship = page.getByRole('navigation', { name: 'Saved explorations', exact: true });
+  const relationshipParentIndex = workshopState().state.sessions.findIndex(session => session.id === relationshipParentId);
+  await savedExplorationsAfterRelationship.getByRole('button').nth(relationshipParentIndex).click();
+  await waitForDatabase(() => workshopState()?.state.currentSessionId === relationshipParentId, 'relationship parent restore');
+  checks.push('Exploring a chosen relationship creates an independent pinned scope without auto-generation, freezes its exact direction and uncertainty in the packet, and requires an explicit adoption destination');
+
   const recap = page.locator('details.workshop-recap');
   if (await recap.getAttribute('open') === null) await recap.locator('summary').click();
   await recap.getByRole('button', { name: 'Saved exploration versions', exact: true }).click();
@@ -723,6 +786,8 @@ try {
   // Fork only through the product action.  The child must carry an isolated
   // identity and exploration-scoped preference while leaving the parent row
   // and story documents unchanged.
+  const w30ContextClose = page.getByRole('button', { name: 'Hide working story', exact: true });
+  if (await w30ContextClose.isVisible()) await w30ContextClose.click();
   await page.getByRole('button', { name: 'Explore a what-if', exact: true }).click();
   await waitForDatabase(() => {
     const current = workshopState();

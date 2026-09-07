@@ -4,6 +4,28 @@ The initial distribution target is Windows x64 with an NSIS installer. Package c
 
 ## Last qualified Workshop package — 7 September 2026
 
+Fresh [package run 34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
+passed on clean builder and qualification source
+`ff276eb5eecfec3b38da3af758ca1f6377add8a4`. ProductVersion is `3.0.0` and the
+installer SHA-256 is
+`954416c66c8982f03113b643550dda6d39539539cfaf3a608be4911f13d1cc01`.
+The synthetic installed lifecycle completed at `2026-09-07T16:27:38.9255979Z`:
+project/document creation, text entry/readback, normal close/reopen, and
+same-version uninstall/reinstall retained the project, document, and text.
+The result reports no errors and no forced process stop. It does not qualify
+upgrades, offline/no-runtime installation, live providers, or author usability.
+
+Downloaded metadata, results, and screenshots are retained under
+`.local/package-workshop-34142007124/`. The installer itself remains in this
+run's `windows-installer` GitHub artifact; it has not been downloaded locally.
+The subsequent schema-36 relationship exploration changes require a fresh
+installer. Separately, native CI 34141998962 on this same source passed its
+contracts and 20 Workshop groups, then stopped when the still-open working-story
+sidebar covered the what-if button. That native run is not a complete pass;
+the harness now closes the sidebar through its visible control before proceeding.
+
+## Earlier locally retained Workshop package — 7 September 2026
+
 The subsequent preset/Story Bible hardening changes are not in this installer.
 They require a fresh builder and installed-lifecycle run; this retained artifact
 continues to identify the earlier source below.
@@ -29,7 +51,7 @@ installed lifecycle only: offline/no-runtime installation, true upgrade,
 live-provider behavior, author data, and broader native/quality
 qualification remain open.
 
-The current debug executable from source
+The historical debug executable from source
 `df747b6d4f8d9496cb00f1fc5f0b53285d4b5edf` is
 `target/debug/webnovel-desktop.exe`, 48,414,720 bytes, built at
 `2026-09-07T14:02:46.9371672Z`, with SHA-256

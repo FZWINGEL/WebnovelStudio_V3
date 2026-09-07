@@ -193,7 +193,7 @@ export function CandidateBoard({
     </header>
 
     {(result.stale || moment) && <div className="candidate-board-notice" role="status">
-      {result.stale ? 'This result was made against an earlier working version. Review each direction against current work before developing it.' : 'This is a feel test only. Its events stay outside the story until you explicitly adopt them.'}
+      {result.stale ? 'This result used earlier context or a different working version. Review each direction against current work before developing it; changed sources or relationship scope require a fresh proposal before adoption.' : 'This is a feel test only. Its events stay outside the story until you explicitly adopt them.'}
     </div>}
 
     <div className="candidate-dimension" aria-label="Comparison dimension"><span>Comparing on</span><strong>{output.dimension}</strong><span>{output.interpretation.possibleDirection}</span></div>

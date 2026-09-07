@@ -77,6 +77,7 @@ fn session(id: &str) -> WorkshopSession {
         selected_scope: String::new(),
         original_notes: String::new(),
         active_run_id: None,
+        relationship_id: None,
     }
 }
 
@@ -169,6 +170,58 @@ fn context_candidates(kind: &str, contents: &[&str]) -> String {
 }
 
 #[test]
+fn one_candidate_moment_is_retained_as_invalid_raw_output() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("moment-cardinality".into()).unwrap();
+    let anchor = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "moment-anchor".into(),
+            document_id: "workshop-moment".into(),
+            title: "Moment fixture".into(),
+            kind: "note".into(),
+            body: json!({"schemaVersion": 1, "body": {"type": "doc", "content": [{
+                "type": "paragraph", "attrs": {"id": "anchor"}, "content": []
+            }]}}),
+        })
+        .unwrap();
+    let (mut state, _) = state_with_session("moment-session");
+    state.sessions[0].anchor_document_id = Some(anchor.head.document_id.clone());
+    save_state(&project, &access, "moment-state", "0", state);
+
+    let started = project
+        .start_workshop(context_request(
+            &project,
+            &access,
+            "moment-one",
+            "moment",
+            "100000",
+        ))
+        .unwrap();
+    complete_context_fixture(
+        &project,
+        &started,
+        context_candidates("refinement", &["ONE_MOMENT_TREATMENT"]),
+    );
+
+    let view = project.read_workshop(access).unwrap();
+    let result = view
+        .results
+        .iter()
+        .find(|result| result.run.id == started.run.id)
+        .expect("moment result");
+    assert!(result.output.is_none());
+    assert!(
+        result
+            .validation_error
+            .as_deref()
+            .is_some_and(|detail| detail.contains("two or three"))
+    );
+    assert!(result.run.output_text.contains("ONE_MOMENT_TREATMENT"));
+}
+
+#[test]
 fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opted_in_alternative()
 {
     let temp = TempProject::new();
@@ -246,7 +299,13 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
     complete_context_fixture(
         &project,
         &moment,
-        context_candidates("refinement", &["NONCANON_VIGNETTE_PROSE"]),
+        context_candidates(
+            "refinement",
+            &[
+                "NONCANON_VIGNETTE_PROSE",
+                "NONCANON_VIGNETTE_ALTERNATIVE_PROSE",
+            ],
+        ),
     );
     let view = project.read_workshop(access.clone()).unwrap();
     let candidates = &view

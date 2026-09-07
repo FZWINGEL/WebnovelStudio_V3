@@ -6,7 +6,7 @@ import type { CompiledPacket } from '../ipc/context';
 import type { DiscussionRun, DiscussionStart } from '../ipc/discussions';
 import type { DocumentRecord, OpenedProject, ProjectAccess } from '../ipc/projects';
 import type {
-  WorkshopCandidate, WorkshopPreference, WorkshopResult, WorkshopSession, WorkshopSnapshot,
+  WorkshopCandidate, WorkshopPreference, WorkshopRelationship, WorkshopResult, WorkshopSession, WorkshopSnapshot,
   WorkshopState, WorkshopView,
 } from '../ipc/workshop';
 import { Workshop } from './Workshop';
@@ -45,7 +45,6 @@ vi.mock('../ipc/projects', () => ({ readDocument: mocks.readDocument }));
 vi.mock('../ipc/discussions', () => ({ retryDiscussionSave: mocks.retryDiscussionSave, stopDiscussion: mocks.stopDiscussion }));
 vi.mock('../providers/ProviderContext', () => ({ useProviders: () => mocks.providers }));
 vi.mock('../assistant/ContextInspector', () => ({ ContextInspector: () => null }));
-vi.mock('../workshop/Relationships', () => ({ Relationships: () => null }));
 
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'workshop', session: 'session', writerLease: 'lease' };
 const body = { schemaVersion: 1 as const, body: { type: 'doc' as const, content: [] } };
@@ -134,6 +133,22 @@ const project: OpenedProject = {
   access, documents: [record('world-1', 'Existing world')], metadataVersion: '1', viewState: null, libraryWarning: null,
 };
 
+function relationshipFixture() {
+  const documents = [record('mei', 'Mei', 'character'), record('guild', 'Repair guild', 'world')];
+  const relationship: WorkshopRelationship = { id: 'mei-trusts-guild', fromDocumentId: 'mei', toDocumentId: 'guild', type: 'trusts',
+    description: 'Mei relies on the guild to keep her sister safe.', uncertainty: 'Whether the guild will honor its promise.',
+    status: 'tentative', sourceHeads: documents.map(document => document.head) };
+  const original = session({ lens: 'world', workingText: 'My separate world draft.', selectedDetails: [{ id: 'keep', candidateId: null, text: 'My separate world draft.', fixed: true }] });
+  return { documents, relationship, original, project: { ...project, documents }, view: view({ state: state({ sessions: [original], relationships: [relationship] }) }) };
+}
+
+function selectValue(label: string, value: string) {
+  const element = [...host.querySelectorAll('label')].find(item => item.firstChild?.textContent === label)?.querySelector('select');
+  if (!element) throw new Error(`Missing select: ${label}`);
+  element.value = value;
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 let host: HTMLDivElement;
 let root: Root;
 let currentView: WorkshopView;
@@ -159,9 +174,9 @@ async function waitFor(check: () => void): Promise<void> {
   check();
 }
 
-async function render(value = currentView): Promise<void> {
+async function render(value = currentView, projectValue = project): Promise<void> {
   currentView = value;
-  await act(async () => root.render(<Workshop project={project} onOpenDocument={vi.fn()} onDocumentsChanged={onDocumentsChanged} onError={vi.fn()} />));
+  await act(async () => root.render(<Workshop project={projectValue} onOpenDocument={vi.fn()} onDocumentsChanged={onDocumentsChanged} onError={vi.fn()} />));
   await waitFor(() => expect(host.textContent).toContain('Develop or edit directly'));
 }
 
@@ -473,6 +488,21 @@ describe('Story Workshop behavioral contracts', () => {
     expect(onDocumentsChanged).not.toHaveBeenCalled();
   });
 
+  it('offers two-treatment moments as noncanon alternatives without replacing the author sample', async () => {
+    const source = session({ lens: 'themes', workingText: 'A repairer hears the broken clock strike thirteen.' });
+    const moment = result({ action: 'moment', output: { ...result().output!, candidates: [candidate('intimate'), candidate('wondrous')] } });
+    await render(view({ state: state({ sessions: [source] }), results: [moment] }));
+    expect(host.querySelectorAll('.candidate-card')).toHaveLength(2);
+    expect(host.textContent).toContain('Noncanon experiment');
+    expect(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')?.value).toBe(source.workingText);
+    await act(async () => selectValue('Next action', 'moment'));
+    await act(async () => exactButton('Explore').click());
+    await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
+    expect(mocks.startWorkshop.mock.calls[0][2].instruction).toContain('SAME situation in two or three');
+    expect(mocks.previewWorkshopAdoption).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+  });
+
   it('requires a convention and an explicit transformation before subversion generates', async () => {
     await render(view({ results: [result()] }));
     await act(async () => exactButton('Select details').click());
@@ -550,5 +580,128 @@ describe('Story Workshop behavioral contracts', () => {
     expect(host.textContent).toContain('A useful partial direction.');
     expect(host.textContent).toContain('not a completed proposal');
     expect(host.textContent).toContain('Generation stopped');
+  });
+
+  it('opens a directed relationship from World as a separate saved exploration and retains its scope after reopen', async () => {
+    const fixture = relationshipFixture();
+    mocks.readDocument.mockImplementation(async (_access, id: string) => fixture.documents.find(document => document.head.documentId === id));
+    await render(fixture.view, fixture.project);
+    await act(async () => exactButton('Explore this relationship').click());
+    await waitFor(() => expect(currentView.state.sessions).toHaveLength(2));
+    const exploration = currentView.state.sessions.find(item => item.id !== fixture.original.id)!;
+    expect(exploration).toMatchObject({ relationshipId: fixture.relationship.id, selectedScope: 'Relationship: Mei → trusts → Repair guild',
+      includedDocumentIds: ['mei', 'guild'], workingText: fixture.relationship.description, focusDocumentId: null });
+    expect(currentView.state.sessions.find(item => item.id === fixture.original.id)).toEqual(fixture.original);
+    expect(currentView.state.relationships).toEqual([fixture.relationship]);
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+    const saved = structuredClone(currentView);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await render(saved, fixture.project);
+    expect(host.querySelector('[aria-label="Relationship being explored"]')?.textContent).toContain(fixture.relationship.uncertainty);
+    await act(async () => exactButton('Explore').click());
+    await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
+    expect(mocks.startWorkshop.mock.calls[0][2]).toMatchObject({ sessionId: exploration.id, selectedScope: exploration.selectedScope });
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+  });
+
+  it('refuses a relationship when an endpoint changes after the list was rendered', async () => {
+    const fixture = relationshipFixture();
+    mocks.readDocument.mockImplementation(async (_access, id: string) => {
+      const document = fixture.documents.find(item => item.head.documentId === id)!;
+      return { ...document, head: { ...document.head, version: '2' } };
+    });
+    await render(fixture.view, fixture.project);
+    await act(async () => exactButton('Explore this relationship').click());
+    await waitFor(() => expect(host.textContent).toContain('A participant changed.'));
+    expect(currentView.state).toEqual(fixture.view.state);
+    expect(mocks.saveWorkshop).not.toHaveBeenCalled();
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
+
+  it('refreshes completed result freshness after a saved relationship edit without generation', async () => {
+    const fixture = relationshipFixture();
+    fixture.view.state.sessions[0].relationshipId = fixture.relationship.id;
+    fixture.view.results = [result()];
+    mocks.readWorkshop.mockImplementation(async () => ({ ...structuredClone(currentView), results: currentView.results.map(saved => ({ ...saved,
+      stale: currentView.state.relationships[0].description !== fixture.relationship.description })) }));
+    await render(fixture.view, fixture.project);
+    expect(host.textContent).not.toContain('Stale result');
+    await act(async () => exactButton('Review relationship').click());
+    const form = host.querySelector('.workshop-relationships form')!;
+    await act(async () => setValue(form.querySelector<HTMLTextAreaElement>('textarea[required]')!, 'Mei no longer trusts the guild to protect her sister.'));
+    await act(async () => exactButton('Save relationship').click());
+    await waitFor(() => expect(host.textContent).toContain('Stale result'));
+    expect(mocks.readWorkshop).toHaveBeenCalledTimes(2);
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+    expect(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')?.value).toBe(fixture.original.workingText);
+  });
+
+  it('ignores delayed relationship sources after switching explorations', async () => {
+    const fixture = relationshipFixture();
+    const elsewhere = session({ id: 'elsewhere', title: 'Elsewhere', anchorDocumentId: 'workshop-elsewhere', workingText: 'Another draft.' });
+    fixture.view.state.sessions.push(elsewhere);
+    const pending: Array<() => void> = [];
+    mocks.readDocument.mockImplementation((_access, id: string) => new Promise(resolve => pending.push(() => resolve(fixture.documents.find(document => document.head.documentId === id)))));
+    await render(fixture.view, fixture.project);
+    await act(async () => exactButton('Explore this relationship').click());
+    await act(async () => exactButton('Elsewhere').click());
+    await act(async () => { pending.forEach(resolve => resolve()); });
+    await waitFor(() => expect(currentView.state.currentSessionId).toBe('elsewhere'));
+    expect(currentView.state.sessions).toEqual(fixture.view.state.sessions);
+    expect(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')?.value).toBe('Another draft.');
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+  });
+
+  it('requires an explicit adoption destination for a relationship and carries the working text into its preview', async () => {
+    const fixture = relationshipFixture();
+    const scoped = { ...fixture.original, lens: 'people' as const, relationshipId: fixture.relationship.id, workingTitle: 'Mei and the guild',
+      focusDocumentId: 'mei', workingText: 'Mei trusts the guild with repairs, but keeps her sister outside its influence.' };
+    await render(view({ state: state({ sessions: [scoped], relationships: [fixture.relationship] }) }), fixture.project);
+    await act(async () => exactButton('Use this version').click());
+    expect(exactButton('Preview all changes').disabled).toBe(true);
+    expect(host.querySelectorAll('.workshop-adoption fieldset')).toHaveLength(0);
+    expect(mocks.previewWorkshopAdoption).not.toHaveBeenCalled();
+    await act(async () => exactButton('Choose a destination').click());
+    await act(async () => exactButton('Preview all changes').click());
+    await waitFor(() => expect(mocks.previewWorkshopAdoption).toHaveBeenCalledOnce());
+    const request = mocks.previewWorkshopAdoption.mock.calls[0][0];
+    expect(request.targets).toHaveLength(1);
+    expect(request.targets[0]).toMatchObject({ expected: null, kind: 'note', title: 'Mei and the guild' });
+    expect(request.targets[0].documentId).not.toBe('mei');
+    expect(JSON.stringify(request.targets[0].body)).toContain(scoped.workingText);
+    expect(mocks.adoptWorkshop).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+  });
+
+  it('gives brought-in material an explicit element scope while preserving manual work', async () => {
+    const fixture = relationshipFixture();
+    fixture.view.state.sessions[0].relationshipId = fixture.relationship.id;
+    mocks.readDocument.mockResolvedValue(fixture.documents[1]);
+    await render(fixture.view, fixture.project);
+    await act(async () => exactButton('Bring existing notes').click());
+    await act(async () => selectValue('Saved material', 'guild'));
+    await waitFor(() => expect(currentView.state.sessions[0].selectedScope).toBe('Element: Repair guild'));
+    expect(currentView.state.sessions[0]).toMatchObject({ relationshipId: null, focusDocumentId: 'guild', workingText: fixture.original.workingText });
+    expect(mocks.startWorkshop).not.toHaveBeenCalled();
+    expect(onDocumentsChanged).not.toHaveBeenCalled();
+  });
+
+  it('keeps new local edits when a delayed notes read finishes', async () => {
+    const fixture = relationshipFixture();
+    fixture.view.state.sessions[0].selectedDetails = [];
+    let finish!: (document: DocumentRecord) => void;
+    mocks.readDocument.mockImplementation(() => new Promise<DocumentRecord>(resolve => { finish = resolve; }));
+    await render(fixture.view, fixture.project);
+    await act(async () => exactButton('Bring existing notes').click());
+    await act(async () => selectValue('Saved material', 'guild'));
+    await act(async () => setValue(host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!, 'My newer manual world draft.'));
+    await act(async () => finish(fixture.documents[1]));
+    await waitFor(() => expect(currentView.state.sessions[0].workingText).toBe('My newer manual world draft.'));
+    expect(currentView.state.sessions[0].focusDocumentId).toBe(null);
+    expect(host.textContent).toContain('Your exploration changed while these notes opened.');
   });
 });

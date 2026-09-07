@@ -16,6 +16,41 @@ passed all 15 Workshop native checks and the existing native suites. The fresh
 write/reopen and same-version retention lifecycle. Full specification acceptance,
 broader provider/native coverage, and author evaluation remain open.
 
+The latest bounded local slice adds the schema-36 reader-floor migration for
+typed relationship packet fields. It preserves existing Workshop state,
+context, packet bytes, and hashes. World/People relationship exploration now
+prepares an independent session without a model call, pins both endpoint heads,
+shows named direction and uncertainty, and ignores or refuses stale/late reads;
+RequestContext projects the immutable relationship envelope. Moment responses
+require two or three treatments, while a one-treatment raw response remains
+recoverable. Focused UI checks pass (32 tests in 3 files); headless checks at
+1440 and 800 pixels covered keyboard use, two sources, an explicit destination,
+and frozen context with no errors or overflow. Two visual rounds were inspected
+under `.local/workshop-relationship-qa/`. After the UI wording correction, the
+standalone frontend build/check passed 514 tests in 46 files; this is not a full
+workspace check.
+
+The final 18:51 Berlin standard wrapper passes 762 Rust tests (70 core unit,
+619 grouped integration, 73 desktop; one intentional subprocess fixture ignore),
+515 frontend tests in 46 files, 11 tooling checks, formatting, strict Clippy,
+TypeScript, and production build. Log: `.local/workshop-relationship-final-check.log`.
+The final review also covers relationship edits with unchanged participant documents:
+results become stale when their saved relationship or target scope changes, while
+historical output and selected details remain saveable. New generation and adoption
+refuse mismatched candidate authority. Unrelated relationship edits leave independent
+requests fresh; the UI refreshes completed-result status after a relationship save.
+
+The preceding hosted what-if run [CI 34141998962](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34141998962)
+on exact source `ff276eb5eecfec3b38da3af758ca1f6377add8a4` ended after 20
+Workshop checks with no page errors when W30 could not reach its button behind
+the open context overlay. The harness now closes that overlay through the real
+button and has 22 groups including relationship coverage; this failure does not
+establish a broad native pass. Package run [34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
+succeeded on that exact source with installer SHA-256
+`954416c66c8982f03113b643550dda6d39539539cfaf3a608be4911f13d1cc01`.
+The installer was not downloaded for this checkpoint; upgrade, live/provider,
+and broader Workshop-native/quality gates remain open.
+
 The subsequent local hardening checkpoint fixes saved preset reuse/name editing,
 definition-only updates, and per-source Story Bible failure isolation with exact
 revision verification. Rust now rejects competing chosen decisions and trims/
@@ -66,11 +101,15 @@ and visual checks pass at 1440 and 800 pixels. The hosted Workshop harness now h
 
 The implementation is pushed at `ff276eb5eecfec3b38da3af758ca1f6377add8a4`.
 [CI 34141998962](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34141998962)
-and fresh [package run 34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
-are confirmed in progress on this exact source. The local debug executable has
-been rebuilt successfully; its exact identity is in the Workshop ledger and
-`.local/workshop-branch-debug-build.json`. The older qualified installer does
-not contain this slice.
+ended after 20 Workshop checks when W30 could not reach its button behind the
+open context overlay; no page errors were recorded. The harness now closes that
+overlay through its real button and has 22 groups including relationship
+coverage, so this is not a broad native pass. Package run
+[34142007124](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34142007124)
+succeeded on the same source with installer SHA-256
+`954416c66c8982f03113b643550dda6d39539539cfaf3a608be4911f13d1cc01`.
+The installer was not downloaded; upgrade, live/provider, and broader
+Workshop-native/quality gates remain open.
 
 The Develop/Write shell and dedicated six-lens Workshop frontend are implemented
 with editable brief/current direction/original notes, typed three-candidate
@@ -88,7 +127,7 @@ overflow at 600, 800, 1024, and 1440 pixels; it is browser-fixture evidence,
 not native qualification. The local captures are under `.local/workshop-qa/` and
 are ignored. The earlier 14:45 `desktop.ps1 -Command check` passed at that checkpoint:
 formatting, strict workspace Clippy, all Rust workspace tests, production build,
-465 frontend tests, and 11 tooling checks. Schema-35 integration includes exact
+465 frontend tests, and 11 tooling checks. Schema-36 integration includes exact
 candidate provenance, frozen selection scope, supersession, before/after
 revisions, protected additions and paragraph boundaries, immutable retries,
 and readable recovered alternatives. Five independent database boundary tests
