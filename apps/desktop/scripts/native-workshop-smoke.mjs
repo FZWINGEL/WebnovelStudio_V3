@@ -219,6 +219,7 @@ try {
     try { return JSON.parse(message.content).workshop ?? []; } catch { return []; }
   })[0];
   assert(firstEnvelope?.currentElement.includes(seed), 'The delivered Workshop envelope must retain the actual seed');
+  assert.deepEqual(firstEnvelope.preferences, [], 'Without selected preferences, the request must not infer Want or Avoid choices');
   const revealContext = page.getByRole('button', { name: 'Working story & context', exact: true });
   if (await revealContext.isVisible()) await revealContext.click();
   const frozenCreativeContext = page.locator('.workshop-frozen-context');
@@ -603,7 +604,7 @@ try {
 
   await page.getByRole('tab', { name: 'Write', exact: true }).click();
   await page.getByRole('tab', { name: /^Characters/ }).click();
-  await page.getByRole('button', { name: newCharacterTitle, exact: true }).click();
+  await page.getByRole('navigation', { name: 'Documents', exact: true }).getByRole('button').filter({ has: page.getByText(newCharacterTitle, { exact: true }) }).click();
   const writer = page.getByRole('main', { name: 'Writing desk', exact: true });
   await writer.waitFor();
   await writer.getByRole('button', { name: 'Names & aliases', exact: true }).click();
@@ -668,7 +669,7 @@ try {
   await namesAfterRefusal.getByRole('button', { name: 'Close names', exact: true }).click();
   await page.getByRole('tab', { name: 'Write', exact: true }).click();
   await page.getByRole('tab', { name: /^Characters/ }).click();
-  await page.getByRole('button', { name: newCharacterTitle, exact: true }).click();
+  await page.getByRole('navigation', { name: 'Documents', exact: true }).getByRole('button').filter({ has: page.getByText(newCharacterTitle, { exact: true }) }).click();
   await page.getByRole('main', { name: 'Writing desk', exact: true }).waitFor();
   assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, namesRunsBefore, 'Saved names flow must still avoid generation');
   checks.push('Saved names reopen through project resume; unsaved aliases refuse Write and project switching until explicitly saved');
@@ -827,6 +828,21 @@ try {
   assert.deepEqual(documents(), navigationDocuments, 'Preset operations do not alter story documents');
   await page.screenshot({ path: resolve(output, 'saved-preset-reuse.png') });
   checks.push('Preset names follow JSON and field edits, explicit adoption persists across Library reopen, and saved definitions can be edited and reused without duplicate definitions or automatic preference adoption');
+
+  const beforeConflict = workshopState().state.preferences;
+  await preferences.getByRole('button', { name: 'Add preference', exact: true }).click();
+  const preferenceForm = preferences.locator('.workshop-preference-form');
+  await preferenceForm.getByRole('textbox', { name: 'Name', exact: true }).fill('Inherited exceptionalism');
+  await preferenceForm.getByRole('textbox', { name: 'What it means to you', exact: true }).fill('An inherited gift unlocks the archive.');
+  await preferenceForm.getByRole('combobox', { name: /^Direction/ }).selectOption('want');
+  await preferenceForm.getByRole('combobox', { name: /^Applies to/ }).selectOption('exploration');
+  await preferenceForm.getByRole('button', { name: 'Save preference', exact: true }).click();
+  await preferences.getByRole('alert').filter({ hasText: 'conflicts with the project’s Never preference' }).waitFor();
+  assert.deepEqual(workshopState().state.preferences, beforeConflict, 'A local Want must not silently replace the hard project exclusion');
+  assert.equal(database.prepare('SELECT count(*) AS n FROM discussion_runs').get().n, presetRunsBefore, 'Resolving a preference conflict remains local');
+  await page.screenshot({ path: resolve(output, 'hard-project-preference-conflict.png') });
+  await preferenceForm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  checks.push('A conflicting local Want is visibly refused without changing a hard project exclusion or generating');
 
   const firstProjectState = workshopState().state;
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
