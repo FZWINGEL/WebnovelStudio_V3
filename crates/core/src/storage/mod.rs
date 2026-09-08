@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 37;
+pub(crate) const LATEST_SCHEMA_VERSION: i64 = 38;
 
 pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
@@ -201,6 +201,9 @@ pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()
         // absent from old rows and empty sessions serialize byte-identically.
         if version < 37 {
             tx.execute_batch(include_str!("037_workshop_story_possibilities.sql"))?;
+        }
+        if version < 38 {
+            tx.execute_batch(include_str!("038_codex_app_server.sql"))?;
         }
         // Schema 30 adds the nullable Claude terminal model claim. NULL keeps
         // historical Codex and HTTP receipts byte-compatible while the reader

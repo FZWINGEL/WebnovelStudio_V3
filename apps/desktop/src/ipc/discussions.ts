@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { CompiledPacket, MockContextBudget, ProviderBinding, ScopeGrant } from './context';
+import type { AppServerDelivery, CompiledPacket, MockContextBudget, ProviderBinding, ScopeGrant } from './context';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { ModelSelection } from './providers';
 
@@ -40,6 +40,8 @@ export interface LookupInvocationSummary {
 export interface LookupRunSummary { allowance: LookupAllowance; invocations: LookupInvocationSummary[] }
 export interface ProviderResult {
   delivery?: { bodyHash: string; bodyBytes: string; submission: 'notSent' | 'uncertain' | 'responseReceived'; usage?: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null } };
+  /** App-server delivery is separate from exec/HTTP evidence and may remain unresolved. */
+  appServer?: AppServerDelivery;
   /** The provider-reported model is evidence about the response, separate from the requested binding. */
   reportedModel?: string;
   binding: ProviderBinding; status: 'completed' | 'stopped' | 'timedOut' | 'outputLimit' | 'failed';

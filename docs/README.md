@@ -2,7 +2,7 @@
 
 This index is for the private WebnovelStudio V3.0.0 Windows development candidate, an English web-novel workspace with optional wuxia, xianxia, cultivation, progression, and translated-register styles. Start with the [root README](../README.md) for setup and the [3.0.0 release preparation](RELEASE_3_0_0.md) plus [changelog](../CHANGELOG.md) for candidate scope and user-facing changes.
 
-Use [implementation status](IMPLEMENTATION_STATUS.md) for current tests, native and provider evidence, and remaining qualification. Codex is the primary provider; summaries and Story Memory use GPT-5.6 Luna/xhigh. Claude and OpenAI-compatible endpoints remain available, with further adapter ports deferred. Source and executed checks establish current behavior; the design documents below define contracts and target architecture.
+Use [implementation status](IMPLEMENTATION_STATUS.md) for current tests, native and provider evidence, and remaining qualification. Codex is the primary provider; current summary and Story Memory maintenance uses GPT-6 Astra with low reasoning, while the author picker remains independent. Claude and OpenAI-compatible endpoints remain available, with further adapter ports deferred. The optional persistent Codex app-server route is implemented for development, but Exec remains the default and lookup remains on Exec. Source and executed checks establish current behavior; the design documents below define contracts and target architecture.
 
 | Read | Document | Responsibility |
 | --- | --- | --- |
@@ -48,6 +48,7 @@ Use [implementation status](IMPLEMENTATION_STATUS.md) for current tests, native 
 | 6ae | [Accepted summaries ADR](ADR_0030_ACCEPTED_SUMMARIES.md) | Optional immutable chapter summaries in author review, explicit generated-memory starting points, source/basis fences, audience filtering, and distinct context delivery receipts |
 | 6af | [Character knowledge ADR](ADR_0031_CHARACTER_KNOWLEDGE.md) | Passage-backed character attitudes, stable character/topic identities, immutable review sets, reader-filtered context and incomplete knowledge history; qualification is recorded in implementation status |
 | 6ag | [Reviewed-memory lookup ADR](ADR_0032_STORY_MEMORY_LOOKUPS.md) | Frozen identity catalogs and paged knowledge, promise and possession history in the existing bounded read loop; schema-34 reader boundary, legacy capability preservation and per-invocation inspection |
+| 6ah | [Optional persistent Codex transport](ADR_0033_CODEX_APP_SERVER.md) · [qualification record](APP_SERVER_QUALIFICATION.md) | Optional Rust stdio route with fresh ephemeral threads, schema-38 receipts and cancellation; successful live Workshop and isolated native checks, with broader qualification still open; Exec remains the default |
 | 7 | [Native trial guide](../tests/native/README.md) | Real WebView2 smoke flow and evidence limits |
 | 8 | [Implementation status](IMPLEMENTATION_STATUS.md) | Current work, evidence, and full W0–W8/F1–F5/C0–C6 completion checklist |
 | Reference | [Codex qualification](CODEX_QUALIFICATION.md) | Native Codex discovery and bounded synthetic experiments; production provider support remains unqualified |

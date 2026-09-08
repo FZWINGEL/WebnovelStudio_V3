@@ -308,6 +308,7 @@ mod tests {
     fn completion(dispatch: &MemoryDispatch, event_suffix: &str) -> CompleteMemory {
         let candidate = mock_navigation_digest(&dispatch.source).expect("mock candidate");
         CompleteMemory {
+            app_server: None,
             owner: dispatch.job.owner.clone(),
             event_id: format!("{}-{event_suffix}", dispatch.job.id),
             raw_output: serde_json::to_string(&candidate).expect("candidate JSON"),

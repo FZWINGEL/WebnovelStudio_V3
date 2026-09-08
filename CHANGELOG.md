@@ -8,6 +8,8 @@ WebnovelStudio V3 is a native Windows desktop writing workspace for English web 
 
 ### Added
 
+- Optional persistent Rust-to-Codex app-server transport in Settings, with fresh per-request conversations, preserved model/effort/tier choices, and separate durable delivery receipts. Exec stays the default; bounded lookup remains on Exec.
+
 - Candidate-level **Give alternatives** under **Explore another angle**, preserving exact candidate and comparison-dimension context without selecting or adopting the candidate.
 
 - Story Workshop consequence actions for keeping an implication, rejecting its assumption, or preparing a contrast without silently selecting the candidate. Subversion requires an explicit convention and transformation.
@@ -17,13 +19,15 @@ WebnovelStudio V3 is a native Windows desktop writing workspace for English web 
 - AI-first writing flows for drafting, continuing, and developing a story while keeping the author in control of briefs, candidates, feedback, and explicit application of changes.
 - A V2-style model picker with provider browsing, search, favorites, keyboard selection, reasoning effort, and fast/service-tier controls.
 - Dynamic Codex model discovery without pinning the Codex CLI version, plus the Claude author surface and configurable OpenAI-compatible endpoint profiles.
-- A dedicated Story Memory and summary route using GPT-5.6 Luna with xhigh reasoning. The Codex route is the primary development path; Claude and live HTTP behavior remain qualification boundaries.
+- A dedicated Story Memory and summary route using GPT-6 Astra with low reasoning, independent of the writing-model picker. Native Codex maintenance requests priority; HTTP maintenance sends no service tier. Historical Luna/xhigh records remain unchanged.
 - Persistent story context with source-linked evidence, reviewed story knowledge, character and promise history, bounded lookup, context inspection, and guarded passage or structured suggestions.
 - Safe local persistence, explicit Apply/Reject review, backup and recovered-project flows, V2 import support, and draft export.
 - Story Workshop relationship exploration for named directional author intentions with exact endpoint heads, plus noncanon moment taste tests that require two or three treatments. Schema 36 raises the reader floor for optional relationship packet context while preserving older Workshop bytes and hashes.
 - Optional Unicode names, aliases, and transliterations in the existing `document_aliases` metadata (no schema change) for character/world documents, exposed in the World/People saved-material picker and Writer **Names & aliases** surface. Saving is explicit, source-epoch CAS checked, reconciled by read after uncertainty, and guarded against dirty navigation/close; it leaves title/body unchanged and keeps aliases out of restricted context.
 
 ### Current verification
+
+- The 8 September optional-transport checkout passes 839 Rust tests, 600 frontend tests, 25 tooling checks, formatting, strict Clippy, TypeScript, and production build. Isolated native Settings (4) and mock Workshop (31) checks pass. One live app-server Workshop request and a three-case Astra/low transport comparison pass, with preserved earlier failed trials and broader live/release gates still open. See [app-server qualification](docs/APP_SERVER_QUALIFICATION.md).
 
 - The candidate-alternatives slice passes 766 Rust tests, 546 frontend tests, and 11 tooling checks plus the standard formatting, Clippy, TypeScript, and build gates. Headless checks cover the new request scope and stale-preview refusal/recovery at 1440 and 800 pixels. CI 34152622887 passed 25 earlier Workshop groups before a fixture object-prototype mismatch; corrected comparisons and the new product slice need fresh native/package qualification. The author-study kit is prepared, with human observations still pending.
 

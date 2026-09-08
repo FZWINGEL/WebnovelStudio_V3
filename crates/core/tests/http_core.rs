@@ -1,8 +1,9 @@
 use webnovel_core::context::packet::{
-    HTTP_INPUT_LIMIT_BYTES, HTTP_MEMORY_INPUT_LIMIT_BYTES, HTTP_MEMORY_MODEL_ID,
-    HTTP_MEMORY_OUTPUT_LIMIT_BYTES, HTTP_MEMORY_PROFILE_VERSION, HTTP_MEMORY_REASONING,
-    HTTP_OUTPUT_LIMIT_BYTES, HTTP_PROFILE_VERSION, HTTP_TOKEN_ACCOUNTING_METHOD,
-    HttpProviderBinding, HttpResponseFormat, PacketMessage, PacketOptions, ProviderBinding,
+    HTTP_INPUT_LIMIT_BYTES, HTTP_MEMORY_LEGACY_MODEL_ID, HTTP_MEMORY_LEGACY_PROFILE_VERSION,
+    HTTP_MEMORY_LEGACY_REASONING, HTTP_MEMORY_MODEL_ID, HTTP_MEMORY_OUTPUT_LIMIT_BYTES,
+    HTTP_MEMORY_PROFILE_VERSION, HTTP_MEMORY_REASONING, HTTP_OUTPUT_LIMIT_BYTES,
+    HTTP_PROFILE_VERSION, HTTP_TOKEN_ACCOUNTING_METHOD, HttpProviderBinding, HttpResponseFormat,
+    PacketMessage, PacketOptions, ProviderBinding,
 };
 use webnovel_core::providers::http_request::prepare_request;
 
@@ -85,25 +86,13 @@ fn http_binding_rejects_secrets_and_non_normalized_urls() {
 }
 
 fn http_memory_binding() -> ProviderBinding {
-    ProviderBinding {
-        provider_id: "openai-compatible:00000000-0000-0000-0000-000000000001".into(),
-        model_id: HTTP_MEMORY_MODEL_ID.into(),
-        reasoning: Some(HTTP_MEMORY_REASONING.into()),
-        service_tier: None,
-        profile_version: HTTP_MEMORY_PROFILE_VERSION.into(),
-        input_limit_bytes: HTTP_MEMORY_INPUT_LIMIT_BYTES.to_string(),
-        reserved_output_bytes: "0".into(),
-        reserved_protocol_bytes: "0".into(),
-        output_limit_bytes: HTTP_MEMORY_OUTPUT_LIMIT_BYTES.to_string(),
-        accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.into(),
-        runtime: None,
-        http: Some(HttpProviderBinding {
-            base_url: "https://example.test/v1".into(),
-            config_revision: "1".into(),
-            stream: true,
-            response_format: HttpResponseFormat::Text,
-        }),
-    }
+    ProviderBinding::http_memory(
+        "openai-compatible:00000000-0000-0000-0000-000000000001",
+        "https://example.test/v1",
+        "1",
+        true,
+        HttpResponseFormat::Text,
+    )
 }
 
 #[test]
@@ -122,7 +111,7 @@ fn memory_http_profile_is_fixed_and_secret_free() {
         (
             {
                 let mut value = binding.clone();
-                value.model_id = "gpt-6-astra".into();
+                value.model_id = "gpt-5.6-luna".into();
                 value
             },
             "model",
@@ -157,4 +146,27 @@ fn memory_http_profile_is_fixed_and_secret_free() {
     let encoded = serde_json::to_string(&binding).unwrap();
     assert!(!encoded.contains("apiKey"));
     assert!(!encoded.contains("secret"));
+}
+
+#[test]
+fn legacy_luna_memory_profile_remains_valid_and_distinct_from_current_astra() {
+    let mut binding = http_memory_binding();
+    binding.profile_version = HTTP_MEMORY_LEGACY_PROFILE_VERSION.into();
+    binding.model_id = HTTP_MEMORY_LEGACY_MODEL_ID.into();
+    binding.reasoning = Some(HTTP_MEMORY_LEGACY_REASONING.into());
+    binding.validate().unwrap();
+    assert!(binding.is_http_memory());
+    assert_ne!(binding.profile_version, HTTP_MEMORY_PROFILE_VERSION);
+    assert_ne!(binding.model_id, HTTP_MEMORY_MODEL_ID);
+    assert_eq!(
+        serde_json::to_string(&binding).unwrap(),
+        r#"{"providerId":"openai-compatible:00000000-0000-0000-0000-000000000001","modelId":"gpt-5.6-luna","reasoning":"xhigh","serviceTier":null,"profileVersion":"openai-chat-completions.memory.v1","inputLimitBytes":"2097152","reservedOutputBytes":"0","reservedProtocolBytes":"0","outputLimitBytes":"65536","accountingMethod":"utf8-byte-count/openai-compatible-http-application-cap-v1","http":{"baseUrl":"https://example.test/v1","configRevision":"1","stream":true,"responseFormat":"text"}}"#
+    );
+
+    let mut wrong = binding.clone();
+    wrong.model_id = HTTP_MEMORY_MODEL_ID.into();
+    assert!(wrong.validate().is_err());
+    wrong = binding;
+    wrong.reasoning = Some(HTTP_MEMORY_REASONING.into());
+    assert!(wrong.validate().is_err());
 }

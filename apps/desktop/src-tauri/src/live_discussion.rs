@@ -240,6 +240,7 @@ pub(super) fn report(run: &DiscussionRun, result: CodexRunResult) -> ProviderTer
         ),
     };
     ProviderTerminalReport {
+        app_server: None,
         owner: run.owner.clone(),
         expected_sequence: run.sequence.clone(),
         event_id: format!("{}-provider-finish", run.id),
@@ -276,7 +277,7 @@ fn save(
 ) {
     save_report(project, recovery, run.clone(), report(&run, result));
 }
-fn save_report(
+pub(super) fn save_report(
     project: &ProjectSession,
     recovery: &DiscussionRecovery,
     run: DiscussionRun,

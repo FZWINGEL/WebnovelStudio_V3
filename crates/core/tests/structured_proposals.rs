@@ -619,6 +619,7 @@ fn nonchapter_develop_uses_author_room_whole_document_scope_and_retains_candidat
     fixture
         .project()
         .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
             owner: started.run.owner.clone(),
             expected_sequence: "0".into(),
             event_id: "world-provider-complete".into(),
@@ -866,7 +867,7 @@ fn schema22_rebuild_preserves_legacy_candidate_payload_receipt_and_decision() {
     let schema: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema, 37);
+    assert_eq!(schema, 38);
     let (run_id, ordinal): (String, i64) = migrated
         .query_row(
             "SELECT run_id,ordinal FROM proposals WHERE id=?",

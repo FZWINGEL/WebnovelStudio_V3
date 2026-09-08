@@ -102,6 +102,7 @@ impl Fixture {
             serde_json::to_string(&mock_navigation_digest(&dispatch.source).unwrap()).unwrap();
         self.project
             .complete_memory(CompleteMemory {
+                app_server: None,
                 owner: dispatch.job.owner.clone(),
                 event_id: "memory-optional-result".into(),
                 raw_output: raw,

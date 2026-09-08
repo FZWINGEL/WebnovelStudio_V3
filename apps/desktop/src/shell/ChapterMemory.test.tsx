@@ -65,12 +65,12 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('chapter story memory controller', () => {
-  it('blocks memory when the checked catalog lacks Luna maintenance traits even if another model is ready', async () => {
+  it('blocks memory when the checked catalog lacks Astra maintenance traits even if another model is ready', async () => {
     vi.mocked(providerIpc.readProviderState).mockResolvedValue({
       settings: { revision: '3', active: { providerId: 'codex', modelId: 'gpt-6-astra', reasoning: 'high', serviceTier: null }, favorites: [] },
-      catalog: { models: [{ key: providerIpc.storyMemoryModel, label: 'GPT-5.6-Luna', providerLabel: 'Codex', reasoningLevels: ['xhigh'], serviceTiers: [{id:'priority',label:'Fast'}], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: true, statusDetail: 'Historical reference' }] },
+      catalog: { models: [{ key: providerIpc.storyMemoryModel, label: 'GPT-6 Astra', providerLabel: 'Codex', reasoningLevels: ['xhigh'], serviceTiers: [{id:'priority',label:'Fast'}], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: true, statusDetail: 'Historical reference' }] },
       dispatch: { kind: 'codexCli', detail: 'Connected' }, codexConnection: { ready: true, memoryReady: false, detail: 'Connected' },
-      storyMemory: { revision: '0', providerId: 'codex', providerLabel: 'Codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority', ready: false, detail: 'Connected but Luna maintenance traits are unavailable' },
+      storyMemory: { revision: '0', providerId: 'codex', providerLabel: 'Codex', modelId: 'gpt-6-astra', reasoning: 'low', serviceTier: 'priority', ready: false, detail: 'Connected but Astra maintenance traits are unavailable' },
     });
     await act(async () => root.render(<ProviderSettingsProvider><ChapterMemory session={session} state={state} title="The return" visible onClose={vi.fn()} /></ProviderSettingsProvider>));
     expect([...host.querySelectorAll('button')].find(button=>button.textContent==='Refresh story memory')!.disabled).toBe(true);
@@ -86,16 +86,16 @@ describe('chapter story memory controller', () => {
     expect([...host.querySelectorAll('button')].find(button => button.textContent === 'Refresh story memory')!.disabled).toBe(true);
     expect(memory.startMemory).not.toHaveBeenCalled();
   });
-  it('uses Luna xhigh for memory even when the writing picker has another model', async () => {
+  it('uses Astra low for memory even when the writing picker has another model', async () => {
     vi.mocked(providerIpc.readProviderState).mockResolvedValue({
       settings: { revision: '3', active: { providerId: 'claude', modelId: 'claude-sonnet', reasoning: null, serviceTier: null }, favorites: [] },
-      catalog: { models: [{ key: providerIpc.storyMemoryModel, label: 'GPT-5.6-Luna', providerLabel: 'Codex', reasoningLevels: ['xhigh'], serviceTiers: [{ id: 'priority', label: 'Fast' }], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: true, statusDetail: 'Connected' }] },
+      catalog: { models: [{ key: providerIpc.storyMemoryModel, label: 'GPT-6 Astra', providerLabel: 'Codex', reasoningLevels: ['low'], serviceTiers: [{ id: 'priority', label: 'Fast' }], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: true, statusDetail: 'Connected' }] },
       dispatch: { kind: 'blocked', detail: 'Drafting model is unavailable' },
       codexConnection: { ready: true, detail: 'Connected' },
-      storyMemory: { revision: '4', providerId: 'codex', providerLabel: 'Codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority', ready: true, detail: 'Connected' },
+      storyMemory: { revision: '4', providerId: 'codex', providerLabel: 'Codex', modelId: 'gpt-6-astra', reasoning: 'low', serviceTier: 'priority', ready: true, detail: 'Connected' },
     });
     await act(async () => root.render(<ProviderSettingsProvider><ChapterMemory session={session} state={state} title="The return" visible onClose={vi.fn()} /></ProviderSettingsProvider>));
-    expect(host.textContent).toContain('GPT-5.6-Luna · Extra high');
+    expect(host.textContent).toContain('gpt-6-astra · low');
     await click('Refresh story memory');
     expect(memory.startMemory).toHaveBeenCalledOnce();
     expect(vi.mocked(memory.startMemory).mock.calls[0][0].modelSelection).toEqual(providerIpc.storyMemoryModel);
@@ -115,6 +115,18 @@ describe('chapter story memory controller', () => {
     await click('Check saved result');
     expect(memory.startMemory).toHaveBeenCalledTimes(2);
     expect(vi.mocked(memory.startMemory).mock.calls[1][0].operationId).toBe(vi.mocked(memory.startMemory).mock.calls[0][0].operationId);
+  });
+
+  it('retains unresolved app-server cleanup as an unresolved request resource', async () => {
+    vi.mocked(memory.readMemory).mockResolvedValue(read([job({ status: 'interrupted', result: {
+      jobId: 'job-1', eventId: 'event', rawOutput: null, outcome: 'failed', confirmedStdinBytes: null, usage: null,
+      cleanup: 'unresolved', error: null, validationError: null, candidate: null, effectiveIdentity: null, createdAt: '2026-09-06T12:00:00Z',
+      appServer: { dispatch: { serverGeneration: 'server-1', threadId: 'thread-1', rpcId: 'rpc-1', packetHash: 'a'.repeat(64), requestHash: 'b'.repeat(64) }, submission: 'acknowledged', turnId: 'turn-1', terminal: null, requestSettled: false, connection: 'unresolved' },
+    } })]));
+    await render();
+    expect(host.textContent).toContain('The Codex app-server request resource could not be settled.');
+    expect(host.textContent).toContain('This refresh remains unresolved');
+    expect(host.textContent).not.toContain('Local process cleanup could not be confirmed');
   });
 
   it('uses local persistence retry for a completed candidate instead of generating again', async () => {

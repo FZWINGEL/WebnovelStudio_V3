@@ -1127,7 +1127,7 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
         .unwrap()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 37);
+    assert_eq!(version, 38);
     let table: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row(
@@ -1193,6 +1193,7 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     drop(project);
     let database_path = source.join("project.sqlite3");
     let connection = Connection::open(&database_path).expect("open source database");
+    legacy_schema::remove_schema38_features(&connection).unwrap();
     connection
         .execute_batch(
             "DROP TRIGGER discussion_lookup_results_no_update;
@@ -1282,5 +1283,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 37);
+    assert_eq!(version, 38);
 }

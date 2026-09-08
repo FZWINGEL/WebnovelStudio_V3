@@ -332,6 +332,7 @@ fn schema_33_migrates_legacy_rows_and_keeps_knowledge_absent_bytes_compatible() 
         )
         .unwrap();
     assert_eq!(nulls, (None, None));
+    crate::legacy_schema::remove_schema38_features(&connection).unwrap();
     connection
         .execute_batch(
             "ALTER TABLE review_stages DROP COLUMN knowledge_json;
@@ -349,7 +350,7 @@ fn schema_33_migrates_legacy_rows_and_keeps_knowledge_absent_bytes_compatible() 
     let version: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 37);
+    assert_eq!(version, 38);
     for (table, column) in [
         ("review_stages", "knowledge_json"),
         ("review_stages", "knowledge_hash"),

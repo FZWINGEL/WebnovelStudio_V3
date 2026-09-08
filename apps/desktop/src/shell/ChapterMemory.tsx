@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { readStoryContextSource, type SourceRead } from '../ipc/context';
+import { readStoryContextSource, type AppServerDelivery, type SourceRead } from '../ipc/context';
 import { readMemory, readMemorySource, retryMemorySave, startMemory, stopMemory, type DigestCandidate, type MemoryJob, type MemoryRead, type MemoryViewRecord, type StartMemory } from '../ipc/memory';
 import type { DocumentSession, SessionState } from '../editor/session';
 import { bodyHash, canonicalJson } from '../editor/document';
@@ -88,6 +88,11 @@ function candidateDisplay(job: MemoryJob, currentHead: SessionState['head']): Me
   return { id: `candidate/${job.id}`, kind: sameHead(job.target, currentHead) ? 'current' : 'changedSource', createdAt: job.result?.createdAt ?? job.updatedAt, items: itemRows(candidate) };
 }
 function errorForJob(job: MemoryJob): string | undefined {
+  const appServer = job.result?.appServer;
+  if (appServer?.submission === 'uncertain') return 'The Codex app-server may have accepted this refresh, but delivery could not be confirmed. No automatic retry was made.';
+  if (appServer && (!appServer.requestSettled || appServer.connection === 'unresolved' || job.result?.cleanup === 'unresolved')) {
+    return 'The Codex app-server request resource could not be settled. This refresh remains unresolved and its result cannot become current memory. No automatic retry was made.';
+  }
   if (job.result?.cleanup === 'unresolved') return 'Local process cleanup could not be confirmed. This refresh is interrupted and its result cannot become current memory.';
   if (job.stopReason === 'dispatch_outcome_unknown') return 'The refresh could not confirm its local dispatch. No automatic retry was made. You can request a new refresh.';
   if (job.stopReason === 'recovered_unknown_external_outcome') return job.result
@@ -96,19 +101,19 @@ function errorForJob(job: MemoryJob): string | undefined {
   if (job.stopReason === 'author_stopped') return 'You stopped this refresh.';
   return job.result?.error || job.result?.validationError || undefined;
 }
-type MemorySourceTarget = { viewId: string; snapshotId: string; packetId: string; source: MemoryViewRecord['source']; policyAvailable: boolean; delivered: boolean; historical: boolean };
+type MemorySourceTarget = { viewId: string; snapshotId: string; packetId: string; source: MemoryViewRecord['source']; policyAvailable: boolean; delivered: boolean; historical: boolean; appServerDelivery?: AppServerDelivery };
 function stateFromRead(read: MemoryRead, currentHead: SessionState['head']): { state: MemoryPanelState; latest: MemoryJob | null; sources: Map<string, MemorySourceTarget> } {
   const latest = read.jobs.filter(job => job.historical !== true).at(-1) ?? null;
   const sources = new Map<string, MemorySourceTarget>();
   const views = read.views.map(view => {
     const job = read.jobs.find(candidate => candidate.id === view.jobId);
-    sources.set(view.id, { viewId: view.id, snapshotId: view.snapshotId, packetId: view.packetId, source: view.source, policyAvailable: view.policyAvailable, delivered: !!job?.result, historical: view.historical === true });
+    sources.set(view.id, { viewId: view.id, snapshotId: view.snapshotId, packetId: view.packetId, source: view.source, policyAvailable: view.policyAvailable, delivered: !!job?.result, historical: view.historical === true, appServerDelivery: job?.result?.appServer });
     return displayView(view);
   });
   const pending = latest ? candidateDisplay(latest, currentHead) : null;
   if (pending && latest) {
     views.push(pending);
-    if (latest.result?.candidate) sources.set(pending.id, { viewId: pending.id, snapshotId: latest.snapshotId, packetId: latest.packetId, source: latest.source, policyAvailable: true, delivered: !!latest.result, historical: false });
+    if (latest.result?.candidate) sources.set(pending.id, { viewId: pending.id, snapshotId: latest.snapshotId, packetId: latest.packetId, source: latest.source, policyAvailable: true, delivered: !!latest.result, historical: false, appServerDelivery: latest.result.appServer });
   }
   if (!latest) return { state: views.length ? { kind: 'completed', disposition: 'candidate', views } : { kind: 'empty', views: [] }, latest, sources };
   const pendingSave = read.pendingSave === true || read.pendingJobIds?.includes(latest.id) === true;
@@ -329,7 +334,7 @@ export function ChapterMemory({ session, state, title, visible, onClose }: {
     } catch (reason) { if (owns(capturedIdentity, capturedSequence)) setError(detail(reason)); }
   }
   const packetTarget = packetViewId ? sourceTargets.current.get(packetViewId) : undefined;
-  const inspectedPacket: ReactNode = packetTarget && packetViewId ? <ContextInspector access={session.projectAccess} packetId={packetTarget.packetId} delivered={packetTarget.delivered} refreshKey={`${identity}/${packetViewId}`} /> : undefined;
+  const inspectedPacket: ReactNode = packetTarget && packetViewId ? <ContextInspector access={session.projectAccess} packetId={packetTarget.packetId} delivered={packetTarget.delivered} appServerDelivery={packetTarget.appServerDelivery} refreshKey={`${identity}/${packetViewId}`} /> : undefined;
   const frozenJob = latestJob.current;
   const showFrozenProfile = !!frozenJob && (activeStatuses.has(frozenJob.status)
     || (memoryState.kind === 'completed' && memoryState.disposition === 'needsReconciliation'));

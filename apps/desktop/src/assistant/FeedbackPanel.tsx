@@ -62,18 +62,43 @@ function hasDocumentText(document: ReturnType<typeof snapshotFromEditor>): boole
     && (block.content ?? []).some(inline => inline.type === 'text' && inline.text.trim().length > 0));
 }
 
+function appServerDeliveryLabels(delivery: NonNullable<DiscussionRun['providerResult']>['appServer']): string[] {
+  if (!delivery || delivery.submission === 'notSent') return [
+    'App-server acknowledgment: the turn was not sent.',
+    'App-server terminal: not applicable.',
+    'Request settlement: closed before dispatch; no automatic retry was made.',
+  ];
+  const acknowledgment = delivery.submission === 'uncertain'
+    ? 'App-server acknowledgment: uncertain; it may have accepted this turn. It was not automatically retried.'
+    : 'App-server acknowledgment: the owned turn was acknowledged.';
+  const terminal = delivery.terminal === 'completed'
+    ? 'App-server terminal: completed.'
+    : delivery.terminal === 'interrupted'
+      ? 'App-server terminal: interrupted. A local stop does not confirm that upstream processing has stopped.'
+      : delivery.terminal === 'failed'
+        ? 'App-server terminal: failed. The saved result was not automatically retried.'
+        : 'App-server terminal: not confirmed.';
+  const settlement = delivery.requestSettled && delivery.connection === 'reusable'
+    ? 'Request settlement: settled; the shared app-server is reusable for another request.'
+    : delivery.requestSettled
+      ? 'Request settlement: settled; the app-server connection was closed.'
+      : 'Request settlement: unresolved. It was not automatically retried.';
+  return [acknowledgment, terminal, settlement];
+}
+
 function ResponseDetails({ run }: { run: DiscussionRun }) {
   const result = run.providerResult;
   if (!result) return null;
   const binding = result.binding;
   const requested = [assistantName(run), binding.reasoning ? `${binding.reasoning === 'xhigh' ? 'Extra high' : binding.reasoning} reasoning` : null, binding.serviceTier === 'priority' ? 'Fast' : binding.serviceTier].filter(Boolean).join(' · ');
   const usage = result.delivery?.usage;
+  const appServerLabels = appServerDeliveryLabels(result.appServer);
   return <details className="response-details"><summary>Response details</summary>
     <p className="small-copy">Requested {requested}. {result.effectiveIdentity === null ? 'The provider did not confirm its effective model settings.' : result.effectiveIdentity}</p>
     {result.reportedModel && <p className="small-copy">Provider-reported model: {result.reportedModel}. This is recorded separately from the requested model.</p>}
     <p className="small-copy">{usage ? `Provider-reported usage: ${usage.inputTokens?.toLocaleString() ?? 'unknown'} input tokens; ${usage.outputTokens?.toLocaleString() ?? 'unknown'} output tokens.` : result.usage ? `Provider-reported usage: ${result.usage.inputTokens.toLocaleString()} input tokens and ${result.usage.outputTokens.toLocaleString()} output tokens, including ${result.usage.reasoningOutputTokens.toLocaleString()} reasoning tokens.` : 'Usage is unavailable for this response.'}</p>
     {result.delivery && <p className="small-copy">{result.delivery.submission === 'responseReceived' ? result.status === 'completed' ? 'The API returned a complete response to the saved request.' : 'Response headers were received; the saved result may be partial.' : result.delivery.submission === 'uncertain' ? 'The request may have reached the API, but delivery could not be confirmed. It was not automatically retried.' : 'The API request was not sent.'}</p>}
-    <p className="small-copy">{result.cleanup === 'settled' ? result.delivery ? 'The local HTTP request has finished.' : 'The local provider process has finished.' : 'Local process cleanup could not be confirmed.'} {(result.status === 'stopped' || (result.delivery && result.delivery.submission !== 'notSent' && result.status !== 'completed')) && 'Stopping locally does not confirm that the upstream service stopped processing or charging.'}</p>
+    {result.appServer ? appServerLabels.map(label => <p className="small-copy" key={label}>{label}</p>) : <p className="small-copy">{result.cleanup === 'settled' ? result.delivery ? 'The local HTTP request has finished.' : 'The local provider process has finished.' : 'Local process cleanup could not be confirmed.'} {(result.status === 'stopped' || (result.delivery && result.delivery.submission !== 'notSent' && result.status !== 'completed')) && 'Stopping locally does not confirm that the upstream service stopped processing or charging.'}</p>}
   </details>;
 }
 
@@ -397,6 +422,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   const contextDelivered = selectedLookup ? lookupPacketDelivered(selectedLookup.inputDelivered) : latest?.lookup && lookupInvocations.length > 0
     ? lookupPacketDelivered(lookupInvocations.find(item => item.packetId === latestPacketId)?.inputDelivered ?? false)
     : latest?.dispatchState === 'delivered';
+  const contextAppServerDelivery = contextPacketId === latestPacketId ? latest?.providerResult?.appServer : undefined;
   const latestIsCurrentProject = latest?.owner.projectId === session.projectAccess.projectId && latest?.owner.operationNamespace === session.projectAccess.operationNamespace;
   const pin = (id: string) => { if (!locked && controller.current && !controller.current.body.pinnedDocumentIds.includes(id)) update({ ...controller.current.body, pinnedDocumentIds: [...controller.current.body.pinnedDocumentIds, id] }); };
   const canIncludeTransientSource = documentKind !== 'chapter' || currentIntent === 'discuss';
@@ -438,7 +464,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
       {proposals.length > 0 && <ProposalPanel key={`${session.projectAccess.projectId}/${session.projectAccess.operationNamespace}/${documentId}`} access={session.projectAccess} proposals={proposals} disabled={!session.state.editable} onPrepareProposal={onPrepareProposal} onApplyProposal={onApplyProposal} onRefresh={refresh} />}
       {latest && !activeRun(latest) && latest.status !== 'completed' && <p className="discussion-state">This response is {latest.status}. {latest.stopReason === 'context_stale' ? 'The story changed before it could start.' : ''}<button disabled={locked || !latestIsCurrentProject} onClick={() => void prepareRetry(latest)}>Prepare another attempt</button></p>}
       {latest && lookupInvocations.length > 1 && <label className="context-call-selector" htmlFor="discussion-context-call"><span id="discussion-context-call-label">Context for model call</span><select aria-labelledby="discussion-context-call-label" id="discussion-context-call" value={selectedLookupPacketId ?? contextPacketId ?? latest.packetId} disabled={locked} onChange={event => setSelectedLookupPacketId(event.target.value)}>{lookupInvocations.map((invocation, index) => <option key={invocation.packetId} value={invocation.packetId}>Call {index + 1} · {lookupStateLabel(invocation.state)}</option>)}</select></label>}
-      {latest && contextPacketId && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={contextPacketId} delivered={contextDelivered} lookupDelivery={contextLookupDelivery} refreshKey={`${state.head.version}/${guidanceEpoch}`} {...(canIncludeTransientSource ? { onPin: pin } : {})} pinDisabled={locked || sourcesPending} onKeepSource={id => { if (!locked && !sourcesPending) setSourceAdoption(previous => ({ documentId: id, nonce: (previous?.nonce ?? 0) + 1 })); }} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
+      {latest && contextPacketId && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={contextPacketId} delivered={contextDelivered} appServerDelivery={contextAppServerDelivery} lookupDelivery={contextLookupDelivery} refreshKey={`${state.head.version}/${guidanceEpoch}`} {...(canIncludeTransientSource ? { onPin: pin } : {})} pinDisabled={locked || sourcesPending} onKeepSource={id => { if (!locked && !sourcesPending) setSourceAdoption(previous => ({ documentId: id, nonce: (previous?.nonce ?? 0) + 1 })); }} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
     </div>
     <form className="feedback-form" onSubmit={event => { event.preventDefault(); void send(); }}>
       {body.previousRunId && <div className="retry-notice"><p>Another attempt at the same feedback. Uses current story sources and retains the original one-use guidance if it is still active. Editing the feedback, selection, or included sources starts a new request.</p><button type="button" className="text-button" disabled={locked} onClick={() => update({ ...body, previousRunId: null })}>Use as a new request</button></div>}

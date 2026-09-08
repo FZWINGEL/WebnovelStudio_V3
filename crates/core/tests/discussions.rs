@@ -83,6 +83,104 @@ fn setup_project(
     (project, access, document)
 }
 
+#[test]
+fn app_server_delivery_claim_is_single_use_and_reopens_without_exec_byte_evidence() {
+    use webnovel_core::providers::codex_app_server::{AppServerDelivery, AppServerSubmission, AppServerTerminal, AppServerConnectionSettlement, prepare_dispatch};
+    let temp = TempDir::new("app-server-receipt");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let binding = ProviderBinding::codex_app_server_author_runtime("gpt-6-astra", "low", None, "0.153.4", &"a".repeat(64), &"b".repeat(64), app_server_identity());
+    binding.validate().unwrap();
+    let mut request = start_request(&access, &document, "app-server-start", "Discuss the chapter.", None, vec![]);
+    request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(request).unwrap();
+    let dispatched = project.begin_discussion_run(DiscussionBegin { owner: started.run.owner.clone() }).unwrap();
+    let packet = serialized_input(&dispatched.packet.messages, &dispatched.packet.options).unwrap();
+    let identity = prepare_dispatch("server-one".into(), "thread-one".into(), "rpc-one".into(), &binding, &packet).unwrap();
+    let mut wrong_identity = identity.clone();
+    wrong_identity.request_hash = "c".repeat(64);
+    assert_eq!(project.claim_app_server_dispatch(started.run.owner.clone(), wrong_identity).unwrap_err().code, "ProviderBindingMismatch");
+    project.claim_app_server_dispatch(started.run.owner.clone(), identity.clone()).unwrap();
+    assert_eq!(project.claim_app_server_dispatch(started.run.owner.clone(), identity.clone()).unwrap_err().code, "DispatchAlreadyClaimed");
+    project.acknowledge_app_server_turn(started.run.owner.clone(), identity.clone(), "turn-one".into()).unwrap();
+    assert_eq!(project.acknowledge_app_server_turn(started.run.owner.clone(), identity.clone(), "another-turn".into()).unwrap_err().code, "ProviderBindingMismatch");
+    let receipt = AppServerDelivery {
+        dispatch: Some(identity), submission: AppServerSubmission::Acknowledged,
+        turn_id: Some("turn-one".into()), terminal: Some(AppServerTerminal::Completed),
+        request_settled: true, connection: AppServerConnectionSettlement::Reusable,
+    };
+    let mut report = ProviderTerminalReport {
+        owner: started.run.owner.clone(), expected_sequence: "0".into(), event_id: "app-server-completed".into(),
+        assistant_text: "The ending makes the character's choice clear.".into(), binding: binding.clone(),
+        status: ProviderOutcomeStatus::Completed, confirmed_stdin_bytes: "0".into(), usage: None,
+        cleanup: ProviderCleanup::Settled, error: None, effective_identity: None, reported_model: None,
+        delivery: None, app_server: Some(receipt.clone()),
+    };
+    report.confirmed_stdin_bytes = packet.len().to_string();
+    assert!(project.settle_provider_discussion(report.clone()).is_err());
+    report.confirmed_stdin_bytes = "0".into();
+    report.app_server.as_mut().unwrap().terminal = None;
+    assert!(project.settle_provider_discussion(report.clone()).is_err());
+    report.app_server = Some(receipt.clone());
+    let settled = project.settle_provider_discussion(report.clone()).unwrap();
+    let reconciled = project.settle_provider_discussion(report).unwrap();
+    assert_eq!(settled.provider_result, reconciled.provider_result);
+    assert_eq!(settled.run.status, DiscussionRunStatus::Completed);
+    assert_eq!(settled.provider_result.confirmed_stdin_bytes, "0");
+    assert_eq!(settled.provider_result.app_server, Some(receipt.clone()));
+    create_backup(&project, &temp.child("app-server.wnsbackup")).unwrap();
+    let recovered = recover_backup(&temp.child("app-server.wnsbackup"), &temp.child("copy"), "Recovered app-server history").unwrap();
+    let recovered_access = recovered.attach("recovered-app-server".into()).unwrap();
+    let copied = recovered.read_discussion(recovered_access, document.head.document_id.clone()).unwrap();
+    assert_eq!(copied.runs.last().unwrap().provider_result.as_ref().unwrap().app_server, Some(receipt.clone()));
+    assert_eq!(recovered.begin_discussion_run(DiscussionBegin { owner: started.run.owner.clone() }).unwrap_err().code, "DiscussionProjectMismatch");
+    drop(project);
+    let reopened = ProjectSession::open(&path).unwrap();
+    let access = reopened.attach("app-server-reopened".into()).unwrap();
+    let view = reopened.read_discussion(access, document.head.document_id).unwrap();
+    let result = view.runs.last().unwrap().provider_result.as_ref().unwrap();
+    assert_eq!(result.binding, binding);
+    assert_eq!(result.app_server.as_ref(), Some(&receipt));
+}
+
+#[test]
+fn app_server_stop_prevents_claim_and_unacknowledged_dispatch_cannot_be_replayed() {
+    use webnovel_core::providers::codex_app_server::prepare_dispatch;
+    let temp = TempDir::new("app-server-stop");
+    let path = temp.child("project");
+    let (project, access, document) = setup_project(&path);
+    let binding = ProviderBinding::codex_app_server_author_runtime("gpt-6-astra", "low", Some("priority"), "0.153.4", &"a".repeat(64), &"b".repeat(64), app_server_identity());
+    let mut request = start_request(&access, &document, "app-server-stop-start", "Discuss the chapter.", None, vec![]);
+    request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(request).unwrap();
+    let dispatched = project.begin_discussion_run(DiscussionBegin { owner: started.run.owner.clone() }).unwrap();
+    let packet = serialized_input(&dispatched.packet.messages, &dispatched.packet.options).unwrap();
+    let identity = prepare_dispatch("server-one".into(), "thread-one".into(), "rpc-one".into(), &binding, &packet).unwrap();
+    project.stop_discussion(access, started.run.id.clone()).unwrap();
+    assert_eq!(project.claim_app_server_dispatch(started.run.owner.clone(), identity).unwrap_err().code, "RunNotStarted");
+    drop(project);
+    let reopened = ProjectSession::open(&path).unwrap();
+    assert!(reopened.begin_discussion_run(DiscussionBegin { owner: started.run.owner }).is_err());
+}
+
+#[test]
+fn app_server_refuses_new_story_evidence_between_thread_creation_and_turn_submission() {
+    let temp = TempDir::new("app-server-source-change");
+    let (project, access, document) = setup_project(&temp.child("project"));
+    let binding = ProviderBinding::codex_app_server_author_runtime("gpt-6-astra", "low", None, "0.153.4", &"a".repeat(64), &"b".repeat(64), app_server_identity());
+    let mut request = start_request(&access, &document, "source-change", "Discuss this chapter.", None, vec![]);
+    request.provider_binding = Some(binding.clone());
+    let started = project.start_discussion(request).unwrap();
+    let dispatch = project.begin_discussion_run(DiscussionBegin { owner: started.run.owner.clone() }).unwrap();
+    let packet = serialized_input(&dispatch.packet.messages, &dispatch.packet.options).unwrap();
+    let identity = webnovel_core::providers::codex_app_server::prepare_dispatch("server".into(), "thread".into(), "rpc".into(), &binding, &packet).unwrap();
+    project.create_document(CreateDocument {
+        access, operation_id: "new-evidence".into(), document_id: "new-source".into(),
+        title: "A newly revealed transfer".into(), kind: "note".into(), body: body("The pendant now belongs to someone else."),
+    }).unwrap();
+    assert_eq!(project.claim_app_server_dispatch(started.run.owner, identity).unwrap_err().code, "ContextChanged");
+}
+
 fn budget() -> MockContextBudget {
     MockContextBudget::new("100000", "100", "100")
 }
@@ -2194,7 +2292,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema37-")
+            .starts_with("schema6-before-schema38-")
     }));
 }
 
@@ -2774,6 +2872,7 @@ fn bounded_provider_completion_persists_binding_usage_and_replays_after_restart(
         .len()
         .to_string();
     let report = ProviderTerminalReport {
+        app_server: None,
         owner: started.run.owner.clone(),
         expected_sequence: "0".into(),
         event_id: "provider-terminal-complete".into(),
@@ -2860,6 +2959,7 @@ fn claude_completion_requires_and_persists_the_exact_reported_model() {
         .to_string();
     let settled = project
         .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
             owner: started.run.owner,
             expected_sequence: "0".into(),
             event_id: "claude-provider-terminal-complete".into(),
@@ -2926,6 +3026,7 @@ fn claude_completion_rejects_missing_or_mismatched_reported_model() {
             .to_string();
         let error = project
             .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
                 owner: started.run.owner,
                 expected_sequence: "0".into(),
                 event_id: format!("claude-provider-terminal-{label}"),
@@ -2976,6 +3077,7 @@ fn failed_claude_result_retains_requested_and_reported_models() {
         .to_string();
     let settled = project
         .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
             owner: started.run.owner,
             expected_sequence: "0".into(),
             event_id: "claude-provider-terminal-failed-model".into(),
@@ -3069,6 +3171,7 @@ fn http_provider_completion_persists_delivery_body_and_reopens_without_stdin_cla
         })
         .unwrap();
     let report = ProviderTerminalReport {
+        app_server: None,
         owner: started.run.owner.clone(),
         expected_sequence: "0".into(),
         event_id: "http-provider-terminal-complete".into(),
@@ -3147,6 +3250,7 @@ fn http_provider_rejects_tampered_body_and_seals_uncertain_delivery_history() {
     tampered.body_hash = "00".repeat(32);
     let error = project
         .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
             owner: started.run.owner.clone(),
             expected_sequence: "0".into(),
             event_id: "http-provider-tampered".into(),
@@ -3181,6 +3285,7 @@ fn http_provider_rejects_tampered_body_and_seals_uncertain_delivery_history() {
         .unwrap();
     let settled = project
         .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
             owner: uncertain_started.run.owner.clone(),
             expected_sequence: "0".into(),
             event_id: "http-provider-uncertain".into(),
@@ -3255,6 +3360,7 @@ fn unresolved_provider_cleanup_interrupts_and_accepts_partial_stdin_without_prop
     );
     let settled = project
         .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
             owner: started.run.owner.clone(),
             expected_sequence: prefix.sequence,
             event_id: "provider-terminal-unresolved".into(),
@@ -3349,6 +3455,7 @@ fn tampered_provider_result_is_rejected_by_backup_validation() {
         .to_string();
     project
         .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
             owner: started.run.owner,
             expected_sequence: "0".into(),
             event_id: "provider-result-backup-tamper-terminal".into(),
@@ -3409,6 +3516,7 @@ fn completed_live_run_without_provider_result_is_rejected_by_backup_validation()
         .to_string();
     project
         .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
             owner: started.run.owner,
             expected_sequence: "0".into(),
             event_id: "provider-result-backup-missing-terminal".into(),
@@ -3440,4 +3548,11 @@ fn completed_live_run_without_provider_result_is_rejected_by_backup_validation()
     let error = create_backup(&reopened, &temp.child("missing.wnsbackup"))
         .expect_err("completed live run without provider result must reject backup");
     assert_eq!(error.code, "InvalidBackup");
+}
+
+fn app_server_identity() -> webnovel_core::providers::codex_app_server::AppServerRuntimeIdentity {
+    webnovel_core::providers::codex_app_server::AppServerRuntimeIdentity {
+        account_sha256: "c".repeat(64), security_config_sha256: "d".repeat(64),
+        restrictive_catalog_sha256: "e".repeat(64),
+    }
 }

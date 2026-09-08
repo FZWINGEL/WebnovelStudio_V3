@@ -10,8 +10,8 @@ use super::*;
 use crate::context::memory::{DigestCandidate, MAX_RAW_BYTES, validate_navigation_digest};
 use crate::context::navigation::navigation_content_hash;
 use crate::context::packet::{
-    CompiledPacket, HTTP_MEMORY_PROFILE_VERSION, MEMORY_RESPONSE_CONTRACT, MockContextBudget,
-    PacketError, PacketRequest, ProviderBinding, compile_packet, serialized_input,
+    CompiledPacket, MEMORY_RESPONSE_CONTRACT, MockContextBudget, PacketError, PacketRequest,
+    ProviderBinding, compile_packet, serialized_input,
 };
 use crate::context::{Audience, BasisKind, ContextPurpose, InformationPolicy, SourceRef};
 use crate::projects::context_packets::{PrepareContext, validated_packet_record};
@@ -22,9 +22,12 @@ use crate::projects::discussions::{
 use crate::projects::story_context::{
     FreezeStory, FrozenContext, SourceRead, read_source, validated_snapshot_record,
 };
+use crate::providers::codex_app_server::{AppServerDelivery, AppServerDispatch};
 use crate::providers::http_request::prepare_request as prepare_http_request;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
+
+mod app_server;
 
 const MEMORY_INSTRUCTION: &str = "Create the bounded navigation-digest.v1 JSON object for the one supplied saved chapter. Use only exact evidence from that chapter; do not make edits or establish canon.";
 const MAX_ERROR_BYTES: usize = 4 * 1024;
@@ -156,6 +159,8 @@ pub struct MemoryDispatch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CompleteMemory {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_server: Option<AppServerDelivery>,
     pub owner: MemoryOwner,
     pub event_id: String,
     pub raw_output: String,
@@ -179,6 +184,8 @@ pub struct CompleteMemory {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_server: Option<AppServerDelivery>,
     pub job_id: String,
     pub event_id: String,
     /// None on policy-revoked reads.  The durable terminal record always keeps
@@ -248,6 +255,8 @@ pub struct MemoryList {
 /// claims a queued packet and returns the exact frozen dispatch payload.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum MemoryCommand {
+    ClaimAppServer(MemoryOwner, AppServerDispatch, Reply<()>),
+    AckAppServer(MemoryOwner, AppServerDispatch, String, Reply<()>),
     Start(StartMemory, Reply<MemoryJob>),
     Begin(MemoryOwner, Reply<MemoryDispatch>),
     Stop(ProjectAccess, String, Reply<MemoryJob>),
@@ -372,6 +381,14 @@ impl OwnedProject {
             }};
         }
         match command {
+            MemoryCommand::ClaimAppServer(owner, dispatch, reply) => mutate!(
+                reply,
+                self.claim_memory_app_server_dispatch(owner, dispatch)
+            ),
+            MemoryCommand::AckAppServer(owner, dispatch, turn_id, reply) => mutate!(
+                reply,
+                self.acknowledge_memory_app_server_turn(owner, dispatch, turn_id)
+            ),
             MemoryCommand::Start(request, reply) => mutate!(reply, self.start_memory(request)),
             MemoryCommand::Begin(owner, reply) => mutate!(reply, self.begin_memory(owner)),
             MemoryCommand::Stop(access, job_id, reply) => {
@@ -712,7 +729,7 @@ impl OwnedProject {
             ));
         }
         let packet = context_packets::validated_packet_record(&tx, &current.packet_id)?;
-        validate_delivery(&request, &packet)?;
+        validate_delivery(&tx, &request, &packet)?;
         let (frozen, namespace) =
             story_context::validated_snapshot_record(&tx, &current.snapshot_id)?;
         if namespace != request.owner.operation_namespace
@@ -764,7 +781,7 @@ impl OwnedProject {
             .map(serde_json::to_string)
             .transpose()?;
         tx.execute(
-            "INSERT INTO memory_results(job_id,event_id,raw_output,raw_output_hash,candidate_json,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,validation_error,effective_identity,delivery_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO memory_results(job_id,event_id,raw_output,raw_output_hash,candidate_json,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,validation_error,effective_identity,delivery_json,app_server_delivery_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 request.owner.job_id,
                 request.event_id,
@@ -779,6 +796,7 @@ impl OwnedProject {
                 validation_error,
                 request.effective_identity,
                 delivery_json,
+                request.app_server.as_ref().map(serde_json::to_string).transpose()?,
             ],
         )?;
         tx.execute(
@@ -1034,7 +1052,7 @@ fn validate_start_memory(request: &StartMemory) -> CoreResult<()> {
         binding
             .validate()
             .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
-        if binding.is_http() && binding.profile_version != HTTP_MEMORY_PROFILE_VERSION {
+        if binding.is_http() && !binding.is_http_memory() {
             return Err(CoreError::new(
                 "UnsupportedProviderFeature",
                 "Chapter memory only accepts the fixed OpenAI-compatible memory profile.",
@@ -1043,6 +1061,7 @@ fn validate_start_memory(request: &StartMemory) -> CoreResult<()> {
         if binding.is_claude()
             || binding.profile_version
                 == crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+            || binding.profile_version == crate::providers::codex_app_server::AUTHOR_PROFILE
         {
             return Err(CoreError::new(
                 "UnsupportedProviderFeature",
@@ -1389,7 +1408,25 @@ fn read_memory_job_with_policy(
     Ok(job)
 }
 
-fn validate_delivery(request: &CompleteMemory, packet: &CompiledPacket) -> CoreResult<()> {
+fn validate_delivery(
+    db: &Connection,
+    request: &CompleteMemory,
+    packet: &CompiledPacket,
+) -> CoreResult<()> {
+    if packet
+        .options
+        .provider_binding
+        .as_ref()
+        .is_some_and(crate::providers::codex_app_server::is_app_server)
+    {
+        return app_server::validate_delivery(db, request, packet);
+    }
+    if request.app_server.is_some() {
+        return Err(CoreError::new(
+            "InvalidAppServerDelivery",
+            "App-server evidence is only valid for its frozen transport.",
+        ));
+    }
     if packet
         .options
         .provider_binding
@@ -1618,6 +1655,7 @@ fn result_matches(saved: &MemoryResult, request: &CompleteMemory) -> bool {
         && saved.error == request.error
         && saved.effective_identity == request.effective_identity
         && saved.delivery == request.delivery
+        && saved.app_server == request.app_server
 }
 
 type MemoryResultColumns = (
@@ -1635,6 +1673,7 @@ type MemoryResultColumns = (
     Option<String>,
     Option<String>,
     String,
+    Option<String>,
 );
 
 fn read_memory_result(
@@ -1644,7 +1683,7 @@ fn read_memory_result(
 ) -> CoreResult<Option<MemoryResult>> {
     let row: Option<MemoryResultColumns> = db
         .query_row(
-            "SELECT job_id,event_id,raw_output,raw_output_hash,candidate_json,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,validation_error,effective_identity,delivery_json,created_at FROM memory_results WHERE job_id=?",
+            "SELECT job_id,event_id,raw_output,raw_output_hash,candidate_json,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,validation_error,effective_identity,delivery_json,created_at,app_server_delivery_json FROM memory_results WHERE job_id=?",
             [job_id],
             |row| {
                 Ok((
@@ -1662,6 +1701,7 @@ fn read_memory_result(
                     row.get(11)?,
                     row.get(12)?,
                     row.get(13)?,
+                    row.get(14)?,
                 ))
             },
         )
@@ -1681,6 +1721,7 @@ fn read_memory_result(
         effective_identity,
         delivery_json,
         created_at,
+        app_server_delivery_json,
     )) = row
     else {
         return Ok(None);
@@ -1738,6 +1779,10 @@ fn read_memory_result(
         (None, None, None)
     };
     let result = MemoryResult {
+        app_server: app_server_delivery_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?,
         job_id: saved_job_id,
         event_id,
         raw_output: reveal.then_some(raw_output),
@@ -2016,6 +2061,7 @@ fn read_memory_views(db: &Connection, policy_version: &str) -> CoreResult<Vec<Me
 /// historical path; request-facing reads add the current project/lease/policy
 /// checks above.
 pub(crate) fn validate_memory_storage(db: &Connection) -> CoreResult<()> {
+    app_server::validate_dispatches(db)?;
     for table in [
         "memory_jobs",
         "memory_results",
@@ -2250,6 +2296,7 @@ fn validate_memory_job_record(db: &Connection, row: &MemoryJobRow) -> CoreResult
     })?;
     if let Some(result) = &result {
         let delivery = CompleteMemory {
+            app_server: result.app_server.clone(),
             owner: MemoryOwner {
                 project_id: row.project_id.clone(),
                 operation_namespace: row.operation_namespace.clone(),
@@ -2270,7 +2317,7 @@ fn validate_memory_job_record(db: &Connection, row: &MemoryJobRow) -> CoreResult
             effective_identity: result.effective_identity.clone(),
             delivery: result.delivery.clone(),
         };
-        validate_delivery(&delivery, &packet).map_err(|error| {
+        validate_delivery(db, &delivery, &packet).map_err(|error| {
             CoreError::new(
                 "InvalidMemoryStorage",
                 &format!("A retained memory result has invalid delivery proof: {error}"),

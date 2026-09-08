@@ -6,7 +6,7 @@ import * as ipc from '../ipc/providers';
 import { ModelSelector } from './ModelSelector';
 import { ModelSettings } from './ModelSettings';
 import { ProviderSettingsProvider, useProviders } from './ProviderContext';
-vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), readEndpointSettings: vi.fn(), checkCodexConnection: vi.fn(), checkClaudeConnection: vi.fn(), saveModelSettings: vi.fn(), saveStoryMemoryProvider: vi.fn() }));
+vi.mock('../ipc/providers', async original => ({ ...await original<typeof import('../ipc/providers')>(), readProviderState: vi.fn(), readEndpointSettings: vi.fn(), checkCodexConnection: vi.fn(), checkClaudeConnection: vi.fn(), saveModelSettings: vi.fn(), saveStoryMemoryProvider: vi.fn(), readCodexTransport: vi.fn(), saveCodexTransport: vi.fn() }));
 const luna: ipc.ModelSelection = { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority' };
 function initial(): ipc.ProviderState {
   return { settings: { revision: '0', active: { ...ipc.localModel }, favorites: [] }, dispatch: { kind: 'localMock', detail: 'No live AI connected' }, codexConnection: { ready: false, detail: 'Check Settings to connect Codex.' }, catalog: { models: [
@@ -14,7 +14,8 @@ function initial(): ipc.ProviderState {
     { key: { providerId: 'codex', modelId: 'gpt-5.6-luna' }, label: 'GPT-5.6-Luna', providerLabel: 'Codex CLI', reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'], serviceTiers: [{ id: 'priority', label: 'Fast' }], contextWindowTokens: null, maxOutputTokens: null, origin: 'reference', ready: false, statusDetail: 'Not connected' },
     { key: { providerId: 'openai-compatible:11111111-1111-1111-1111-111111111111', modelId: 'nova' }, label: 'Nova Writer', providerLabel: 'Local API', reasoningLevels: ['low', 'high'], serviceTiers: [{ id: 'standard', label: 'Standard' }], contextWindowTokens: null, maxOutputTokens: null, origin: 'openAiCompatible', ready: true, statusDetail: 'Ready' },
     { key: { providerId: 'openai-compatible:11111111-1111-1111-1111-111111111111', modelId: 'gpt-5.6-luna' }, label: 'GPT-5.6-Luna', providerLabel: 'Local API', reasoningLevels: [], serviceTiers: [], contextWindowTokens: null, maxOutputTokens: null, origin: 'openAiCompatible', ready: true, statusDetail: 'Configured' },
-  ] }, storyMemory: { revision: '0', providerId: 'codex', providerLabel: 'Codex CLI', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority', ready: false, detail: 'Check Codex connection.' } };
+    { key: { providerId: 'openai-compatible:11111111-1111-1111-1111-111111111111', modelId: 'gpt-6-astra' }, label: 'GPT-6 Astra', providerLabel: 'Local API', reasoningLevels: ['low'], serviceTiers: [], contextWindowTokens: null, maxOutputTokens: null, origin: 'openAiCompatible', ready: true, statusDetail: 'Configured' },
+  ] }, storyMemory: { revision: '0', providerId: 'codex', providerLabel: 'Codex CLI', modelId: 'gpt-6-astra', reasoning: 'low', serviceTier: 'priority', ready: false, detail: 'Check Codex connection.' } };
 }
 let state: ipc.ProviderState; let host: HTMLDivElement; let root: Root;
 function Probe() { const value = useProviders(); return <output>{value.state?.settings.active.modelId ?? 'unavailable'}:{value.state?.dispatch.kind ?? 'blocked'}:{String(value.busy)}</output>; }
@@ -47,12 +48,42 @@ beforeEach(() => {
   vi.mocked(ipc.readEndpointSettings).mockResolvedValue({ revision: '0', profiles: [] });
   vi.mocked(ipc.checkCodexConnection).mockImplementation(async () => structuredClone(state));
   vi.mocked(ipc.checkClaudeConnection).mockImplementation(async () => structuredClone(state));
+  vi.mocked(ipc.readCodexTransport).mockResolvedValue({ revision: '0', transport: 'exec' });
+  vi.mocked(ipc.saveCodexTransport).mockImplementation(async (expectedRevision, transport) => ({ revision: String(Number(expectedRevision) + 1), transport }));
   vi.mocked(ipc.saveModelSettings).mockImplementation(async (_revision, active, favorites) => { state = { ...state, settings: { revision: String(Number(state.settings.revision) + 1), active, favorites }, dispatch: { kind: active.providerId === 'mock' ? 'localMock' : 'blocked', detail: '' } }; return structuredClone(state); });
-  vi.mocked(ipc.saveStoryMemoryProvider).mockImplementation(async (_revision, providerId) => { state = { ...state, storyMemory: { ...state.storyMemory!, revision: String(Number(state.storyMemory?.revision ?? '0') + 1), providerId, providerLabel: providerId.startsWith('openai-compatible:') ? 'Local API' : providerId === 'mock' ? 'WebnovelStudio' : 'Codex CLI', modelId: providerId === 'mock' ? 'local-editorial-v1' : 'gpt-5.6-luna', reasoning: providerId === 'mock' ? null : 'xhigh', serviceTier: providerId === 'codex' ? 'priority' : null, ready: true, detail: 'Configured' } }; return structuredClone(state); });
+  vi.mocked(ipc.saveStoryMemoryProvider).mockImplementation(async (_revision, providerId) => { state = { ...state, storyMemory: { ...state.storyMemory!, revision: String(Number(state.storyMemory?.revision ?? '0') + 1), providerId, providerLabel: providerId.startsWith('openai-compatible:') ? 'Local API' : providerId === 'mock' ? 'WebnovelStudio' : 'Codex CLI', modelId: providerId === 'mock' ? 'local-editorial-v1' : 'gpt-6-astra', reasoning: providerId === 'mock' ? null : 'low', serviceTier: providerId === 'codex' ? 'priority' : null, ready: true, detail: 'Configured' } }; return structuredClone(state); });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 describe('persistent model selection', () => {
+  it('saves the Codex app-server choice without changing the writing model or starting a request', async () => {
+    Object.assign(globalThis, { isTauri: true });
+    vi.mocked(ipc.readCodexTransport).mockResolvedValueOnce({ revision: '7', transport: 'exec' });
+    vi.mocked(ipc.saveCodexTransport).mockResolvedValueOnce({ revision: '8', transport: 'appServer' });
+    await render(); await click('Settings');
+    await vi.waitFor(() => expect(ipc.readCodexTransport).toHaveBeenCalledOnce());
+    const select = host.querySelector('#codex-transport') as HTMLSelectElement;
+    expect(select.value).toBe('exec');
+    await act(async () => { select.value = 'appServer'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(ipc.saveCodexTransport).toHaveBeenCalledExactlyOnceWith('7', 'appServer');
+    expect(ipc.saveModelSettings).not.toHaveBeenCalled();
+    expect(select.value).toBe('appServer');
+  });
+
+  it('shows a transport CAS conflict and rereads the persisted choice without generating', async () => {
+    Object.assign(globalThis, { isTauri: true });
+    vi.mocked(ipc.readCodexTransport).mockResolvedValueOnce({ revision: '2', transport: 'exec' }).mockResolvedValueOnce({ revision: '3', transport: 'appServer' });
+    vi.mocked(ipc.saveCodexTransport).mockRejectedValueOnce({ code: 'PreferenceConflict', detail: 'The Codex transport changed. Read Settings again before saving.' });
+    await render(); await click('Settings');
+    await vi.waitFor(() => expect(ipc.readCodexTransport).toHaveBeenCalledOnce());
+    const select = host.querySelector('#codex-transport') as HTMLSelectElement;
+    await act(async () => { select.value = 'appServer'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await vi.waitFor(() => expect(host.querySelector('[role=alert]')?.textContent).toContain('transport changed'));
+    expect(ipc.readCodexTransport).toHaveBeenCalledTimes(2);
+    expect(select.value).toBe('appServer');
+    expect(ipc.saveModelSettings).not.toHaveBeenCalled();
+  });
+
   it('saves story-memory endpoint choice independently of the writing assistant', async () => {
     state.settings.active = { providerId: 'codex', modelId: 'gpt-5.4-mini', reasoning: null, serviceTier: null };
     await render(); await click('Settings');
@@ -163,7 +194,7 @@ describe('persistent model selection', () => {
   });
   it('edits supported traits in Settings and preserves favorites and the active model', async () => {
     state.settings = { revision: '8', active: luna, favorites: [luna] }; state.dispatch.kind = 'blocked'; await render(); await click('Settings');
-    const selects = host.querySelectorAll<HTMLSelectElement>('.settings-dialog select'); expect(selects).toHaveLength(3); expect(selects[1].value).toBe('priority');
+    const selects = host.querySelectorAll<HTMLSelectElement>('.settings-dialog select'); expect(selects).toHaveLength(4); expect(selects[1].value).toBe('priority');
     expect(selects[0].labels?.[0].textContent).toBe('Reasoning'); expect(selects[1].labels?.[0].textContent).toBe('Response speed');
     await act(async () => { selects[0].value = 'high'; selects[0].dispatchEvent(new Event('change', { bubbles: true })); });
     expect(ipc.saveModelSettings).toHaveBeenCalledExactlyOnceWith('8', { ...luna, reasoning: 'high' }, [luna]);

@@ -60,6 +60,15 @@ pub const MAX_PACKET_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_OVERALL: Duration = Duration::from_secs(24 * 60 * 60);
 pub const MAX_STOP_GRACE: Duration = Duration::from_secs(30);
 pub const MAX_TOTAL_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum number of bytes that may wait in the persistent stdin queue.  This
+/// is deliberately separate from `MAX_PACKET_BYTES`: a long-lived server can
+/// accept many packets over its lifetime, but a slow or stalled server must
+/// never make the parent retain an unbounded amount of input.
+pub const MAX_PERSISTENT_PENDING_BYTES: usize = 8 * 1024 * 1024;
+/// Persistent runs keep a bounded diagnostic prefix while delivering every
+/// output chunk to the observer.  This prevents a healthy server's lifetime
+/// traffic from becoming a process-wide output limit or an unbounded buffer.
+pub const MAX_PERSISTENT_DIAGNOSTIC_BYTES: usize = 256 * 1024;
 const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 const OUTPUT_QUEUE_CHUNKS: usize = 32;
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -216,6 +225,17 @@ pub enum InteractiveAction {
     Close,
 }
 
+/// Event delivered by [`RunningChild::finish_persistent`].  `Tick` is
+/// emitted at the same bounded cadence used by the pipe loop, including when
+/// the child is completely idle.  `Output` contains the full read chunk; the
+/// persistent diagnostic prefix is tracked independently and never truncates
+/// the stream delivered to the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersistentEvent<'a> {
+    Tick,
+    Output(ChildStream, &'a [u8]),
+}
+
 // A TimedOut/Stopped outcome means the Job Object was terminated and local
 // worker cleanup settled.  A cleanup failure is returned as ContainmentError;
 // it never gets relabelled as an ordinary provider failure or successful run.
@@ -265,9 +285,11 @@ pub struct RunningChild {
     cleanup_processes: Option<Vec<OwnedHandle>>,
     stdin_packet: Vec<u8>,
     stdin_offset: usize,
+    stdin_total_written: usize,
     stdin_write: Option<Box<PendingWrite>>,
     stdin_error: Option<ChildIoError>,
     interactive: bool,
+    persistent: bool,
     close_stdin_when_drained: bool,
     process_id: u32,
     limits: ChildLimits,
@@ -507,9 +529,11 @@ pub fn spawn(invocation: CliInvocation) -> Result<RunningChild, ContainmentError
         cleanup_processes: None,
         stdin_packet: invocation.packet,
         stdin_offset: 0,
+        stdin_total_written: 0,
         stdin_write: None,
         stdin_error: None,
         interactive: false,
+        persistent: false,
         close_stdin_when_drained: false,
         process_id: process_information.dwProcessId,
         limits,
@@ -524,6 +548,16 @@ pub fn spawn(invocation: CliInvocation) -> Result<RunningChild, ContainmentError
 pub fn spawn_interactive(invocation: CliInvocation) -> Result<RunningChild, ContainmentError> {
     let mut child = spawn(invocation)?;
     child.interactive = true;
+    Ok(child)
+}
+
+/// Create a job-contained child intended to stay alive for multiple bounded
+/// request/response exchanges.  The process remains owned by the caller and
+/// must be consumed with [`RunningChild::finish_persistent`] or dropped.
+pub fn spawn_persistent(invocation: CliInvocation) -> Result<RunningChild, ContainmentError> {
+    let mut child = spawn(invocation)?;
+    child.interactive = true;
+    child.persistent = true;
     Ok(child)
 }
 
@@ -583,6 +617,231 @@ impl RunningChild {
             ));
         }
         self.finish_or_stop_with_action(stop, observer)
+    }
+
+    /// Drive a long-lived interactive child until it exits, is stopped, or is
+    /// explicitly closed by the observer.  The callback is called at most
+    /// every [`POLL_INTERVAL`] while idle and for every bounded output chunk;
+    /// returning `Send` queues one bounded packet, while `Close` closes stdin
+    /// after queued bytes drain and then confirms Job cleanup.
+    ///
+    /// Unlike the one-shot and ordinary interactive finish paths, persistent
+    /// output is not subject to `max_total_output_bytes`.  Every chunk reaches
+    /// the observer, while only a bounded diagnostic prefix is retained in the
+    /// returned `ChildOutput`.
+    pub fn finish_persistent<F>(
+        mut self,
+        stop: StopSignal,
+        mut observer: F,
+    ) -> Result<ChildOutcome, ContainmentError>
+    where
+        F: FnMut(PersistentEvent<'_>) -> InteractiveAction,
+    {
+        if !self.interactive {
+            return Err(ContainmentError::InvalidInvocation(
+                "persistent finish requires spawn_persistent or spawn_interactive".to_owned(),
+            ));
+        }
+        // Accepting an interactive child here keeps the additive API useful
+        // for callers that already construct one with spawn_interactive, while
+        // spawn_persistent marks the intent earlier for queue compaction.
+        self.persistent = true;
+
+        let mut capture = Capture::default();
+        let mut terminal = None;
+        let mut termination_sent = false;
+        let mut stop_deadline = None;
+        let mut close_deadline = None;
+        let mut observer_requested_stop = false;
+        let mut last_tick = Instant::now() - POLL_INTERVAL;
+
+        loop {
+            if !stop.is_requested() {
+                self.progress_stdin(&mut capture)?;
+            }
+            let process_done =
+                unsafe { WaitForSingleObject(raw(&self.process), 0) } == WAIT_OBJECT_0;
+            if process_done {
+                terminal.get_or_insert(if stop.is_requested() {
+                    ChildTermination::Stopped
+                } else {
+                    ChildTermination::Completed
+                });
+                break;
+            }
+
+            if stop.is_requested() {
+                terminal.get_or_insert(ChildTermination::Stopped);
+                let grace_deadline = Instant::now() + self.limits.stop_grace;
+                let overall_deadline = self.started_at + self.limits.overall;
+                stop_deadline.get_or_insert(grace_deadline.min(overall_deadline));
+            }
+
+            if self.close_stdin_when_drained
+                && self.stdin_write.is_none()
+                && self.stdin_offset >= self.stdin_packet.len()
+                && self.stdin_pipe.handle().is_none()
+            {
+                close_deadline.get_or_insert(Instant::now() + self.limits.stop_grace);
+            }
+
+            let deadline = stop_deadline.or(close_deadline);
+            if let Some(deadline) = deadline {
+                if Instant::now() >= deadline {
+                    terminal.get_or_insert(ChildTermination::Stopped);
+                    self.terminate_job(&mut capture, "TerminateJobObject(persistent-stop)")?;
+                    termination_sent = true;
+                    break;
+                }
+            } else if self.started_at.elapsed() >= self.limits.overall {
+                terminal = Some(ChildTermination::TimedOut);
+                self.terminate_job(&mut capture, "TerminateJobObject(persistent-timeout)")?;
+                termination_sent = true;
+                break;
+            }
+
+            if !stop.is_requested()
+                && !self.close_stdin_when_drained
+                && last_tick.elapsed() >= POLL_INTERVAL
+            {
+                last_tick = Instant::now();
+                let action = observer(PersistentEvent::Tick);
+                self.apply_interactive_action(action)?;
+                if stop.is_requested() {
+                    observer_requested_stop = true;
+                }
+            }
+
+            let mut wait = if self.close_stdin_when_drained {
+                POLL_INTERVAL
+            } else {
+                POLL_INTERVAL.saturating_sub(last_tick.elapsed())
+            };
+            if let Some(deadline) = deadline {
+                wait = wait.min(deadline.saturating_duration_since(Instant::now()));
+            }
+            wait = wait.min(
+                self.limits
+                    .overall
+                    .saturating_sub(self.started_at.elapsed()),
+            );
+            match self
+                .output_rx
+                .recv_timeout(wait.max(Duration::from_millis(1)))
+            {
+                Ok(message) => {
+                    let action = capture.accept_persistent(
+                        message,
+                        &stop,
+                        &mut observer_requested_stop,
+                        &mut observer,
+                    );
+                    self.apply_interactive_action(action)?;
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    if unsafe {
+                        WaitForSingleObject(raw(&self.process), duration_ms(CLEANUP_TIMEOUT))
+                    } == WAIT_OBJECT_0
+                    {
+                        terminal.get_or_insert(ChildTermination::Completed);
+                        break;
+                    }
+                    return Err(
+                        self.cleanup_error("persistent output channel disconnected", capture)
+                    );
+                }
+            }
+        }
+
+        if !termination_sent
+            && matches!(
+                terminal,
+                Some(ChildTermination::Completed | ChildTermination::Stopped)
+            )
+        {
+            self.terminate_job(&mut capture, "TerminateJobObject(persistent-completion)")?;
+            termination_sent = true;
+        }
+        if termination_sent {
+            let wait =
+                unsafe { WaitForSingleObject(raw(&self.process), duration_ms(CLEANUP_TIMEOUT)) };
+            if wait != WAIT_OBJECT_0 {
+                return Err(self.cleanup_error("persistent process wait", capture));
+            }
+            self.wait_for_job_empty(&mut capture)?;
+        }
+        self.drain_persistent(
+            &mut capture,
+            &stop,
+            &mut observer_requested_stop,
+            &mut observer,
+        )?;
+        debug_assert!(capture.total_bytes >= capture.bytes);
+        if observer_requested_stop && terminal == Some(ChildTermination::Completed) {
+            terminal = Some(ChildTermination::Stopped);
+        }
+        let exit_code = match exit_code(&self.process) {
+            Ok(code) => code,
+            Err(error) => {
+                return Err(match error {
+                    ContainmentError::Win32 { operation, .. } => ContainmentError::Cleanup {
+                        stage: operation,
+                        partial: Some(ChildOutput {
+                            exit_code: None,
+                            stdin_bytes_written: self.stdin_total_written,
+                            stdout: capture.stdout,
+                            stderr: capture.stderr,
+                            truncated: capture.truncated,
+                            io_errors: capture.io_errors,
+                        }),
+                    },
+                    other => other,
+                });
+            }
+        };
+        let output = ChildOutput {
+            exit_code: Some(exit_code),
+            stdin_bytes_written: self.stdin_total_written,
+            stdout: capture.stdout,
+            stderr: capture.stderr,
+            truncated: capture.truncated,
+            io_errors: capture.io_errors,
+        };
+        let output = self.join_workers(output)?;
+        if terminal == Some(ChildTermination::Completed)
+            && exit_code == 0
+            && (self.stdin_write.is_some() || self.stdin_offset < self.stdin_packet.len())
+        {
+            return Err(ContainmentError::Cleanup {
+                stage: "incomplete persistent stdin delivery",
+                partial: Some(output),
+            });
+        }
+        if output.io_errors.iter().any(|error| {
+            matches!(
+                error,
+                ChildIoError::ReadStdout(_) | ChildIoError::ReadStderr(_)
+            )
+        }) {
+            return Err(ContainmentError::Cleanup {
+                stage: "persistent reader I/O",
+                partial: Some(output),
+            });
+        }
+        if output.io_errors.iter().any(
+            |error| matches!(error, ChildIoError::WriteStdin(code) if !expected_write_error(*code)),
+        ) {
+            return Err(ContainmentError::Cleanup {
+                stage: "persistent stdin I/O",
+                partial: Some(output),
+            });
+        }
+        self.job.take();
+        Ok(ChildOutcome {
+            termination: terminal.unwrap_or(ChildTermination::Completed),
+            output,
+        })
     }
 
     fn finish_or_stop_with_action<F>(
@@ -709,7 +968,7 @@ impl RunningChild {
                         stage: operation,
                         partial: Some(ChildOutput {
                             exit_code: None,
-                            stdin_bytes_written: self.stdin_offset,
+                            stdin_bytes_written: self.stdin_total_written,
                             stdout: capture.stdout,
                             stderr: capture.stderr,
                             truncated: capture.truncated,
@@ -722,7 +981,7 @@ impl RunningChild {
         };
         let output = ChildOutput {
             exit_code: Some(exit_code),
-            stdin_bytes_written: self.stdin_offset,
+            stdin_bytes_written: self.stdin_total_written,
             stdout: capture.stdout,
             stderr: capture.stderr,
             truncated: capture.truncated,
@@ -799,7 +1058,20 @@ impl RunningChild {
                         "interactive stdin was already closed".to_owned(),
                     ));
                 }
-                if self.stdin_packet.len().saturating_add(bytes.len()) > MAX_PACKET_BYTES {
+                self.compact_stdin_queue();
+                if self.persistent {
+                    if bytes.len() > MAX_PACKET_BYTES {
+                        return Err(ContainmentError::InvalidInvocation(format!(
+                            "persistent stdin packet exceeds {MAX_PACKET_BYTES} bytes"
+                        )));
+                    }
+                    let pending = self.stdin_packet.len().saturating_sub(self.stdin_offset);
+                    if pending.saturating_add(bytes.len()) > MAX_PERSISTENT_PENDING_BYTES {
+                        return Err(ContainmentError::InvalidInvocation(format!(
+                            "persistent stdin queue exceeds {MAX_PERSISTENT_PENDING_BYTES} bytes"
+                        )));
+                    }
+                } else if self.stdin_packet.len().saturating_add(bytes.len()) > MAX_PACKET_BYTES {
                     return Err(ContainmentError::InvalidInvocation(format!(
                         "interactive stdin exceeds {MAX_PACKET_BYTES} bytes"
                     )));
@@ -816,6 +1088,19 @@ impl RunningChild {
         Ok(())
     }
 
+    fn compact_stdin_queue(&mut self) {
+        if !self.persistent || self.stdin_offset == 0 {
+            return;
+        }
+        // Keep the queue index cheap for a long-lived process.  A one-shot or
+        // ordinary interactive child keeps its historical cumulative packet
+        // accounting and never enters this path.
+        if self.stdin_offset == self.stdin_packet.len() || self.stdin_offset >= 64 * 1024 {
+            self.stdin_packet.drain(..self.stdin_offset);
+            self.stdin_offset = 0;
+        }
+    }
+
     fn progress_stdin(&mut self, capture: &mut Capture) -> Result<(), ContainmentError> {
         if let Some(pending) = self.stdin_write.as_ref() {
             if unsafe { WaitForSingleObject(raw(&pending.event), 0) } != WAIT_OBJECT_0 {
@@ -826,6 +1111,8 @@ impl RunningChild {
             match reap_pending_write(&pending, &mut transferred) {
                 Ok(()) if transferred == pending.length => {
                     self.stdin_offset += pending.length as usize;
+                    self.stdin_total_written += pending.length as usize;
+                    self.compact_stdin_queue();
                 }
                 Ok(()) => {
                     self.stdin_error = Some(ChildIoError::WriteStdin(0));
@@ -900,6 +1187,8 @@ impl RunningChild {
         if started != 0 {
             if transferred == pending.length {
                 self.stdin_offset += pending.length as usize;
+                self.stdin_total_written += pending.length as usize;
+                self.compact_stdin_queue();
             } else {
                 capture.io_errors.push(ChildIoError::WriteStdin(0));
                 self.stdin_pipe.close();
@@ -939,6 +1228,8 @@ impl RunningChild {
         match reap_pending_write(&pending, &mut transferred) {
             Ok(()) if transferred == pending.length => {
                 self.stdin_offset += pending.length as usize;
+                self.stdin_total_written += pending.length as usize;
+                self.compact_stdin_queue();
             }
             Ok(()) => {
                 self.stdin_error = Some(ChildIoError::WriteStdin(995));
@@ -1040,6 +1331,52 @@ impl RunningChild {
         }
     }
 
+    fn drain_persistent<F>(
+        &mut self,
+        capture: &mut Capture,
+        stop: &StopSignal,
+        observer_requested_stop: &mut bool,
+        observer: &mut F,
+    ) -> Result<(), ContainmentError>
+    where
+        F: FnMut(PersistentEvent<'_>) -> InteractiveAction,
+    {
+        let deadline = Instant::now() + CLEANUP_TIMEOUT;
+        loop {
+            if Instant::now() >= deadline {
+                return Err(self.cleanup_error("persistent output drain", std::mem::take(capture)));
+            }
+            match self
+                .output_rx
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            {
+                Ok(message) => {
+                    let ended = matches!(message, OutputMessage::End);
+                    let action =
+                        capture.accept_persistent(message, stop, observer_requested_stop, observer);
+                    self.apply_interactive_action(action)?;
+                    if ended && capture.ends == 2 {
+                        return Ok(());
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(
+                        self.cleanup_error("persistent output drain", std::mem::take(capture))
+                    );
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    if capture.ends == 2 {
+                        return Ok(());
+                    }
+                    return Err(self.cleanup_error(
+                        "persistent output channel disconnected",
+                        std::mem::take(capture),
+                    ));
+                }
+            }
+        }
+    }
+
     fn wait_for_job_empty(&self, capture: &mut Capture) -> Result<(), ContainmentError> {
         let deadline = Instant::now() + CLEANUP_TIMEOUT;
         if let Some(handles) = &self.cleanup_processes {
@@ -1121,7 +1458,7 @@ impl RunningChild {
             stage,
             partial: Some(ChildOutput {
                 exit_code: None,
-                stdin_bytes_written: self.stdin_offset,
+                stdin_bytes_written: self.stdin_total_written,
                 stdout: capture.stdout,
                 stderr: capture.stderr,
                 truncated: capture.truncated,
@@ -1227,6 +1564,7 @@ struct Capture {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     bytes: usize,
+    total_bytes: usize,
     truncated: bool,
     limit_reached: bool,
     ends: u8,
@@ -1258,6 +1596,7 @@ impl Capture {
                 InteractiveAction::KeepOpen
             }
             OutputMessage::Data(stream, bytes) => {
+                self.total_bytes = self.total_bytes.saturating_add(bytes.len());
                 let available = limit.saturating_sub(self.bytes);
                 let retained = bytes.len().min(available);
                 match stream {
@@ -1275,6 +1614,52 @@ impl Capture {
                 if retained < bytes.len() {
                     self.truncated = true;
                     self.limit_reached = true;
+                }
+                action
+            }
+        }
+    }
+
+    fn accept_persistent<F>(
+        &mut self,
+        message: OutputMessage,
+        stop: &StopSignal,
+        observer_requested_stop: &mut bool,
+        observer: &mut F,
+    ) -> InteractiveAction
+    where
+        F: FnMut(PersistentEvent<'_>) -> InteractiveAction,
+    {
+        match message {
+            OutputMessage::End => {
+                self.ends = self.ends.saturating_add(1);
+                InteractiveAction::KeepOpen
+            }
+            OutputMessage::ReadFailure(stream, code) => {
+                self.io_errors.push(match stream {
+                    OutputStream::Stdout => ChildIoError::ReadStdout(code),
+                    OutputStream::Stderr => ChildIoError::ReadStderr(code),
+                });
+                InteractiveAction::KeepOpen
+            }
+            OutputMessage::Data(stream, bytes) => {
+                self.total_bytes = self.total_bytes.saturating_add(bytes.len());
+                let available = MAX_PERSISTENT_DIAGNOSTIC_BYTES.saturating_sub(self.bytes);
+                let retained = bytes.len().min(available);
+                match stream {
+                    OutputStream::Stdout => self.stdout.extend_from_slice(&bytes[..retained]),
+                    OutputStream::Stderr => self.stderr.extend_from_slice(&bytes[..retained]),
+                }
+                self.bytes += retained;
+                if retained < bytes.len() {
+                    self.truncated = true;
+                }
+                let mut action = InteractiveAction::KeepOpen;
+                if !bytes.is_empty() && !stop.is_requested() {
+                    action = observer(PersistentEvent::Output(stream.into(), &bytes));
+                    if stop.is_requested() {
+                        *observer_requested_stop = true;
+                    }
                 }
                 action
             }

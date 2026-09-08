@@ -31,6 +31,8 @@ use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+pub mod codex_transport;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryEntry {

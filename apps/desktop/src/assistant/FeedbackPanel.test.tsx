@@ -221,6 +221,8 @@ describe('persistent FeedbackPanel safeguards', () => {
   }
   const httpSelection: providerIpc.ModelSelection = { providerId: 'openai-compatible:test-endpoint', modelId: 'fiction-v1', reasoning: null, serviceTier: null };
   const httpBinding: ProviderBinding = { ...httpSelection, profileVersion: 'openai-chat-completions.v1', inputLimitBytes: '24576', reservedOutputBytes: '4096', reservedProtocolBytes: '1024', outputLimitBytes: '65536', accountingMethod: 'utf8-byte-count/http-request-v1', http: { baseUrl: 'https://example.test/v1', configRevision: '4', stream: true, responseFormat: 'text' } };
+  const appServerBinding: ProviderBinding = { providerId: 'codex', modelId: 'gpt-6-astra', reasoning: 'low', serviceTier: null, profileVersion: 'codex-app-server.author.v1', inputLimitBytes: '24576', reservedOutputBytes: '0', reservedProtocolBytes: '1024', outputLimitBytes: '65536', accountingMethod: 'utf8-byte-count/codex-app-server-application-cap-v1' };
+  const appServerDispatch = { serverGeneration: 'server-1', threadId: 'thread-1', rpcId: 'rpc-1', packetHash: 'a'.repeat(64), requestHash: 'b'.repeat(64) };
   function httpProviderState(): providerIpc.ProviderState {
     return { settings: { revision: '1', active: httpSelection, favorites: [] }, dispatch: { kind: 'openAiCompatible', detail: '' }, catalog: { models: [{ key: httpSelection, label: 'Fiction V1', providerLabel: 'Synthetic endpoint', reasoningLevels: [], serviceTiers: [], origin: 'openAiCompatible', ready: true, statusDetail: '', contextWindowTokens: null, maxOutputTokens: null }] } };
   }
@@ -333,6 +335,33 @@ describe('persistent FeedbackPanel safeguards', () => {
     expect(host.textContent).toContain(deliveryLabel);
     expect(host.textContent).toContain('The local HTTP request has finished.');
     expect(host.textContent).toContain('Stopping locally does not confirm that the upstream service stopped processing or charging.');
+    expect(host.textContent).not.toContain('The local provider process has finished.');
+  });
+  it('describes a completed reusable app-server turn without claiming a local process finished', async () => {
+    const session = await makeSession(); const started = startResult(session, 'app-server-complete');
+    const run = { ...started.run, status: 'completed' as const, providerBinding: appServerBinding, providerResult: {
+      binding: appServerBinding, status: 'completed' as const, confirmedStdinBytes: '0', usage: null, cleanup: 'settled' as const,
+      error: null, effectiveIdentity: null, appServer: { dispatch: appServerDispatch, submission: 'acknowledged' as const, turnId: 'turn-1', terminal: 'completed' as const, requestSettled: true, connection: 'reusable' as const },
+    } };
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, runs: [run], messages: [started.userMessage, { ...started.userMessage, id: 'app-server-answer', role: 'assistant', content: 'The turn was saved.' }] });
+    await renderPanel(session);
+    expect(host.textContent).toContain('App-server acknowledgment: the owned turn was acknowledged.');
+    expect(host.textContent).toContain('App-server terminal: completed.');
+    expect(host.textContent).toContain('Request settlement: settled; the shared app-server is reusable for another request.');
+    expect(host.textContent).not.toContain('The local provider process has finished.');
+    expect(host.textContent).not.toContain('Stopping locally does not confirm');
+  });
+  it('keeps uncertain app-server start delivery unresolved and does not imply an automatic retry', async () => {
+    const session = await makeSession(); const started = startResult(session, 'app-server-uncertain');
+    const run = { ...started.run, status: 'failed' as const, providerBinding: appServerBinding, providerResult: {
+      binding: appServerBinding, status: 'failed' as const, confirmedStdinBytes: '0', usage: null, cleanup: 'unresolved' as const,
+      error: null, effectiveIdentity: null, appServer: { dispatch: appServerDispatch, submission: 'uncertain' as const, turnId: null, terminal: null, requestSettled: false, connection: 'unresolved' as const },
+    } };
+    vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, runs: [run], messages: [started.userMessage, { ...started.userMessage, id: 'app-server-uncertain-answer', role: 'assistant', content: 'The outcome is unresolved.' }] });
+    await renderPanel(session);
+    expect(host.textContent).toContain('App-server acknowledgment: uncertain; it may have accepted this turn. It was not automatically retried.');
+    expect(host.textContent).toContain('App-server terminal: not confirmed.');
+    expect(host.textContent).toContain('Request settlement: unresolved. It was not automatically retried.');
     expect(host.textContent).not.toContain('The local provider process has finished.');
   });
   it('keeps an uncertain request bound to its original model after the active choice changes', async () => {

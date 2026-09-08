@@ -50,6 +50,9 @@ fn unavailable(code: &str, detail: &str) -> CoreError {
 }
 
 impl CodexConnection {
+    pub(crate) fn executable(&self) -> &Path {
+        &self.executable
+    }
     pub fn version(&self) -> &str {
         &self.observed_version
     }
@@ -65,40 +68,7 @@ impl CodexConnection {
     /// Explicit discovery, bounded to Codex's installed native-bin directory.
     /// Opening the picker never calls this method.
     pub fn check_installed() -> CoreResult<Self> {
-        let base = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .ok_or_else(|| {
-                unavailable(
-                    "CodexUnavailable",
-                    "The supported Codex installation could not be found.",
-                )
-            })?
-            .join("OpenAI")
-            .join("Codex")
-            .join("bin");
-        let candidates = std::fs::read_dir(base).map_err(|_| {
-            unavailable(
-                "CodexUnavailable",
-                "Install and sign in to Codex on this computer, then check the connection again.",
-            )
-        })?;
-        let mut paths = candidates
-            .take(64)
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-            .filter_map(|entry| {
-                let path = entry.path().join("codex.exe");
-                let modified = path.metadata().ok()?.modified().unwrap_or(UNIX_EPOCH);
-                Some((path, modified))
-            })
-            .collect::<Vec<_>>();
-        paths.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
-        let Some((path, _)) = paths.into_iter().next() else {
-            return Err(unavailable(
-                "CodexVersionUnavailable",
-                "No native Codex installation was found. Manual writing and the local test model remain available.",
-            ));
-        };
+        let path = newest_installed_executable()?;
 
         // Pin the newest candidate while the version, profile and capability
         // checks run. A later start reopens the file and compares this session
@@ -106,12 +76,13 @@ impl CodexConnection {
         let pinned = pin_executable(&path)?;
         let run = OwnedRun::new()?;
         let version_output = probe(&path, &run.cwd, &["--version"])?;
-        let profile = CodexLaunchProfile::for_version(&version_output, &run.catalog).map_err(|_| {
-            unavailable(
-                "CodexCapabilityUnavailable",
-                "This Codex installation returned an invalid version and cannot be checked safely.",
-            )
-        })?;
+        let profile = CodexLaunchProfile::for_maintenance_version(&version_output, &run.catalog)
+            .map_err(|_| {
+                unavailable(
+                    "CodexCapabilityUnavailable",
+                    "This Codex installation returned an invalid version and cannot be checked safely.",
+                )
+            })?;
         std::fs::write(&run.catalog, &profile.catalog_json).map_err(|_| {
             unavailable(
                 "ProviderWorkspaceUnavailable",
@@ -147,10 +118,31 @@ impl CodexConnection {
         })
     }
 
+    /// Check whether the newest installed Codex candidate still resolves to
+    /// the executable that was qualified for this connection. This is a
+    /// bounded path check only: it does not re-run version, login, or model
+    /// discovery and never reads author credentials.
+    pub fn is_current_installation(&self) -> CoreResult<bool> {
+        let newest = newest_installed_executable()?;
+        let checked = std::fs::canonicalize(&self.executable).map_err(|_| {
+            unavailable(
+                "CodexUnavailable",
+                "The checked Codex installation is no longer available.",
+            )
+        })?;
+        let newest = std::fs::canonicalize(newest).map_err(|_| {
+            unavailable(
+                "CodexUnavailable",
+                "The installed Codex candidate could not be inspected.",
+            )
+        })?;
+        Ok(checked == newest)
+    }
+
     /// One explicit invocation. No automatic retry, model substitution, shell,
     /// author working directory, transcript file, or packet command argument.
     pub fn start(&self, packet: Vec<u8>, stop: StopSignal) -> CoreResult<CodexStream> {
-        self.start_with_choice(None, packet, stop)
+        self.start_with_choice(None, false, packet, stop)
     }
 
     pub fn start_bound(
@@ -160,8 +152,13 @@ impl CodexConnection {
         stop: StopSignal,
     ) -> CoreResult<CodexStream> {
         use crate::context::packet::ProviderBinding;
-        if binding == &ProviderBinding::codex_luna_runtime(self.version(), self.fingerprint()) {
+        if binding
+            == &ProviderBinding::codex_maintenance_runtime(self.version(), self.fingerprint())
+        {
             return self.start(packet, stop);
+        }
+        if binding == &ProviderBinding::codex_luna_runtime(self.version(), self.fingerprint()) {
+            return self.start_with_choice(None, true, packet, stop);
         }
         if binding.validate().is_err()
             || binding.profile_version != super::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
@@ -200,6 +197,7 @@ impl CodexConnection {
                 reasoning: binding.reasoning.clone(),
                 service_tier: binding.service_tier.clone(),
             }),
+            false,
             packet,
             stop,
         )
@@ -208,6 +206,7 @@ impl CodexConnection {
     fn start_with_choice(
         &self,
         choice: Option<super::preferences::ModelSelection>,
+        legacy_luna_maintenance: bool,
         packet: Vec<u8>,
         stop: StopSignal,
     ) -> CoreResult<CodexStream> {
@@ -225,10 +224,19 @@ impl CodexConnection {
             ));
         }
         let owned = OwnedRun::new()?;
+        let maintenance_reasoning = if legacy_luna_maintenance {
+            super::codex_profile::CODEX_REASONING_EFFORT
+        } else {
+            super::codex_profile::CODEX_MAINTENANCE_REASONING_EFFORT
+        };
         let maintenance = super::preferences::ModelSelection {
             provider_id: "codex".into(),
-            model_id: super::codex_profile::CODEX_LUNA_MODEL.into(),
-            reasoning: Some(super::codex_profile::CODEX_REASONING_EFFORT.into()),
+            model_id: if legacy_luna_maintenance {
+                super::codex_profile::CODEX_LUNA_MODEL.into()
+            } else {
+                super::codex_profile::CODEX_MAINTENANCE_MODEL.into()
+            },
+            reasoning: Some(maintenance_reasoning.into()),
             service_tier: Some(super::codex_profile::CODEX_PRIORITY_SERVICE_TIER.into()),
         };
         if !self
@@ -252,7 +260,11 @@ impl CodexConnection {
                 })?;
             CodexLaunchProfile::for_selection(&version, &owned.catalog, model, choice)
         } else {
-            CodexLaunchProfile::for_version(&version, &owned.catalog)
+            if legacy_luna_maintenance {
+                CodexLaunchProfile::for_version(&version, &owned.catalog)
+            } else {
+                CodexLaunchProfile::for_maintenance_version(&version, &owned.catalog)
+            }
         }
         .map_err(|_| {
             unavailable(
@@ -294,6 +306,51 @@ impl CodexConnection {
 struct PinnedExecutable {
     file: File,
     fingerprint: String,
+}
+
+fn newest_installed_executable() -> CoreResult<PathBuf> {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            unavailable(
+                "CodexUnavailable",
+                "The supported Codex installation could not be found.",
+            )
+        })?
+        .join("OpenAI")
+        .join("Codex")
+        .join("bin");
+    newest_installed_executable_in(&base)
+}
+
+fn newest_installed_executable_in(base: &Path) -> CoreResult<PathBuf> {
+    let candidates = std::fs::read_dir(base).map_err(|_| {
+        unavailable(
+            "CodexUnavailable",
+            "Install and sign in to Codex on this computer, then check the connection again.",
+        )
+    })?;
+    let paths = candidates
+        .take(64)
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| {
+            let path = entry.path().join("codex.exe");
+            let modified = path.metadata().ok()?.modified().unwrap_or(UNIX_EPOCH);
+            Some((path, modified))
+        })
+        .collect::<Vec<_>>();
+    select_newest_executable(paths).ok_or_else(|| {
+        unavailable(
+            "CodexVersionUnavailable",
+            "No native Codex installation was found. Manual writing and the local test model remain available.",
+        )
+    })
+}
+
+fn select_newest_executable(mut paths: Vec<(PathBuf, SystemTime)>) -> Option<PathBuf> {
+    paths.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    paths.into_iter().next().map(|(path, _)| path)
 }
 
 fn pin_executable(path: &Path) -> CoreResult<PinnedExecutable> {
@@ -648,6 +705,28 @@ mod tests {
             "ProviderInputTooLarge"
         );
         std::fs::remove_file(fake).unwrap();
+    }
+
+    #[test]
+    fn newest_candidate_selection_is_newest_then_path_ordered() {
+        let timestamp = UNIX_EPOCH + Duration::from_secs(10);
+        let selected = select_newest_executable(vec![
+            (PathBuf::from("z\\codex.exe"), timestamp),
+            (PathBuf::from("a\\codex.exe"), timestamp),
+            (
+                PathBuf::from("newer\\codex.exe"),
+                timestamp + Duration::from_secs(1),
+            ),
+        ])
+        .expect("synthetic candidate");
+        assert_eq!(selected, PathBuf::from("newer\\codex.exe"));
+
+        let tie = select_newest_executable(vec![
+            (PathBuf::from("z\\codex.exe"), timestamp),
+            (PathBuf::from("a\\codex.exe"), timestamp),
+        ])
+        .expect("synthetic tie");
+        assert_eq!(tie, PathBuf::from("a\\codex.exe"));
     }
 
     fn preflight_outcome(text: &str, exit_code: Option<u32>) -> ChildOutcome {

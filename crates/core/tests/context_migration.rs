@@ -101,6 +101,7 @@ fn schema24_upgrade_keeps_exact_historical_codex_packet_and_backup() {
     assert!(!input.contains("\"runtime\""));
     drop(project);
     let database = Connection::open(path.join("project.sqlite3")).unwrap();
+    crate::legacy_schema::remove_schema38_features(&database).unwrap();
     database
         .execute_batch(
             "ALTER TABLE provider_results DROP COLUMN delivery_json;
@@ -111,7 +112,7 @@ fn schema24_upgrade_keeps_exact_historical_codex_packet_and_backup() {
         .unwrap();
     drop(database);
     let reopened = ProjectSession::open(&path).unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     let access = reopened.attach("new-runtime-reader".into()).unwrap();
     let restored = reopened
         .prepared_context(access, packet.receipt.packet_id)
@@ -133,7 +134,7 @@ fn schema24_upgrade_keeps_exact_historical_codex_packet_and_backup() {
 }
 
 #[test]
-fn schema35_to37_preserves_workshop_state_and_context_packet_bytes() {
+fn schema35_to38_preserves_workshop_state_and_context_packet_bytes() {
     let temp = TempDir::new("schema36-workshop-relationship-floor");
     let path = temp.child("project");
     let (project, access, document, _) = setup_project(&path);
@@ -202,13 +203,14 @@ fn schema35_to37_preserves_workshop_state_and_context_packet_bytes() {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
+    crate::legacy_schema::remove_schema38_features(&database).unwrap();
     database
         .pragma_update(None, "user_version", 35_i64)
         .unwrap();
     drop(database);
 
     let reopened = ProjectSession::open(&path).expect("upgrade schema35 project");
-    assert_eq!(schema_version(&database_path), 37);
+    assert_eq!(schema_version(&database_path), 38);
     let reopened_access = reopened.attach("schema36-reader".into()).unwrap();
     let view = reopened.read_workshop(reopened_access.clone()).unwrap();
     assert_eq!(view.state.preferences.len(), 1);
@@ -245,7 +247,7 @@ fn schema35_to37_preserves_workshop_state_and_context_packet_bytes() {
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .starts_with("schema35-before-schema37-")
+            .starts_with("schema35-before-schema38-")
     );
     assert_eq!(schema_version(&backups[0]), 35);
 }
@@ -258,6 +260,7 @@ fn schema36_reader_floor_rejects_missing_typed_packet_carrier() {
     drop(project);
 
     let database = Connection::open(path.join("project.sqlite3")).unwrap();
+    crate::legacy_schema::remove_schema38_features(&database).unwrap();
     database
         .execute_batch(
             "ALTER TABLE context_packets DROP COLUMN input_hash;
@@ -337,6 +340,7 @@ fn schema27_upgrade_preserves_historical_dynamic_author_packet_without_projectio
     drop(project);
 
     let database = Connection::open(path.join("project.sqlite3")).unwrap();
+    crate::legacy_schema::remove_schema38_features(&database).unwrap();
     database
         .execute_batch(
             "ALTER TABLE memory_results DROP COLUMN delivery_json;
@@ -347,7 +351,7 @@ fn schema27_upgrade_preserves_historical_dynamic_author_packet_without_projectio
     drop(database);
 
     let reopened = ProjectSession::open(&path).expect("upgrade schema27 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     let access = reopened.attach("dynamic-author-reader".into()).unwrap();
     let restored = reopened
         .prepared_context(access, packet.receipt.packet_id.clone())
@@ -435,6 +439,7 @@ fn schema29_upgrade_preserves_legacy_provider_receipt_with_no_reported_model() {
         .to_string();
     project
         .settle_provider_discussion(ProviderTerminalReport {
+        app_server: None,
             owner: started.run.owner,
             expected_sequence: "0".into(),
             event_id: "schema29-provider-terminal".into(),
@@ -461,6 +466,7 @@ fn schema29_upgrade_preserves_legacy_provider_receipt_with_no_reported_model() {
         )
         .unwrap();
     assert_eq!(before_packet.as_bytes(), packet_bytes.as_slice());
+    crate::legacy_schema::remove_schema38_features(&database).unwrap();
     database
         .execute_batch(
             "ALTER TABLE provider_results DROP COLUMN reported_model;
@@ -470,7 +476,7 @@ fn schema29_upgrade_preserves_legacy_provider_receipt_with_no_reported_model() {
     drop(database);
 
     let reopened = ProjectSession::open(&path).expect("upgrade schema29 provider project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     let reader = reopened.attach("schema29-provider-reader".into()).unwrap();
     let view = reopened
         .read_discussion(reader, document.head.document_id.clone())
@@ -551,6 +557,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
     legacy_schema::remove_schema19_features(&db).unwrap();
     db.execute_batch("DROP TABLE snapshot_navigation_views; DROP TABLE memory_view_sources; DROP TABLE memory_views; DROP TABLE memory_results; DROP TABLE memory_jobs; ALTER TABLE snapshot_sources DROP COLUMN reader_position")
         .unwrap();
+    crate::legacy_schema::remove_schema38_features(&db).unwrap();
     db.pragma_update(None, "user_version", 14).unwrap();
     drop(db);
 
@@ -572,7 +579,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .head,
         saved.head
     );
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     let backups: Vec<_> = fs::read_dir(path.join("migrations"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -583,7 +590,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .starts_with("schema14-before-schema37-")
+            .starts_with("schema14-before-schema38-")
     );
     assert_eq!(schema_version(&backups[0]), 14);
 }
@@ -637,13 +644,14 @@ fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
             |row| row.get(0),
         )
         .unwrap();
+    crate::legacy_schema::remove_schema38_features(&db).unwrap();
     db.execute_batch("DROP TABLE snapshot_navigation_views; PRAGMA user_version=16;")
         .unwrap();
     drop(db);
 
     let reopened = ProjectSession::open(&path).unwrap();
     let access = reopened.attach("schema19-reader".into()).unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     assert_eq!(
         serde_json::to_vec(
             &reopened
@@ -721,6 +729,7 @@ fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
     let dispatch = project.begin_memory(job.owner.clone()).unwrap();
     project
         .complete_memory(CompleteMemory {
+            app_server: None,
             owner: job.owner.clone(),
             event_id: "legacy-memory-result".into(),
             raw_output: serde_json::to_string(&mock_navigation_digest(&dispatch.source).unwrap())
@@ -781,6 +790,7 @@ fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
     remove_schema24_features(&db).unwrap();
     legacy_schema::remove_schema19_features(&db).unwrap();
     let rows_before = retained_rows(&db);
+    crate::legacy_schema::remove_schema38_features(&db).unwrap();
     db.pragma_update(None, "user_version", 17).unwrap();
     drop(db);
 
@@ -788,7 +798,7 @@ fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
     let access = reopened
         .attach("schema19-navigation-reader".into())
         .unwrap();
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     assert_eq!(
         serde_json::to_vec(
             &reopened
@@ -939,6 +949,7 @@ fn downgrade_to_schema2(path: &Path) {
     legacy_schema::remove_schema19_features(&connection)
         .expect("remove schema19-only fixture features");
     remove_post_schema14_tables(&connection);
+    crate::legacy_schema::remove_schema38_features(&connection).unwrap();
     connection
         .execute_batch(
             "DROP TRIGGER source_pin_receipts_no_update;
@@ -981,6 +992,7 @@ fn downgrade_to_schema3(path: &Path) {
     legacy_schema::remove_schema19_features(&connection)
         .expect("remove schema19-only fixture features");
     remove_post_schema14_tables(&connection);
+    crate::legacy_schema::remove_schema38_features(&connection).unwrap();
     connection
         .execute_batch(
             "DROP TRIGGER source_pin_receipts_no_update;
@@ -1085,7 +1097,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema2 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     assert_eq!(
         upgraded
             .context_source_epoch()
@@ -1150,7 +1162,7 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(schema_version(&path.join("project.sqlite3")), 3);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema3 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     let connection =
         Connection::open(path.join("project.sqlite3")).expect("open migrated schema19 database");
     let discussion_tables: i64 = connection
@@ -1252,6 +1264,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     remove_schema24_features(&connection).unwrap();
     legacy_schema::remove_schema19_features(&connection).unwrap();
     remove_post_schema14_tables(&connection);
+    crate::legacy_schema::remove_schema38_features(&connection).unwrap();
     connection
         .execute_batch(
             "ALTER TABLE discussion_drafts DROP COLUMN safe_brief_json;
@@ -1261,7 +1274,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema10 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     let safe_brief_column: i64 = connection
         .query_row(
@@ -1325,11 +1338,12 @@ fn schema23_lookup_migration_preserves_legacy_composer_draft_and_starts_empty_lo
 
     let connection = Connection::open(path.join("project.sqlite3")).unwrap();
     remove_schema24_features(&connection).unwrap();
+    crate::legacy_schema::remove_schema38_features(&connection).unwrap();
     connection.pragma_update(None, "user_version", 23).unwrap();
     drop(connection);
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema23 project");
-    assert_eq!(schema_version(&path.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&path.join("project.sqlite3")), 38);
     let reader = upgraded.attach("schema23-lookup-reader".into()).unwrap();
     let restored = upgraded
         .read_discussion(reader, document.head.document_id.clone())
@@ -1382,6 +1396,7 @@ fn schema2_upgrade_failure_rolls_back_and_retains_durable_backup() {
     drop(project);
     downgrade_to_schema2(&path);
     let connection = Connection::open(path.join("project.sqlite3")).expect("open schema2 database");
+    crate::legacy_schema::remove_schema38_features(&connection).unwrap();
     connection
         .execute_batch(
             "CREATE TABLE story_snapshots (id TEXT PRIMARY KEY);
@@ -1467,7 +1482,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let target = temp.child("recovered");
     let recovered =
         recover_backup(&archive, &target, "Recovered schema2").expect("recover schema2 backup");
-    assert_eq!(schema_version(&target.join("project.sqlite3")), 37);
+    assert_eq!(schema_version(&target.join("project.sqlite3")), 38);
     assert_eq!(
         recovered
             .context_source_epoch()
@@ -1566,13 +1581,14 @@ fn schema30_reader_floor_migrates_with_noop_step_and_retains_backup() {
 
     let database = path.join("project.sqlite3");
     let connection = Connection::open(&database).expect("open current database");
+    crate::legacy_schema::remove_schema38_features(&connection).unwrap();
     connection
         .pragma_update(None, "user_version", 30_i64)
         .expect("mark synthetic schema30 database");
     drop(connection);
 
     let reopened = ProjectSession::open(&path).expect("schema30 database upgrades");
-    assert_eq!(schema_version(&database), 37);
+    assert_eq!(schema_version(&database), 38);
     let reader = reopened.attach("schema32-reader-floor".into()).unwrap();
     let restored = reopened
         .document(reader, document.head.document_id)
@@ -1589,7 +1605,7 @@ fn schema30_reader_floor_migrates_with_noop_step_and_retains_backup() {
         backups[0]
             .file_name()
             .to_string_lossy()
-            .starts_with("schema30-before-schema37-")
+            .starts_with("schema30-before-schema38-")
     );
     assert_eq!(schema_version(&backups[0].path()), 30);
 }

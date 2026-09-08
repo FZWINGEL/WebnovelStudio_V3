@@ -37,8 +37,9 @@ Nextest and sccache remain experiments, not default runners or caches.
 
 ## Second local implementation pass
 
-- Added an explicit 102-check manifest across main (52), Workshop (31), HTTP
-  (6), close (2), interruption (4), recovery (4), and memory lookup (3).
+- Added an explicit 106-check manifest across main (52), Workshop (31), HTTP
+  (6), close (2), interruption (4), recovery (4), memory lookup (3), and
+  app-server transport (4).
   Checkpoint IDs are emitted independently of human-readable descriptions.
 - All seven native app launchers register close tracking immediately. Main,
   Workshop, HTTP, close, recovery and memory now share confirmed cleanup;

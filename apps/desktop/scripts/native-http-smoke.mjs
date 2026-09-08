@@ -43,7 +43,7 @@ let modelReads = 0;
 let memoryRequests = 0;
 const requests=[];
 const api=createHttpServer(async (req,res)=>{
-  if(req.method==='GET'&&req.url.endsWith('/models')) { if (++modelReads === 2) return; res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({data:[{id:'test-editor-v1'},{id:'test-editor-v2'},{id:'gpt-5.6-luna'}]})); return; }
+  if(req.method==='GET'&&req.url.endsWith('/models')) { if (++modelReads === 2) return; res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({data:[{id:'test-editor-v1'},{id:'test-editor-v2'},{id:'gpt-6-astra'}]})); return; }
   const chunks=[]; for await(const chunk of req) chunks.push(chunk);
   const raw=Buffer.concat(chunks); const body=JSON.parse(raw.toString());
   const n=requests.length+1;
@@ -53,7 +53,7 @@ const api=createHttpServer(async (req,res)=>{
   const event=(delta,finish=null)=>res.write(`data: ${JSON.stringify({model:body.model,choices:[{index:0,delta,finish_reason:finish}]})}\n\n`);
   event({role:'assistant'});
   const finish=()=>{event({},'stop');res.write(`data: ${JSON.stringify({choices:[],usage:{prompt_tokens:111,completion_tokens:22,total_tokens:133}})}\n\n`);res.end('data: [DONE]\n\n');};
-  if(body.model==='gpt-5.6-luna') {
+  if(body.model==='gpt-6-astra') {
     memoryRequests++;
     if(memoryRequests===1) {
       const envelope=body.messages.map(m=>{try{return JSON.parse(m.content);}catch{return null;}}).find(m=>m?.purpose==='memoryAnalysis');
@@ -136,7 +136,7 @@ try {
   await page.getByLabel('Connection name',{exact:true}).fill('Synthetic compatible API');
   await page.getByLabel('Base URL',{exact:true}).fill(`http://127.0.0.1:${apiPort}/custom`);
   await page.locator('#endpoint-key').fill('synthetic-native-key-one');
-  await page.locator('#endpoint-models').fill('test-editor-v1\ngpt-5.6-luna');
+  await page.locator('#endpoint-models').fill('test-editor-v1\ngpt-6-astra');
   await page.getByLabel('Request JSON mode for suggestions',{exact:true}).check();
   await page.getByRole('button',{name:'Save connection',exact:true}).click();
   await page.getByRole('button',{name:'Find models for Synthetic compatible API',exact:true}).click();
@@ -269,7 +269,7 @@ try {
   await page.getByRole('searchbox',{name:'Search models'}).fill('test-editor-v1');
   await page.getByRole('searchbox',{name:'Search models'}).press('Enter');
   await page.getByRole('button',{name:'Choose model: test-editor-v1',exact:true}).waitFor();
-  recordCheck(metadata.checks, 'native-http-smoke:05', 'Claude rail exposes three static models and five effort choices, saves and reopens an author choice, leaves the independent HTTP Luna memory provider unchanged, and keeps Send disabled until the native connection is checked');
+  recordCheck(metadata.checks, 'native-http-smoke:05', 'Claude rail exposes three static models and five effort choices, saves and reopens an author choice, leaves the independent HTTP Astra memory provider unchanged, and keeps Send disabled until the native connection is checked');
   await page.getByRole('button',{name:'Choose model: test-editor-v1',exact:true}).waitFor();
   const within=relative(await realpath(data),await realpath(path));
   assert(within&&!isAbsolute(within)&&within!=='..'&&!within.startsWith(`..${sep}`),'Memory write fixture must stay inside this synthetic run directory');
@@ -282,8 +282,8 @@ try {
     await page.getByRole('button',{name:'Refresh story memory',exact:true}).click();
     await page.getByRole('button',{name:'Check saved result',exact:true}).waitFor();
     assert.equal(requests.length,5);
-    assert.equal(requests[4].body.model,'gpt-5.6-luna');
-    assert.equal(requests[4].body.reasoning_effort,'xhigh');
+    assert.equal(requests[4].body.model,'gpt-6-astra');
+    assert.equal(requests[4].body.reasoning_effort,'low');
     assert.equal(requests[4].body.service_tier,undefined);
     assert(requests[4].authorizationCorrect);
     assert.equal(requests[4].path,'/changed/chat/completions');
@@ -320,7 +320,7 @@ try {
     assert.equal(memoryDb.prepare('SELECT count(*) n FROM memory_views').get().n,1);
     assert.equal(await manuscript.innerText(),'Her sister held the lantern. The ending stays unchanged.');
     metadata.memoryResults=memoryResults.map(r=>({...r,delivery_json:JSON.parse(r.delivery_json)}));
-    recordCheck(metadata.checks, 'native-http-smoke:06', 'API-only memory requests Luna/xhigh independently of the writer, saves exact HTTP delivery, recovers a failed local result save without another POST, survives reopen, and supports Stop without changing prose');
+  recordCheck(metadata.checks, 'native-http-smoke:06', 'API-only memory requests Astra/low independently of the writer, saves exact HTTP delivery, recovers a failed local result save without another POST, survives reopen, and supports Stop without changing prose');
   } finally {memoryDb.exec('DROP TRIGGER IF EXISTS native_http_memory_save_fault;');memoryDb.close();}
   metadata.pageErrors=pageErrors; assert.deepEqual(pageErrors,[]); metadata.status='passed';
 } catch(error) {

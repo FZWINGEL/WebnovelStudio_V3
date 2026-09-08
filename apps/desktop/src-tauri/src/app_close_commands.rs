@@ -127,6 +127,7 @@ impl CloseCoordinator {
         }
         // Keep admission closed until the window is destroyed. If destruction
         // fails, the renderer must cancel this same close request.
+        self.runtime.shutdown_app_server(close_id)?;
         Ok(())
     }
 }

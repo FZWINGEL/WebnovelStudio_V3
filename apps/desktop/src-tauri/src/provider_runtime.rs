@@ -4,17 +4,22 @@ use serde::Serialize;
 #[cfg(windows)]
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use webnovel_core::context::packet::ProviderBinding;
+use webnovel_core::context::packet::{
+    CODEX_MAINTENANCE_MODEL_ID, CODEX_MAINTENANCE_REASONING, CODEX_SERVICE_TIER, ProviderBinding,
+};
+use webnovel_core::library::codex_transport::CodexTransport;
 #[cfg(windows)]
 use webnovel_core::projects::discussions::RunOwner;
 use webnovel_core::projects::memory::MemoryOwner;
 use webnovel_core::projects::{CoreError, CoreResult};
 #[cfg(windows)]
 use webnovel_core::providers::claude_runtime::ClaudeConnection;
+#[cfg(windows)]
+use webnovel_core::providers::codex_app_server::connection::ManagedAppServer;
 use webnovel_core::providers::{
     catalog::{DispatchResolution, ProviderState},
     credentials::WindowsCredentialStore,
-    preferences::ModelSelection,
+    preferences::{ModelSelection, STORY_MEMORY_MODEL_ID, STORY_MEMORY_REASONING},
 };
 #[cfg(windows)]
 use webnovel_core::providers::{cli::windows_process::StopSignal, codex_runtime::CodexConnection};
@@ -32,6 +37,8 @@ struct RuntimeState {
     checked: bool,
     #[cfg(windows)]
     connection: Option<CodexConnection>,
+    #[cfg(windows)]
+    app_server: Option<ManagedAppServer>,
     claude_checking: bool,
     #[cfg(windows)]
     claude_connection: Option<ClaudeConnection>,
@@ -128,9 +135,9 @@ pub fn memory_selection(provider_id: &str) -> ModelSelection {
     } else {
         ModelSelection {
             provider_id: provider_id.into(),
-            model_id: "gpt-5.6-luna".into(),
-            reasoning: Some("xhigh".into()),
-            service_tier: (provider_id == "codex").then(|| "priority".into()),
+            model_id: STORY_MEMORY_MODEL_ID.into(),
+            reasoning: Some(STORY_MEMORY_REASONING.into()),
+            service_tier: (provider_id == "codex").then(|| CODEX_SERVICE_TIER.into()),
         }
     }
 }
@@ -152,9 +159,17 @@ struct ClaudeConnectionView {
 
 pub fn is_supported_choice(choice: &ModelSelection) -> bool {
     choice.provider_id == "codex"
-        && choice.model_id == "gpt-5.6-luna"
-        && choice.reasoning.as_deref() == Some("xhigh")
-        && choice.service_tier.as_deref() == Some("priority")
+        && choice.model_id == CODEX_MAINTENANCE_MODEL_ID
+        && choice.reasoning.as_deref() == Some(CODEX_MAINTENANCE_REASONING)
+        && choice.service_tier.as_deref() == Some(CODEX_SERVICE_TIER)
+}
+
+pub fn is_legacy_maintenance_choice(choice: &ModelSelection) -> bool {
+    choice.provider_id == "codex"
+        && choice.model_id == webnovel_core::context::packet::CODEX_LUNA_MODEL_ID
+        && choice.reasoning.as_deref()
+            == Some(webnovel_core::context::packet::CODEX_REASONING_EFFORT)
+        && choice.service_tier.as_deref() == Some(CODEX_SERVICE_TIER)
 }
 
 pub fn binding_matches_choice(binding: &ProviderBinding, choice: &ModelSelection) -> bool {
@@ -168,6 +183,7 @@ pub fn binding_matches_author_choice(binding: &ProviderBinding, choice: &ModelSe
         || (matches!(
             binding.profile_version.as_str(),
             webnovel_core::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+                | webnovel_core::providers::codex_app_server::AUTHOR_PROFILE
                 | webnovel_core::providers::claude_profile::CLAUDE_PROFILE_VERSION
         ) && binding_matches_saved_model(binding, choice)
             && choice
@@ -188,7 +204,7 @@ pub fn binding_matches_saved_model(binding: &ProviderBinding, choice: &ModelSele
 
 #[cfg(windows)]
 pub fn connection_binding(connection: &CodexConnection) -> ProviderBinding {
-    ProviderBinding::codex_luna_runtime(connection.version(), connection.fingerprint())
+    ProviderBinding::codex_maintenance_runtime(connection.version(), connection.fingerprint())
 }
 
 #[cfg(windows)]
@@ -230,6 +246,8 @@ pub fn connection_author_binding(
 #[cfg(windows)]
 pub fn connection_matches_binding(connection: &CodexConnection, binding: &ProviderBinding) -> bool {
     binding == &connection_binding(connection)
+        || binding
+            == &ProviderBinding::codex_luna_runtime(connection.version(), connection.fingerprint())
         || (binding.profile_version
             == webnovel_core::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
             && connection_author_binding(
@@ -299,6 +317,173 @@ fn unavailable() -> CoreError {
 }
 
 impl DesktopProviders {
+    fn app_server_view(&self, view: &mut DesktopProviderState) -> CoreResult<()> {
+        let runtime = self.lock()?;
+        #[cfg(windows)]
+        let server = runtime
+            .app_server
+            .as_ref()
+            .filter(|server| server.healthy());
+        #[cfg(windows)]
+        let ready = server.is_some();
+        #[cfg(not(windows))]
+        let ready = false;
+        let detail = if ready {
+            "Codex app-server is connected. Each request starts a fresh isolated conversation."
+        } else {
+            "App-server is selected. Check Codex in Settings to qualify and connect this transport."
+        };
+        view.codex_connection.ready = ready;
+        view.codex_connection.detail = runtime
+            .detail
+            .as_deref()
+            .filter(|_| !ready && !runtime.checking && runtime.connection.is_none())
+            .unwrap_or(detail)
+            .into();
+        #[cfg(windows)]
+        {
+            view.codex_connection.memory_ready =
+                server.is_some_and(|server| server.maintenance_binding().is_ok());
+        }
+        #[cfg(not(windows))]
+        {
+            view.codex_connection.memory_ready = false;
+        }
+        for model in view
+            .state
+            .catalog
+            .models
+            .iter_mut()
+            .filter(|model| model.key.provider_id == "codex")
+        {
+            #[cfg(windows)]
+            let supported = server.is_some_and(|server| {
+                let choice = if model.key == view.state.settings.active.key() {
+                    view.state.settings.active.clone()
+                } else {
+                    ModelSelection {
+                        provider_id: "codex".into(),
+                        model_id: model.key.model_id.clone(),
+                        reasoning: model.default_reasoning.clone(),
+                        service_tier: model.default_service_tier.clone(),
+                    }
+                };
+                server.author_binding(&choice).is_ok()
+            });
+            #[cfg(not(windows))]
+            let supported = false;
+            model.ready = supported;
+            model.status_detail = detail.into();
+        }
+        if view.state.settings.active.provider_id == "codex" {
+            #[cfg(windows)]
+            let supported = server
+                .is_some_and(|server| server.author_binding(&view.state.settings.active).is_ok());
+            #[cfg(not(windows))]
+            let supported = false;
+            view.state.dispatch = if supported {
+                DispatchResolution::CodexCli { detail: "Uses the persistent Codex server with fresh story context. Sending starts one response.".into() }
+            } else {
+                DispatchResolution::Blocked {
+                    detail: detail.into(),
+                }
+            };
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn app_server(&self) -> CoreResult<ManagedAppServer> {
+        let state = self.lock()?;
+        if state.checking {
+            return Err(unavailable());
+        }
+        state
+            .app_server
+            .as_ref()
+            .filter(|server| server.healthy())
+            .cloned()
+            .ok_or_else(unavailable)
+    }
+
+    pub fn shutdown_app_server(&self, close_id: &str) -> CoreResult<()> {
+        let activity = self.close_activity(close_id)?;
+        if activity.starting_requests != 0 || activity.active_workers != 0 {
+            return Err(CoreError::new(
+                "CloseNotReady",
+                "Provider work is still settling.",
+            ));
+        }
+        #[cfg(windows)]
+        let server = self.lock()?.app_server.take();
+        #[cfg(windows)]
+        if let Some(server) = server {
+            server.shutdown_idle()?;
+        }
+        self.close_activity(close_id)?;
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn check_selected_connection(
+        &self,
+        transport: CodexTransport,
+        selection: &ModelSelection,
+        persist: impl FnOnce(&CodexConnection) -> CoreResult<()>,
+    ) -> CoreResult<()> {
+        let _admission = self.admit_request()?;
+        let old_server = {
+            let mut state = self.lock()?;
+            if state
+                .app_server
+                .as_ref()
+                .is_some_and(|server| server.active_count() != 0)
+            {
+                return Err(CoreError::new(
+                    "ProviderBusy",
+                    "Let current Codex replies finish before checking or replacing the persistent connection.",
+                ));
+            }
+            state.app_server.take()
+        };
+        if let Some(server) = old_server {
+            server.shutdown_idle()?;
+        }
+        self.begin_codex_check()?;
+        let checked = CodexConnection::check_installed().and_then(|connection| {
+            let server = if transport == CodexTransport::AppServer {
+                let initial = if connection.catalog().supports(selection) {
+                    selection.clone()
+                } else {
+                    let model = connection
+                        .catalog()
+                        .models
+                        .iter()
+                        .find(|model| model.default_reasoning.is_some())
+                        .ok_or_else(unavailable)?;
+                    ModelSelection {
+                        provider_id: "codex".into(),
+                        model_id: model.model_id.clone(),
+                        reasoning: model.default_reasoning.clone(),
+                        service_tier: model.default_service_tier.clone(),
+                    }
+                };
+                Some(ManagedAppServer::start(connection.clone(), &initial)?)
+            } else {
+                None
+            };
+            Ok((connection, server))
+        });
+        self.finish_codex_check(
+            checked,
+            |(connection, _)| persist(connection),
+            |(connection, server), state| {
+                state.connection = Some(connection);
+                state.app_server = server;
+            },
+        )
+    }
+
     pub fn admit_request(&self) -> CoreResult<RequestAdmission> {
         let mut state = self.lock()?;
         if state.close_request.is_some() {
@@ -524,6 +709,9 @@ impl DesktopProviders {
         store: &dyn webnovel_core::providers::credentials::CredentialStore,
     ) -> CoreResult<DesktopProviderState> {
         let mut view = self.view(library.provider_state()?)?;
+        if library.codex_transport_settings()?.transport == CodexTransport::AppServer {
+            self.app_server_view(&mut view)?;
+        }
         let endpoints = library.endpoint_profiles()?;
         for profile in &endpoints.profiles {
             let available = profile.enabled && credential_available(profile, store);
@@ -589,7 +777,7 @@ impl DesktopProviders {
             "codex" => {
                 memory.provider_label = "Codex".into();
                 memory.ready = view.codex_connection.memory_ready;
-                memory.detail = if memory.ready { "Refresh sends one request through Codex using GPT-5.6 Luna with Extra high reasoning." } else { "Check Codex in Settings. Story memory requires GPT-5.6 Luna with Extra high reasoning and Fast service." }.into();
+                memory.detail = if memory.ready { "Refresh sends one request through Codex using GPT-6 Astra with Low reasoning." } else { "Check Codex in Settings. Story memory requires GPT-6 Astra with Low reasoning and Fast service." }.into();
             }
             _ => {
                 if let Some(profile) = endpoints
@@ -605,11 +793,11 @@ impl DesktopProviders {
                     memory.detail = if !profile.enabled {
                     "Enable this API connection in Settings before refreshing story memory."
                 } else if !listed {
-                    "Add gpt-5.6-luna to this connection's models. The service must support xhigh reasoning."
+                    "Add gpt-6-astra to this connection's models. The service must support low reasoning."
                 } else if !memory.ready {
                     "The saved API key is unavailable. Re-enter it in Settings before refreshing."
                 } else {
-                    "Configured to request GPT-5.6 Luna with xhigh reasoning. The API service must support these settings."
+                    "Configured to request GPT-6 Astra with low reasoning. The API service must support these settings."
                 }.into();
                 }
             }
@@ -668,9 +856,9 @@ impl DesktopProviders {
         let memory_ready = runtime.connection.as_ref().is_some_and(|connection| {
             connection.catalog().supports(&ModelSelection {
                 provider_id: "codex".into(),
-                model_id: "gpt-5.6-luna".into(),
-                reasoning: Some("xhigh".into()),
-                service_tier: Some("priority".into()),
+                model_id: CODEX_MAINTENANCE_MODEL_ID.into(),
+                reasoning: Some(CODEX_MAINTENANCE_REASONING.into()),
+                service_tier: Some(CODEX_SERVICE_TIER.into()),
             })
         });
         #[cfg(not(windows))]
@@ -744,9 +932,9 @@ impl DesktopProviders {
                 revision: "0".into(),
                 provider_id: "codex".into(),
                 provider_label: "Codex".into(),
-                model_id: "gpt-5.6-luna".into(),
-                reasoning: Some("xhigh".into()),
-                service_tier: Some("priority".into()),
+                model_id: CODEX_MAINTENANCE_MODEL_ID.into(),
+                reasoning: Some(CODEX_MAINTENANCE_REASONING.into()),
+                service_tier: Some(CODEX_SERVICE_TIER.into()),
                 ready: memory_ready,
                 detail: "Check Codex in Settings before refreshing story memory.".into(),
             },
@@ -822,19 +1010,6 @@ impl DesktopProviders {
                 .into(),
         );
         Ok(())
-    }
-
-    #[cfg(windows)]
-    pub fn check_connection(
-        &self,
-        persist: impl FnOnce(&CodexConnection) -> CoreResult<()>,
-    ) -> CoreResult<()> {
-        self.begin_codex_check()?;
-        self.finish_codex_check(
-            CodexConnection::check_installed(),
-            persist,
-            |connection, state| state.connection = Some(connection),
-        )
     }
 
     #[cfg(not(windows))]
@@ -1138,8 +1313,11 @@ mod tests {
         assert_eq!(models.len(), 3);
         assert!(models.iter().all(|model| !model.ready));
         assert_eq!(state.story_memory.provider_id, "codex");
-        assert_eq!(state.story_memory.model_id, "gpt-5.6-luna");
-        assert_eq!(state.story_memory.reasoning.as_deref(), Some("xhigh"));
+        assert_eq!(state.story_memory.model_id, CODEX_MAINTENANCE_MODEL_ID);
+        assert_eq!(
+            state.story_memory.reasoning.as_deref(),
+            Some(CODEX_MAINTENANCE_REASONING)
+        );
     }
 
     #[test]
@@ -1247,9 +1425,9 @@ mod tests {
     fn requested_traits_are_exact_and_unchecked_runtime_never_enables_codex() {
         let choice = ModelSelection {
             provider_id: "codex".into(),
-            model_id: "gpt-5.6-luna".into(),
-            reasoning: Some("xhigh".into()),
-            service_tier: Some("priority".into()),
+            model_id: CODEX_MAINTENANCE_MODEL_ID.into(),
+            reasoning: Some(CODEX_MAINTENANCE_REASONING.into()),
+            service_tier: Some(CODEX_SERVICE_TIER.into()),
         };
         assert!(is_supported_choice(&choice));
         assert!(!is_supported_choice(&ModelSelection {
@@ -1257,7 +1435,7 @@ mod tests {
             ..choice.clone()
         }));
         assert!(!is_supported_choice(&ModelSelection {
-            model_id: "gpt-6-astra".into(),
+            model_id: webnovel_core::context::packet::CODEX_LUNA_MODEL_ID.into(),
             ..choice.clone()
         }));
         let state = ProviderState {
@@ -1423,9 +1601,14 @@ mod tests {
         library
             .save_story_memory_provider("0", &profile.id)
             .unwrap();
-        let missing_luna = runtime.view_library_with_store(&library, &store).unwrap();
-        assert!(!missing_luna.story_memory.ready);
-        assert!(missing_luna.story_memory.detail.contains("gpt-5.6-luna"));
+        let missing_astra = runtime.view_library_with_store(&library, &store).unwrap();
+        assert!(!missing_astra.story_memory.ready);
+        assert!(
+            missing_astra
+                .story_memory
+                .detail
+                .contains(CODEX_MAINTENANCE_MODEL_ID)
+        );
         library
             .save_endpoint_profiles(
                 "1",
@@ -1436,7 +1619,7 @@ mod tests {
                     enabled: true,
                     json_mode: false,
                     credential_ref: profile.credential_ref,
-                    manual_model_ids: vec!["story-model".into(), "gpt-5.6-luna".into()],
+                    manual_model_ids: vec!["story-model".into(), CODEX_MAINTENANCE_MODEL_ID.into()],
                 }],
             )
             .unwrap();
@@ -1445,7 +1628,7 @@ mod tests {
         assert!(!memory_ready.codex_connection.ready);
         assert_eq!(
             memory_ready.story_memory.reasoning.as_deref(),
-            Some("xhigh")
+            Some(CODEX_MAINTENANCE_REASONING)
         );
         assert!(memory_ready.story_memory.service_tier.is_none());
         assert_eq!(memory_ready.state.settings.active.model_id, "story-model");

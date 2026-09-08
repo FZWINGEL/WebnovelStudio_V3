@@ -422,7 +422,7 @@ fn schema_five_upgrade_adds_empty_guidance_tables() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 37);
+    assert_eq!(version, 38);
     for table in [
         "author_guidance_versions",
         "author_guidance_heads",

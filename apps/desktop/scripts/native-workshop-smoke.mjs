@@ -115,13 +115,13 @@ function projectInside(projectPath) {
 }
 
 async function chooseLocalMock() {
-  let state = await invoke('provider_state');
-  if (state.settings.active.providerId !== 'mock' || state.settings.active.modelId !== 'mock-story-context') {
-    await page.getByRole('button', { name: /^Choose model:/ }).click();
-    await page.locator('.model-choice').filter({ hasText: 'Local test model' }).click();
-    await page.getByRole('button', { name: 'Choose model: Local test model', exact: true }).waitFor();
-  }
-  state = await invoke('provider_state');
+  // Persist an explicit choice even when the untouched library currently shows
+  // mock. A pending startup check may adopt Codex only at preference revision 0.
+  await page.getByRole('button', { name: /^Choose model:/ }).click();
+  await page.locator('.model-choice').filter({ hasText: 'Local test model' }).click();
+  await page.getByRole('button', { name: 'Choose model: Local test model', exact: true }).waitFor();
+  const state = await invoke('provider_state');
+  assert.notEqual(state.settings.revision, '0', 'The mock choice must be durable before generation');
   assert.deepEqual(state.settings.active, { providerId: 'mock', modelId: 'mock-story-context', reasoning: null, serviceTier: null });
   assert.equal(state.dispatch.kind, 'localMock');
   assert.equal(state.catalog.models.find(model => model.key.providerId === 'mock' && model.key.modelId === 'mock-story-context')?.ready, true);

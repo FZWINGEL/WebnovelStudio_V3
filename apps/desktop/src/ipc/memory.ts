@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { MockContextBudget, ProviderBinding, SourceRead, SourceRef } from './context';
+import type { AppServerDelivery, MockContextBudget, ProviderBinding, SourceRead, SourceRef } from './context';
 import type { ProviderResult } from './discussions';
 import type { Head, ProjectAccess } from './projects';
 import type { ModelSelection } from './providers';
@@ -20,6 +20,8 @@ export interface MemoryResult {
   candidate: DigestCandidate | null; effectiveIdentity: string | null; createdAt: string;
   /** HTTP memory receipts are optional so historical Codex/mock results keep their old shape. */
   delivery?: ProviderResult['delivery'];
+  /** Persistent Codex app-server delivery is separate from exec/HTTP evidence. */
+  appServer?: AppServerDelivery;
 }
 export interface MemoryViewRecord {
   id: string; jobId: string; projectId: string; operationNamespace: string; documentId: string; target: Head;

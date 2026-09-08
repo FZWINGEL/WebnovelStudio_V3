@@ -109,6 +109,95 @@ fn start_request(
 }
 
 #[test]
+fn app_server_memory_preserves_astra_binding_and_single_use_delivery_across_reopen() {
+    use webnovel_core::providers::codex_app_server::{
+        prepare_dispatch, AppServerConnectionSettlement, AppServerDelivery,
+        AppServerSubmission, AppServerTerminal,
+    };
+    use webnovel_core::projects::discussions::{ProviderCleanup, ProviderOutcomeStatus};
+    let temp = TempProject::new("app-server-memory");
+    let (project, access, document) = temp.create();
+    let binding = ProviderBinding::codex_app_server_maintenance_runtime(
+        "9.1", &"a".repeat(64), &"b".repeat(64), app_server_identity(),
+    );
+    let mut request = start_request(&access, &document, "memory-app-server");
+    request.provider_binding = Some(binding.clone());
+    let job = project.start_memory(request).unwrap();
+    let dispatch = project.begin_memory(job.owner.clone()).unwrap();
+    let packet = serialized_input(&dispatch.packet.messages, &dispatch.packet.options).unwrap();
+    let claim = prepare_dispatch("server-one".into(), "thread-one".into(), "rpc-one".into(), &binding, &packet).unwrap();
+    let mut bad_claim = claim.clone();
+    bad_claim.request_hash = "c".repeat(64);
+    assert_eq!(project.claim_memory_app_server_dispatch(job.owner.clone(), bad_claim).unwrap_err().code, "ProviderBindingMismatch");
+    project.claim_memory_app_server_dispatch(job.owner.clone(), claim.clone()).unwrap();
+    assert_eq!(project.claim_memory_app_server_dispatch(job.owner.clone(), claim.clone()).unwrap_err().code, "DispatchAlreadyClaimed");
+    project.acknowledge_memory_app_server_turn(job.owner.clone(), claim.clone(), "turn-one".into()).unwrap();
+    let receipt = AppServerDelivery {
+        dispatch: Some(claim), submission: AppServerSubmission::Acknowledged,
+        turn_id: Some("turn-one".into()), terminal: Some(AppServerTerminal::Completed),
+        request_settled: true, connection: AppServerConnectionSettlement::Reusable,
+    };
+    let mut complete = CompleteMemory {
+        owner: job.owner.clone(), event_id: "result-one".into(),
+        raw_output: serde_json::to_string(&mock_navigation_digest(&dispatch.source).unwrap()).unwrap(),
+        outcome: ProviderOutcomeStatus::Completed, confirmed_stdin_bytes: None,
+        usage: None, cleanup: Some(ProviderCleanup::Settled), error: None,
+        effective_identity: None, delivery: None, app_server: Some(receipt.clone()),
+    };
+    complete.confirmed_stdin_bytes = Some(packet.len().to_string());
+    assert_eq!(project.complete_memory(complete.clone()).unwrap_err().code, "InvalidAppServerDelivery");
+    complete.confirmed_stdin_bytes = None;
+    complete.app_server.as_mut().unwrap().terminal = None;
+    assert!(project.complete_memory(complete.clone()).is_err());
+    complete.app_server = Some(receipt.clone());
+    assert_eq!(project.complete_memory(complete.clone()).unwrap().job.status, MemoryJobStatus::Completed);
+    assert_eq!(project.complete_memory(complete).unwrap().result.app_server, Some(receipt.clone()));
+    assert_eq!(project.document(access.clone(), document.head.document_id.clone()).unwrap().body, document.body);
+    let backup = temp.path.with_extension("wnsbackup");
+    create_backup(&project, &backup).unwrap();
+    let recovered_temp = TempProject::new("app-server-memory-recovered");
+    let recovered = webnovel_core::transfer::recover_backup(&backup, &recovered_temp.path, "Recovered").unwrap();
+    let recovered_access = recovered.attach("recovered-app-server-memory".into()).unwrap();
+    let recovered_jobs = recovered.read_memory(recovered_access, document.head.document_id.clone()).unwrap();
+    assert!(recovered_jobs.jobs[0].historical);
+    assert_eq!(recovered_jobs.jobs[0].result.as_ref().unwrap().app_server, Some(receipt.clone()));
+    assert_eq!(recovered.begin_memory(job.owner.clone()).unwrap_err().code, "MemoryProjectMismatch");
+    fs::remove_file(backup).unwrap();
+    drop(project);
+    let reopened = ProjectSession::open(&temp.path).unwrap();
+    let access = reopened.attach("memory-reopened".into()).unwrap();
+    let read = reopened.read_memory(access, document.head.document_id).unwrap();
+    assert_eq!(read.jobs[0].result.as_ref().unwrap().app_server, Some(receipt));
+    assert_eq!(read.jobs[0].provider_binding, Some(binding));
+}
+
+#[test]
+fn app_server_memory_rechecks_stop_and_revoked_permissions_before_submission() {
+    use webnovel_core::providers::codex_app_server::prepare_dispatch;
+    for stop in [true, false] {
+        let temp = TempProject::new("app-server-pre-turn-fence");
+        let (project, access, document) = temp.create();
+        let binding = ProviderBinding::codex_app_server_maintenance_runtime(
+            "9.1", &"a".repeat(64), &"b".repeat(64), app_server_identity(),
+        );
+        let mut request = start_request(&access, &document, "memory-pre-turn");
+        request.provider_binding = Some(binding.clone());
+        let job = project.start_memory(request).unwrap();
+        let dispatch = project.begin_memory(job.owner.clone()).unwrap();
+        let packet = serialized_input(&dispatch.packet.messages, &dispatch.packet.options).unwrap();
+        let claim = prepare_dispatch("server".into(), "thread".into(), "rpc".into(), &binding, &packet).unwrap();
+        if stop {
+            project.stop_memory(access, job.id).unwrap();
+        } else {
+            let epoch = project.context_epochs(access.clone()).unwrap();
+            project.revoke_story_context(access, epoch.policy).unwrap();
+        }
+        assert_eq!(project.claim_memory_app_server_dispatch(job.owner, claim).unwrap_err().code,
+            if stop { "MemoryJobNotRunning" } else { "ContextPolicyChanged" });
+    }
+}
+
+#[test]
 fn author_selected_codex_binding_cannot_change_the_memory_model() {
     let temp = TempProject::new("fixed-memory-model");
     let (project, access, document) = temp.create();
@@ -152,6 +241,7 @@ fn http_memory_completion_retains_exact_delivery_and_reopens_without_codex_field
     };
     let completion = project
         .complete_memory(CompleteMemory {
+            app_server: None,
             owner: dispatch.job.owner.clone(),
             event_id: "http-memory-result".into(),
             raw_output: raw,
@@ -197,6 +287,7 @@ fn http_memory_completion_requires_received_response_and_exact_body() {
         usage: None,
     };
     let rejected = project.complete_memory(CompleteMemory {
+        app_server: None,
         owner: dispatch.job.owner.clone(),
         event_id: "http-memory-uncertain".into(),
         raw_output: raw.clone(),
@@ -213,6 +304,7 @@ fn http_memory_completion_requires_received_response_and_exact_body() {
     delivery.body_bytes = "1".into();
     delivery.submission = HttpDeliverySubmission::ResponseReceived;
     let rejected = project.complete_memory(CompleteMemory {
+        app_server: None,
         owner: dispatch.job.owner.clone(),
         event_id: "http-memory-mismatch".into(),
         raw_output: raw,
@@ -228,6 +320,7 @@ fn http_memory_completion_requires_received_response_and_exact_body() {
 
     let prepared = prepare_request(&dispatch.packet.messages, &dispatch.packet.options).unwrap();
     let rejected = project.complete_memory(CompleteMemory {
+        app_server: None,
         owner: dispatch.job.owner.clone(),
         event_id: "http-memory-missing-cleanup".into(),
         raw_output: serde_json::to_string(&mock_navigation_digest(&dispatch.source).unwrap())
@@ -248,6 +341,7 @@ fn http_memory_completion_requires_received_response_and_exact_body() {
     assert_eq!(rejected.unwrap_err().code, "ProviderCleanupUnknown");
 
     let rejected = project.complete_memory(CompleteMemory {
+        app_server: None,
         owner: dispatch.job.owner.clone(),
         event_id: "http-memory-not-sent-output".into(),
         raw_output: "unexpected provider output".into(),
@@ -267,6 +361,7 @@ fn http_memory_completion_requires_received_response_and_exact_body() {
     assert_eq!(rejected.unwrap_err().code, "InvalidRequest");
 
     let rejected = project.complete_memory(CompleteMemory {
+        app_server: None,
         owner: dispatch.job.owner,
         event_id: "http-memory-uncertain-usage".into(),
         raw_output: String::new(),
@@ -301,6 +396,7 @@ fn complete_mock(
     });
     project
         .complete_memory(CompleteMemory {
+            app_server: None,
             owner: dispatch.job.owner.clone(),
             event_id: event_id.into(),
             raw_output: raw,
@@ -554,7 +650,7 @@ fn queued_stop_without_terminal_result_is_valid_backup_history() {
     assert_eq!(stopped.status, MemoryJobStatus::Stopped);
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 37);
+    assert_eq!(manifest.database_schema_version, 38);
     let _ = fs::remove_file(backup);
 }
 
@@ -573,6 +669,7 @@ fn unresolved_cleanup_stays_interrupted_and_retains_result_without_installation(
     project.stop_memory(access, job.id.clone()).unwrap();
     let completion = project
         .complete_memory(CompleteMemory {
+            app_server: None,
             owner: dispatch.job.owner.clone(),
             event_id: "cleanup-unresolved-result".into(),
             raw_output: "partial provider output".into(),
@@ -677,6 +774,7 @@ fn reopened_dispatched_claim_can_settle_historical_result_without_installation()
     let access = reopened.attach("reopen-settle-after-open".into()).unwrap();
     let completion = reopened
         .complete_memory(CompleteMemory {
+            app_server: None,
             owner: dispatch.job.owner.clone(),
             event_id: "reopen-settle-result".into(),
             raw_output: raw,
@@ -727,6 +825,7 @@ fn live_completion_requires_exact_delivery_and_foreign_owner_is_refused() {
         .len()
         .to_string();
     let missing_cleanup = CompleteMemory {
+        app_server: None,
         owner: dispatch.job.owner.clone(),
         event_id: "live-cleanup-unknown".into(),
         raw_output: raw.clone(),
@@ -743,6 +842,7 @@ fn live_completion_requires_exact_delivery_and_foreign_owner_is_refused() {
         "ProviderCleanupUnknown"
     );
     let missing_delivery = CompleteMemory {
+        app_server: None,
         owner: dispatch.job.owner.clone(),
         event_id: "live-result".into(),
         raw_output: raw.clone(),
@@ -759,6 +859,7 @@ fn live_completion_requires_exact_delivery_and_foreign_owner_is_refused() {
         "ProviderInputUnknown"
     );
     let mut complete = CompleteMemory {
+        app_server: None,
         owner: dispatch.job.owner.clone(),
         event_id: "live-result".into(),
         raw_output: raw,
@@ -798,6 +899,7 @@ fn policy_revocation_redacts_terminal_candidate_and_raw_output() {
     let raw = serde_json::to_string(&mock_navigation_digest(&dispatch.source).unwrap()).unwrap();
     project
         .complete_memory(CompleteMemory {
+            app_server: None,
             owner: dispatch.job.owner.clone(),
             event_id: "policy-result".into(),
             raw_output: raw,
@@ -845,7 +947,7 @@ fn backup_validation_accepts_retained_memory_history() {
     project.install_memory(job.owner).unwrap();
     let backup = temp.path.with_extension("wnsbackup");
     let manifest = create_backup(&project, &backup).unwrap();
-    assert_eq!(manifest.database_schema_version, 37);
+    assert_eq!(manifest.database_schema_version, 38);
     let _ = fs::remove_file(backup);
 }
 
@@ -983,6 +1085,7 @@ fn backup_rejects_mismatched_delivery_and_invalid_lifecycle() {
         .to_string();
     project
         .complete_memory(CompleteMemory {
+            app_server: None,
             owner: dispatch.job.owner,
             event_id: "corrupt-delivery".into(),
             raw_output: raw,
@@ -1021,4 +1124,11 @@ fn backup_rejects_mismatched_delivery_and_invalid_lifecycle() {
     )
     .unwrap();
     assert!(create_backup(&project, &backup).is_err());
+}
+
+fn app_server_identity() -> webnovel_core::providers::codex_app_server::AppServerRuntimeIdentity {
+    webnovel_core::providers::codex_app_server::AppServerRuntimeIdentity {
+        account_sha256: "c".repeat(64), security_config_sha256: "d".repeat(64),
+        restrictive_catalog_sha256: "e".repeat(64),
+    }
 }

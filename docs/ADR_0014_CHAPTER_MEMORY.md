@@ -1,5 +1,11 @@
 # ADR 0014: Source-linked chapter navigation memory
 
+> **8 September 2026 update:** new summary and maintenance requests now use
+> GPT-6 Astra with low reasoning, independently of the author model picker.
+> Codex requests priority; HTTP omits service tier. Historical Luna bindings
+> remain readable and are never rewritten. The original contract below records
+> the earlier model choice; this update supersedes that choice only.
+
 Status: C4-A implemented development slice; local tests, strict native CI, and one live-provider result verified. Broader qualification remains separate. Executed checks and native/provider qualification belong in [implementation status](IMPLEMENTATION_STATUS.md). This is the first generated-memory cut of the [Story Context design](V3_STORY_CONTEXT_SYSTEM.md), not a claim that broader derived-view packet integration, richer memory, or narrative understanding is complete.
 
 ## Author action and permitted input

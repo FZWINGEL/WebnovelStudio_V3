@@ -1,5 +1,11 @@
 # ADR 0025 — Independent API provider for story memory
 
+> **8 September 2026 update:** new summary and maintenance requests now use
+> GPT-6 Astra with low reasoning, independently of the author model picker.
+> Codex requests priority; HTTP omits service tier. Historical Luna bindings
+> remain readable and are never rewritten. The original contract below records
+> the earlier model choice; this update supersedes that choice only.
+
 **Status:** Implemented development surface; accepted native synthetic evidence exists,
 while hosted/live-provider and release qualification remain open.
 

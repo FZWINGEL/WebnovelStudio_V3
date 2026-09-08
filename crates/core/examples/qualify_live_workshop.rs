@@ -16,6 +16,7 @@ mod windows {
     use serde_json::{Value, json};
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use uuid::Uuid;
     use webnovel_core::context::packet::{MockContextBudget, ProviderBinding, serialized_input};
@@ -29,6 +30,12 @@ mod windows {
     };
     use webnovel_core::projects::workshop_generation::{StartWorkshop, WorkshopExploration};
     use webnovel_core::providers::cli::windows_process::StopSignal;
+    use webnovel_core::providers::codex_app_server::connection::ManagedAppServer;
+    use webnovel_core::providers::codex_app_server::runtime::AppServerStreamEvent;
+    use webnovel_core::providers::codex_app_server::{
+        AUTHOR_PROFILE, AppServerConnectionSettlement, AppServerDelivery, AppServerDispatch,
+        AppServerSubmission,
+    };
     use webnovel_core::providers::codex_profile::{
         CODEX_AUTHOR_PROFILE_VERSION, CODEX_LUNA_MODEL, CODEX_PRIORITY_SERVICE_TIER,
         CODEX_REASONING_EFFORT,
@@ -43,8 +50,34 @@ mod windows {
     const WORKSHOP_SESSION: &str = "live-session";
     const WORKSHOP_ANCHOR: &str = "workshop-live-session";
     const QUALIFICATION_BUDGET: (&str, &str, &str) = ("128000", "65536", "2048");
+    const APP_SERVER_SOFT_DEADLINE: Duration = Duration::from_secs(180);
+    const APP_SERVER_SETTLEMENT_DEADLINE: Duration = Duration::from_secs(30);
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Transport {
+        Exec,
+        AppServer,
+    }
+
+    impl Transport {
+        fn from_args() -> Self {
+            if std::env::args().skip(1).any(|arg| arg == "--app-server") {
+                Self::AppServer
+            } else {
+                Self::Exec
+            }
+        }
+
+        fn as_str(self) -> &'static str {
+            match self {
+                Self::Exec => "exec",
+                Self::AppServer => "app-server",
+            }
+        }
+    }
 
     pub fn run() -> Result<(), String> {
+        let transport = Transport::from_args();
         if std::env::var(ALLOW_FLAG).ok().as_deref() != Some("1") {
             println!(
                 "live Workshop qualification disabled; set {ALLOW_FLAG}=1 to permit one Codex dispatch"
@@ -61,6 +94,7 @@ mod windows {
             "schemaVersion": "live-workshop-qualification.v1",
             "status": "started",
             "runKey": run_key,
+            "transport": transport.as_str(),
             "sourceSha": source_sha,
             "dispatchCap": 1,
             "operationId": format!("workshop-live-{run_key}"),
@@ -75,7 +109,7 @@ mod windows {
         });
         persist_report(&report_path, &report)?;
 
-        let result = qualify(&run_key, &report_path, &mut report);
+        let result = qualify(&run_key, &report_path, &mut report, transport);
         match result {
             Ok(()) => {
                 report["status"] = Value::String("passed".into());
@@ -102,7 +136,25 @@ mod windows {
         }
     }
 
-    fn qualify(run_key: &str, report_path: &Path, report: &mut Value) -> Result<(), String> {
+    fn qualify(
+        run_key: &str,
+        report_path: &Path,
+        report: &mut Value,
+        transport: Transport,
+    ) -> Result<(), String> {
+        let qualification_started = std::time::Instant::now();
+        report["timings"] = json!({
+            "startupMs": Value::Null,
+            "prepMs": Value::Null,
+            "startMs": Value::Null,
+            "firstDeltaMs": Value::Null,
+            "terminalMs": Value::Null,
+            "durableMs": Value::Null,
+            "softDeadlineMs": APP_SERVER_SOFT_DEADLINE.as_millis(),
+            "settlementDeadlineMs": APP_SERVER_SETTLEMENT_DEADLINE.as_millis(),
+        });
+        persist_report(report_path, report)?;
+
         // This check performs bounded version/login/catalog discovery.  It does
         // not send story text and does not read Codex authentication files.
         let connection = CodexConnection::check_installed().map_err(display_error)?;
@@ -123,21 +175,60 @@ mod windows {
             .model(CODEX_LUNA_MODEL)
             .ok_or_else(|| "The checked Codex catalog has no Luna model entry.".to_owned())?;
         let catalog_sha = model.fingerprint().map_err(display_error)?;
-        let binding = ProviderBinding::codex_author_runtime(
-            CODEX_LUNA_MODEL,
-            CODEX_REASONING_EFFORT,
-            Some(CODEX_PRIORITY_SERVICE_TIER),
-            connection.version(),
-            connection.fingerprint(),
-            &catalog_sha,
-        );
+        let profile_version = match transport {
+            Transport::Exec => CODEX_AUTHOR_PROFILE_VERSION,
+            Transport::AppServer => AUTHOR_PROFILE,
+        };
         report["provider"] = json!({
             "cliVersion": connection.version(),
             "executableSha256": connection.fingerprint(),
             "catalogModelSha256": catalog_sha,
-            "profileVersion": CODEX_AUTHOR_PROFILE_VERSION,
+            "profileVersion": profile_version,
         });
         persist_report(report_path, report)?;
+
+        let mut exec_connection = Some(connection);
+        let mut managed_app_server = None;
+        let mut app_server_request = None;
+        let binding = match transport {
+            Transport::Exec => ProviderBinding::codex_author_runtime(
+                CODEX_LUNA_MODEL,
+                CODEX_REASONING_EFFORT,
+                Some(CODEX_PRIORITY_SERVICE_TIER),
+                exec_connection
+                    .as_ref()
+                    .expect("exec connection is retained")
+                    .version(),
+                exec_connection
+                    .as_ref()
+                    .expect("exec connection is retained")
+                    .fingerprint(),
+                &catalog_sha,
+            ),
+            Transport::AppServer => {
+                let startup_started = std::time::Instant::now();
+                let managed = ManagedAppServer::start(
+                    exec_connection
+                        .take()
+                        .expect("app-server takes the checked connection"),
+                    &selection,
+                )
+                .map_err(display_error)?;
+                let binding = managed.author_binding(&selection).map_err(display_error)?;
+                app_server_request = Some(managed.reserve(&binding).map_err(display_error)?);
+                managed_app_server = Some(managed);
+                report["provider"]["profileVersion"] =
+                    Value::String(binding.profile_version.clone());
+                report["timings"]["startupMs"] = Value::from(elapsed_ms(&qualification_started));
+                report["timings"]["serverStartupMs"] = Value::from(elapsed_ms(&startup_started));
+                persist_report(report_path, report)?;
+                binding
+            }
+        };
+        if transport == Transport::Exec {
+            report["timings"]["startupMs"] = Value::from(elapsed_ms(&qualification_started));
+            persist_report(report_path, report)?;
+        }
 
         let project_root = canonical_temp_project(run_key)?;
         report["projectPath"] = Value::String(project_root.display().to_string());
@@ -214,6 +305,7 @@ mod windows {
             .map_err(|error| error.to_string())?;
         report["serializedInput"] = Value::String(packet_input.clone());
         report["packetInputBytes"] = Value::from(packet_input.len());
+        report["timings"]["prepMs"] = Value::from(elapsed_ms(&qualification_started));
         persist_report(report_path, report)?;
 
         let dispatch = project
@@ -231,73 +323,274 @@ mod windows {
         let stop = StopSignal::new();
         report["dispatch"]["startAttempted"] = Value::Bool(true);
         report["dispatch"]["externalInvocationCount"] = Value::Null;
+        report["dispatch"]["turnCount"] = Value::from(0);
         persist_report(report_path, report)?;
-        let mut stream =
-            match connection.start_bound(&binding, packet_input.clone().into_bytes(), stop.clone())
-            {
-                Ok(stream) => stream,
-                Err(error) => {
-                    let _ = settle_failure(
-                        &project,
-                        &dispatch.run,
-                        ProviderOutcomeStatus::Failed,
-                        ProviderCleanup::Settled,
-                        0,
-                        None,
-                        "Codex did not start the one permitted invocation.",
-                    );
-                    return Err(display_error(error));
-                }
-            };
-        report["dispatch"]["externalInvocationCount"] = Value::from(1);
-        persist_report(report_path, report)?;
-
         let mut run = dispatch.run;
         let mut observed = String::new();
         let mut local_write_failed = false;
-        let terminal = loop {
-            match stream.next_event(Duration::from_millis(100)) {
-                Ok(None) => continue,
-                Ok(Some(CodexStreamEvent::AssistantDelta(delta))) => {
-                    if observed.len().saturating_add(delta.len()) > binding_output_limit(&binding)?
-                    {
-                        stop.request_stop();
+        let mut first_delta_recorded = false;
+        let mut app_server_delivery: Option<AppServerDelivery> = None;
+        let mut app_server_failure = None;
+        let mut app_server_local_failure = None;
+        let terminal = match transport {
+            Transport::Exec => {
+                let connection = exec_connection.as_ref().ok_or_else(|| {
+                    "The exec Codex connection was consumed unexpectedly.".to_owned()
+                })?;
+                let start = connection.start_bound(
+                    &binding,
+                    packet_input.clone().into_bytes(),
+                    stop.clone(),
+                );
+                let mut stream = match start {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        let _ = settle_failure(
+                            &project,
+                            &run,
+                            ProviderOutcomeStatus::Failed,
+                            ProviderCleanup::Settled,
+                            0,
+                            None,
+                            None,
+                            "Codex did not start the one permitted invocation.",
+                        );
+                        return Err(display_error(error));
                     }
-                    let remaining = binding_output_limit(&binding)?.saturating_sub(observed.len());
-                    let chunk = prefix(&delta, remaining);
-                    observed.push_str(chunk);
-                    if !chunk.is_empty() && !local_write_failed && !stop.is_requested() {
-                        match project.append_discussion_output(DiscussionOutputAppend {
-                            owner: run.owner.clone(),
-                            expected_sequence: run.sequence.clone(),
-                            event_id: format!("{}-part-{}", run.id, run.sequence),
-                            chunk: chunk.into(),
-                        }) {
-                            Ok(updated) => run = updated,
-                            Err(_) => {
-                                local_write_failed = true;
+                };
+                report["timings"]["startMs"] = Value::from(elapsed_ms(&qualification_started));
+                report["dispatch"]["externalInvocationCount"] = Value::from(1);
+                report["dispatch"]["turnCount"] = Value::from(1);
+                persist_report(report_path, report)?;
+                loop {
+                    match stream.next_event(Duration::from_millis(100)) {
+                        Ok(None) => continue,
+                        Ok(Some(CodexStreamEvent::AssistantDelta(delta))) => {
+                            if !first_delta_recorded {
+                                first_delta_recorded = true;
+                                report["timings"]["firstDeltaMs"] =
+                                    Value::from(elapsed_ms(&qualification_started));
+                                persist_report(report_path, report)?;
+                            }
+                            if observed.len().saturating_add(delta.len())
+                                > binding_output_limit(&binding)?
+                            {
                                 stop.request_stop();
                             }
+                            let remaining =
+                                binding_output_limit(&binding)?.saturating_sub(observed.len());
+                            let chunk = prefix(&delta, remaining);
+                            observed.push_str(chunk);
+                            if !chunk.is_empty() && !local_write_failed && !stop.is_requested() {
+                                match project.append_discussion_output(DiscussionOutputAppend {
+                                    owner: run.owner.clone(),
+                                    expected_sequence: run.sequence.clone(),
+                                    event_id: format!("{}-part-{}", run.id, run.sequence),
+                                    chunk: chunk.into(),
+                                }) {
+                                    Ok(updated) => run = updated,
+                                    Err(_) => {
+                                        local_write_failed = true;
+                                        stop.request_stop();
+                                    }
+                                }
+                            }
+                        }
+                        Ok(Some(CodexStreamEvent::Finished(result))) => break result,
+                        Err(error) => {
+                            stop.request_stop();
+                            let message =
+                                "The Codex stream ended without a terminal cleanup receipt.";
+                            let _ = settle_failure(
+                                &project,
+                                &run,
+                                ProviderOutcomeStatus::Failed,
+                                ProviderCleanup::Unresolved,
+                                0,
+                                Some(observed.clone()),
+                                None,
+                                message,
+                            );
+                            return Err(format!("{message} ({error})"));
                         }
                     }
                 }
-                Ok(Some(CodexStreamEvent::Finished(result))) => break result,
-                Err(error) => {
-                    stop.request_stop();
-                    let message = "The Codex stream ended without a terminal cleanup receipt.";
-                    let _ = settle_failure(
-                        &project,
-                        &run,
-                        ProviderOutcomeStatus::Failed,
-                        ProviderCleanup::Unresolved,
-                        0,
-                        Some(observed.clone()),
-                        message,
-                    );
-                    return Err(format!("{message} ({error})"));
+            }
+            Transport::AppServer => {
+                let request = app_server_request
+                    .take()
+                    .ok_or_else(|| "The app-server reservation was not retained.".to_owned())?;
+                let dispatch_holder = Arc::new(Mutex::new(None));
+                let turn_holder = Arc::new(Mutex::new(None));
+                let before_project = project.clone();
+                let before_owner = run.owner.clone();
+                let before_dispatch_holder = Arc::clone(&dispatch_holder);
+                let on_project = project.clone();
+                let on_owner = run.owner.clone();
+                let on_turn_holder = Arc::clone(&turn_holder);
+                let stream_start = request.reservation.start(
+                    request.binding,
+                    packet_input.clone(),
+                    request.thread,
+                    stop.clone(),
+                    move |dispatch| {
+                        if let Ok(mut saved) = before_dispatch_holder.lock() {
+                            *saved = Some(dispatch.clone());
+                        }
+                        before_project
+                            .claim_app_server_dispatch(before_owner.clone(), dispatch.clone())?;
+                        Ok(())
+                    },
+                    move |dispatch, turn_id| {
+                        if let Ok(mut saved) = on_turn_holder.lock() {
+                            *saved = Some(turn_id.to_owned());
+                        }
+                        on_project.acknowledge_app_server_turn(
+                            on_owner.clone(),
+                            dispatch.clone(),
+                            turn_id.to_owned(),
+                        )?;
+                        Ok(())
+                    },
+                );
+                let mut stream = match stream_start {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        let message = "Codex app-server did not start the one permitted turn.";
+                        let _ = settle_failure(
+                            &project,
+                            &run,
+                            ProviderOutcomeStatus::Failed,
+                            ProviderCleanup::Settled,
+                            0,
+                            None,
+                            Some(AppServerDelivery::not_sent()),
+                            message,
+                        );
+                        return Err(display_error(error));
+                    }
+                };
+                report["timings"]["startMs"] = Value::from(elapsed_ms(&qualification_started));
+                report["dispatch"]["externalInvocationCount"] = Value::Null;
+                report["dispatch"]["turnCap"] = Value::from(1);
+                report["dispatch"]["turnCount"] = Value::from(0);
+                report["dispatch"]["transport"] = Value::String("app-server".into());
+                persist_report(report_path, report)?;
+                let soft_deadline = std::time::Instant::now() + APP_SERVER_SOFT_DEADLINE;
+                let mut stop_requested = false;
+                let mut settlement_deadline = None;
+                loop {
+                    let now = std::time::Instant::now();
+                    if !stop_requested && now >= soft_deadline {
+                        stream.request_stop();
+                        stop_requested = true;
+                        settlement_deadline = Some(now + APP_SERVER_SETTLEMENT_DEADLINE);
+                        report["timings"]["stopRequestedMs"] =
+                            Value::from(elapsed_ms(&qualification_started));
+                        persist_report(report_path, report)?;
+                    }
+                    if stop_requested && settlement_deadline.is_some_and(|deadline| now >= deadline)
+                    {
+                        let dispatch = dispatch_holder.lock().ok().and_then(|saved| saved.clone());
+                        let turn_id = turn_holder.lock().ok().and_then(|saved| saved.clone());
+                        let delivery = uncertain_app_server_delivery(dispatch, turn_id);
+                        let message =
+                            "The app-server turn did not settle within the bounded stop window.";
+                        let _ = settle_failure(
+                            &project,
+                            &run,
+                            ProviderOutcomeStatus::Failed,
+                            ProviderCleanup::Unresolved,
+                            0,
+                            Some(observed.clone()),
+                            Some(delivery),
+                            message,
+                        );
+                        return Err(message.into());
+                    }
+                    let wait = if stop_requested {
+                        Duration::from_millis(100)
+                    } else {
+                        soft_deadline
+                            .saturating_duration_since(now)
+                            .min(Duration::from_millis(100))
+                    };
+                    match stream.next_event(wait) {
+                        Ok(None) => continue,
+                        Ok(Some(AppServerStreamEvent::AssistantDelta(delta))) => {
+                            if !first_delta_recorded {
+                                first_delta_recorded = true;
+                                report["timings"]["firstDeltaMs"] =
+                                    Value::from(elapsed_ms(&qualification_started));
+                                persist_report(report_path, report)?;
+                            }
+                            if observed.len().saturating_add(delta.len())
+                                > binding_output_limit(&binding)?
+                            {
+                                stream.request_stop();
+                            }
+                            let remaining =
+                                binding_output_limit(&binding)?.saturating_sub(observed.len());
+                            let chunk = prefix(&delta, remaining);
+                            observed.push_str(chunk);
+                            if !chunk.is_empty() && !local_write_failed && !stop.is_requested() {
+                                match project.append_discussion_output(DiscussionOutputAppend {
+                                    owner: run.owner.clone(),
+                                    expected_sequence: run.sequence.clone(),
+                                    event_id: format!("{}-part-{}", run.id, run.sequence),
+                                    chunk: chunk.into(),
+                                }) {
+                                    Ok(updated) => run = updated,
+                                    Err(_) => {
+                                        local_write_failed = true;
+                                        stream.request_stop();
+                                    }
+                                }
+                            }
+                        }
+                        Ok(Some(AppServerStreamEvent::Finished(finished))) => {
+                            app_server_delivery = Some(finished.delivery.clone());
+                            app_server_failure = finished.failure;
+                            app_server_local_failure = finished.local_failure;
+                            report["dispatch"]["turnCount"] = Value::from(
+                                if finished.delivery.submission == AppServerSubmission::Acknowledged
+                                {
+                                    1
+                                } else {
+                                    0
+                                },
+                            );
+                            report["timings"]["terminalMs"] =
+                                Value::from(elapsed_ms(&qualification_started));
+                            break finished.result;
+                        }
+                        Err(error) => {
+                            stream.request_stop();
+                            let dispatch =
+                                dispatch_holder.lock().ok().and_then(|saved| saved.clone());
+                            let turn_id = turn_holder.lock().ok().and_then(|saved| saved.clone());
+                            let delivery = uncertain_app_server_delivery(dispatch, turn_id);
+                            let message =
+                                "The app-server stream ended without a terminal cleanup receipt.";
+                            let _ = settle_failure(
+                                &project,
+                                &run,
+                                ProviderOutcomeStatus::Failed,
+                                ProviderCleanup::Unresolved,
+                                0,
+                                Some(observed.clone()),
+                                Some(delivery),
+                                message,
+                            );
+                            return Err(format!("{message} ({error})"));
+                        }
+                    }
                 }
             }
         };
+        if transport == Transport::Exec {
+            report["timings"]["terminalMs"] = Value::from(elapsed_ms(&qualification_started));
+        }
         let mut terminal = terminal;
         let output_limit = binding_output_limit(&binding)?;
         let mut terminal_status = terminal.status.clone();
@@ -324,8 +617,16 @@ mod windows {
             "confirmedStdinBytes": terminal.confirmed_stdin_bytes,
             "cleanupSettled": terminal.cleanup_settled,
             "warningCount": terminal.warning_count,
+            "usage": terminal.usage.as_ref().map(provider_usage),
+            "appServer": app_server_delivery,
+            "providerFailure": app_server_failure.as_ref().map(|failure| json!({
+                "code": failure.code,
+                "httpStatusCode": failure.http_status_code,
+            })),
+            "localFailureCode": app_server_local_failure.map(|failure| failure.as_str()),
         });
         let terminal_report = ProviderTerminalReport {
+            app_server: app_server_delivery.clone(),
             owner: run.owner.clone(),
             expected_sequence: run.sequence.clone(),
             event_id: format!("{}-provider-finish", run.id),
@@ -347,6 +648,7 @@ mod windows {
         let settled = project
             .settle_provider_discussion(terminal_report)
             .map_err(display_error)?;
+        report["timings"]["durableMs"] = Value::from(elapsed_ms(&qualification_started));
         report["providerResult"] = json!({
             "run": settled.run,
             "providerResult": settled.provider_result,
@@ -354,7 +656,14 @@ mod windows {
             "confirmedStdinBytes": terminal.confirmed_stdin_bytes,
             "cleanupSettled": terminal.cleanup_settled,
         });
+        report["newReceipt"] =
+            serde_json::to_value(&settled.provider_result).map_err(display_error)?;
         persist_report(report_path, report)?;
+        if let Some(server) = managed_app_server.take() {
+            server.shutdown_idle().map_err(display_error)?;
+            report["serverCleanup"] = Value::String("idle-shutdown-confirmed".into());
+            persist_report(report_path, report)?;
+        }
 
         let view = project
             .read_workshop(access.clone())
@@ -389,10 +698,17 @@ mod windows {
         if result.run.provider_result.is_none() {
             return Err("The completed Workshop run has no immutable provider receipt.".into());
         }
+        let expected_confirmed_stdin = if transport == Transport::AppServer {
+            "0".to_owned()
+        } else {
+            packet_input.len().to_string()
+        };
         if result.run.provider_result.as_ref().is_some_and(|receipt| {
             receipt.binding != binding
-                || receipt.confirmed_stdin_bytes != packet_input.len().to_string()
+                || receipt.confirmed_stdin_bytes != expected_confirmed_stdin
                 || receipt.cleanup != ProviderCleanup::Settled
+                || (transport == Transport::AppServer
+                    && receipt.app_server.as_ref() != app_server_delivery.as_ref())
         }) {
             return Err("The provider receipt does not match the frozen packet evidence.".into());
         }
@@ -481,6 +797,7 @@ mod windows {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn settle_failure(
         project: &ProjectSession,
         run: &webnovel_core::projects::discussions::DiscussionRun,
@@ -488,10 +805,12 @@ mod windows {
         cleanup: ProviderCleanup,
         confirmed_stdin_bytes: usize,
         assistant_text: Option<String>,
+        app_server: Option<AppServerDelivery>,
         error: &str,
     ) -> Result<(), String> {
         project
             .settle_provider_discussion(ProviderTerminalReport {
+                app_server,
                 owner: run.owner.clone(),
                 expected_sequence: run.sequence.clone(),
                 event_id: format!("{}-provider-finish", run.id),
@@ -511,6 +830,25 @@ mod windows {
             })
             .map(|_| ())
             .map_err(display_error)
+    }
+
+    fn uncertain_app_server_delivery(
+        dispatch: Option<AppServerDispatch>,
+        turn_id: Option<String>,
+    ) -> AppServerDelivery {
+        let (submission, turn_id) = match (dispatch.is_some(), turn_id) {
+            (true, Some(turn_id)) => (AppServerSubmission::Acknowledged, Some(turn_id)),
+            (true, None) => (AppServerSubmission::Uncertain, None),
+            (false, _) => (AppServerSubmission::NotSent, None),
+        };
+        AppServerDelivery {
+            submission,
+            dispatch,
+            turn_id,
+            terminal: None,
+            request_settled: false,
+            connection: AppServerConnectionSettlement::Unresolved,
+        }
     }
 
     fn status_for(status: &CodexRunStatus) -> ProviderOutcomeStatus {
@@ -554,6 +892,10 @@ mod windows {
 
     fn binding_output_limit(binding: &ProviderBinding) -> Result<usize, String> {
         binding.output_limit().map_err(|error| error.to_owned())
+    }
+
+    fn elapsed_ms(start: &std::time::Instant) -> u64 {
+        start.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
 
     fn prefix(text: &str, limit: usize) -> &str {

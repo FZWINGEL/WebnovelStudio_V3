@@ -10,7 +10,8 @@
       "close",
       "interruption",
       "recovery",
-      "memory"
+      "memory",
+      "app-server-transport"
     ]
   },
   "suites": {
@@ -138,6 +139,16 @@
         "native-memory-lookup-smoke:01",
         "native-memory-lookup-smoke:02",
         "native-memory-lookup-smoke:03"
+      ]
+    },
+    "app-server-transport": {
+      "script": "native-app-server-smoke.mjs",
+      "report": "app-server-transport/report.json",
+      "checks": [
+        "native-app-server-smoke:01",
+        "native-app-server-smoke:02",
+        "native-app-server-smoke:03",
+        "native-app-server-smoke:04"
       ]
     },
     "close": {

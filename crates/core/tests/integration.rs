@@ -32,6 +32,7 @@ suites! {
     claude_exec,
     claude_runner,
     codex_catalog,
+    codex_app_server,
     codex_exec,
     codex_profile,
     codex_runner,

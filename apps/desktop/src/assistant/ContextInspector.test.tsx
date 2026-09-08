@@ -217,6 +217,16 @@ describe('historical context inspection', () => {
     await render('packet', '2', false);
     expect(host.textContent).toContain('Prepared sources. Delivery has not been confirmed.');
   });
+  it('describes app-server acknowledgment without claiming the entire internal prompt was understood', async () => {
+    const appServerDelivery: context.AppServerDelivery = {
+      dispatch: { serverGeneration: 'server-1', threadId: 'thread-1', rpcId: 'rpc-1', packetHash: 'a'.repeat(64), requestHash: 'b'.repeat(64) },
+      submission: 'acknowledged', turnId: 'turn-1', terminal: 'completed', requestSettled: true, connection: 'reusable',
+    };
+    await act(async () => root.render(<ContextInspector access={access} packetId="packet" delivered appServerDelivery={appServerDelivery} refreshKey="1" />));
+    expect(host.textContent).toContain('The Codex app-server acknowledged the owned turn and received the prepared packet.');
+    expect(host.textContent).toContain('This confirms delivery, not that the model understood every source.');
+    expect(host.textContent).not.toContain('The complete prepared packet was written to Codex');
+  });
   it('shows the exact approved brief separately without retrieving its private origin', async () => {
     vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, safeBrief: { text: 'Mei reads the pause as grief.', textHash: 'hash', originMessageId: 'private-origin' } } });
     await render();

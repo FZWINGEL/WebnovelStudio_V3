@@ -230,8 +230,37 @@ export interface CompiledPacket {
   options: { modelId: string; maxOutputTokens?: string; tokenAccountingMethod: string; providerBinding?: ProviderBinding };
   receipt: PacketReceipt;
 }
+export interface AppServerRuntimeIdentity {
+  accountSha256: string;
+  securityConfigSha256: string;
+  restrictiveCatalogSha256: string;
+}
+export interface ProviderRuntimeIdentity {
+  cliVersion: string;
+  executableSha256: string;
+  catalogSha256?: string;
+  appServer?: AppServerRuntimeIdentity;
+}
+export type AppServerSubmission = 'notSent' | 'uncertain' | 'acknowledged';
+export type AppServerTerminal = 'completed' | 'interrupted' | 'failed';
+export type AppServerConnectionSettlement = 'reusable' | 'closed' | 'unresolved';
+export interface AppServerDispatch {
+  serverGeneration: string;
+  threadId: string;
+  rpcId: string;
+  packetHash: string;
+  requestHash: string;
+}
+export interface AppServerDelivery {
+  dispatch: AppServerDispatch | null;
+  submission: AppServerSubmission;
+  turnId: string | null;
+  terminal: AppServerTerminal | null;
+  requestSettled: boolean;
+  connection: AppServerConnectionSettlement;
+}
 export interface ProviderBinding {
-  runtime?: { cliVersion: string; executableSha256: string; catalogSha256?: string };
+  runtime?: ProviderRuntimeIdentity;
   http?: { baseUrl: string; configRevision: string; stream: boolean; responseFormat: 'text' | 'jsonObject' };
   providerId: string; modelId: string; reasoning: string | null; serviceTier: string | null;
   profileVersion: string; inputLimitBytes: string; reservedOutputBytes: string;

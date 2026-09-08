@@ -116,7 +116,11 @@ pub fn run_live(
         );
         return;
     };
-    let mut stream = match connection.start(input.into_bytes(), stop.clone()) {
+    let mut stream = match if binding.is_codex_maintenance_profile() {
+        connection.start(input.into_bytes(), stop.clone())
+    } else {
+        connection.start_bound(&binding, input.into_bytes(), stop.clone())
+    } {
         Ok(stream) => stream,
         Err(_) => {
             save_failure(
@@ -204,7 +208,7 @@ fn save_result(
     let _ = recovery.save_or_retain(project, completion, document_id);
 }
 
-fn report(
+pub(super) fn report(
     owner: &webnovel_core::projects::memory::MemoryOwner,
     result: CodexRunResult,
 ) -> CompleteMemory {
@@ -269,6 +273,7 @@ fn report_with_error(
         error,
         effective_identity: None,
         delivery: None,
+        app_server: None,
     }
 }
 

@@ -9,7 +9,29 @@ use tauri::Manager;
 use webnovel_core::{SnapshotReceipt, validate_snapshot_json};
 mod app_close_commands;
 #[cfg(windows)]
+mod app_server_discussion;
+#[cfg(windows)]
+mod app_server_memory;
+#[cfg(all(test, windows))]
+mod app_server_test_lock {
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    // The synthetic app-server tests exercise one shared native fixture
+    // executable and its process lifecycle.  Keep those fixture lifecycles
+    // out of each other's way across test modules; this test-only lock does
+    // not constrain production reservations or real app-server concurrency.
+    static FIXTURE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    pub fn fixture_guard() -> MutexGuard<'static, ()> {
+        FIXTURE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+#[cfg(windows)]
 mod claude_live_discussion;
+mod codex_transport_commands;
 mod context_commands;
 mod discussion_commands;
 mod discussion_recovery;
@@ -162,6 +184,8 @@ fn main() {
             provider_commands::check_claude_connection,
             provider_commands::save_model_settings,
             provider_commands::save_story_memory_provider,
+            codex_transport_commands::codex_transport_settings,
+            codex_transport_commands::save_codex_transport,
             endpoint_commands::endpoint_settings,
             endpoint_commands::save_endpoint_settings,
             endpoint_commands::discover_endpoint_models,

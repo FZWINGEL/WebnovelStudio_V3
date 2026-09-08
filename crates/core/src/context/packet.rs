@@ -64,9 +64,15 @@ pub const MOCK_TOKEN_ACCOUNTING_METHOD: &str = "utf8-byte-count/mock-story-conte
 pub const CODEX_PROVIDER_ID: &str = "codex";
 pub const CODEX_LUNA_MODEL_ID: &str = "gpt-5.6-luna";
 pub const CODEX_REASONING_EFFORT: &str = crate::providers::codex_profile::CODEX_REASONING_EFFORT;
+pub const CODEX_MAINTENANCE_MODEL_ID: &str =
+    crate::providers::codex_profile::CODEX_MAINTENANCE_MODEL;
+pub const CODEX_MAINTENANCE_REASONING: &str =
+    crate::providers::codex_profile::CODEX_MAINTENANCE_REASONING_EFFORT;
 pub const CODEX_SERVICE_TIER: &str = "priority";
 /// The application's launch contract, independent of Codex's release version.
 pub const CODEX_PROFILE_VERSION: &str = crate::providers::codex_profile::CODEX_PROFILE_VERSION;
+pub const CODEX_MAINTENANCE_PROFILE_VERSION: &str =
+    crate::providers::codex_profile::CODEX_MAINTENANCE_PROFILE_VERSION;
 pub const CODEX_HISTORICAL_PROFILE_VERSION: &str = "0.153.3";
 pub const CODEX_INPUT_LIMIT_BYTES: usize = 24 * 1024;
 pub const CODEX_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
@@ -89,9 +95,12 @@ pub const HTTP_PROFILE_VERSION: &str = "openai-chat-completions.v1";
 /// This is deliberately a separate application contract from the author-room
 /// HTTP profile.  It keeps the memory worker's model and trait selection
 /// stable while allowing ordinary author requests to evolve independently.
-pub const HTTP_MEMORY_PROFILE_VERSION: &str = "openai-chat-completions.memory.v1";
-pub const HTTP_MEMORY_MODEL_ID: &str = "gpt-5.6-luna";
-pub const HTTP_MEMORY_REASONING: &str = "xhigh";
+pub const HTTP_MEMORY_PROFILE_VERSION: &str = "openai-chat-completions.memory.v2";
+pub const HTTP_MEMORY_LEGACY_PROFILE_VERSION: &str = "openai-chat-completions.memory.v1";
+pub const HTTP_MEMORY_LEGACY_MODEL_ID: &str = "gpt-5.6-luna";
+pub const HTTP_MEMORY_LEGACY_REASONING: &str = "xhigh";
+pub const HTTP_MEMORY_MODEL_ID: &str = "gpt-6-astra";
+pub const HTTP_MEMORY_REASONING: &str = "low";
 pub const HTTP_MEMORY_INPUT_LIMIT_BYTES: usize = HTTP_INPUT_LIMIT_BYTES;
 pub const HTTP_MEMORY_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 pub const HTTP_INPUT_LIMIT_BYTES: usize = 2 * 1024 * 1024;
@@ -229,6 +238,8 @@ pub struct ProviderRuntimeIdentity {
     pub executable_sha256: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_server: Option<crate::providers::codex_app_server::AppServerRuntimeIdentity>,
 }
 
 impl ProviderRuntimeIdentity {
@@ -254,8 +265,57 @@ impl ProviderRuntimeIdentity {
 }
 
 impl ProviderBinding {
+    pub fn codex_app_server_author_runtime(
+        model_id: &str,
+        reasoning: &str,
+        service_tier: Option<&str>,
+        cli_version: &str,
+        executable_sha256: &str,
+        catalog_sha256: &str,
+        identity: crate::providers::codex_app_server::AppServerRuntimeIdentity,
+    ) -> Self {
+        let mut binding = Self::codex_author_runtime(
+            model_id,
+            reasoning,
+            service_tier,
+            cli_version,
+            executable_sha256,
+            catalog_sha256,
+        );
+        binding.profile_version = crate::providers::codex_app_server::AUTHOR_PROFILE.into();
+        binding.accounting_method = crate::providers::codex_app_server::ACCOUNTING_METHOD.into();
+        binding.runtime.as_mut().expect("author runtime").app_server = Some(identity);
+        binding
+    }
+
+    pub fn codex_app_server_maintenance_runtime(
+        cli_version: &str,
+        executable_sha256: &str,
+        catalog_sha256: &str,
+        identity: crate::providers::codex_app_server::AppServerRuntimeIdentity,
+    ) -> Self {
+        let mut binding = Self::codex_app_server_author_runtime(
+            CODEX_MAINTENANCE_MODEL_ID,
+            CODEX_MAINTENANCE_REASONING,
+            Some(CODEX_SERVICE_TIER),
+            cli_version,
+            executable_sha256,
+            catalog_sha256,
+            identity,
+        );
+        binding.profile_version = crate::providers::codex_app_server::MAINTENANCE_PROFILE.into();
+        binding
+    }
+
     pub fn codex_luna() -> Self {
         Self::codex_luna_with_profile(CODEX_PROFILE_VERSION)
+    }
+
+    /// Current fixed Codex maintenance binding for summaries and story-memory
+    /// refreshes. The legacy Luna helper remains available so persisted
+    /// packets keep their original model, traits, and serialized identity.
+    pub fn codex_maintenance() -> Self {
+        Self::codex_maintenance_with_profile(CODEX_MAINTENANCE_PROFILE_VERSION)
     }
 
     /// Exact binding retained for packets created by the qualified 0.153.3
@@ -270,6 +330,7 @@ impl ProviderBinding {
     pub fn codex_luna_runtime(cli_version: &str, executable_sha256: &str) -> Self {
         let mut binding = Self::codex_luna();
         binding.runtime = Some(ProviderRuntimeIdentity {
+            app_server: None,
             cli_version: cli_version.to_owned(),
             executable_sha256: executable_sha256.to_owned(),
             catalog_sha256: None,
@@ -277,11 +338,61 @@ impl ProviderBinding {
         binding
     }
 
+    pub fn codex_maintenance_runtime(cli_version: &str, executable_sha256: &str) -> Self {
+        let mut binding = Self::codex_maintenance();
+        binding.runtime = Some(ProviderRuntimeIdentity {
+            app_server: None,
+            cli_version: cli_version.to_owned(),
+            executable_sha256: executable_sha256.to_owned(),
+            catalog_sha256: None,
+        });
+        binding
+    }
+
+    /// Build the current fixed OpenAI-compatible maintenance binding. The
+    /// endpoint ID and normalized transport details are captured here; the
+    /// credential remains outside the immutable packet in the OS store.
+    pub fn http_memory(
+        provider_id: &str,
+        base_url: &str,
+        config_revision: &str,
+        stream: bool,
+        response_format: HttpResponseFormat,
+    ) -> Self {
+        Self {
+            provider_id: provider_id.to_owned(),
+            model_id: HTTP_MEMORY_MODEL_ID.to_owned(),
+            reasoning: Some(HTTP_MEMORY_REASONING.to_owned()),
+            service_tier: None,
+            profile_version: HTTP_MEMORY_PROFILE_VERSION.to_owned(),
+            input_limit_bytes: HTTP_MEMORY_INPUT_LIMIT_BYTES.to_string(),
+            reserved_output_bytes: "0".to_owned(),
+            reserved_protocol_bytes: "0".to_owned(),
+            output_limit_bytes: HTTP_MEMORY_OUTPUT_LIMIT_BYTES.to_string(),
+            accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.to_owned(),
+            runtime: None,
+            http: Some(HttpProviderBinding {
+                base_url: base_url.to_owned(),
+                config_revision: config_revision.to_owned(),
+                stream,
+                response_format,
+            }),
+        }
+    }
+
     pub fn is_current_codex_profile(&self) -> bool {
         matches!(
             self.profile_version.as_str(),
-            CODEX_PROFILE_VERSION | crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+            CODEX_PROFILE_VERSION
+                | CODEX_MAINTENANCE_PROFILE_VERSION
+                | crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
         ) && self.validate().is_ok()
+    }
+
+    pub fn is_codex_maintenance_profile(&self) -> bool {
+        self.provider_id == CODEX_PROVIDER_ID
+            && self.profile_version == CODEX_MAINTENANCE_PROFILE_VERSION
+            && self.validate().is_ok()
     }
 
     /// Concrete author traits have already been resolved against the native
@@ -331,6 +442,7 @@ impl ProviderBinding {
             output_limit_bytes: CLAUDE_OUTPUT_LIMIT_BYTES.to_string(),
             accounting_method: CLAUDE_TOKEN_ACCOUNTING_METHOD.to_owned(),
             runtime: Some(ProviderRuntimeIdentity {
+                app_server: None,
                 cli_version: cli_version.to_owned(),
                 executable_sha256: executable_sha256.to_owned(),
                 catalog_sha256: None,
@@ -366,7 +478,63 @@ impl ProviderBinding {
         }
     }
 
+    fn codex_maintenance_with_profile(profile_version: &str) -> Self {
+        Self {
+            provider_id: CODEX_PROVIDER_ID.to_owned(),
+            model_id: CODEX_MAINTENANCE_MODEL_ID.to_owned(),
+            reasoning: Some(CODEX_MAINTENANCE_REASONING.to_owned()),
+            service_tier: Some(CODEX_SERVICE_TIER.to_owned()),
+            profile_version: profile_version.to_owned(),
+            input_limit_bytes: CODEX_INPUT_LIMIT_BYTES.to_string(),
+            reserved_output_bytes: "0".to_owned(),
+            reserved_protocol_bytes: "0".to_owned(),
+            output_limit_bytes: CODEX_OUTPUT_LIMIT_BYTES.to_string(),
+            accounting_method: CODEX_TOKEN_ACCOUNTING_METHOD.to_owned(),
+            runtime: None,
+            http: None,
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
+        if crate::providers::codex_app_server::is_app_server(self) {
+            if !self
+                .runtime
+                .as_ref()
+                .and_then(|runtime| runtime.app_server.as_ref())
+                .is_some_and(|identity| identity.is_valid())
+            {
+                return Err(
+                    "the app-server requires its checked account and isolation identity".into(),
+                );
+            }
+            if self.accounting_method != crate::providers::codex_app_server::ACCOUNTING_METHOD
+                || (self.profile_version == crate::providers::codex_app_server::MAINTENANCE_PROFILE
+                    && (self.model_id != CODEX_MAINTENANCE_MODEL_ID
+                        || self.reasoning.as_deref() != Some(CODEX_MAINTENANCE_REASONING)
+                        || self.service_tier.as_deref() != Some(CODEX_SERVICE_TIER)))
+            {
+                return Err(
+                    "the app-server binding has invalid accounting or maintenance settings".into(),
+                );
+            }
+            let mut shape = self.clone();
+            shape.profile_version =
+                crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION.into();
+            shape.accounting_method = CODEX_TOKEN_ACCOUNTING_METHOD.into();
+            shape
+                .runtime
+                .as_mut()
+                .expect("validated runtime")
+                .app_server = None;
+            return shape.validate();
+        }
+        if self
+            .runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.app_server.is_some())
+        {
+            return Err("app-server identity cannot authorize another transport".into());
+        }
         if self == &Self::codex_luna_historical() {
             return Ok(());
         }
@@ -376,7 +544,17 @@ impl ProviderBinding {
         if self.is_claude() {
             return self.validate_claude();
         }
-        let mut expected = Self::codex_luna();
+        let mut expected = match self.profile_version.as_str() {
+            CODEX_PROFILE_VERSION => Self::codex_luna(),
+            CODEX_MAINTENANCE_PROFILE_VERSION => Self::codex_maintenance(),
+            crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION => Self::codex_luna(),
+            _ => {
+                return Err(
+                    "the Codex application profile, model settings, or byte allowances are invalid"
+                        .to_owned(),
+                );
+            }
+        };
         expected.runtime = self.runtime.clone();
         if self.profile_version == crate::providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION {
             let identifier = |value: &str| {
@@ -482,13 +660,17 @@ impl ProviderBinding {
     /// the memory contract from ordinary author-room HTTP requests without
     /// treating the profile as a provider identity.
     pub fn is_http_memory(&self) -> bool {
-        self.is_http() && self.profile_version == HTTP_MEMORY_PROFILE_VERSION
+        self.is_http()
+            && matches!(
+                self.profile_version.as_str(),
+                HTTP_MEMORY_PROFILE_VERSION | HTTP_MEMORY_LEGACY_PROFILE_VERSION
+            )
     }
 
     fn validate_http(&self) -> Result<(), String> {
         if !matches!(
             self.profile_version.as_str(),
-            HTTP_PROFILE_VERSION | HTTP_MEMORY_PROFILE_VERSION
+            HTTP_PROFILE_VERSION | HTTP_MEMORY_PROFILE_VERSION | HTTP_MEMORY_LEGACY_PROFILE_VERSION
         ) || self.accounting_method != HTTP_TOKEN_ACCOUNTING_METHOD
             || self.runtime.is_some()
         {
@@ -532,15 +714,21 @@ impl ProviderBinding {
         {
             return Err("the OpenAI-compatible byte allowances are invalid".to_owned());
         }
-        if self.is_http_memory()
-            && (self.model_id != HTTP_MEMORY_MODEL_ID
-                || self.reasoning.as_deref() != Some(HTTP_MEMORY_REASONING)
-                || self.service_tier.is_some())
-        {
-            return Err(
-                "the OpenAI-compatible chapter-memory profile requires GPT-5.6-Luna with xhigh and no service tier"
-                    .to_owned(),
-            );
+        if self.is_http_memory() {
+            let (model, reasoning) = if self.profile_version == HTTP_MEMORY_LEGACY_PROFILE_VERSION {
+                (HTTP_MEMORY_LEGACY_MODEL_ID, HTTP_MEMORY_LEGACY_REASONING)
+            } else {
+                (HTTP_MEMORY_MODEL_ID, HTTP_MEMORY_REASONING)
+            };
+            if self.model_id != model
+                || self.reasoning.as_deref() != Some(reasoning)
+                || self.service_tier.is_some()
+            {
+                return Err(
+                    "the OpenAI-compatible chapter-memory profile has an invalid fixed model or reasoning level"
+                        .to_owned(),
+                );
+            }
         }
         if self.reasoning.as_deref().is_some_and(|value| {
             value.is_empty() || value.len() > 64 || value.chars().any(char::is_control)

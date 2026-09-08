@@ -20,8 +20,8 @@ pub const STORY_MEMORY_SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub const STORY_MEMORY_SETTINGS_KEY: &str = "story-memory-provider-v1";
 pub const STORY_MEMORY_CODEX_PROVIDER_ID: &str = "codex";
 pub const STORY_MEMORY_MOCK_PROVIDER_ID: &str = "mock";
-pub const STORY_MEMORY_MODEL_ID: &str = "gpt-5.6-luna";
-pub const STORY_MEMORY_REASONING: &str = "xhigh";
+pub const STORY_MEMORY_MODEL_ID: &str = "gpt-6-astra";
+pub const STORY_MEMORY_REASONING: &str = "low";
 pub const MAX_FAVORITES: usize = 32;
 pub const DEFAULT_REVISION: &str = "0";
 
@@ -84,7 +84,7 @@ pub struct StoredModelSettings {
 
 /// The provider selected for story-memory and summary maintenance.  The
 /// model and reasoning level are deliberately not user-editable here: live
-/// maintenance always uses GPT-5.6 Luna with Extra high reasoning.  Endpoint
+/// maintenance always uses GPT-6 Astra with low reasoning.  Endpoint
 /// profile IDs are kept as opaque provider IDs and never contain credentials.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

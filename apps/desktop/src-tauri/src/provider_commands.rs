@@ -31,7 +31,15 @@ pub async fn check_codex_connection(
     let runtime = runtime.inner().clone();
     execute(move || {
         #[cfg(windows)]
-        runtime.check_connection(|connection| {
+        let (transport, selection) = {
+            let library = state.0.lock().map_err(|_| unavailable())?;
+            (
+                library.codex_transport_settings()?.transport,
+                library.provider_state()?.settings.active,
+            )
+        };
+        #[cfg(windows)]
+        runtime.check_selected_connection(transport, &selection, |connection| {
             let mut library = state.0.lock().map_err(|_| unavailable())?;
             library.save_codex_catalog(connection.catalog().clone())
         })?;

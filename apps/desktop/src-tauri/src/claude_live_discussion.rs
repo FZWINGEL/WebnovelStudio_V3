@@ -323,6 +323,7 @@ fn report(run: &DiscussionRun, result: ClaudeRunResult) -> ProviderTerminalRepor
         .expect("a Claude provider report requires its frozen binding");
     let (status, error) = classified_result(binding, &result);
     ProviderTerminalReport {
+        app_server: None,
         owner: run.owner.clone(),
         expected_sequence: run.sequence.clone(),
         event_id: format!("{}-claude-finish", run.id),

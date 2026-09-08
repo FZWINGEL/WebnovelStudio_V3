@@ -544,7 +544,7 @@ fn schema22_fixture_migrates_and_preserves_legacy_evidence_columns() {
     let version: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 37);
+    assert_eq!(version, 38);
     let columns: Vec<String> = migrated
         .prepare("SELECT name FROM pragma_table_info('ready_bundles')")
         .unwrap()

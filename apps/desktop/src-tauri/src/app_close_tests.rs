@@ -308,6 +308,7 @@ fn retained_discussion_and_memory_results_block_finish_and_orphan_settlement() {
     let memory_recovery = MemoryRecovery::default();
     memory_recovery.retain_terminal(
         CompleteMemory {
+            app_server: None,
             owner: memory_job.owner.clone(),
             event_id: "retained-memory-result".into(),
             raw_output: "{}".into(),

@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use webnovel_core::providers::codex_profile::{
-    CODEX_FAST_TIER_LABEL, CODEX_LUNA_MODEL, CODEX_PRIORITY_SERVICE_TIER, CODEX_REASONING_EFFORT,
+    CODEX_FAST_TIER_LABEL, CODEX_LUNA_MODEL, CODEX_MAINTENANCE_MODEL,
+    CODEX_MAINTENANCE_REASONING_EFFORT, CODEX_PRIORITY_SERVICE_TIER, CODEX_REASONING_EFFORT,
     CodexLaunchProfile, CodexProfileError,
 };
 
@@ -169,6 +170,37 @@ fn observed_versions_build_the_same_restrictive_luna_catalog() {
     }
     assert_eq!(model.availability_nux, None);
     assert_eq!(model.upgrade, None);
+}
+
+#[test]
+fn current_maintenance_profile_is_astra_low_and_does_not_claim_luna_only_transport() {
+    let profile = CodexLaunchProfile::for_maintenance_version(
+        "codex-cli 0.153.4",
+        Path::new(r"D:\owned\codex\catalog.json"),
+    )
+    .unwrap();
+    assert_eq!(profile.model, CODEX_MAINTENANCE_MODEL);
+    assert_eq!(profile.reasoning_effort, CODEX_MAINTENANCE_REASONING_EFFORT);
+    assert_eq!(
+        profile.service_tier.as_deref(),
+        Some(CODEX_PRIORITY_SERVICE_TIER)
+    );
+    assert!(profile.catalog_json.contains(CODEX_MAINTENANCE_MODEL));
+    assert!(!profile.catalog.models[0].use_responses_lite);
+    assert!(!profile.catalog.models[0].supports_reasoning_summary_parameter);
+    assert!(!profile.catalog.models[0].support_verbosity);
+    assert_eq!(
+        profile.catalog.models[0].supported_reasoning_levels[0].effort,
+        CODEX_MAINTENANCE_REASONING_EFFORT
+    );
+    assert!(
+        profile
+            .config_overrides
+            .contains(&format!("model=\"{CODEX_MAINTENANCE_MODEL}\""))
+    );
+    assert!(profile.config_overrides.contains(&format!(
+        "model_reasoning_effort=\"{CODEX_MAINTENANCE_REASONING_EFFORT}\""
+    )));
 }
 
 #[test]

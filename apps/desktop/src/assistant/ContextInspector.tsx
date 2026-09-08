@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   preparedStoryContext, preparedStoryContextIsCurrent, readStoryContextSource, reviewedEvidenceHistory, reviewedKnowledgeHistory, reviewedPromiseHistory, searchStoryContext, storyContextSnapshot,
-  type CompiledPacket, type FrozenContext, type FrozenNavigationView, type ReviewedEvidenceSet, type SourceDescriptor, type SourceRead, type SourceRef,
+  type AppServerDelivery, type CompiledPacket, type FrozenContext, type FrozenNavigationView, type ReviewedEvidenceSet, type SourceDescriptor, type SourceRead, type SourceRef,
 } from '../ipc/context';
 import type { ProjectAccess } from '../ipc/projects';
 import { EvidenceHistoryView } from './EvidenceHistoryView';
@@ -21,8 +21,9 @@ function sameSource(left: SourceRef, right: SourceRef): boolean {
 }
 
 /** Reads the immutable receipt; never reconstructs a past request from current prose. */
-export function ContextInspector({ access, packetId, delivered, lookupDelivery, refreshKey, onPin, onKeepSource, pinDisabled = false }: {
+export function ContextInspector({ access, packetId, delivered, appServerDelivery, lookupDelivery, refreshKey, onPin, onKeepSource, pinDisabled = false }: {
   access: ProjectAccess; packetId: string; delivered: boolean; refreshKey: string;
+  appServerDelivery?: AppServerDelivery;
   lookupDelivery?: LookupDeliveryState;
   onPin?: (documentId: string, title: string) => void;
   onKeepSource?: (documentId: string) => void;
@@ -294,9 +295,19 @@ export function ContextInspector({ access, packetId, delivered, lookupDelivery, 
     {state && <>
       {!state.current && <p className="stale-notice">Needs refresh. The story changed after this request. These sources show the earlier version.</p>}
       {state.frozen.snapshot.basis === 'reviewed' && <p className="small-copy context-reviewed-basis">The earlier chapters use your reviewed versions. The current chapter is still a working draft. These reviews did not run AI checks.</p>}
-      <p className="small-copy">{delivered ? state.packet.options.providerBinding?.http ? 'Response headers were received for the prepared request. The saved result may be partial; this does not establish that the model understood every source.' : state.packet.options.providerBinding ? 'The complete prepared packet was written to Codex for this response. This confirms local delivery, not that the model understood every source.' : 'Sources supplied for this response.' : 'Prepared sources. Delivery has not been confirmed.'} Opening a source reads its saved version.</p>
+      <p className="small-copy">{appServerDelivery
+        ? appServerDelivery.submission === 'notSent'
+          ? 'The prepared packet was retained, but the Codex app-server turn was not sent.'
+          : appServerDelivery.submission === 'uncertain'
+            ? 'The Codex app-server may have accepted the turn, but delivery is not confirmed. It was not automatically retried.'
+            : !appServerDelivery.requestSettled || appServerDelivery.connection === 'unresolved'
+              ? 'The Codex app-server acknowledged the owned turn, but request settlement is unresolved. It was not automatically retried.'
+              : 'The Codex app-server acknowledged the owned turn and received the prepared packet. This confirms delivery, not that the model understood every source.'
+        : delivered ? state.packet.options.providerBinding?.http ? 'Response headers were received for the prepared request. The saved result may be partial; this does not establish that the model understood every source.' : state.packet.options.providerBinding ? 'The complete prepared packet was written to Codex for this response. This confirms local delivery, not that the model understood every source.' : 'Sources supplied for this response.' : 'Prepared sources. Delivery has not been confirmed.'} Opening a source reads its saved version.</p>
       {state.packet.options.providerBinding && <p className="small-copy">This packet uses {Number(state.packet.receipt.inputTokens).toLocaleString()} bytes of the app’s {Number(state.packet.options.providerBinding.inputLimitBytes).toLocaleString()}-byte input allowance. This is not a model token count or context-window limit. The full prepared input is preserved; mandatory text is never shortened to fit.</p>}
-      {state.packet.options.providerBinding?.runtime && <p className="small-copy">Prepared for Codex CLI {state.packet.options.providerBinding.runtime.cliVersion}. The saved request retains the checked executable identity.</p>}
+      {state.packet.options.providerBinding?.runtime && <p className="small-copy">{state.packet.options.providerBinding.runtime.appServer
+        ? 'Prepared for the Codex app-server. The saved request retains the checked server identity.'
+        : `Prepared for Codex CLI ${state.packet.options.providerBinding.runtime.cliVersion}. The saved request retains the checked executable identity.`}</p>}
       {state.packet.receipt.safeBrief && <section className="context-safe-brief" aria-label="Approved writing brief"><strong>Author-approved writing brief</strong><p>{state.packet.receipt.safeBrief.text}</p><p className="small-copy">Exact directions shared for this edit request. The originating discussion was not added as context.</p></section>}
       {state.packet.receipt.lookup && <LookupContextView lookup={state.packet.receipt.lookup} sources={items} busy={busy} delivery={lookupDelivery ?? (delivered ? 'delivered' : 'prepared')} onRead={readHandle} />}
       <details open><summary>{delivered ? 'Used' : 'Prepared'} · {supplied.size} {supplied.size === 1 ? 'source' : 'sources'}{navigation.length ? ` · ${suppliedNavigation.length} generated ${suppliedNavigation.length === 1 ? 'summary' : 'summaries'}` : ''}{reviewedRecords(true).length ? ` · ${reviewedRecords(true).length} reviewed ${reviewedRecords(true).length === 1 ? 'detail' : 'details'}` : ''}{suppliedPromises.length ? ` · ${suppliedPromises.length} promise ${suppliedPromises.length === 1 ? 'detail' : 'details'}` : ''}{suppliedKnowledge.length ? ` · ${suppliedKnowledge.length} knowledge ${suppliedKnowledge.length === 1 ? 'observation' : 'observations'}` : ''}{suppliedSummaries.length ? ` · ${suppliedSummaries.length} accepted ${suppliedSummaries.length === 1 ? 'summary' : 'summaries'}` : ''}{guidance.length > 0 ? ` · ${suppliedGuidance.size} ${suppliedGuidance.size === 1 ? 'instruction' : 'instructions'}` : ''}{conversation.length ? ` · ${suppliedTurns.length} earlier ${suppliedTurns.length === 1 ? 'exchange' : 'exchanges'}` : ''}</summary><ul>{items.filter(item => supplied.has(item.handle)).map(row)}{reviewedProvenanceRows(true)}{reviewedRows(true)}{promiseRows(true)}{knowledgeRows(true)}{summaryRows(true)}{navigationRows(true)}{guidanceRows(true)}{conversationRows(true)}</ul></details>

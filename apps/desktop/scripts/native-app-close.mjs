@@ -168,7 +168,7 @@ async function configureAnonymousEndpoint(page, apiPort) {
     baseUrl: `http://127.0.0.1:${apiPort}/close-api`,
     enabled: true,
     jsonMode: false,
-    manualModelIds: ['test-editor-v1', 'gpt-5.6-luna'],
+    manualModelIds: ['test-editor-v1', 'gpt-6-astra'],
     apiKey: { kind: 'remove' },
   } });
   const profile = endpoint.profiles.find(item => item.label === 'Synthetic held close API');
@@ -198,7 +198,7 @@ function startHeldApi() {
   const server = createHttpServer((request, response) => {
     if (request.method === 'GET' && request.url?.endsWith('/models')) {
       response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ data: [{ id: 'test-editor-v1' }, { id: 'gpt-5.6-luna' }] }));
+      response.end(JSON.stringify({ data: [{ id: 'test-editor-v1' }, { id: 'gpt-6-astra' }] }));
       return;
     }
     if (request.method !== 'POST' || !request.url?.endsWith('/chat/completions')) {
@@ -351,7 +351,7 @@ async function qualifyHeldWorkClose() {
     await page.getByRole('button', { name: 'Story memory', exact: true }).click();
     await page.getByRole('button', { name: 'Refresh story memory', exact: true }).click();
     await waitForHeldRequest(held, 2);
-    assert.equal(held.requests[1].model, 'gpt-5.6-luna');
+    assert.equal(held.requests[1].model, 'gpt-6-astra');
 
     await requestNativeClose(run.app, data);
     await page.getByRole('heading', { name: 'Finish closing WebnovelStudio?', exact: true }).waitFor();

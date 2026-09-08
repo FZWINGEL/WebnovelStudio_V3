@@ -13,6 +13,7 @@ pub mod claude_runner;
 #[cfg(windows)]
 pub mod claude_runtime;
 pub mod cli;
+pub mod codex_app_server;
 pub mod codex_catalog;
 #[cfg(windows)]
 pub mod codex_discovery;

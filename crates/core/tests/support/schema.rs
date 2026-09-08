@@ -7,6 +7,7 @@ use rusqlite::{Connection, params};
 /// intentionally one-way; this helper only makes synthetic legacy fixtures
 /// truthful.
 pub fn remove_schema19_features(connection: &Connection) -> rusqlite::Result<()> {
+    remove_schema38_features(connection)?;
     remove_schema22_features(connection)?;
     remove_schema20_features(connection)?;
     drop_column_if_present(connection, "export_records", "review_bundle_id")?;
@@ -56,6 +57,7 @@ pub fn remove_schema19_features(connection: &Connection) -> rusqlite::Result<()>
 /// triggers are removed before their tables. This helper is test-only; the
 /// production migration remains a one-way upgrade.
 pub fn remove_schema24_features(connection: &Connection) -> rusqlite::Result<()> {
+    remove_schema38_features(connection)?;
     for trigger in [
         "discussion_lookup_results_no_update",
         "discussion_lookup_results_no_delete",
@@ -79,6 +81,14 @@ pub fn remove_schema24_features(connection: &Connection) -> rusqlite::Result<()>
     drop_column_if_present(connection, "provider_results", "delivery_json")?;
     drop_column_if_present(connection, "provider_results", "reported_model")?;
     drop_column_if_present(connection, "memory_results", "delivery_json")?;
+    Ok(())
+}
+
+/// Remove only the additive app-server records from synthetic older projects.
+pub fn remove_schema38_features(connection: &Connection) -> rusqlite::Result<()> {
+    drop_table_if_present(connection, "codex_app_server_dispatches")?;
+    drop_column_if_present(connection, "provider_results", "app_server_delivery_json")?;
+    drop_column_if_present(connection, "memory_results", "app_server_delivery_json")?;
     Ok(())
 }
 

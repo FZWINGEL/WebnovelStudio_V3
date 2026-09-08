@@ -34,6 +34,7 @@ use std::collections::BTreeSet;
 
 pub use crate::context::SafeBriefInput;
 
+mod app_server;
 mod retry;
 
 const MAX_INSTRUCTION_BYTES: usize = 64 * 1024;
@@ -375,6 +376,8 @@ pub struct ProviderTerminalReport {
     /// omit this field and retain their exact wire shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery: Option<ProviderDeliveryReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_server: Option<crate::providers::codex_app_server::AppServerDelivery>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -397,6 +400,8 @@ pub struct ProviderResult {
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery: Option<ProviderDeliveryReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_server: Option<crate::providers::codex_app_server::AppServerDelivery>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -578,6 +583,17 @@ pub struct DiscussionBegin {
 
 #[allow(clippy::large_enum_variant)]
 pub(super) enum DiscussionCommand {
+    ClaimAppServer(
+        RunOwner,
+        crate::providers::codex_app_server::AppServerDispatch,
+        Reply<()>,
+    ),
+    AckAppServer(
+        RunOwner,
+        crate::providers::codex_app_server::AppServerDispatch,
+        String,
+        Reply<()>,
+    ),
     Start(StartDiscussion, Reply<DiscussionStart>),
     Begin(DiscussionBegin, Reply<DiscussionDispatch>),
     MarkDelivered(RunOwner, Reply<DiscussionRun>),
@@ -770,6 +786,15 @@ impl OwnedProject {
             }};
         }
         match command {
+            DiscussionCommand::ClaimAppServer(owner, dispatch, reply) => {
+                mutate!(reply, self.claim_app_server_dispatch(owner, dispatch));
+            }
+            DiscussionCommand::AckAppServer(owner, dispatch, turn_id, reply) => {
+                mutate!(
+                    reply,
+                    self.acknowledge_app_server_turn(owner, dispatch, turn_id)
+                );
+            }
             DiscussionCommand::Start(request, reply) => {
                 mutate!(reply, self.start_discussion(request));
             }
@@ -2039,7 +2064,16 @@ impl OwnedProject {
         }
         let serialized =
             serialized_input(&packet.messages, &packet.options).map_err(packet_error)?;
-        let delivered = if binding.is_http() {
+        let delivered = if crate::providers::codex_app_server::is_app_server(binding) {
+            app_server::validate_delivery(
+                &tx,
+                &current.id,
+                &packet,
+                request.app_server.as_ref(),
+                request.status,
+                request.cleanup,
+            )?
+        } else if binding.is_http() {
             validate_http_delivery(&packet, &request)?;
             matches!(
                 request.delivery.as_ref().map(|receipt| receipt.submission),
@@ -2152,8 +2186,13 @@ impl OwnedProject {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
+        let app_server_json = request
+            .app_server
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
         tx.execute(
-            "INSERT INTO provider_results(run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,reported_model,delivery_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO provider_results(run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,reported_model,delivery_json,app_server_delivery_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 current.id,
                 current.packet_id,
@@ -2171,6 +2210,7 @@ impl OwnedProject {
                 request.effective_identity,
                 request.reported_model,
                 delivery_json,
+                app_server_json,
             ],
         )?;
         if status == DiscussionRunStatus::Completed {
@@ -3056,6 +3096,7 @@ type ProviderResultRow = (
     Option<String>,
     String,
     Option<String>,
+    Option<String>,
 );
 
 fn read_provider_result(
@@ -3065,7 +3106,7 @@ fn read_provider_result(
 ) -> CoreResult<Option<ProviderResult>> {
     let row: Option<ProviderResultRow> = db
         .query_row(
-            "SELECT run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,reported_model,created_at,delivery_json FROM provider_results WHERE run_id=?",
+            "SELECT run_id,packet_id,terminal_event_id,expected_sequence,binding_json,assistant_text,outcome,confirmed_stdin_bytes,usage_json,cleanup,error,effective_identity,reported_model,created_at,delivery_json,app_server_delivery_json FROM provider_results WHERE run_id=?",
             [run_id],
             |row| {
                 Ok((
@@ -3084,6 +3125,7 @@ fn read_provider_result(
                     row.get(12)?,
                     row.get(13)?,
                     row.get(14)?,
+                    row.get(15)?,
                 ))
             },
         )
@@ -3104,6 +3146,7 @@ fn read_provider_result(
         reported_model,
         created_at,
         delivery_json,
+        app_server_json,
     )) = row
     else {
         return Ok(None);
@@ -3131,13 +3174,30 @@ fn read_provider_result(
     let delivery = delivery_json
         .map(|json| serde_json::from_str(&json))
         .transpose()?;
+    let app_server = app_server_json
+        .map(|json| serde_json::from_str(&json))
+        .transpose()?;
     let status = ProviderOutcomeStatus::parse(&outcome)?;
     validate_reported_model(&binding, status, reported_model.as_deref(), true)?;
     let cleanup = ProviderCleanup::parse(&cleanup)?;
     let input_limit = binding
         .input_limit()
         .map_err(|message| CoreError::new("InvalidProject", &message))?;
-    if binding.is_http() {
+    if crate::providers::codex_app_server::is_app_server(&binding) {
+        if confirmed_stdin_bytes != 0 || delivery.is_some() {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "App-server results cannot claim exec or HTTP delivery.",
+            ));
+        }
+        let packet = context_packets::validated_packet_record(db, packet_id)?;
+        app_server::validate_delivery(db, run_id, &packet, app_server.as_ref(), status, cleanup)?;
+    } else if app_server.is_some() {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "Only app-server results can retain app-server delivery.",
+        ));
+    } else if binding.is_http() {
         if confirmed_stdin_bytes != 0 {
             return Err(CoreError::new(
                 "InvalidProject",
@@ -3198,6 +3258,7 @@ fn read_provider_result(
         reported_model,
         created_at,
         delivery,
+        app_server,
     }))
 }
 
@@ -3205,6 +3266,7 @@ fn read_provider_result(
 /// project. This checks the receipt's local fences and packet binding; it does
 /// not claim that the external process itself can be reconstructed.
 pub(crate) fn validate_provider_results(db: &Connection) -> CoreResult<()> {
+    app_server::validate_dispatches(db)?;
     let mut statement = db.prepare("SELECT run_id,packet_id FROM provider_results")?;
     let rows = statement
         .query_map([], |row| {
@@ -3229,7 +3291,22 @@ pub(crate) fn validate_provider_results(db: &Connection) -> CoreResult<()> {
             .map_err(packet_error)?
             .len() as u64;
         let confirmed = parse_decimal_u64(&result.confirmed_stdin_bytes)?;
-        if result.binding.is_http() {
+        if crate::providers::codex_app_server::is_app_server(&result.binding) {
+            if confirmed != 0 {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "App-server receipts cannot claim exec stdin delivery.",
+                ));
+            }
+            app_server::validate_delivery(
+                db,
+                &run_id,
+                &packet,
+                result.app_server.as_ref(),
+                result.status,
+                result.cleanup,
+            )?;
+        } else if result.binding.is_http() {
             if confirmed != 0 {
                 return Err(CoreError::new(
                     "InvalidProject",
@@ -3925,7 +4002,10 @@ fn validate_provider_report_shape(request: &ProviderTerminalReport) -> CoreResul
         .validate()
         .map_err(|message| CoreError::new("InvalidProviderBinding", &message))?;
     let bytes = parse_decimal_u64(&request.confirmed_stdin_bytes)?;
-    if request.binding.is_http() && bytes != 0 {
+    if (request.binding.is_http()
+        || crate::providers::codex_app_server::is_app_server(&request.binding))
+        && bytes != 0
+    {
         return Err(CoreError::new(
             "InvalidRequest",
             "An HTTP provider report must retain a zero Codex stdin count.",
@@ -3953,6 +4033,20 @@ fn validate_provider_report_shape(request: &ProviderTerminalReport) -> CoreResul
         return Err(CoreError::new(
             "InvalidRequest",
             "A Codex provider report cannot contain HTTP delivery evidence.",
+        ));
+    }
+    if crate::providers::codex_app_server::is_app_server(&request.binding) {
+        let receipt = request.app_server.as_ref().ok_or_else(|| {
+            CoreError::new(
+                "InvalidAppServerDelivery",
+                "App-server delivery evidence is required.",
+            )
+        })?;
+        receipt.validate()?;
+    } else if request.app_server.is_some() {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "App-server evidence requires an app-server binding.",
         ));
     }
     if let Some(error) = &request.error
@@ -4121,6 +4215,7 @@ fn provider_result_matches_report(saved: &ProviderResult, report: &ProviderTermi
         && saved.binding == report.binding
         && saved.status == report.status
         && saved.confirmed_stdin_bytes == report.confirmed_stdin_bytes
+        && saved.app_server == report.app_server
         && saved.usage == report.usage
         && saved.cleanup == report.cleanup
         && saved.error == report.error

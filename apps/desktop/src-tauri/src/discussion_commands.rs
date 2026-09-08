@@ -7,10 +7,14 @@ use crate::project_commands::{DesktopProjects, execute};
 use crate::provider_runtime::{DesktopProviders, binding_matches_author_choice};
 use tauri::State;
 use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, packet_input_hash};
+#[cfg(windows)]
+use webnovel_core::library::codex_transport::CodexTransport;
 use webnovel_core::projects::discussions::*;
 use webnovel_core::projects::proposals::*;
 use webnovel_core::projects::workshop_generation::StartWorkshop;
 use webnovel_core::projects::{CoreError, CoreResult, ProjectAccess, ProjectSession};
+#[cfg(windows)]
+use webnovel_core::providers::codex_app_server::{connection::AppServerRequest, is_app_server};
 use webnovel_core::providers::preferences::ModelSelection;
 #[cfg(windows)]
 use webnovel_core::providers::{claude_runtime::ClaudeConnection, codex_runtime::CodexConnection};
@@ -180,6 +184,9 @@ pub async fn start_discussion(
             .clone()
             .unwrap_or_else(ModelSelection::local_mock);
         let existing = saved_request(&project, &request)?;
+        let library = library.0.lock().map_err(|_| crate::provider_commands::unavailable())?;
+        #[cfg(windows)]
+        let mut app_server_request = None;
         #[cfg(windows)]
         let connection = runtime.connection().ok();
         #[cfg(windows)]
@@ -191,6 +198,11 @@ pub async fn start_discussion(
         // Native code supplies the trusted binding, never renderer budgets or
         // arbitrary command options. Existing mock payloads stay unchanged.
         request.provider_binding = if let Some(existing) = &existing {
+            #[cfg(windows)]
+            if existing.status == DiscussionRunStatus::Queued
+                && let Some(binding) = existing.provider_binding.as_ref().filter(|binding| is_app_server(binding)) {
+                app_server_request = Some(runtime.app_server()?.reserve(binding)?);
+            }
             existing.provider_binding.clone()
         } else if selected.provider_id == "codex" {
             #[cfg(windows)]
@@ -201,9 +213,15 @@ pub async fn start_discussion(
                         "Check the Codex connection in Settings before sending this request.",
                     )
                 })?;
-                Some(crate::provider_runtime::connection_author_binding(
-                    checked, &selected,
-                )?)
+                if library.codex_transport_settings()?.transport == CodexTransport::AppServer {
+                    if request.lookup.is_some() { return Err(app_server_lookup_unavailable()); }
+                    let server = runtime.app_server()?;
+                    let binding = server.author_binding(&selected)?;
+                    app_server_request = Some(server.reserve(&binding)?);
+                    Some(binding)
+                } else {
+                    Some(crate::provider_runtime::connection_author_binding(checked, &selected)?)
+                }
             }
             #[cfg(not(windows))]
             {
@@ -238,10 +256,6 @@ pub async fn start_discussion(
         let started = {
             // Preference acceptance and new request acceptance are serialized.
             // Subsequent setting changes cannot redirect this frozen request.
-            let library = library
-                .0
-                .lock()
-                .map_err(|_| crate::provider_commands::unavailable())?;
             let active = library.provider_state()?.settings.active;
             check_model_choice(&project, &request, model_selection.as_ref(), &active)?;
             if request.provider_binding.is_some() {
@@ -258,6 +272,7 @@ pub async fn start_discussion(
             }
             project.start_discussion(request)?
         };
+        drop(library);
         dispatch_started(
             project,
             recovery,
@@ -267,6 +282,8 @@ pub async fn start_discussion(
             connection,
             #[cfg(windows)]
             claude_connection,
+            #[cfg(windows)]
+            app_server_request,
         )
     })
     .await
@@ -283,10 +300,23 @@ pub(crate) fn dispatch_started(
     started: DiscussionStart,
     connection: Option<CodexConnection>,
     claude_connection: Option<ClaudeConnection>,
+    app_server_request: Option<AppServerRequest>,
 ) -> CoreResult<DiscussionStart> {
     if started.run.status == DiscussionRunStatus::Queued
         && started.packet.options.provider_binding.is_some()
     {
+        let app_server = started
+            .packet
+            .options
+            .provider_binding
+            .as_ref()
+            .is_some_and(is_app_server);
+        if app_server && app_server_request.is_none() {
+            return Err(CoreError::new(
+                "ProviderUnavailable",
+                "The original app-server connection is unavailable. Check Codex in Settings; this request has not been sent.",
+            ));
+        }
         let stop = match runtime.register(&started.run.owner) {
             Ok(stop) => stop,
             Err(error) if error.code == "RunAlreadyStarted" => return Ok(started),
@@ -313,7 +343,18 @@ pub(crate) fn dispatch_started(
                     .into(),
                 )
                 .spawn(move || {
-                    if is_claude {
+                    if app_server {
+                        let request = app_server_request.expect("reserved before acceptance");
+                        crate::app_server_discussion::run_live(
+                            project,
+                            worker_recovery,
+                            worker_runtime,
+                            request.reservation,
+                            request.thread,
+                            dispatch,
+                            stop,
+                        );
+                    } else if is_claude {
                         crate::claude_live_discussion::run_live(
                             project,
                             worker_recovery,
@@ -336,7 +377,13 @@ pub(crate) fn dispatch_started(
                 .is_err()
             {
                 runtime.release(&failure_run.owner);
-                if is_claude {
+                if app_server {
+                    crate::app_server_discussion::worker_unavailable(
+                        &failure_project,
+                        &recovery,
+                        failure_run,
+                    );
+                } else if is_claude {
                     crate::claude_live_discussion::worker_unavailable(
                         &failure_project,
                         &recovery,
@@ -395,10 +442,20 @@ pub(crate) fn start_workshop_native(
             {
                 Some("codex") => {
                     let connection = runtime.connection().ok();
+                    let app_server = started
+                        .packet
+                        .options
+                        .provider_binding
+                        .as_ref()
+                        .filter(|binding| is_app_server(binding))
+                        .map(|binding| runtime.app_server()?.reserve(binding))
+                        .transpose()?;
                     if connection.is_none() {
                         return Ok(started);
                     }
-                    return dispatch_started(project, recovery, runtime, started, connection, None);
+                    return dispatch_started(
+                        project, recovery, runtime, started, connection, None, app_server,
+                    );
                 }
                 Some("claude") => {
                     let claude_connection = runtime.claude_connection().ok();
@@ -412,6 +469,7 @@ pub(crate) fn start_workshop_native(
                         started,
                         None,
                         claude_connection,
+                        None,
                     );
                 }
                 // A saved HTTP request belongs to the HTTP command; an
@@ -429,12 +487,12 @@ pub(crate) fn start_workshop_native(
         }
     }
 
+    let library_guard = library
+        .0
+        .lock()
+        .map_err(|_| crate::provider_commands::unavailable())?;
     {
-        let library = library
-            .0
-            .lock()
-            .map_err(|_| crate::provider_commands::unavailable())?;
-        let active = library.provider_state()?.settings.active;
+        let active = library_guard.provider_state()?.settings.active;
         if active != selected {
             return Err(CoreError::new(
                 "ModelChoiceChanged",
@@ -442,6 +500,8 @@ pub(crate) fn start_workshop_native(
             ));
         }
     }
+    #[cfg(windows)]
+    let mut app_server_request = None;
     #[cfg(windows)]
     let connection = if selected.provider_id == "codex" {
         Some(runtime.connection().map_err(|_| {
@@ -469,10 +529,17 @@ pub(crate) fn start_workshop_native(
     } else if selected.provider_id == "codex" {
         #[cfg(windows)]
         {
-            Some(crate::provider_runtime::connection_author_binding(
-                connection.as_ref().expect("Codex connection selected"),
-                &selected,
-            )?)
+            if library_guard.codex_transport_settings()?.transport == CodexTransport::AppServer {
+                let server = runtime.app_server()?;
+                let binding = server.author_binding(&selected)?;
+                app_server_request = Some(server.reserve(&binding)?);
+                Some(binding)
+            } else {
+                Some(crate::provider_runtime::connection_author_binding(
+                    connection.as_ref().expect("Codex connection selected"),
+                    &selected,
+                )?)
+            }
         }
         #[cfg(not(windows))]
         {
@@ -505,6 +572,7 @@ pub(crate) fn start_workshop_native(
         ));
     };
     let started = project.start_workshop(request)?;
+    drop(library_guard);
     #[cfg(windows)]
     {
         dispatch_started(
@@ -514,12 +582,21 @@ pub(crate) fn start_workshop_native(
             started,
             connection,
             claude_connection,
+            app_server_request,
         )
     }
     #[cfg(not(windows))]
     {
         dispatch_started(project, recovery, runtime, started)
     }
+}
+
+#[cfg(windows)]
+fn app_server_lookup_unavailable() -> CoreError {
+    CoreError::new(
+        "UnsupportedProviderFeature",
+        "Story lookup still requires the Exec transport to preserve its invocation allowance. Select Exec in Settings before sending a lookup request.",
+    )
 }
 
 pub(crate) fn saved_workshop_request(
@@ -851,7 +928,7 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
         }
         preserved.sort();
         preserved.dedup();
-        let candidates = (0..if kind == "directions" || is_voice_guidance {
+        let candidates = (0..if kind == "directions" || is_voice_guidance || action == "moment" {
             3
         } else {
             1
@@ -1196,17 +1273,21 @@ mod tests {
 
     #[test]
     fn mock_workshop_output_is_completed_as_raw_json_and_validates_to_stable_candidates() {
-        let path = std::env::temp_dir().join(format!(
-            "wns-desktop-worker-workshop-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let project = ProjectSession::create(path, "Workshop worker test").unwrap();
-        let access = project.attach("test-session".into()).unwrap();
-        let document = project
+        for (action, instruction) in [
+            ("directions", "Offer three different mechanisms."),
+            ("moment", "Offer a concrete story moment."),
+        ] {
+            let path = std::env::temp_dir().join(format!(
+                "wns-desktop-worker-workshop-{action}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let project = ProjectSession::create(path, "Workshop worker test").unwrap();
+            let access = project.attach("test-session".into()).unwrap();
+            let document = project
             .create_document(CreateDocument {
                 access: access.clone(),
                 operation_id: "create-anchor".into(),
@@ -1216,75 +1297,90 @@ mod tests {
                 body: serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"The current story element."}]}]}}),
             })
             .unwrap();
-        let request = webnovel_core::projects::workshop_generation::WorkshopGenerationRequest {
-            access: access.clone(),
-            operation_id: "workshop-operation".into(),
-            exploration: webnovel_core::projects::workshop_generation::WorkshopExploration {
-                session_id: "session-1".into(),
-                expected_version: "0".into(),
-                working_generation: "0".into(),
-                action: "directions".into(),
-                instruction: "Offer three different mechanisms.".into(),
-                selected_scope: "Whole working version".into(),
-                selected_text: "The editable selected passage".into(),
-                working_selection: None,
-            },
-            context: webnovel_core::projects::workshop_generation::WorkshopContext {
-                expected: document.head,
-                lens: webnovel_core::projects::workshop::Lens::Possibilities,
-                depth: webnovel_core::projects::workshop::WorkshopDepth::Develop,
-                current_element: "The current story element.".into(),
-                author_brief: None,
-                direction: "An editable direction".into(),
-                still_open: "Its consequences remain open".into(),
-                focus_question: "What changes next?".into(),
-                focus_reason: "Compare mechanisms before choosing one.".into(),
-                selected_details: vec![
-                    webnovel_core::projects::workshop_generation::WorkshopLiteral {
-                        text: "Keep this fixed detail".into(),
-                        fixed: true,
-                    },
-                ],
-                chosen_details: vec![],
-                fixed_details: vec!["Keep this fixed detail".into()],
-                fixed_source_refs: vec!["workshop-anchor@0".into()],
-                preferences: vec!["want ordinary life".into()],
-                hard_constraints: vec!["hard constraint: avoid hidden destiny".into()],
-                included_document_ids: vec![],
-                included_alternatives: vec![],
-                rejected_rationales: vec!["rejected-1: too narrow".into()],
-                questions: vec![],
-                story_possibilities: vec![],
-                original_notes: "An intentionally included author note.".into(),
-                outside_direction: false,
-                relationship: None,
-            },
-            budget: MockContextBudget::new("100000", "4096", "1024"),
-            provider_binding: None,
-        };
-        let (start, metadata) = request.into_discussion().unwrap();
-        let started = project.start_discussion(start).unwrap();
-        let recovery = DiscussionRecovery::default();
-        let dispatch = recovery.claim(&project, &started.run).unwrap();
-        run_mock_with_pause(project.clone(), recovery, dispatch, || {});
-        let view = project
-            .read_discussion(access, "workshop-anchor".into())
+            let request = webnovel_core::projects::workshop_generation::WorkshopGenerationRequest {
+                access: access.clone(),
+                operation_id: "workshop-operation".into(),
+                exploration: webnovel_core::projects::workshop_generation::WorkshopExploration {
+                    session_id: "session-1".into(),
+                    expected_version: "0".into(),
+                    working_generation: "0".into(),
+                    action: action.into(),
+                    instruction: instruction.into(),
+                    selected_scope: "Whole working version".into(),
+                    selected_text: "The editable selected passage".into(),
+                    working_selection: None,
+                },
+                context: webnovel_core::projects::workshop_generation::WorkshopContext {
+                    expected: document.head,
+                    lens: webnovel_core::projects::workshop::Lens::Possibilities,
+                    depth: webnovel_core::projects::workshop::WorkshopDepth::Develop,
+                    current_element: "The current story element.".into(),
+                    author_brief: None,
+                    direction: "An editable direction".into(),
+                    still_open: "Its consequences remain open".into(),
+                    focus_question: "What changes next?".into(),
+                    focus_reason: "Compare mechanisms before choosing one.".into(),
+                    selected_details: vec![
+                        webnovel_core::projects::workshop_generation::WorkshopLiteral {
+                            text: "Keep this fixed detail".into(),
+                            fixed: true,
+                        },
+                    ],
+                    chosen_details: vec![],
+                    fixed_details: vec!["Keep this fixed detail".into()],
+                    fixed_source_refs: vec!["workshop-anchor@0".into()],
+                    preferences: vec!["want ordinary life".into()],
+                    hard_constraints: vec!["hard constraint: avoid hidden destiny".into()],
+                    included_document_ids: vec![],
+                    included_alternatives: vec![],
+                    rejected_rationales: vec!["rejected-1: too narrow".into()],
+                    questions: vec![],
+                    story_possibilities: vec![],
+                    original_notes: "An intentionally included author note.".into(),
+                    outside_direction: false,
+                    relationship: None,
+                },
+                budget: MockContextBudget::new("100000", "4096", "1024"),
+                provider_binding: None,
+            };
+            let (start, metadata) = request.into_discussion().unwrap();
+            let started = project.start_discussion(start).unwrap();
+            let recovery = DiscussionRecovery::default();
+            let dispatch = recovery.claim(&project, &started.run).unwrap();
+            run_mock_with_pause(project.clone(), recovery, dispatch, || {});
+            let view = project
+                .read_discussion(access.clone(), "workshop-anchor".into())
+                .unwrap();
+            assert_eq!(view.runs[0].status, DiscussionRunStatus::Completed);
+            let output = webnovel_core::projects::workshop_generation::validate_workshop_output(
+                &view.runs[0].output_text,
+                &metadata,
+                &view.runs[0].id,
+            )
             .unwrap();
-        assert_eq!(view.runs[0].status, DiscussionRunStatus::Completed);
-        let output = webnovel_core::projects::workshop_generation::validate_workshop_output(
-            &view.runs[0].output_text,
-            &metadata,
-            &view.runs[0].id,
-        )
-        .unwrap();
-        assert_eq!(output.candidates.len(), 3);
-        assert_eq!(output.candidates[0].id, format!("{}-0", view.runs[0].id));
-        assert!(
-            output.candidates[0]
-                .content
-                .contains("Keep this fixed detail")
-        );
-        clean_project(project);
+            if action == "directions" {
+                assert_eq!(output.candidates.len(), 3);
+            } else {
+                assert!((2..=3).contains(&output.candidates.len()));
+            }
+            assert_eq!(output.candidates[0].id, format!("{}-0", view.runs[0].id));
+            assert!(
+                output.candidates[0]
+                    .content
+                    .contains("Keep this fixed detail")
+            );
+            let document = project
+                .document(access.clone(), "workshop-anchor".into())
+                .unwrap();
+            assert_eq!(
+                document.body["body"]["content"][0]["content"][0]["text"],
+                "The current story element."
+            );
+            let workshop = project.read_workshop(access.clone()).unwrap();
+            assert!(workshop.state.decisions.is_empty());
+            assert!(workshop.state.relationships.is_empty());
+            clean_project(project);
+        }
     }
 
     #[test]

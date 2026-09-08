@@ -5,10 +5,7 @@ use crate::memory_commands::{StartMemoryRequest, check_maintenance_choice};
 use crate::memory_recovery::MemoryRecovery;
 use crate::project_commands::execute;
 use crate::provider_runtime::DesktopProviders;
-use webnovel_core::context::packet::{
-    HTTP_INPUT_LIMIT_BYTES, HTTP_MEMORY_PROFILE_VERSION, HTTP_TOKEN_ACCOUNTING_METHOD,
-    HttpProviderBinding, HttpResponseFormat, ProviderBinding,
-};
+use webnovel_core::context::packet::{HTTP_MEMORY_MODEL_ID, ProviderBinding};
 use webnovel_core::projects::discussions::{
     HttpDeliverySubmission, HttpProviderUsage, ProviderCleanup, ProviderDeliveryReceipt,
     ProviderOutcomeStatus,
@@ -28,29 +25,17 @@ use webnovel_core::providers::openai_compatible::OpenAiCompatibleAdapter;
 const OUTPUT_LIMIT: usize = 64 * 1024;
 
 fn binding_for(profile: &EndpointProfile) -> ProviderBinding {
-    ProviderBinding {
-        provider_id: profile.id.clone(),
-        model_id: "gpt-5.6-luna".into(),
-        reasoning: Some("xhigh".into()),
-        service_tier: None,
-        profile_version: HTTP_MEMORY_PROFILE_VERSION.into(),
-        input_limit_bytes: HTTP_INPUT_LIMIT_BYTES.to_string(),
-        reserved_output_bytes: "0".into(),
-        reserved_protocol_bytes: "0".into(),
-        output_limit_bytes: OUTPUT_LIMIT.to_string(),
-        accounting_method: HTTP_TOKEN_ACCOUNTING_METHOD.into(),
-        runtime: None,
-        http: Some(HttpProviderBinding {
-            base_url: profile.base_url.clone(),
-            config_revision: profile.config_revision.clone(),
-            stream: true,
-            response_format: if profile.json_mode {
-                HttpResponseFormat::JsonObject
-            } else {
-                HttpResponseFormat::Text
-            },
-        }),
-    }
+    ProviderBinding::http_memory(
+        &profile.id,
+        &profile.base_url,
+        &profile.config_revision,
+        true,
+        if profile.json_mode {
+            webnovel_core::context::packet::HttpResponseFormat::JsonObject
+        } else {
+            webnovel_core::context::packet::HttpResponseFormat::Text
+        },
+    )
 }
 
 /// Captures the endpoint and OS credential together with preference acceptance.
@@ -80,7 +65,7 @@ fn accept(
                 "This saved refresh used another provider.",
             )
         })?;
-        if binding.profile_version != HTTP_MEMORY_PROFILE_VERSION
+        if !binding.is_http_memory()
             || !crate::provider_runtime::binding_matches_choice(&binding, &request.model_selection)
         {
             return Err(CoreError::new(
@@ -111,11 +96,11 @@ fn accept(
                 .manual_model_ids
                 .iter()
                 .chain(&profile.cached_model_ids)
-                .any(|model| model == "gpt-5.6-luna"))
+                .any(|model| model == HTTP_MEMORY_MODEL_ID))
         {
             return Err(CoreError::new(
                 "ProviderUnavailable",
-                "Enable this API connection and add gpt-5.6-luna to its models. The service must support xhigh reasoning.",
+                "Enable this API connection and add gpt-6-astra to its models. The service must support low reasoning.",
             ));
         }
         let adapter = crate::endpoint_commands::adapter_for_profile(&profile, store)?;
@@ -239,6 +224,7 @@ fn completion(
             submission,
             usage,
         }),
+        app_server: None,
     })
 }
 
@@ -460,7 +446,7 @@ mod tests {
             let mut library = Library::open(root.join("library")).unwrap();
             let mut draft = EndpointProfileDraft::new("Memory endpoint", url);
             draft.enabled = true;
-            draft.manual_model_ids = vec!["gpt-5.6-luna".into()];
+            draft.manual_model_ids = vec![HTTP_MEMORY_MODEL_ID.into()];
             draft.credential_ref =
                 Some("WebnovelStudioV3/Profile/00000000-0000-0000-0000-000000000001".into());
             library.save_endpoint_profiles("0", vec![draft]).unwrap();
@@ -591,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn api_only_memory_freezes_route_key_and_luna_settings_and_reconciles_without_resubmission() {
+    fn api_only_memory_freezes_route_key_and_astra_settings_and_reconciles_without_resubmission() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let fixture = Fixture::new(&format!("http://{}/v1", listener.local_addr().unwrap()));
         let (job, adapter) = fixture.accept();
@@ -614,8 +600,8 @@ mod tests {
         assert!(headers.starts_with("post /v1/chat/completions http/1.1"));
         assert!(headers.contains("authorization: bearer fixture-key-original"));
         let body: serde_json::Value = serde_json::from_slice(&captured[end + 4..]).unwrap();
-        assert_eq!(body["model"], "gpt-5.6-luna");
-        assert_eq!(body["reasoning_effort"], "xhigh");
+        assert_eq!(body["model"], HTTP_MEMORY_MODEL_ID);
+        assert_eq!(body["reasoning_effort"], "low");
         assert!(body.get("service_tier").is_none());
         let result = fixture.project.read_memory_job(job.owner.clone()).unwrap();
         assert_eq!(result.status, MemoryJobStatus::Completed);

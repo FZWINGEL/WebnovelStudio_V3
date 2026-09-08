@@ -5,7 +5,9 @@
 use crate::library_commands::DesktopLibrary;
 use crate::memory_recovery::MemoryRecovery;
 use crate::project_commands::{DesktopProjects, execute};
-use crate::provider_runtime::{DesktopProviders, binding_matches_choice, is_supported_choice};
+use crate::provider_runtime::{
+    DesktopProviders, binding_matches_choice, is_legacy_maintenance_choice, is_supported_choice,
+};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use webnovel_core::context::memory::mock_navigation_digest;
@@ -17,6 +19,10 @@ use webnovel_core::projects::memory::{
 };
 use webnovel_core::projects::{CoreError, CoreResult, Head, ProjectAccess, ProjectSession};
 use webnovel_core::providers::preferences::ModelSelection;
+#[cfg(windows)]
+use webnovel_core::{
+    library::codex_transport::CodexTransport, providers::codex_app_server::is_app_server,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -166,8 +172,11 @@ pub async fn start_memory(
     execute(move || {
         let _admission = runtime.admit_request()?;
         let selected = request.model_selection.clone();
+        let library_guard = library.0.lock().map_err(|_| model_settings_error())?;
+        #[cfg(windows)]
+        let mut app_server_request = None;
         let mut provider_binding = if is_supported_choice(&selected) {
-            Some(ProviderBinding::codex_luna())
+            Some(ProviderBinding::codex_maintenance())
         } else {
             None
         };
@@ -187,10 +196,22 @@ pub async fn start_memory(
         };
         if let Some(existing) = &existing {
             provider_binding = existing.provider_binding.clone();
+            #[cfg(windows)]
+            if existing.status == MemoryJobStatus::Queued
+                && let Some(binding) = provider_binding.as_ref().filter(|binding| is_app_server(binding)) {
+                app_server_request = Some(runtime.app_server()?.reserve(binding)?);
+            }
         } else {
             #[cfg(windows)]
             if let Some(connection) = &connection {
-                provider_binding = Some(crate::provider_runtime::connection_binding(connection));
+                if library_guard.codex_transport_settings()?.transport == CodexTransport::AppServer {
+                    let server = runtime.app_server()?;
+                    let binding = server.maintenance_binding()?;
+                    app_server_request = Some(server.reserve(&binding)?);
+                    provider_binding = Some(binding);
+                } else {
+                    provider_binding = Some(crate::provider_runtime::connection_binding(connection));
+                }
             }
         }
         #[cfg(windows)]
@@ -215,17 +236,17 @@ pub async fn start_memory(
             provider_binding,
         };
         let started = {
-            let library = library.0.lock().map_err(|_| model_settings_error())?;
             if existing.is_some() {
                 check_saved_choice(&selected, &start.provider_binding)?;
             } else {
-                check_maintenance_choice(&selected, request.maintenance_revision.as_deref(), &library)?;
+                check_maintenance_choice(&selected, request.maintenance_revision.as_deref(), &library_guard)?;
                 check_saved_choice(&selected, &start.provider_binding)?;
             }
             // Keep preference acceptance and creation of a new immutable job
             // in one critical section.  Provider work starts only afterward.
             project.start_memory(start)?
         };
+        drop(library_guard);
         if recovery.claim_pending(&started.owner) {
             // Replay only reconciles the local claim. It never submits the
             // request whose dispatch acknowledgment was uncertain.
@@ -237,6 +258,8 @@ pub async fn start_memory(
         if started.provider_binding.is_some() {
             #[cfg(windows)]
             {
+                let app_server = started.provider_binding.as_ref().is_some_and(is_app_server);
+                if app_server && app_server_request.is_none() { return Err(CoreError::new("ProviderUnavailable", "The original app-server connection is unavailable. Check Codex in Settings; this request has not been sent.")); }
                 let stop = match runtime.register_memory(&started.owner) {
                     Ok(stop) => stop,
                     Err(error) if error.code == "RunAlreadyStarted" => {
@@ -270,25 +293,32 @@ pub async fn start_memory(
                 if std::thread::Builder::new()
                     .name("webnovel-codex-memory".into())
                     .spawn(move || {
-                        crate::live_memory::run_live(
+                        if app_server {
+                            let request = app_server_request.expect("reserved before acceptance");
+                            crate::app_server_memory::run_live(project, worker_recovery, worker_runtime,
+                                request.reservation, request.thread, dispatch, stop);
+                        } else { crate::live_memory::run_live(
                             project,
                             worker_recovery,
                             worker_runtime,
                             connection,
                             dispatch,
                             stop,
-                        )
+                        ) }
                     })
                     .is_err()
                 {
                     runtime.release_memory(&failure_owner);
-                    crate::live_memory::worker_unavailable(
+                    if app_server {
+                        crate::app_server_memory::worker_unavailable(&failure_project, &recovery, failure_owner, failure_document,
+                            "The memory refresh worker could not start. No new provider request was sent.");
+                    } else { crate::live_memory::worker_unavailable(
                         &failure_project,
                         &recovery,
                         failure_owner,
                         failure_document,
                         "The memory refresh worker could not start. No new provider request was sent.",
-                    );
+                    ); }
                 }
                 return Ok(authoritative);
             }
@@ -364,7 +394,7 @@ fn check_saved_choice(
         Some(binding) => {
             !binding.is_http()
                 && (binding_matches_choice(binding, selected)
-                    || (is_supported_choice(selected)
+                    || ((is_supported_choice(selected) || is_legacy_maintenance_choice(selected))
                         && binding == &ProviderBinding::codex_luna_historical()))
         }
     };
@@ -396,6 +426,7 @@ fn run_mock(project: ProjectSession, recovery: MemoryRecovery, dispatch: MemoryD
             error: None,
             effective_identity: None,
             delivery: None,
+            app_server: None,
         },
         Err(_error) => CompleteMemory {
             owner,
@@ -408,6 +439,7 @@ fn run_mock(project: ProjectSession, recovery: MemoryRecovery, dispatch: MemoryD
             error: Some("The local memory response could not be prepared.".to_owned()),
             effective_identity: None,
             delivery: None,
+            app_server: None,
         },
     };
     let _ = recovery.save_or_retain(&project, completion, document_id);
@@ -430,6 +462,7 @@ fn record_worker_failure(
         error: Some(detail.to_owned()),
         effective_identity: None,
         delivery: None,
+        app_server: None,
     };
     let _ = recovery.save_or_retain(project, completion, dispatch.job.target.document_id.clone());
 }
@@ -443,6 +476,15 @@ mod tests {
             provider_id: "codex".into(),
             model_id: "gpt-5.6-luna".into(),
             reasoning: Some("xhigh".into()),
+            service_tier: Some("priority".into()),
+        }
+    }
+
+    fn codex_astra() -> ModelSelection {
+        ModelSelection {
+            provider_id: "codex".into(),
+            model_id: "gpt-6-astra".into(),
+            reasoning: Some("low".into()),
             service_tier: Some("priority".into()),
         }
     }
@@ -462,16 +504,20 @@ mod tests {
     }
 
     #[test]
-    fn memory_uses_luna_xhigh_independently_of_the_drafting_model_and_preserves_old_receipts() {
-        let luna = codex_luna();
+    fn memory_uses_astra_low_independently_of_the_drafting_model_and_preserves_old_receipts() {
+        let astra = codex_astra();
         let drafting = ModelSelection {
             provider_id: "claude".into(),
             model_id: "claude-sonnet".into(),
             reasoning: None,
             service_tier: None,
         };
+        assert!(check_saved_choice(&astra, &Some(ProviderBinding::codex_maintenance())).is_ok());
+        assert!(
+            check_saved_choice(&drafting, &Some(ProviderBinding::codex_maintenance())).is_err()
+        );
+        let luna = codex_luna();
         assert!(check_saved_choice(&luna, &Some(ProviderBinding::codex_luna())).is_ok());
-        assert!(check_saved_choice(&drafting, &Some(ProviderBinding::codex_luna())).is_err());
         let historical = Some(ProviderBinding::codex_luna_historical());
         assert!(check_saved_choice(&luna, &historical).is_ok());
     }

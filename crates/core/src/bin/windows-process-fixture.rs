@@ -30,6 +30,8 @@ fn main() {
         "--codex-jsonl" => codex_jsonl(),
         "--claude-jsonl" => claude_jsonl(),
         "--interactive" => interactive(),
+        "--persistent" => persistent(),
+        "--codex-app-server" => codex_app_server(),
         _ => root(),
     }
 }
@@ -47,7 +49,13 @@ fn codex_jsonl() {
             thread::sleep(Duration::from_millis(5));
         }
     }
-    let emit = |value: serde_json::Value| {
+    let emit = |mut value: serde_json::Value| {
+        // The installed app-server's stdio JSONL omits the optional JSON-RPC
+        // version field. Keep the fixture in that native shape while the
+        // protocol parser still rejects an explicitly wrong version.
+        if let Some(object) = value.as_object_mut() {
+            object.remove("jsonrpc");
+        }
         println!("{value}");
         io::stdout().flush().expect("fixture stdout");
     };
@@ -285,6 +293,213 @@ fn interactive() {
             _ => println!("UNKNOWN_ACK"),
         }
         io::stdout().flush().expect("interactive fixture stdout");
+    }
+}
+
+fn persistent() {
+    announce_pid("persistent");
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        let line = line.expect("persistent fixture stdin");
+        if line == "FLOOD" {
+            println!("{}", "x".repeat(512 * 1024));
+        } else {
+            let response = match line.as_str() {
+                "FIRST" => "FIRST_ACK",
+                "SECOND" => "SECOND_ACK",
+                "CLOSE" => "CLOSE_ACK",
+                other => other,
+            };
+            println!("{response}");
+        }
+        io::stdout().flush().expect("persistent fixture stdout");
+    }
+}
+
+/// Minimal synthetic JSON-RPC app-server used by the persistent Rust driver
+/// integration tests. It never starts Codex or reads author state. Each
+/// request is handled synchronously so the fixture's behavior is deterministic
+/// while still exercising the real owned-process boundary.
+fn codex_app_server() {
+    let mode = std::env::args().nth(2).unwrap_or_default();
+    let record_path = std::env::args().nth(3).map(PathBuf::from);
+    let stdin = io::stdin();
+    let mut thread_number = 0_u64;
+    let mut turn_number = 0_u64;
+    let mut active_turn: Option<(String, String)> = None;
+
+    let emit = |value: serde_json::Value| {
+        println!("{value}");
+        io::stdout().flush().expect("app-server fixture stdout");
+    };
+
+    for line in stdin.lock().lines() {
+        let line = line.expect("app-server fixture stdin");
+        let request: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let method = request
+            .get("method")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if let Some(path) = &record_path {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .expect("app-server fixture record");
+            writeln!(file, "{method}").expect("app-server fixture record write");
+        }
+        let id = request.get("id").cloned();
+        match method {
+            "initialize" => {
+                if mode == "auth" {
+                    let experimental_api = request
+                        .get("params")
+                        .and_then(serde_json::Value::as_object)
+                        .and_then(|params| params.get("capabilities"))
+                        .and_then(serde_json::Value::as_object)
+                        .and_then(|capabilities| capabilities.get("experimentalApi"))
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    if !experimental_api {
+                        emit(serde_json::json!({
+                            "jsonrpc":"2.0", "id": id,
+                            "error":{"code":-32001,"message":"experimental API capability required"}
+                        }));
+                        continue;
+                    }
+                }
+                emit(serde_json::json!({
+                    "jsonrpc":"2.0", "id": id, "result": {}
+                }));
+            }
+            "initialized" => {}
+            "account/login/start" => emit(serde_json::json!({
+                "jsonrpc":"2.0", "id": id, "result": {"account":{"id":"fixture-account"}}
+            })),
+            "thread/start" => {
+                thread_number = thread_number.saturating_add(1);
+                let thread_id = format!("fixture-thread-{thread_number}");
+                let params = request.get("params").cloned().unwrap_or_default();
+                let model = params
+                    .get("model")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("gpt-6-astra");
+                let effort = params
+                    .get("config")
+                    .and_then(serde_json::Value::as_object)
+                    .and_then(|config| config.get("model_reasoning_effort"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let service_tier = params
+                    .get("serviceTier")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!("default"));
+                if mode == "delay-thread" {
+                    thread::sleep(Duration::from_millis(100));
+                }
+                if mode == "malformed" {
+                    println!("{{malformed app-server record");
+                    io::stdout().flush().expect("app-server fixture stdout");
+                    return;
+                }
+                emit(serde_json::json!({
+                    "jsonrpc":"2.0", "id": id, "result": {
+                        "thread":{"id":thread_id,"ephemeral":true,"path":null}, "model":model,
+                        "reasoningEffort":effort, "serviceTier":service_tier,
+                        "instructionSources":[]
+                    }
+                }));
+                if mode == "crash-before-turn" {
+                    std::process::exit(23);
+                }
+            }
+            "turn/start" => {
+                turn_number = turn_number.saturating_add(1);
+                let params = request.get("params").cloned().unwrap_or_default();
+                let thread_id = params
+                    .get("threadId")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("fixture-thread-1")
+                    .to_owned();
+                let turn_id = format!("fixture-turn-{turn_number}");
+                active_turn = Some((thread_id.clone(), turn_id.clone()));
+                if mode == "lost-start" {
+                    // The request was received but its response is lost. The
+                    // driver must retain an uncertain submission and never
+                    // replay this turn.
+                    continue;
+                }
+                if mode != "lost-start-complete" {
+                    emit(serde_json::json!({
+                        "jsonrpc":"2.0", "id": id, "result": {"turn":{"id":turn_id}}
+                    }));
+                }
+                emit(serde_json::json!({
+                    "jsonrpc":"2.0", "method":"turn/started",
+                    "params":{"threadId":thread_id,"turn":{"id":turn_id}}
+                }));
+                if mode == "interleaved" {
+                    emit(serde_json::json!({
+                        "jsonrpc":"2.0", "method":"item/agentMessage/delta",
+                        "params":{"threadId":"other-thread","turnId":"other-turn","itemId":"other-item","delta":"wrong"}
+                    }));
+                }
+                emit(serde_json::json!({
+                    "jsonrpc":"2.0", "method":"item/started",
+                    "params":{"threadId":thread_id,"turnId":turn_id,"item":{"id":"answer","type":"agentMessage","phase":"final"}}
+                }));
+                emit(serde_json::json!({
+                    "jsonrpc":"2.0", "method":"item/agentMessage/delta",
+                    "params":{"threadId":thread_id,"turnId":turn_id,"itemId":"answer","delta":"Hello"}
+                }));
+                if mode == "stop"
+                    || mode == "ignore-interrupt"
+                    || (mode == "stop-first" && turn_number == 1)
+                {
+                    continue;
+                }
+                if mode == "crash" {
+                    std::process::exit(24);
+                }
+                emit(serde_json::json!({
+                    "jsonrpc":"2.0", "method":"turn/completed",
+                    "params":{"threadId":thread_id,"turn":{"id":turn_id,"status":"completed","items":[{"id":"answer","type":"agentMessage","phase":"final","text":"Hello world"}],"usage":{"inputTokens":3,"outputTokens":2}}}
+                }));
+            }
+            "turn/interrupt" => {
+                let params = request.get("params").cloned().unwrap_or_default();
+                let (thread_id, turn_id) = active_turn
+                    .clone()
+                    .or_else(|| {
+                        Some((
+                            params.get("threadId")?.as_str()?.to_owned(),
+                            params.get("turnId")?.as_str()?.to_owned(),
+                        ))
+                    })
+                    .unwrap_or_else(|| ("fixture-thread-1".into(), "fixture-turn-1".into()));
+                emit(serde_json::json!({"jsonrpc":"2.0","id":id,"result":{}}));
+                if mode != "ignore-interrupt" {
+                    emit(serde_json::json!({
+                        "jsonrpc":"2.0", "method":"turn/completed",
+                        "params":{"threadId":thread_id,"turn":{"id":turn_id,"status":"interrupted","items":[]}}
+                    }));
+                }
+            }
+            "thread/unsubscribe" => emit(serde_json::json!({
+                "jsonrpc":"2.0", "id": id, "result": {}
+            })),
+            _ => {
+                if let Some(id) = id {
+                    emit(serde_json::json!({
+                        "jsonrpc":"2.0", "id": id,
+                        "error":{"code":-32601,"message":"fixture method unavailable"}
+                    }));
+                }
+            }
+        }
     }
 }
 

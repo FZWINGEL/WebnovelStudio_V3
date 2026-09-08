@@ -8,6 +8,8 @@ export interface StoryMemoryView {
   modelId: string; reasoning: string | null; serviceTier: string | null;
   ready: boolean; detail: string;
 }
+export type CodexTransport = 'exec' | 'appServer';
+export interface CodexTransportSettings { revision: string; transport: CodexTransport }
 export interface ModelDescriptor {
   key: ModelKey; label: string; providerLabel: string; reasoningLevels: string[];
   serviceTiers: Array<{ id: string; label: string }>;
@@ -28,13 +30,15 @@ export interface ProviderState {
 export const localModel: ModelSelection = { providerId: 'mock', modelId: 'mock-story-context', reasoning: null, serviceTier: null };
 export const storyMemoryMockModel: ModelSelection = { ...localModel };
 /** Retained for older isolated fixtures; production memory uses storyMemory. */
-export const storyMemoryModel: ModelSelection = { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'xhigh', serviceTier: 'priority' };
+export const storyMemoryModel: ModelSelection = { providerId: 'codex', modelId: 'gpt-6-astra', reasoning: 'low', serviceTier: 'priority' };
 export const sameModel = (left: ModelKey, right: ModelKey) => left.providerId === right.providerId && left.modelId === right.modelId;
 export const readProviderState = (): Promise<ProviderState> => invoke('provider_state');
 export const checkCodexConnection = (): Promise<ProviderState> => invoke('check_codex_connection');
 export const checkClaudeConnection = (): Promise<ProviderState> => invoke('check_claude_connection');
 export const saveModelSettings = (expectedRevision: string, active: ModelSelection, favorites: ModelKey[]): Promise<ProviderState> => invoke('save_model_settings', { expectedRevision, active, favorites });
 export const saveStoryMemoryProvider = (expectedRevision: string, providerId: string): Promise<ProviderState> => invoke('save_story_memory_provider', { expectedRevision, providerId });
+export const readCodexTransport = (): Promise<CodexTransportSettings> => invoke('codex_transport_settings');
+export const saveCodexTransport = (expectedRevision: string, transport: CodexTransport): Promise<CodexTransportSettings> => invoke('save_codex_transport', { expectedRevision, transport });
 
 export interface EndpointProfile {
   id: string; label: string; baseUrl: string; enabled: boolean; jsonMode: boolean;

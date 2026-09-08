@@ -1,5 +1,58 @@
 # V3 implementation status
 
+## Optional persistent Codex transport (8 September 2026)
+
+[ADR 0033](ADR_0033_CODEX_APP_SERVER.md) now describes the implemented optional
+Rust app-server route. It keeps one application-owned local stdio server warm,
+starts a fresh isolated ephemeral thread for each accepted request, uses an
+app-owned `CODEX_HOME` and restrictive multi-model catalog, and records separate
+app-server dispatch/delivery evidence through additive schema 38 storage. A
+read-only experimental auth handoff uses the installed Codex file credentials
+through `account/login/start`; credentials are kept in memory and are never
+written to project packets, settings, or logs.
+
+Exec remains the default transport and the existing `codex-stdin` Luna author
+bindings, packet bytes/hashes, receipts, and recovery behavior remain unchanged.
+Bounded story lookup remains on exec. Ordinary lookup-disabled discussion,
+selected-edit, and continuation routes share the optional app-server worker when
+explicitly selected. Fixed Story Memory maintenance uses GPT-6 Astra with low
+reasoning; native maintenance preserves the requested priority tier, while the
+OpenAI-compatible HTTP maintenance route has no service tier. These maintenance
+defaults are independent of the author model picker. No Codex CLI version is
+pinned and no TypeScript/Python SDK runtime is added; running-server executable,
+catalog, security, and account identities are still fenced for safe reuse.
+
+The installed no-generation qualification check passes on Codex 0.153.4:
+Astra low/priority, Standard, priority again, and Luna each used a fresh thread
+in the same process. All four pre-turn callbacks rejected generation, the
+Standard check confirmed that priority was not inherited, and process cleanup
+completed. The final sample took 8.604 seconds (3.450 seconds discovery,
+2.761 seconds startup, 38/93/93/92 ms thread checks, 2.075 seconds shutdown).
+It made no generation turn and is not a latency benchmark. The report is
+`.local/app-server-qualification/final-check.json`.
+
+The final local check passed 839 Rust tests (103 core unit, 654 integration,
+82 desktop; one intentional subprocess-helper ignore), 600 frontend tests in
+56 files, and 25 tooling checks, plus formatting, strict Clippy, TypeScript, and
+the production frontend build (`.local/app-server-final-check.log`). Isolated
+native Tauri/WebView2 checks passed Settings persistence/restart (4 checks,
+zero generation) and Story Workshop (31 checks, deterministic mock).
+
+One live Luna/xhigh/priority Workshop request returned three validated
+directions with durable delivery evidence and confirmed cleanup. Three earlier
+Workshop failures remain recorded; no uncertain request was automatically
+replayed. A separate Astra/low/priority comparison passed Exec, first app-server,
+and warm app-server cases using the same 243-byte application packet. It has
+one sample per case and differing internal prompt usage, so it does not isolate
+the effect of process reuse or establish a general speed improvement.
+
+See [app-server qualification](APP_SERVER_QUALIFICATION.md) for exact reports,
+timings, failure corrections, and evidence boundaries. Native live writing and
+recovery, live concurrency/Stop, representative workload comparisons, release
+behavior, and author quality evaluation remain open. Hosted CI was blocked
+before execution by GitHub billing admission. Exec remains the default; this
+implementation is an explicit development option.
+
 ## Story Workshop functional completion (7 September 2026)
 
 Workshop product commit `da08d8c62b7dc134119440749475d1373868caf5` adds
@@ -73,13 +126,18 @@ cost and exact suite reconciliation can be qualified. The latest repository
 record reports GitHub billing admission failure. No CI dispatch, push, or native
 UI run was performed. Nextest/cache/runner experiments remain deferred.
 
+## Previous workspace checkpoint (7 September 2026)
 
-**Status date:** 7 September 2026
+The following checkpoint predates the optional app-server implementation above;
+its test counts, commit identity, and provider observations are retained as
+historical evidence.
 
-**Current branch:** `codex/v3-persistence`
-**Overall:** in progress; the full V3 goal is not complete.
+**Checkpoint date:** 7 September 2026
 
-The current product source is `d3939aed349cfa4aa811c919fa6ec3cc89f10513`.
+**Checkpoint branch:** `codex/v3-persistence`
+**Checkpoint overall:** in progress; the full V3 goal is not complete.
+
+The checkpoint product source was `d3939aed349cfa4aa811c919fa6ec3cc89f10513`.
 The notes-organization slice adds **Organize these notes**, which opens an
 independent parentless Working Notebook with exact `originalNotes` and a
 compact organization brief. No parent focus, pins, working text, captured
@@ -1001,9 +1059,9 @@ connection must authorize the exact selected model and concrete traits before
 an author request is bound as `codex-stdin.author.v1`, including
 `runtime.catalogSha256`. Missing models or traits remain selected and
 unavailable for explicit repair. Historical 0.153.3 dispatches remain dated
-  evidence only. Background summary and native Codex Story Memory use the fixed
-  GPT-5.6 Luna/xhigh/priority profile; configured HTTP Story Memory uses Luna
-  with xhigh reasoning and no service tier. Author writing and revision follow
+  evidence only. New background summary and native Codex Story Memory use the fixed
+  GPT-6 Astra/low/priority profile; configured HTTP Story Memory uses Astra
+  with low reasoning and no service tier. Historical Luna bindings stay intact. Author writing and revision follow
   the persistent V2-style model picker. V2-style model picker behavior and
 configurable OpenAI-compatible endpoint APIs have a development
 implementation. The current Codex path freezes the selected model, exact
@@ -1035,9 +1093,9 @@ is claimed.
 | Provider | Author requests | Story Memory | Current boundary |
 | --- | --- | --- | --- |
 | Local test model | Implemented offline | Explicit offline choice | Synthetic responses |
-| Codex CLI | Checked dynamic model/traits | Fixed Luna/xhigh/priority | Bounded live evidence; broader qualification open |
+| Codex CLI | Checked dynamic model/traits | Fixed Astra/low/priority for new jobs | Historical Luna live evidence; Astra live qualification open |
 | Claude Code CLI | Static Fable/Opus/Sonnet 5 with checked native connection | Unsupported | Integrated development path; no live Claude calls |
-| OpenAI-compatible endpoint | Configured URL/key/model, independent of CLIs | Fixed Luna/xhigh, no tier | Native synthetic qualification; hosted endpoints unqualified |
+| OpenAI-compatible endpoint | Configured URL/key/model, independent of CLIs | Fixed Astra/low, no tier for new jobs | Synthetic qualification; hosted endpoints unqualified |
 | Cursor Agent, OpenCode, Grok Build | Deferred | Unsupported | Further adapter work paused by the author |
 | Anthropic/Gemini native HTTP protocols | Deferred | Unsupported | Further adapter work paused by the author |
 
@@ -1046,7 +1104,7 @@ they implement its Chat Completions contract; this is not a claim of separate
 provider-specific adapters or hosted qualification. HTTP and Claude reject
 story lookup explicitly; Codex and the local test model support the current
 bounded lookup route. No unavailable selection silently falls back to another
-provider. All summary and maintenance model calls remain fixed to Luna/xhigh;
+provider. All new summary and maintenance model calls use Astra/low;
 changing the author picker never changes the maintenance provider preference.
 
 **Adapter scope, 6 September 2026:** the author asked to stop after Claude;
@@ -1227,9 +1285,9 @@ now pass; the live call ledger and same-data reopen evidence remain in
 [Codex qualification](CODEX_QUALIFICATION.md).
 
 Codex remains compatibility-checked against the installed executable without a
-version or hash pin. Background summary and native Codex Story Memory use the
-fixed Luna/xhigh/priority profile; configured HTTP Story Memory uses Luna/xhigh
-with no service tier. Author-facing calls follow the selected
+version or hash pin. New background summary and native Codex Story Memory use the
+fixed Astra/low/priority profile; configured HTTP Story Memory uses Astra/low
+with no service tier. Historical jobs retain their original bindings. Author-facing calls follow the selected
 model and traits. The schema-27 author-binding boundary is preserved; the
 schema-28 project reader floor adds frozen source-title validation. The
 library schema-4 catalog preserves historical Codex packet bytes. The previous
@@ -1557,13 +1615,13 @@ The full `scripts/desktop.ps1` check passed and is recorded in `.local/continuat
 | W5 proposal review and Apply | Implemented selected-passage slice; pushed and CI-covered | Schema-8 proposals, explicit intent, restricted context, immutable prepared versions/decisions, exact structural validation, atomic Apply/Reject, stale/replay fences, and mounted-editor handoff | Whole-chapter/block/manual-rebind work, broader B trial, and separately owned F5 batch Apply |
 | W6 saved versions and restore | Implemented development slice | Bounded metadata paging, exact inert comparison, atomic whole-document restore, shared Apply/restore reconciliation, before/after retention, process-interruption and rollback evidence | Remaining lifecycle/renderer-loss combinations and B trial |
 | W7 exports/package | Development slice and narrow installed lifecycle passed | Working and author-reviewed Markdown/TXT preview, exact native Save, immutable export records, reviewed freshness/record-failure native checks, stable release data, installed lifecycle CI33994616334 | Offline/no-runtime installation, true upgrade, physical/assistive native trials, full N gates |
-| W8 bounded Codex | Integrated development path; dynamic Codex discovery, HTTP/profile, picker rails, and independent Story Memory provider choice implemented as development surfaces | Compatibility-check the installed Codex CLI at connection time, record observed version/hash per request, run bounded interactive app-server discovery, persist a sanitized display-only catalog, bind exact author model/traits with `codex-stdin.author.v1` and `runtime.catalogSha256`, preserve immutable packet/model state, Job-owned streaming, bounded output, durable provider results, Stop and explicit local save retry; Settings endpoint profiles, native credential readiness, native HTTP transport, V2-style provider search/favorites/keyboard/traits, native Codex Luna/xhigh/priority maintenance routing, and configured HTTP Story Memory Luna/xhigh/no-tier maintenance routing are implemented. Story Memory supports fixed Codex, explicit mock, or a configured HTTP endpoint with private credential capture, schema-29 delivery receipts, and no POST replay during local recovery | Complete current native/live qualification, refusal/truncation/auth/cleanup and isolation gates, model-specific token limits, V2 CLI adapter parity, hosted/live HTTP qualification, and W8/E3; HTTP context lookup remains unsupported |
+| W8 bounded Codex | Integrated development path; dynamic Codex discovery, HTTP/profile, picker rails, and independent Story Memory provider choice implemented as development surfaces | Compatibility-check the installed Codex CLI at connection time, record observed version/hash per request, run bounded interactive app-server discovery, persist a sanitized display-only catalog, bind exact author model/traits with `codex-stdin.author.v1` and `runtime.catalogSha256`, preserve immutable packet/model state, Job-owned streaming, bounded output, durable provider results, Stop and explicit local save retry; Settings endpoint profiles, native credential readiness, native HTTP transport, V2-style provider search/favorites/keyboard/traits, native Codex Astra/low/priority maintenance routing, and configured HTTP Story Memory Astra/low/no-tier maintenance routing are implemented. Story Memory supports fixed Codex, explicit mock, or a configured HTTP endpoint with private credential capture, schema-29 delivery receipts, and no POST replay during local recovery | Complete current native/live qualification, refusal/truncation/auth/cleanup and isolation gates, model-specific token limits, V2 CLI adapter parity, hosted/live HTTP qualification, and W8/E3; HTTP context lookup remains unsupported |
 | C6 bounded story lookup | Implemented development slice; broader qualification open | Opt-in `story-lookup.v1` route for Working, AuthorRoom, and Discuss; schema-24 invocation/read persistence; schema-34 reviewed-memory capability with `findEntities`, `knowledgeHistory`, `promiseHistory`, and `possessionHistory`; exact child packets; legacy byte-preserving reconstruction/backup/recovery; focused protocol/packet/boundary/core/frontend checks; synthetic native mock coverage with reopen/no-hidden-work evidence; bounded three-call live qualification | Final delivery-label qualification; hosted/live-provider qualification beyond the bounded slice; model-specific token accounting; broader crash/Stop/lost-ack, state/thread, restricted-writing, author-trial, and release support |
 | F1 V2 import | Implemented schema-8 development slice | Explicit working-body choices, independent staged installation, inert history, Library Check import, source-free receipt recovery, full pre-move validation, and seven-check synthetic native import journey | Broader pending-import native recovery and representative author-approved acceptance |
 | F2 author review | Prose review, reviewed-context core, continuation, and schema-21 possession evidence CI-qualified as a development slice | Exact stages/revisions/earlier prefix, explicit selected bundles, immutable reader-position pins, current validity, saved-stage resumption, independent recovered history, core/IPC freeze of reviewed prefix plus current target, schema-19 Working/Reviewed append preview with atomic Apply/Reject, and the first typed passage-backed record set with audience-filtered delivery | Broader records/exceptions, provider qualification, and full F2 qualification |
 | C4-A chapter memory | Implemented development slice; CI-covered | Explicit Refresh for one full current chapter; schema 16 job/result/view records; strict evidence validation; recovery/cleanup regressions; native CI and one historical bounded Codex memory request; independent Story Memory provider choice and configured HTTP development route with schema-29 delivery receipts | Keep background summary/memory jobs on GPT-5.6-Luna/xhigh; complete current native/provider and hosted/live HTTP qualification, and narrative quality remain open |
 | C4-B navigation context | Implemented development slice; CI-covered | Automatic current chapter-view selection, schema 17 immutable pins, exact generated coverage, full-text preference, mandatory-source protection, stale/copy/policy fences, and native evidence inspection | C4-C extends freshness; higher-level digests, restricted/reviewed integration, provider picker/adapters, temporal state, lookup loop, and narrative quality remain open |
-| C4-C chapter freshness | Implemented development slice; CI-covered | Exact closed chapter dependencies preserve reuse after unrelated edits; original generation epochs and historical bytes remain intact; schema 18 reader floor | Richer memory, Luna/xhigh routing, and narrative qualification remain open |
+| C4-C chapter freshness | Implemented development slice; CI-covered | Exact closed chapter dependencies preserve reuse after unrelated edits; original generation epochs and historical bytes remain intact; schema 18 reader floor | Richer memory and narrative qualification remain open |
 | GitHub/CI | Reviewed-export checkpoint passed | `a19e7bf` passed CI 34010306332 with Windows/Ubuntu contracts and all 38 strict native checks | Requalify subsequent source changes; no full V3/release completion claim |
 
 ## Current local evidence
@@ -1802,7 +1860,7 @@ The first part stages an exact saved chapter and its complete earlier selected r
 
 ### F3 — context quality
 
-**Gate:** measured task-specific context evidence. **Status:** C4-A chapter navigation memory, C4-B working AuthorRoom packet reuse, and C4-C chapter-only freshness are implemented development slices with local/native/CI evidence. C4-B integrates current generated views into working packets when full prose does not fit; C4-C preserves unchanged chapter views after unrelated edits while ordinary request/proposal freshness remains conservative. Higher-level arc/scene views, remaining C5 state views, C6 evaluation, background Luna/xhigh routing, and strict provider/release qualification remain open.
+**Gate:** measured task-specific context evidence. **Status:** C4-A chapter navigation memory, C4-B working AuthorRoom packet reuse, and C4-C chapter-only freshness are implemented development slices with local/native/CI evidence. C4-B integrates current generated views into working packets when full prose does not fit; C4-C preserves unchanged chapter views after unrelated edits while ordinary request/proposal freshness remains conservative. Higher-level arc/scene views, remaining C5 state views, C6 evaluation, background analysis policy and strict provider/release qualification remain open.
 
 - [ ] Add source packing, author-room/prose-context separation, safe briefs, exact previous prose, aliases/search, and freshness checks.
 - [x] Implement the C4-A source-linked chapter navigation digest slice with explicit Refresh, exact source revision, strict evidence validation, separate job/result/view records, stale/revocation fencing, and local recovery boundaries. Generated views remain inspection-only and are not supplied to future model packets.

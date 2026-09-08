@@ -34,9 +34,10 @@ changes. These commands use mock providers and synthetic projects.
 explicitly opted-in check. With no flag it exits before provider discovery or
 project creation. Normal tests and CI never enable the flag.
 
-When deliberately qualifying a live connection, this command permits at most
-one Codex invocation on a synthetic project, using discovered Luna/xhigh/priority
-settings and the normal core packet, output, and durable receipt path:
+When deliberately qualifying a live connection, this command permits
+at most one Codex invocation on a synthetic project, using the discovered
+Luna/xhigh/priority author settings and the
+normal core packet, output, and durable receipt path:
 
 ```powershell
 $previousWorkshopOptIn = $env:WNS_V3_ALLOW_LIVE_WORKSHOP
@@ -53,6 +54,43 @@ the exact packet, dispatch uncertainty, terminal receipt, parsed alternatives,
 and synthetic project location. The project is retained for inspection; use
 that evidence after a failure instead of blindly running another generation.
 This checks the provider/core boundary, not native UI or narrative quality.
+Append `-- --app-server` to the Cargo command to qualify the optional transport
+instead of Exec. This still permits only one explicit synthetic request and
+never falls back or resends after failure.
+
+## Optional Codex app-server no-generation check
+
+The optional persistent Codex route uses a Rust client over local stdio. Exec
+remains the default, and bounded story lookup remains on Exec. The development
+check validates app-owned isolation, the read-only file-auth handoff, the
+restrictive multi-model catalog, fresh ephemeral threads, Astra low/priority
+maintenance traits, pre-turn cancellation, warm reuse, and cleanup without
+submitting a paid `turn/start`:
+
+```powershell
+cargo run --locked -p webnovel-core --example qualify_codex_app_server -- --check
+```
+
+The 8 September 2026 check passed on installed Codex 0.153.4 and retained its
+report at `.local/app-server-qualification/final-check.json`. Four fresh-thread
+checks covered Astra low with priority, Standard, priority again, and Luna;
+Standard did not inherit priority. The run took 8.604 seconds, including
+3.450 seconds discovery, 2.761 seconds startup, and 2.075 seconds shutdown.
+This no-generation sample is not a latency benchmark.
+It does not qualify live generation, native UI behavior, narrative quality,
+hosted providers, or release packaging. The app-server route remains an opt-in
+development transport and has no automatic fallback or request replay.
+
+## Explicit transport comparison
+
+`crates/core/examples/compare_codex_transport.rs` is inert by default. With
+`WNS_V3_ALLOW_TRANSPORT_COMPARISON=1`, it authorizes three separate synthetic
+Astra/low/priority requests: Exec, first app-server, and warm app-server. It
+retains one durable `.local/codex-transport-comparison-*.json` report, never
+retries a failed case, and measures server startup separately. Its Exec first
+visible result is a completed message, not time to first token. Normal tests
+and CI do not opt into this live check. See [the qualification record](APP_SERVER_QUALIFICATION.md)
+for the executed sample and its limits.
 
 ## Rust test organization
 

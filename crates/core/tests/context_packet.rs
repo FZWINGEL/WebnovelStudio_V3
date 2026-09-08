@@ -757,6 +757,30 @@ fn current_and_historical_codex_bindings_are_exact_and_history_round_trips() {
 }
 
 #[test]
+fn current_maintenance_binding_is_versioned_without_changing_luna_history() {
+    let maintenance = ProviderBinding::codex_maintenance();
+    let legacy = ProviderBinding::codex_luna();
+    assert_eq!(maintenance.model_id, "gpt-6-astra");
+    assert_eq!(maintenance.reasoning.as_deref(), Some("low"));
+    assert_eq!(maintenance.profile_version, "codex-stdin.maintenance.v2");
+    assert!(maintenance.validate().is_ok());
+    assert!(maintenance.is_codex_maintenance_profile());
+    assert_eq!(legacy.model_id, "gpt-5.6-luna");
+    assert_eq!(legacy.reasoning.as_deref(), Some("xhigh"));
+    assert_eq!(legacy.profile_version, "codex-stdin.v1");
+    assert!(legacy.validate().is_ok());
+    assert_ne!(maintenance, legacy);
+
+    let runtime = ProviderBinding::codex_maintenance_runtime("0.154.0", &"a".repeat(64));
+    assert!(runtime.validate().is_ok());
+    assert!(runtime.is_codex_maintenance_profile());
+    assert_eq!(
+        serde_json::from_str::<ProviderBinding>(&serde_json::to_string(&runtime).unwrap()).unwrap(),
+        runtime
+    );
+}
+
+#[test]
 fn codex_runtime_versions_are_recorded_without_a_release_allowlist() {
     for version in ["0.153.4", "0.154.0", "1.4.0-beta.2"] {
         let binding = ProviderBinding::codex_luna_runtime(version, &"a".repeat(64));

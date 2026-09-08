@@ -31,8 +31,8 @@ fn missing_preference_keeps_codex_maintenance_default_without_changing_author_se
     let story_memory = library.story_memory_settings().unwrap();
     assert_eq!(story_memory.revision, "0");
     assert_eq!(story_memory.provider_id, STORY_MEMORY_CODEX_PROVIDER_ID);
-    assert_eq!(STORY_MEMORY_MODEL_ID, "gpt-5.6-luna");
-    assert_eq!(STORY_MEMORY_REASONING, "xhigh");
+    assert_eq!(STORY_MEMORY_MODEL_ID, "gpt-6-astra");
+    assert_eq!(STORY_MEMORY_REASONING, "low");
     assert_eq!(library.provider_state().unwrap().settings.revision, "0");
 }
 

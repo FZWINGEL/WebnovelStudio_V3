@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use webnovel_core::providers::cli::windows_process::{
     ChildLimits, ChildStream, ChildTermination, CliInvocation, EnvironmentPolicy,
-    InteractiveAction, MAX_PACKET_BYTES, StopSignal, spawn, spawn_interactive,
+    InteractiveAction, MAX_PACKET_BYTES, MAX_PERSISTENT_DIAGNOSTIC_BYTES,
+    MAX_PERSISTENT_PENDING_BYTES, PersistentEvent, StopSignal, spawn, spawn_interactive,
+    spawn_persistent,
 };
 use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
@@ -315,6 +317,150 @@ fn interactive_observer_appends_bounded_packets_before_closing_stdin() {
     assert_eq!(outcome.output.stdin_bytes_written, b"FIRST\nSECOND\n".len());
     assert_eq!(observed, b"FIRST_ACK\nSECOND_ACK\n");
     assert_eq!(observed, outcome.output.stdout);
+}
+
+#[test]
+fn persistent_observer_polls_idle_and_reuses_one_process_for_multiple_packets() {
+    let mut request = invocation(&["--persistent"], limits());
+    request.packet.clear();
+    let running = spawn_persistent(request).expect("spawn persistent fixture");
+    let process = retained_process_handle(running.process_id());
+    let started = std::time::Instant::now();
+    let mut ticks = Vec::new();
+    let mut sent_first = false;
+    let mut observed = Vec::new();
+    let outcome = running
+        .finish_persistent(StopSignal::new(), |event| match event {
+            PersistentEvent::Tick => {
+                ticks.push(std::time::Instant::now());
+                if !sent_first && started.elapsed() >= Duration::from_millis(80) {
+                    sent_first = true;
+                    InteractiveAction::Send(b"FIRST\n".to_vec())
+                } else {
+                    InteractiveAction::KeepOpen
+                }
+            }
+            PersistentEvent::Output(stream, bytes) => {
+                assert_eq!(stream, ChildStream::Stdout);
+                observed.extend_from_slice(bytes);
+                if observed.ends_with(b"FIRST_ACK\n") {
+                    InteractiveAction::Send(b"SECOND\n".to_vec())
+                } else if observed.ends_with(b"SECOND_ACK\n") {
+                    InteractiveAction::Close
+                } else {
+                    InteractiveAction::KeepOpen
+                }
+            }
+        })
+        .expect("persistent cleanup settles");
+    assert_eq!(
+        outcome.termination,
+        ChildTermination::Completed,
+        "observed={:?} ticks={} stdout={} stderr={}",
+        String::from_utf8_lossy(&observed),
+        ticks.len(),
+        String::from_utf8_lossy(&outcome.output.stdout),
+        String::from_utf8_lossy(&outcome.output.stderr)
+    );
+    assert_eq!(outcome.output.stdin_bytes_written, b"FIRST\nSECOND\n".len());
+    assert_eq!(observed, b"FIRST_ACK\nSECOND_ACK\n");
+    assert_eq!(observed, outcome.output.stdout);
+    assert!(
+        ticks.len() >= 3,
+        "idle polling did not run: {}",
+        ticks.len()
+    );
+    let largest_gap = ticks
+        .windows(2)
+        .map(|pair| pair[1].duration_since(pair[0]))
+        .max()
+        .unwrap_or_default();
+    assert!(
+        largest_gap <= Duration::from_millis(100),
+        "idle poll gap was {largest_gap:?}"
+    );
+    assert_eq!(
+        unsafe { WaitForSingleObject(process.as_raw_handle() as _, 0) },
+        WAIT_OBJECT_0,
+        "Close did not settle the owned process"
+    );
+}
+
+#[test]
+fn persistent_stop_settles_idle_owned_process() {
+    let pid_file = new_pid_file();
+    let running = spawn_persistent(invocation_with_pid_file(
+        &["--persistent"],
+        limits(),
+        &pid_file,
+    ))
+    .expect("spawn persistent fixture");
+    let handles = retained_fixture_handles(&pid_file, &["persistent"]);
+    let stop = StopSignal::new();
+    let request_stop = stop.clone();
+    let worker = thread::spawn(move || {
+        running.finish_persistent(request_stop, |event| match event {
+            PersistentEvent::Tick => InteractiveAction::KeepOpen,
+            PersistentEvent::Output(_, _) => InteractiveAction::KeepOpen,
+        })
+    });
+    thread::sleep(Duration::from_millis(100));
+    stop.request_stop();
+    let outcome = worker
+        .join()
+        .expect("persistent stop worker")
+        .expect("persistent stop cleanup settles");
+    assert_eq!(outcome.termination, ChildTermination::Stopped);
+    assert_all_signaled(&handles, "persistent Stop cleanup");
+    let _ = fs::remove_file(pid_file);
+}
+
+#[test]
+fn persistent_lifetime_output_is_observed_beyond_diagnostic_prefix_without_kill() {
+    let mut request = invocation(&["--persistent"], limits());
+    request.packet = b"FLOOD\n".to_vec();
+    let running = spawn_persistent(request).expect("spawn persistent fixture");
+    let mut observed = Vec::new();
+    let outcome = running
+        .finish_persistent(StopSignal::new(), |event| match event {
+            PersistentEvent::Tick => InteractiveAction::KeepOpen,
+            PersistentEvent::Output(_, bytes) => {
+                observed.extend_from_slice(bytes);
+                InteractiveAction::Close
+            }
+        })
+        .expect("persistent output cleanup settles");
+    assert_eq!(outcome.termination, ChildTermination::Completed);
+    assert!(observed.len() > MAX_PERSISTENT_DIAGNOSTIC_BYTES);
+    assert!(outcome.output.truncated);
+    assert!(
+        outcome.output.stdout.len() + outcome.output.stderr.len()
+            <= MAX_PERSISTENT_DIAGNOSTIC_BYTES
+    );
+}
+
+#[test]
+fn persistent_input_queue_rejects_unbounded_backpressure() {
+    let running = spawn_persistent(invocation(&["--persistent"], limits()))
+        .expect("spawn persistent fixture");
+    let mut sends = 0;
+    let error = running
+        .finish_persistent(StopSignal::new(), |event| match event {
+            PersistentEvent::Tick => {
+                sends += 1;
+                if sends == 1 {
+                    InteractiveAction::Send(vec![b'x'; MAX_PERSISTENT_PENDING_BYTES])
+                } else {
+                    InteractiveAction::Send(vec![b'y'; MAX_PERSISTENT_PENDING_BYTES])
+                }
+            }
+            PersistentEvent::Output(_, _) => InteractiveAction::KeepOpen,
+        })
+        .expect_err("persistent queue must remain bounded");
+    assert!(
+        error.to_string().contains("persistent stdin queue exceeds"),
+        "unexpected queue error: {error}"
+    );
 }
 
 #[test]

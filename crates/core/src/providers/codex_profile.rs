@@ -13,11 +13,18 @@ use std::path::Path;
 /// observed CLI version is recorded separately and is capability-gated at
 /// connection time.
 pub const CODEX_PROFILE_VERSION: &str = "codex-stdin.v1";
+/// Versioned fixed profile used by current summary and maintenance work.
+///
+/// The older `CODEX_PROFILE_VERSION` remains valid so packets created with
+/// the Luna maintenance contract can still be reopened and validated.
+pub const CODEX_MAINTENANCE_PROFILE_VERSION: &str = "codex-stdin.maintenance.v2";
 /// Author-selected models use a distinct contract so earlier packets retain
 /// their fixed Luna settings and exact serialized identity.
 pub const CODEX_AUTHOR_PROFILE_VERSION: &str = "codex-stdin.author.v1";
 pub const CODEX_LUNA_MODEL: &str = "gpt-5.6-luna";
 pub const CODEX_REASONING_EFFORT: &str = "xhigh";
+pub const CODEX_MAINTENANCE_MODEL: &str = "gpt-6-astra";
+pub const CODEX_MAINTENANCE_REASONING_EFFORT: &str = "low";
 /// Compatibility name for callers that still refer to the old constant.
 pub const CODEX_MAX_EFFORT: &str = CODEX_REASONING_EFFORT;
 pub const CODEX_PRIORITY_SERVICE_TIER: &str = "priority";
@@ -64,6 +71,35 @@ impl CodexLaunchProfile {
             catalog,
             catalog_json,
             config_overrides: restrictive_overrides(&catalog_path),
+        })
+    }
+
+    /// Build the current fixed maintenance profile.  This is intentionally a
+    /// separate constructor from [`Self::for_version`] so old Luna packet
+    /// bindings retain their exact launch material and validation behavior.
+    pub fn for_maintenance_version(
+        version_output: &str,
+        catalog_path: &Path,
+    ) -> Result<Self, CodexProfileError> {
+        let executable_version = parse_version_output(version_output)?;
+        let catalog = CodexModelCatalog::restrictive_astra();
+        let catalog_json = catalog
+            .to_json()
+            .map_err(|error| CodexProfileError::CatalogSerialization(error.to_string()))?;
+        let catalog_path = config_path(catalog_path)?;
+
+        Ok(Self {
+            executable_version,
+            model: CODEX_MAINTENANCE_MODEL.into(),
+            reasoning_effort: CODEX_MAINTENANCE_REASONING_EFFORT.into(),
+            service_tier: Some(CODEX_PRIORITY_SERVICE_TIER.into()),
+            catalog,
+            catalog_json,
+            config_overrides: restrictive_overrides_for(
+                &catalog_path,
+                CODEX_MAINTENANCE_MODEL,
+                CODEX_MAINTENANCE_REASONING_EFFORT,
+            ),
         })
     }
 
@@ -309,9 +345,17 @@ fn toml_string(value: &str) -> String {
 }
 
 fn restrictive_overrides(catalog_path: &str) -> Vec<String> {
+    restrictive_overrides_for(catalog_path, CODEX_LUNA_MODEL, CODEX_MAX_EFFORT)
+}
+
+fn restrictive_overrides_for(
+    catalog_path: &str,
+    model: &str,
+    reasoning_effort: &str,
+) -> Vec<String> {
     let mut overrides = vec![
-        format!("model={}", toml_string(CODEX_LUNA_MODEL)),
-        format!("model_reasoning_effort={}", toml_string(CODEX_MAX_EFFORT)),
+        format!("model={}", toml_string(model)),
+        format!("model_reasoning_effort={}", toml_string(reasoning_effort)),
         format!("service_tier={}", toml_string(CODEX_PRIORITY_SERVICE_TIER)),
         format!("model_catalog_json={}", toml_string(catalog_path)),
         "approval_policy=\"never\"".to_owned(),
@@ -409,6 +453,12 @@ impl CodexModelCatalog {
     pub fn restrictive_luna() -> Self {
         Self {
             models: vec![CodexModelDescriptor::restrictive_luna()],
+        }
+    }
+
+    pub fn restrictive_astra() -> Self {
+        Self {
+            models: vec![CodexModelDescriptor::restrictive_astra()],
         }
     }
 
@@ -529,6 +579,24 @@ impl CodexModelDescriptor {
             tool_mode: "direct".to_owned(),
             multi_agent_version: None,
         }
+    }
+
+    fn restrictive_astra() -> Self {
+        let mut descriptor = Self::restrictive_luna();
+        descriptor.slug = CODEX_MAINTENANCE_MODEL.to_owned();
+        descriptor.display_name = "GPT-6-Astra".to_owned();
+        descriptor.description = "Current WebnovelStudio maintenance model.".to_owned();
+        descriptor.default_reasoning_level = CODEX_MAINTENANCE_REASONING_EFFORT.to_owned();
+        descriptor.supported_reasoning_levels = vec![CodexReasoningPreset {
+            effort: CODEX_MAINTENANCE_REASONING_EFFORT.to_owned(),
+            description: String::new(),
+        }];
+        // These optional request capabilities were qualified only for the
+        // historical Luna route. Astra's maintenance contract claims none.
+        descriptor.supports_reasoning_summary_parameter = false;
+        descriptor.support_verbosity = false;
+        descriptor.use_responses_lite = false;
+        descriptor
     }
 }
 

@@ -226,6 +226,7 @@ fn finish_unstarted(
         }
     };
     let report = ProviderTerminalReport {
+        app_server: None,
         owner: dispatch.run.owner.clone(), expected_sequence: dispatch.run.sequence.clone(),
         event_id: format!("{}-http-not-started", dispatch.run.id), assistant_text: String::new(),
         binding: dispatch.packet.options.provider_binding.expect("claimed HTTP binding"),
@@ -351,6 +352,7 @@ async fn run_response(
         }
     };
     let mut report = ProviderTerminalReport {
+        app_server: None,
         owner: run.owner.clone(),
         expected_sequence: run.sequence.clone(),
         event_id: format!("{}-http-finish", run.id),
