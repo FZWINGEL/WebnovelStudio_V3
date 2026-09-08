@@ -166,6 +166,14 @@ The hosted CI attempt `34165285951` was blocked before any steps ran. GitHub's
 billing annotation prevented execution, so it provides no hosted qualification
 evidence.
 
+The implementation was subsequently committed and pushed as
+`6ab150505802b6c240db884a83f0a4eb9511df79` on `codex/v3-persistence`.
+[CI 34274285964](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34274285964)
+also ran no steps: contracts and Windows jobs were refused because of account
+payment or spending-limit settings; the native consumer was skipped. This is
+an execution-admission failure, not a passed or failed code test. Local
+qualification below remains the available evidence for this source checkpoint.
+
 ## Local verification
 
 The final full-check log `.local/app-server-final-check.log` records 839 Rust
