@@ -43,12 +43,14 @@ function invoke(page, command, args) {
 async function launch(data) {
   const port = await reservePort();
   let appLog = '';
+  await mkdir(resolve(data, 'empty-codex-home'), { recursive: true });
   const app = spawnOwned(executable, [], {
     cwd: data,
     windowsHide: true,
     stdio: 'pipe',
     env: {
       ...process.env,
+      CODEX_HOME: resolve(data, 'empty-codex-home'),
       WNS_V3_NATIVE_CDP_PORT: String(port),
       WNS_V3_TRIAL_WEBVIEW_DIR: resolve(data, 'webview'),
       WNS_V3_TEST_DATA_DIR: resolve(data, 'library'),
@@ -76,6 +78,24 @@ async function launch(data) {
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor({ timeout: 30_000 });
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
+  const initialProvider = await invoke(page, 'provider_state');
+  if (initialProvider.settings.revision === '0') {
+    await invoke(page, 'save_model_settings', {
+      expectedRevision: initialProvider.settings.revision,
+      active: { providerId: 'mock', modelId: 'mock-story-context', reasoning: null, serviceTier: null },
+      favorites: [],
+    });
+    await page.reload();
+    await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  }
+  // Fresh-library startup may have already admitted a catalog check. Let that
+  // bounded check settle before this fixture asserts a no-job close; later
+  // launches preserve the explicitly configured local/loopback provider.
+  const discoveryDeadline = Date.now() + 60_000;
+  while ((await invoke(page, 'provider_state')).codexConnection?.checking) {
+    assert(Date.now() < discoveryDeadline, 'Synthetic startup discovery did not settle before close qualification.');
+    await new Promise(resolvePromise => setTimeout(resolvePromise, 100));
+  }
   let runtime = null;
   try { runtime = await invoke(page, 'runtime_info'); } catch { /* Report the launch failure below. */ }
   markOwnedReady(app);
@@ -295,7 +315,12 @@ async function qualifyDirtyFlush() {
       beforeCloseDb.close();
       assert.deepEqual(beforeClose, baseline, 'The typed body must remain unsaved until normal close starts.');
     });
-    await waitForExit(first.app);
+    try { await waitForExit(first.app); }
+    catch (error) {
+      await capture(page, 'dirty-close-failure.png');
+      await writeFile(resolve(evidence, 'dirty-close-failure.txt'), await page.locator('body').innerText().catch(() => 'Native page unavailable.'));
+      throw error;
+    }
     await first.browser.close(); first = undefined;
 
     second = await launch(data);

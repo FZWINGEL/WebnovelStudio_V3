@@ -30,6 +30,13 @@ roles and schema 40 provides the per-project conversation, immutable items, and
 assistant-draft provenance. Existing documents and historical records retain
 their identities and bytes.
 
+Chat relationship history and backup validation now use the exact chat
+adoption receipt, preview, decision and document revisions. Earlier trial
+snapshots remain recoverable without rewriting history. Workshop history also
+checks the saved receipt result, and preview readers require exact draft
+ownership across project/conversation namespaces. The detailed ledger records
+the recovery and tamper regressions and their qualification limits.
+
 The authoritative [chat-first implementation status](V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md)
 maintains current test counts, native/live evidence, and build identities. The
 current evidence covers the chat/document workflow, explicit chapter handoff,

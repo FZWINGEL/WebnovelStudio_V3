@@ -9,7 +9,68 @@ needs qualification.
 
 ## Current state — 9 September 2026
 
-### Completion audit follow-up
+### Current verified checkpoint
+
+The recovery and history repairs pass the complete local gate: **929 Rust
+tests** (122 core, 719 integration, 88 desktop; one additional intentional
+ignore), **701 frontend tests across 74 files**, and **25 tooling checks**,
+with formatting, strict Clippy, TypeScript and production build. Log:
+`.local/chat-recovery-final-check.log`. The existing large frontend chunk
+warning remains. The earlier gate and corrected argument-count lint failure
+are retained separately in `.local/chat-recovery-before-review-check.log` and
+`.local/chat-recovery-clippy-failure.log`.
+
+The expanded native chat harness passes **24 checks in 28.749 seconds** on
+the preceding executable (`79e5232b90f532b505fb109045d5fbf666f9db3dd10f3e459919ff506256f0f4`).
+Added cases cover exact-source follow-up after adoption, world-first and
+character-first blank-project entry, word/sentence scope, explicit Apply with
+a protected ending, and typing while a request retains its older source.
+Launcher: `.local/isolated-native-launch/20260909-031332338-37972/launch.json`.
+This is synthetic native workflow evidence, with no page errors and confirmed
+owned-process cleanup; it does not measure narrative quality. Final rebuilt
+executable qualification is recorded separately when complete.
+
+### Additional recovery qualification
+
+The native normal-close suite passes **2 checks in 10.489 seconds**, including
+dirty manuscript flush and exact reopen, and two-project pending discussion /
+memory work with Stay open followed by Stop and close. Its fixture now uses an
+isolated Codex home, selects the local mock only for fresh settings, and waits
+for admitted startup discovery to settle before testing a no-job close. This
+fixes a fixture assumption; production close protection was working correctly.
+Launcher: `.local/isolated-native-launch/20260909-030034910-37328/launch.json`.
+
+The existing independent recovery suite passes **4 checks in 3.665 seconds**:
+project A is backed up and recovered under a new identity while project B's
+held request remains correctly owned, without replay or redirection. Launcher:
+`.local/isolated-native-launch/20260909-030111791-31644/launch.json`. Both suites
+used the development executable with SHA-256 `79e5232b90f532b505fb109045d5fbf666f9db3dd10f3e459919ff506256f0f4`
+and made zero live-model calls. This existing recovery scenario does not
+qualify the newly added chat relationship history.
+
+The interruption suite passed its first three scenarios: renderer loss after
+Save, process loss after committed Apply, and process loss during a held
+request. Its physical refresh-shortcut stage then refused input because the
+isolated non-input desktop reported foreground PID 0. The owned-window guard
+remains intact. The complete suite **did not pass**; shortcut qualification
+needs an interactive isolated Windows runner. Evidence:
+`.local/isolated-native-launch/20260909-030133261-15292/stdout.log`.
+
+Further grouped-transfer verification exposed and repaired a production
+defect: chat relationship snapshots lacked the Workshop receipt expected by
+history and backup readers. They now validate through their exact chat
+adoption receipt, preview, author decision, committed document revisions and
+relationship state transition. New snapshots bind to the stable command hash;
+earlier tuple-hash snapshots retain their bytes and use the explicit legacy
+validation described in ADR 0034. Later author edits preserve historical
+references. The focused transfer suite passes **10 tests**, including actual
+legacy recovery, altered snapshot/receipt hashes, mutable state drift,
+wrong-kind relationship endpoints, and a copied draft from another namespace
+with resealed hashes. Ordinary Workshop history also checks the exact saved
+receipt result. Prior grouped generation/adoption/reopen evidence alone did
+not establish these backup guarantees.
+
+### Earlier completion audit follow-up
 
 The second requirement audit found remaining review details beyond the earlier
 checkpoint. Assumption corrections can now be edited directly and staged in
@@ -27,7 +88,7 @@ The complete frontend suite passes **701 tests across 74 files**
 regression also passes. The integrated native build and current qualification
 are recorded below.
 
-The final complete local gate passes **920 Rust tests** (122 core, 710 grouped
+The preceding complete local gate passes **920 Rust tests** (122 core, 710 grouped
 integration, 88 desktop; one additional test intentionally ignored), **701
 frontend tests across 74 files**, and **25 tooling checks**, plus formatting,
 strict Clippy, TypeScript, and the production build. Log:
@@ -103,10 +164,19 @@ The installed-package harness now includes unsent chat composer retention
 through normal close/reopen and same-version reinstall. Its PowerShell syntax
 check passes; these new installed steps have **not been executed**. Existing
 fail-closed runner and author-data checks remain intact. Same-version retention
-does not qualify an upgrade. The latest inspected hosted CI attempt,
-`34274285964` at `6ab1505`, never started its runner jobs because GitHub reported
-an account payment/spending-limit admission failure. That historical attempt
-does not establish the current billing state or qualify this working tree.
+does not qualify an upgrade.
+
+The verified implementation and qualification record were pushed to
+`origin/codex/v3-persistence` at **`c06ab8c73c55cafa587ffb3be7dbcfeea88e3be8`**.
+The resulting [CI run 34304862328](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34304862328)
+and explicitly dispatched [Windows package run 34304862592](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34304862592)
+both completed with failure **before any job steps ran**. Their contracts,
+Windows-native, and package annotations report failed account payments or a
+spending limit that needs increasing. No build or test failure is inferred from
+this admission failure. The native consumer was skipped; no installer was
+built. Hosted/package qualification requires the GitHub account condition to
+be resolved and a new run on the intended source. Local checks above remain
+separate evidence, and no automatic workflow retry is pending.
 
 ### Previous integrated checkpoint
 

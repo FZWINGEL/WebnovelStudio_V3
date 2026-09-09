@@ -36,6 +36,19 @@ pub(crate) fn validate_storage(connection: &rusqlite::Connection) -> CoreResult<
     transfer::validate_storage(connection)
 }
 
+/// Validate the immutable authority chain for a Workshop snapshot created by
+/// grouped project-chat adoption.  Workshop owns the snapshot table; keeping
+/// this narrow forwarding seam here avoids exposing the adoption storage
+/// layout to the backup/history implementation.
+pub(crate) fn validate_chat_workshop_snapshot(
+    connection: &rusqlite::Connection,
+    origin: crate::projects::workshop::WorkshopSnapshotOrigin<'_>,
+    state: &crate::projects::workshop::WorkshopState,
+    previous_state: &crate::projects::workshop::WorkshopState,
+) -> CoreResult<()> {
+    adoption::validate_chat_workshop_snapshot(connection, origin, state, previous_state)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectComposer {

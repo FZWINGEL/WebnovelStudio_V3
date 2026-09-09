@@ -1,4 +1,5 @@
 use serde_json::{Value, json};
+use rusqlite::Connection;
 use std::path::PathBuf;
 use uuid::Uuid;
 use webnovel_core::context::packet::MockContextBudget;
@@ -1319,4 +1320,57 @@ fn story_possibilities_reject_duplicate_ids_and_oversized_text_but_allow_clear_r
         })
         .unwrap();
     assert_eq!(saved.state.sessions[0].story_possibilities[0].text, "");
+}
+
+#[test]
+fn workshop_history_rejects_snapshot_when_save_receipt_result_drifts() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.attach("workshop-history-receipt".into()).unwrap();
+    let (state, _) = state_with_session("history-receipt-session");
+    let saved = save_state(&project, &access, "history-receipt-save", "0", state);
+
+    let history = project.workshop_history(access.clone()).unwrap();
+    assert_eq!(history, vec![saved]);
+    drop(project);
+
+    let database = temp.0.join("project.sqlite3");
+    let connection = Connection::open(&database).expect("open workshop database");
+    connection
+        .execute_batch("DROP TRIGGER workshop_receipts_no_update;")
+        .expect("drop immutable trigger for tamper fixture");
+    let mut result: Value = connection
+        .query_row(
+            "SELECT result_json FROM workshop_receipts WHERE operation_namespace=? AND operation_id=?",
+            [&access.operation_namespace, "history-receipt-save"],
+            |row| row.get::<_, String>(0),
+        )
+        .map(|json| serde_json::from_str(&json).expect("parse save receipt"))
+        .expect("read save receipt");
+    result["version"] = Value::String("999".into());
+    connection
+        .execute(
+            "UPDATE workshop_receipts SET result_json=? WHERE operation_namespace=? AND operation_id=?",
+            rusqlite::params![
+                serde_json::to_string(&result).expect("serialize tampered receipt"),
+                &access.operation_namespace,
+                "history-receipt-save"
+            ],
+        )
+        .expect("tamper receipt result");
+    drop(connection);
+
+    let reopened = ProjectSession::open(&temp.0).expect("reopen tampered project");
+    let reopened_access = reopened
+        .attach("workshop-history-receipt-reopen".into())
+        .unwrap();
+    let error = reopened
+        .workshop_history(reopened_access)
+        .expect_err("history must reject a snapshot with a mismatched receipt result");
+    assert_eq!(error.code, "InvalidProject");
+    assert!(
+        error.detail.contains("does not match its save receipt result"),
+        "{}",
+        error.detail
+    );
 }

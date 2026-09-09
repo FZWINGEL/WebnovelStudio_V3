@@ -112,6 +112,23 @@ struct StoredAdoptionReceipt {
     decision_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredChatAdoptionDecision {
+    schema_version: String,
+    preview_id: String,
+    preview_version: String,
+    preview_digest: String,
+    document_ids: Vec<String>,
+    decision_id: String,
+    effects: Option<ChatAdoptionEffects>,
+    /// Present on snapshots written after the stable command-hash binding
+    /// was introduced.  Older decision records intentionally omit it and
+    /// use the structural-proof compatibility path during recovery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    snapshot_payload_hash: Option<String>,
+}
+
 pub(super) fn prepare(
     project: &mut OwnedProject,
     request: PrepareChatAdoption,
@@ -470,13 +487,16 @@ pub(super) fn adopt(
         .map(|effects| materialize_chat_relationships(effects, &documents))
         .transpose()?
         .unwrap_or_default();
-    let workshop_payload_hash = logical_hash(&(&request, &preview.effects))?;
     workshop::append_chat_relationships(
         &tx,
         &request.access.project_id,
         &request.access.operation_namespace,
         &request.operation_id,
-        &workshop_payload_hash,
+        // New chat-origin workshop snapshots bind to the stable command
+        // receipt hash.  The old tuple hash included ephemeral session and
+        // lease fields nested inside the request and cannot be reproduced
+        // after recovery; legacy snapshots are validated structurally.
+        &payload_hash,
         parse_version(&preview.workshop_version)?,
         &committed_relationships,
     )?;
@@ -505,6 +525,7 @@ pub(super) fn adopt(
         "documentIds": documents.iter().map(|document| document.head.document_id.clone()).collect::<Vec<_>>(),
         "decisionId": decision_id,
         "effects": preview.effects,
+        "snapshotPayloadHash": payload_hash,
     });
     store::append_item(
         &tx,
@@ -610,6 +631,44 @@ fn require_exact_draft_ref(fields: &DraftRefFields, draft: &AssistantDraft) -> C
         return Err(CoreError::new(
             "DraftChanged",
             "The chat draft changed after the request reference was captured.",
+        ));
+    }
+    Ok(())
+}
+
+/// Verify that a preview's assistant-draft document is owned by the exact
+/// conversation identity that produced the preview.  The document role and
+/// immutable revision checks are separate concerns; this membership check
+/// prevents a copied draft from another project-chat namespace from being
+/// accepted merely because its head and body are valid.
+fn validate_assistant_draft_ownership(
+    connection: &Connection,
+    document_id: &str,
+    conversation_id: &str,
+    project_id: &str,
+    operation_namespace: &str,
+) -> CoreResult<()> {
+    let owner: Option<(String, String, String)> = connection
+        .query_row(
+            "SELECT conversation_id,project_id,operation_namespace
+             FROM assistant_drafts WHERE document_id=?",
+            [document_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((owner_conversation, owner_project, owner_namespace)) = owner else {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "An adoption preview references an assistant draft without provenance.",
+        ));
+    };
+    if owner_conversation != conversation_id
+        || owner_project != project_id
+        || owner_namespace != operation_namespace
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "An adoption preview assistant draft belongs to another conversation identity.",
         ));
     }
     Ok(())
@@ -1074,6 +1133,13 @@ fn expand_preview(
             &target.draft_document_id,
             DocumentRole::AssistantDraft,
         )?;
+        validate_assistant_draft_ownership(
+            connection,
+            &target.draft_document_id,
+            &metadata.conversation_id,
+            &metadata.project_id,
+            &metadata.operation_namespace,
+        )?;
         let revision = read_revision(connection, &target.draft_revision_id)?;
         if revision.head != draft.head || revision.head.document_id != target.draft_document_id {
             return Err(CoreError::new(
@@ -1256,6 +1322,13 @@ pub(super) fn validate_backup_preview(
                 "An adoption preview does not point to an assistant draft.",
             ));
         }
+        validate_assistant_draft_ownership(
+            connection,
+            &target.draft_document_id,
+            conversation_id,
+            project_id,
+            operation_namespace,
+        )?;
         let draft_revision = read_revision(connection, &target.draft_revision_id)?;
         if draft_revision.head.document_id != target.draft_document_id
             || draft_revision.head != draft_fields.head
@@ -1341,6 +1414,46 @@ fn preview_digest(preview: &ChatAdoptionPreview) -> CoreResult<String> {
     logical_hash(&value)
 }
 
+fn validate_historical_relationship_endpoint(
+    connection: &Connection,
+    document_id: &str,
+    head: &Head,
+) -> CoreResult<()> {
+    let document = read_document(connection, document_id)?;
+    if document.role != DocumentRole::Ordinary
+        || !["character", "world"].contains(&document.kind.as_str())
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A proposed relationship endpoint is outside the frozen ordinary material.",
+        ));
+    }
+    let version = parse_version(&head.version)?;
+    let revision_id: Option<String> = connection
+        .query_row(
+            "SELECT id FROM revisions
+             WHERE document_id=? AND source_working_version=? AND body_hash=?
+             ORDER BY rowid DESC LIMIT 1",
+            params![document_id, version, head.body_hash],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(revision_id) = revision_id else {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A proposed relationship endpoint has no retained source revision.",
+        ));
+    };
+    let revision = read_revision(connection, &revision_id)?;
+    if revision.head != *head {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A proposed relationship endpoint revision does not match its frozen head.",
+        ));
+    }
+    Ok(())
+}
+
 /// Validate the immutable shape of a grouped manifest while reading a
 /// backup. This intentionally does not apply current-head drift rules: a
 /// historical preview remains readable after later author edits, but malformed
@@ -1423,17 +1536,326 @@ pub(super) fn validate_effects_shape(
             if target_ids.contains(document_id.as_str()) {
                 continue;
             }
-            let document = read_document(connection, document_id)?;
-            if document.role != DocumentRole::Ordinary
-                || !["character", "world"].contains(&document.kind.as_str())
-                || document.head != *head
-            {
-                return Err(CoreError::new(
-                    "InvalidProjectChat",
-                    "A proposed relationship endpoint is outside the frozen ordinary material.",
-                ));
-            }
+            validate_historical_relationship_endpoint(connection, document_id, head)?;
         }
+    }
+    Ok(())
+}
+
+/// Validate a workshop snapshot created by grouped project-chat adoption.
+///
+/// Chat adoption deliberately uses a separate authority from
+/// `workshop_receipts`: its proof is the immutable `adoptChatPreview` command receipt plus the
+/// conversation's preview and decision records.  New snapshots bind their
+/// payload hash to that command receipt.  Older schema snapshots used a
+/// nested tuple hash that included ephemeral access fields, so they take the
+/// explicit structural-proof path below instead of pretending that hash can
+/// be reproduced after recovery.
+pub(crate) fn validate_chat_workshop_snapshot(
+    connection: &Connection,
+    origin: workshop::WorkshopSnapshotOrigin<'_>,
+    state: &workshop::WorkshopState,
+    previous_state: &workshop::WorkshopState,
+) -> CoreResult<()> {
+    let workshop::WorkshopSnapshotOrigin {
+        project_id,
+        namespace: operation_namespace,
+        operation: operation_id,
+        version: snapshot_version,
+        payload_hash: snapshot_payload_hash,
+    } = origin;
+    let command: Option<(String, String, String, String)> = connection
+        .query_row(
+            "SELECT document_id,payload_hash,operation_kind,result_json
+             FROM command_receipts
+             WHERE operation_namespace=? AND operation_id=?",
+            params![operation_namespace, operation_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let Some((receipt_document_id, command_payload_hash, operation_kind, receipt_json)) = command
+    else {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat-origin workshop snapshot has no matching command receipt.",
+        ));
+    };
+    if operation_kind != RECEIPT_KIND || !valid_hash(&command_payload_hash) {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat-origin workshop snapshot has the wrong command receipt kind.",
+        ));
+    }
+    let receipt: StoredAdoptionReceipt = serde_json::from_str(&receipt_json).map_err(|error| {
+        CoreError::new(
+            "InvalidProjectChat",
+            &format!("A chat adoption receipt is invalid: {error}"),
+        )
+    })?;
+    check_id(&receipt.preview_id)?;
+    check_id(&receipt.decision_id)?;
+    if receipt.documents.is_empty() || receipt.documents.len() > MAX_TARGETS {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption receipt has an invalid document count.",
+        ));
+    }
+    if receipt_document_id != receipt.documents[0].head.document_id {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption receipt head does not match its command receipt.",
+        ));
+    }
+
+    let decision_rows = {
+        let mut statement = connection.prepare(
+            "SELECT conversation_id,project_id,operation_namespace,reference_id,
+                    payload_json,payload_hash
+             FROM conversation_items
+             WHERE operation_namespace=? AND operation_id=? AND kind='adoptionDecision'",
+        )?;
+        statement
+            .query_map(params![operation_namespace, operation_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    if decision_rows.len() != 1 {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption snapshot must have exactly one immutable decision event.",
+        ));
+    }
+    let (
+        conversation_id,
+        decision_project_id,
+        decision_namespace,
+        decision_reference_id,
+        decision_json,
+        decision_payload_hash,
+    ) = decision_rows.into_iter().next().expect("one decision row");
+    if decision_project_id != project_id
+        || decision_namespace != operation_namespace
+        || decision_reference_id.as_deref() != Some(receipt.decision_id.as_str())
+        || sha256_hex(decision_json.as_bytes()) != decision_payload_hash
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption decision has invalid project or immutable identity.",
+        ));
+    }
+    let decision: StoredChatAdoptionDecision =
+        serde_json::from_str(&decision_json).map_err(|error| {
+            CoreError::new(
+                "InvalidProjectChat",
+                &format!("A chat adoption decision is invalid: {error}"),
+            )
+        })?;
+    if decision.schema_version != "chat-adoption-decision.v1"
+        || decision.decision_id != receipt.decision_id
+        || decision.preview_id != receipt.preview_id
+        || decision.effects.is_none()
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption decision has invalid preview provenance.",
+        ));
+    }
+
+    let preview_row: Option<(String, String, String)> = connection
+        .query_row(
+            "SELECT payload_json,payload_hash,project_id
+             FROM conversation_items
+             WHERE conversation_id=? AND project_id=? AND operation_namespace=?
+               AND kind='adoptionPreview' AND reference_id=?",
+            params![
+                conversation_id,
+                project_id,
+                operation_namespace,
+                receipt.preview_id
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((preview_json, preview_payload_hash, preview_project_id)) = preview_row else {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption decision has no matching immutable preview.",
+        ));
+    };
+    if preview_project_id != project_id
+        || sha256_hex(preview_json.as_bytes()) != preview_payload_hash
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption preview has invalid immutable identity.",
+        ));
+    }
+    let preview_value: Value = serde_json::from_str(&preview_json)?;
+    validate_backup_preview(
+        connection,
+        project_id,
+        operation_namespace,
+        &conversation_id,
+        &receipt.preview_id,
+        &preview_value,
+    )?;
+    let stored_preview: StoredPreview = serde_json::from_value(preview_value)?;
+    let access = ProjectAccess {
+        project_id: project_id.to_owned(),
+        session: String::new(),
+        writer_lease: String::new(),
+        operation_namespace: operation_namespace.to_owned(),
+    };
+    let preview = expand_preview(connection, &access, stored_preview.preview)?;
+    let Some(effects) = preview.effects.clone() else {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat-origin workshop snapshot has no grouped effects.",
+        ));
+    };
+    if effects.proposed_relationships.is_empty() {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat-origin workshop snapshot has no committed relationship effects.",
+        ));
+    }
+    if preview.id != receipt.preview_id
+        || preview.conversation_id != conversation_id
+        || preview.project_id != project_id
+        || preview.operation_namespace != operation_namespace
+        || preview.version != decision.preview_version
+        || preview.digest != decision.preview_digest
+        || decision.effects.as_ref() != Some(&effects)
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption decision is not bound to its exact preview and effects.",
+        ));
+    }
+    let preview_document_ids = preview
+        .targets
+        .iter()
+        .map(|target| target.document_id.clone())
+        .collect::<Vec<_>>();
+    let receipt_document_ids = receipt
+        .documents
+        .iter()
+        .map(|document| document.head.document_id.clone())
+        .collect::<Vec<_>>();
+    if preview_document_ids != receipt_document_ids || decision.document_ids != receipt_document_ids
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption receipt has mismatched committed document identities.",
+        ));
+    }
+
+    let mut committed_documents = Vec::with_capacity(receipt.documents.len());
+    for (target, reference) in preview.targets.iter().zip(&receipt.documents) {
+        if reference.role != DocumentRole::Ordinary
+            || reference.head.document_id != target.document_id
+            || reference.title != target.title
+            || reference.kind != target.kind
+        {
+            return Err(CoreError::new(
+                "InvalidProjectChat",
+                "A chat adoption receipt document does not match its preview target.",
+            ));
+        }
+        let committed = read_historical_document_ref(connection, reference.clone())?;
+        let body = crate::validate_snapshot_json(&serde_json::to_string(&target.body)?)
+            .map_err(|error| CoreError::new("InvalidProjectChat", &error))?;
+        let expected_version = target
+            .before
+            .as_ref()
+            .map(|before| {
+                parse_version(&before.head.version).and_then(|version| {
+                    version.checked_add(1).ok_or_else(|| {
+                        CoreError::new(
+                            "InvalidProjectChat",
+                            "A chat adoption target version overflowed.",
+                        )
+                    })
+                })
+            })
+            .transpose()?
+            .unwrap_or(0);
+        let expected_head = Head {
+            document_id: target.document_id.clone(),
+            version: expected_version.to_string(),
+            body_hash: body.hash,
+        };
+        if committed.role != DocumentRole::Ordinary
+            || committed.head != expected_head
+            || committed.body != body.snapshot
+        {
+            return Err(CoreError::new(
+                "InvalidProjectChat",
+                "A chat adoption receipt does not rehydrate the exact committed draft body.",
+            ));
+        }
+        committed_documents.push(committed);
+    }
+
+    let expected_version = parse_version(&preview.workshop_version)?
+        .checked_add(1)
+        .ok_or_else(|| CoreError::new("InvalidProjectChat", "A workshop version overflowed."))?;
+    if snapshot_version != expected_version {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat-origin workshop snapshot has the wrong next version.",
+        ));
+    }
+    let committed_relationships = materialize_chat_relationships(&effects, &committed_documents)?;
+    let mut expected_state = previous_state.clone();
+    expected_state.relationships.extend(committed_relationships);
+    if state != &expected_state {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat-origin workshop snapshot is not the exact adoption transition.",
+        ));
+    }
+
+    let command_request = AdoptChatPreview {
+        access,
+        operation_id: operation_id.to_owned(),
+        conversation_id,
+        preview_id: preview.id,
+        preview_version: preview.version,
+        preview_digest: preview.digest,
+    };
+    let expected_command_hash = logical_hash(&command_request)?;
+    if command_payload_hash != expected_command_hash {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption command receipt has an invalid request hash.",
+        ));
+    }
+    if let Some(bound_snapshot_hash) = decision.snapshot_payload_hash.as_deref() {
+        if bound_snapshot_hash != expected_command_hash
+            || snapshot_payload_hash != expected_command_hash
+        {
+            return Err(CoreError::new(
+                "InvalidProjectChat",
+                "A chat adoption snapshot is not bound to its command receipt.",
+            ));
+        }
+    } else if snapshot_payload_hash == expected_command_hash {
+        // A schema-40 snapshot with the new command hash is valid even when
+        // its decision predates the optional binding field.  The complete
+        // structural proof above remains mandatory for both forms.
+    } else {
+        // Legacy schema snapshots used an unrecoverable nested tuple hash.
+        // All identity, preview, receipt, revision, and state-transition
+        // proofs above are mandatory before accepting that historical form.
     }
     Ok(())
 }

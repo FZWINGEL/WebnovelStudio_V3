@@ -249,13 +249,30 @@ creates a new project and operation namespace; historical rows do not gain
 write or context authority in the recovered project. Existing immutable
 packet bytes and historical provider settings are not rewritten.
 
+Chat-origin relationships use the existing Workshop state and snapshots, but
+their operation authority remains the `adoptChatPreview` command receipt and
+the exact immutable chat preview and author decision. They do not fabricate a
+Workshop exploration or adoption receipt. History and backup readers must
+validate this same chain, including committed document revisions and the exact
+relationship-only transition from the preceding Workshop state. Historical
+validation uses retained source revisions; later author edits must not make
+an otherwise valid historical backup unreadable.
+
+New relationship snapshots use the stable adoption command hash, also recorded
+by an optional decision binding. The earlier schema-40 tuple hash included
+ephemeral session/lease fields that were not retained. Those existing records
+remain unchanged and require the full preview, receipt, revision and state
+transition proof; the unavailable legacy request hash is not claimed to have
+been reconstructed. Current-project access and stale-preview rules still
+govern every new adoption.
+
 Chat is an opt-in workspace trial. Existing Develop and Write navigation stay
 available. Automated core, renderer, and native checks are separate evidence;
 human formative review, physical input/accessibility, live provider behavior,
 and installed packaging are separate qualification gates. Making chat the
 default requires the specified author evaluation, not only passing mocks.
 
-The current implementation checkpoint includes six focused grouped-effects
+The current implementation checkpoint includes eight focused grouped-effects
 checks, including post-write SQL rollback and local retry, alongside the
 701-test frontend suite. These are implementation evidence only; native/live,
 human, accessibility, and installed-package gates remain separate and are

@@ -19,7 +19,7 @@
     "chat": {
       "script": "native-chat-smoke.mjs",
       "report": "chat/report.json",
-      "checks": ["native-chat-smoke:01", "native-chat-smoke:02", "native-chat-smoke:03", "native-chat-smoke:04", "native-chat-smoke:05", "native-chat-smoke:06", "native-chat-smoke:07", "native-chat-smoke:08", "native-chat-smoke:09", "native-chat-smoke:10", "native-chat-smoke:11", "native-chat-smoke:12", "native-chat-smoke:13", "native-chat-smoke:14", "native-chat-failures:01", "native-chat-failures:02", "native-chat-failures:03"]
+      "checks": ["native-chat-smoke:01", "native-chat-smoke:02", "native-chat-smoke:03", "native-chat-smoke:04", "native-chat-smoke:05", "native-chat-smoke:06", "native-chat-smoke:07", "native-chat-smoke:08", "native-chat-smoke:09", "native-chat-smoke:10", "native-chat-smoke:11", "native-chat-smoke:12", "native-chat-smoke:13", "native-chat-smoke:14", "native-chat-smoke:15", "native-chat-smoke:16", "native-chat-smoke:17", "native-chat-smoke:18", "native-chat-smoke:19", "native-chat-smoke:20", "native-chat-smoke:21", "native-chat-failures:01", "native-chat-failures:02", "native-chat-failures:03"]
     },
     "main": {
       "script": "native-smoke.mjs",

@@ -59,6 +59,35 @@ async function createProject(title) {
   await page.getByRole('textbox', { name: 'Message the project assistant', exact: true }).waitFor();
 }
 
+async function exerciseBlankEntryPath(title, instruction, checkId, description) {
+  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
+  await createProject(title);
+  const entry = (await invoke('library_snapshot')).entries.find(item => item.title === title);
+  assert(entry, `Synthetic entry-path project ${title} must exist in the library`);
+  const entryDatabase = new DatabaseSync(resolve(entry.path, 'project.sqlite3'), { readOnly: true });
+  try {
+    const entryComposer = page.getByRole('textbox', { name: 'Message the project assistant', exact: true });
+    assert.equal(await entryComposer.inputValue(), '');
+    assert.equal(await page.locator('.chat-welcome').count(), 1, `${title} starts on the conversation welcome surface`);
+    assert.equal(await page.locator('.story-workshop').count(), 0, `${title} does not require the Workshop setup form`);
+    assert.equal(Number(entryDatabase.prepare('SELECT COUNT(*) AS n FROM discussion_runs').get().n), 0);
+    assert.equal(Number(entryDatabase.prepare('SELECT COUNT(*) AS n FROM documents WHERE role=\'ordinary\' AND trashed=0').get().n), 0);
+    await entryComposer.fill(instruction);
+    await until(async () => await page.getByRole('button', { name: /^Send/ }).isEnabled(), `${title} send ready`);
+    await page.getByRole('button', { name: /^Send/ }).click();
+    await until(() => Number(entryDatabase.prepare('SELECT COUNT(*) AS n FROM discussion_runs').get().n) === 1, `${title} request accepted`);
+    await until(() => Number(entryDatabase.prepare("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'").get().n) === 1, `${title} request completed`);
+    await until(() => Number(entryDatabase.prepare('SELECT COUNT(*) AS n FROM assistant_drafts').get().n) === 2, `${title} planning drafts materialized`);
+    assert.equal(Number(entryDatabase.prepare('SELECT COUNT(*) AS n FROM documents WHERE role=\'ordinary\' AND trashed=0').get().n), 0, `${title} remains draft-only`);
+    const run = entryDatabase.prepare('SELECT id FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+    assert.equal(Number(entryDatabase.prepare('SELECT COUNT(*) AS n FROM assistant_drafts WHERE origin_run_id=?').get(run.id).n), 2);
+  } finally {
+    entryDatabase.close();
+  }
+  recordCheck(checks, checkId, description);
+}
+
 async function connectApp() {
   await until(async () => {
     if (spawnError || app.exitCode !== null) throw new Error(`Native launch failed: ${spawnError ?? appLog}`);
@@ -237,6 +266,45 @@ try {
   assert.equal(ordinary().length, 2);
   recordCheck(checks, 'native-chat-smoke:04', 'Switching projects and reopening preserves exact independent composers, conversation, adoption, and run counts');
 
+  // A first-project adoption should be usable as the basis for a subsequent
+  // explicit request. The source is attached at its current head, while the
+  // linked request still produces isolated drafts and never writes an
+  // ordinary document automatically.
+  await page.getByRole('tab', { name: 'All documents', exact: true }).click();
+  await page.getByRole('searchbox', { name: 'Find documents' }).fill('');
+  const linkedSource = database.prepare("SELECT id,working_version,body_hash,title FROM documents WHERE kind IN ('world','character') AND role='ordinary' AND trashed=0 ORDER BY id LIMIT 1").get();
+  assert(linkedSource, 'The adopted first-project world or character document is available as a linkable source');
+  await page.locator(`[data-document-id="${linkedSource.id}"]`).getByRole('button', { name: `Use ${linkedSource.title} as a source`, exact: true }).click();
+  await page.getByLabel('Attached context', { exact: true }).waitFor();
+  await until(() => {
+    const value = JSON.parse(database.prepare('SELECT composer_json FROM project_conversations').get().composer_json);
+    return value.sourceRefs.some(head => head.documentId === linkedSource.id && head.version === String(linkedSource.working_version) && head.bodyHash === linkedSource.body_hash);
+  }, 'first-project linked source head attached');
+  const linkedOrdinaryBefore = ordinary();
+  const linkedRunsBefore = count('SELECT COUNT(*) AS n FROM discussion_runs');
+  const linkedDraftsBefore = count('SELECT COUNT(*) AS n FROM assistant_drafts');
+  await composer.fill('Using this adopted world or character document, develop one linked direction without overwriting the source.');
+  await composer.press('Control+Enter');
+  await until(() => count('SELECT COUNT(*) AS n FROM discussion_runs') === linkedRunsBefore + 1, 'linked first-project request accepted');
+  await until(() => count("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'") === linkedRunsBefore + 1, 'linked first-project request completed');
+  await until(() => count('SELECT COUNT(*) AS n FROM assistant_drafts') === linkedDraftsBefore + 2, 'linked first-project drafts materialized');
+  const linkedRun = database.prepare('SELECT id,packet_id,target_document_id FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+  const linkedPacket = JSON.parse(database.prepare('SELECT packet_json FROM context_packets WHERE id=?').get(linkedRun.packet_id).packet_json);
+  const linkedEnvelope = linkedPacket.messages.map(message => {
+    try { return JSON.parse(message.content); } catch { return null; }
+  }).find(message => message?.projectChat);
+  assert(linkedEnvelope?.projectChat, 'The linked request retains a project-chat packet envelope');
+  const linkedPacketSource = linkedEnvelope.projectChat.sourceRefs.find(head => head.documentId === linkedSource.id);
+  assert(linkedPacketSource, 'The linked request packet includes the attached source');
+  assert.equal(linkedPacketSource.version, String(linkedSource.working_version));
+  assert.equal(linkedPacketSource.bodyHash, linkedSource.body_hash);
+  assert.equal(linkedRun.target_document_id, database.prepare('SELECT anchor_document_id FROM project_conversations').get().anchor_document_id);
+  const linkedDraftRows = database.prepare('SELECT origin_run_id,target_json FROM assistant_drafts WHERE origin_run_id=?').all(linkedRun.id);
+  assert.equal(linkedDraftRows.length, 2);
+  assert(linkedDraftRows.every(row => row.target_json === null), 'Linked planning drafts have no automatic ordinary-document target');
+  assert.deepEqual(ordinary(), linkedOrdinaryBefore);
+  recordCheck(checks, 'native-chat-smoke:15', 'An adopted first-project document can be attached at its exact current head for an explicit linked request; the frozen packet records source and conversation target while new drafts remain isolated');
+
   await page.getByRole('tab', { name: 'All documents', exact: true }).click();
   await page.getByRole('button', { name: 'Create blank chapter', exact: true }).click();
   const manuscript = page.getByRole('textbox', { name: 'Manuscript', exact: true });
@@ -246,6 +314,9 @@ try {
   await until(() => count("SELECT COUNT(*) AS n FROM documents WHERE role='ordinary' AND kind='chapter' AND working_version>0") === 1, 'chapter body saved');
   await until(async () => await manuscript.getAttribute('contenteditable') === 'true', 'chapter checkpoint releases input');
   const chapterBefore = ordinary();
+  const chapterRunsBefore = count('SELECT COUNT(*) AS n FROM discussion_runs');
+  const chapterItemsBefore = count("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='chapterRequest'");
+  const chapterDraftsBefore = count('SELECT COUNT(*) AS n FROM assistant_drafts');
   // Select exact text rather than ProseMirror's whole-document AllSelection.
   // Physical pointer selection is a separate author/native input gate.
   await manuscript.evaluate(element => {
@@ -257,13 +328,13 @@ try {
   await page.getByRole('region', { name: 'Captured chapter task', exact: true }).waitFor();
   await composer.fill('What does this selected passage suggest about the healer?');
   await composer.press('Control+Enter');
-  await until(() => count("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='chapterRequest'") === 1, 'chapter timeline request');
-  await until(() => count("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'") === 2, 'chapter discussion completion');
+  await until(() => count("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='chapterRequest'") === chapterItemsBefore + 1, 'chapter timeline request');
+  await until(() => count("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'") === chapterRunsBefore + 1, 'chapter discussion completion');
   assert.deepEqual(ordinary(), chapterBefore);
   const chapterPayload = JSON.parse(database.prepare("SELECT payload_json FROM conversation_items WHERE kind='chapterRequest' ORDER BY sequence DESC LIMIT 1").get().payload_json);
   assert.equal(chapterPayload.scope.kind, 'passage');
   assert.equal(chapterPayload.scope.quote, 'The healer stood at the bridge. The city waited in silence.');
-  assert.equal(count("SELECT COUNT(*) AS n FROM assistant_drafts"), 2);
+  assert.equal(count("SELECT COUNT(*) AS n FROM assistant_drafts"), chapterDraftsBefore);
   await page.screenshot({ path: resolve(output, 'chapter-conversation.png') });
   recordCheck(checks, 'native-chat-smoke:05', 'Native selected-text feedback links the exact chapter scope into the same conversation without chapter mutation or material drafts');
 
@@ -427,9 +498,13 @@ try {
   await until(async () => await rangeEditor.getAttribute('contenteditable') === 'true' && await page.locator('.writing .save-status').textContent() === 'Saved', 'three-paragraph chapter checkpoint');
   const beforeRange = ordinary();
   const beforeRangeRuns = count('SELECT COUNT(*) AS n FROM discussion_runs');
+  if (await page.getByRole('button', { name: 'Return to project conversation', exact: true }).count()) {
+    await page.getByRole('button', { name: 'Return to project conversation', exact: true }).click();
+  }
   await page.getByRole('button', { name: 'Discuss in project chat', exact: true }).click();
   await reopenedComposer.fill('Give feedback on the opening and propose the passage to strengthen.');
-  await reopenedComposer.press('Control+Enter');
+  await until(async () => await page.getByRole('button', { name: /^Send/ }).isEnabled(), 'unselected chapter send ready');
+  await page.getByRole('button', { name: /^Send/ }).click();
   await until(() => count('SELECT COUNT(*) AS n FROM discussion_runs') === beforeRangeRuns + 1 && database.prepare('SELECT status FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get().status === 'completed', 'unselected chapter feedback completes');
   const rangeTurn = page.locator('.chat-turn').filter({ has: page.locator('.chat-message-user').filter({ hasText: 'Give feedback on the opening and propose the passage to strengthen.' }) });
   await rangeTurn.getByRole('button', { name: 'Open chapter result', exact: true }).click();
@@ -446,6 +521,145 @@ try {
   assert.deepEqual(ordinary(), beforeRange);
   assert.equal(count('SELECT COUNT(*) AS n FROM discussion_runs'), beforeRangeRuns + 1);
   recordCheck(checks, 'native-chat-smoke:13', 'Unselected chapter feedback proposes exact paragraphs; author confirmation stages a separate edit request without dispatch or manuscript changes');
+
+  async function sendSelectedChapterScope(expectedQuote, instruction, checkId, description, select) {
+    if (await page.getByRole('button', { name: 'Return to project conversation', exact: true }).count()) {
+      await page.getByRole('button', { name: 'Return to project conversation', exact: true }).click();
+    }
+    await rangeEditor.evaluate(select);
+    await rangeEditor.press('Control+Shift+F');
+    await page.getByRole('region', { name: 'Captured chapter task', exact: true }).waitFor();
+    const itemsBefore = count("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='chapterRequest'");
+    const completedBefore = count("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'");
+    await reopenedComposer.fill(instruction);
+    await until(async () => await page.getByRole('button', { name: /^Send/ }).isEnabled(), `${checkId} send ready`);
+    await page.getByRole('button', { name: /^Send/ }).click();
+    await until(() => count("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='chapterRequest'") === itemsBefore + 1, `${checkId} chapter request recorded`);
+    await until(() => count("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'") === completedBefore + 1, `${checkId} selected response completed`);
+    const payload = JSON.parse(database.prepare("SELECT payload_json FROM conversation_items WHERE kind='chapterRequest' ORDER BY sequence DESC LIMIT 1").get().payload_json);
+    assert.equal(payload.scope.kind, 'passage');
+    assert.equal(payload.scope.quote, expectedQuote, `${checkId} captures the exact selected text`);
+    recordCheck(checks, checkId, description);
+  }
+
+  await sendSelectedChapterScope(
+    'courier',
+    'Discuss this selected word without changing the chapter.',
+    'native-chat-smoke:18',
+    'Native word selection becomes an exact chapter passage request and leaves the manuscript unchanged.',
+    element => {
+      const editor = element.editor;
+      const text = editor.state.doc.firstChild.textContent;
+      const start = text.indexOf('courier');
+      editor.commands.setTextSelection({ from: 1 + start, to: 1 + start + 'courier'.length });
+      editor.commands.focus();
+    },
+  );
+  await sendSelectedChapterScope(
+    'The courier approached the tower.',
+    'Discuss this selected sentence without changing the chapter.',
+    'native-chat-smoke:19',
+    'Native sentence selection captures the complete sentence as the chapter request scope without broadening it.',
+    element => {
+      const editor = element.editor;
+      const text = editor.state.doc.firstChild.textContent;
+      editor.commands.setTextSelection({ from: 1, to: 1 + text.length });
+      editor.commands.focus();
+    },
+  );
+
+  // Recreate the proposed scoped edit after the selection-only requests. The
+  // local fixture returns one structured candidate, so this exercises the
+  // real preview/Apply path while the final paragraph is protected by being
+  // outside the captured block scope.
+  if (await page.getByRole('button', { name: 'Return to project conversation', exact: true }).count()) {
+    await page.getByRole('button', { name: 'Return to project conversation', exact: true }).click();
+  }
+  await page.getByRole('button', { name: 'Discuss in project chat', exact: true }).click();
+  const applyRangeInstruction = 'Prepare a scoped edit for the opening paragraph and leave the protected ending unchanged.';
+  const applyRangeItemsBefore = count("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='chapterRequest'");
+  const applyRangeRunsBefore = count('SELECT COUNT(*) AS n FROM discussion_runs');
+  await reopenedComposer.fill(applyRangeInstruction);
+  await until(async () => await page.getByRole('button', { name: /^Send/ }).isEnabled(), 'protected-ending range send ready');
+  await page.getByRole('button', { name: /^Send/ }).click();
+  await until(() => count("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='chapterRequest'") === applyRangeItemsBefore + 1, 'protected-ending range request recorded');
+  await until(() => count("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'") === applyRangeRunsBefore + 1, 'protected-ending range response completed');
+  const applyRangeTurn = page.locator('.chat-turn').filter({ has: page.locator('.chat-message-user').filter({ hasText: applyRangeInstruction }) });
+  await applyRangeTurn.getByRole('button', { name: 'Open chapter result', exact: true }).click();
+  await page.getByRole('button', { name: 'Use this passage for an edit', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Use this passage for an edit', exact: true }).click();
+  await until(() => {
+    const value = JSON.parse(database.prepare('SELECT composer_json FROM project_conversations').get().composer_json);
+    return value.chapter?.intent === 'proposeEdits' && value.chapter?.scope?.kind === 'blocks';
+  }, 'protected-ending edit scope prepared');
+  await reopenedComposer.fill('Replace only the captured opening with the reviewed local alternative. Preserve the protected ending exactly.');
+  await until(async () => await page.getByRole('button', { name: /^Send/ }).isEnabled(), 'protected-ending edit send ready');
+  await page.getByRole('button', { name: /^Send/ }).click();
+  const applyRunCount = applyRangeRunsBefore + 2;
+  await until(() => count("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'") === applyRunCount, 'protected-ending edit response completed');
+  const applyRun = database.prepare('SELECT id FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+  await until(() => Number(database.prepare('SELECT COUNT(*) AS n FROM proposals WHERE run_id=?').get(applyRun.id).n) === 1, 'structured protected-ending proposal retained');
+  const applyTurn = page.locator('.chat-turn').filter({ has: page.locator('.chat-message-user').filter({ hasText: 'Replace only the captured opening' }) });
+  await applyTurn.getByRole('button', { name: 'Open chapter result', exact: true }).click();
+  const proposalCard = page.locator('.proposal-card').first();
+  await proposalCard.waitFor();
+  await proposalCard.getByRole('button', { name: 'Preview', exact: true }).click();
+  await proposalCard.locator('.proposal-preview').waitFor();
+  const applyButton = proposalCard.getByRole('button', { name: 'Apply', exact: true });
+  await until(() => applyButton.isEnabled(), 'protected-ending exact preview becomes applicable');
+  await applyButton.click();
+  await proposalCard.locator('.proposal-status').filter({ hasText: /^Applied$/ }).waitFor();
+  const protectedBody = await rangeEditor.innerText();
+  assert(protectedBody.includes('Keep this ending unchanged.'), 'Applying the opening proposal preserves the protected ending');
+  recordCheck(checks, 'native-chat-smoke:20', 'A scoped chapter proposal requires an exact preview and explicit Apply; applying the opening leaves the protected ending unchanged');
+
+  // Start another chapter request, then edit the target while its frozen
+  // request is still in flight. The saved target head must remain the older
+  // one so a later Apply cannot silently use the changed source.
+  if (await page.getByRole('button', { name: 'Return to project conversation', exact: true }).count()) {
+    await page.getByRole('button', { name: 'Return to project conversation', exact: true }).click();
+  }
+  await page.getByRole('button', { name: 'Discuss in project chat', exact: true }).click();
+  const pendingInstruction = 'Discuss the opening while preserving the author-controlled ending.';
+  await reopenedComposer.fill(pendingInstruction);
+  await until(async () => await page.getByRole('button', { name: /^Send/ }).isEnabled(), 'pending chapter send ready');
+  await page.getByRole('button', { name: /^Send/ }).click();
+  await until(() => count('SELECT COUNT(*) AS n FROM discussion_runs') === applyRunCount + 1, 'pending chapter run accepted');
+  const pendingRun = database.prepare('SELECT id,target_version,target_body_hash,status FROM discussion_runs ORDER BY rowid DESC LIMIT 1').get();
+  assert(['queued', 'running', 'stopping'].includes(pendingRun.status), `Pending chapter request must be in flight, got ${pendingRun.status}`);
+  await rangeEditor.evaluate(element => {
+    const editor = element.editor;
+    let start = -1; let end = -1;
+    editor.state.doc.descendants((node, position) => {
+      if (!node.isText) return;
+      start = position;
+      end = position + node.nodeSize;
+    });
+    if (start < 0 || end < start) throw new Error('Could not locate the protected ending text node');
+    editor.commands.insertContentAt({ from: start, to: end }, 'The author changed this ending while the assistant was working.');
+    editor.commands.focus();
+  });
+  await rangeEditor.press('Control+s');
+  await until(() => Number(database.prepare('SELECT working_version FROM documents WHERE id=?').get(newChapter.id).working_version) > Number(pendingRun.target_version), 'stale chapter edit checkpoint');
+  await until(() => database.prepare('SELECT status FROM discussion_runs WHERE id=?').get(pendingRun.id).status === 'completed', 'pending chapter response completed after source edit');
+  const staleHead = database.prepare('SELECT working_version,body_hash FROM documents WHERE id=?').get(newChapter.id);
+  assert(Number(staleHead.working_version) > Number(pendingRun.target_version));
+  assert.notEqual(staleHead.body_hash, pendingRun.target_body_hash);
+  assert((await rangeEditor.innerText()).includes('The author changed this ending while the assistant was working.'));
+  recordCheck(checks, 'native-chat-smoke:21', 'Editing the chapter while a request is pending produces a newer target head; the retained request stays bound to its older source and does not auto-apply');
+
+  await exerciseBlankEntryPath(
+    'World-first chat entry story',
+    'World first: establish one setting rule and its human consequence. Do not require a protagonist, plot, chapter, or setup form.',
+    'native-chat-smoke:16',
+    'A blank project accepts a world-first author request directly in chat, without a setup form or automatic ordinary write.',
+  );
+  await exerciseBlankEntryPath(
+    'Character-first chat entry story',
+    'Character first: develop one motivation and conflict. Do not require a world template, plot, chapter, or setup form.',
+    'native-chat-smoke:17',
+    'A separate blank project accepts a character-first author request directly in chat, without a setup form or automatic ordinary write.',
+  );
 
   assert.deepEqual(pageErrors, []);
   await writeFile(resolve(output, 'report.json'), JSON.stringify({ status: 'passed', checks, runtime, executable, dataDirectory: data, pageErrors,

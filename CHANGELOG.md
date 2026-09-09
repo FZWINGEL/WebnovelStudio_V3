@@ -28,6 +28,10 @@ WebnovelStudio V3 is a native Windows desktop writing workspace for English web 
 - Story Workshop relationship exploration for named directional author intentions with exact endpoint heads, plus noncanon moment taste tests that require two or three treatments. Schema 36 raises the reader floor for optional relationship packet context while preserving older Workshop bytes and hashes.
 - Optional Unicode names, aliases, and transliterations in the existing `document_aliases` metadata (no schema change) for character/world documents, exposed in the World/People saved-material picker and Writer **Names & aliases** surface. Saving is explicit, source-epoch CAS checked, reconciled by read after uncertainty, and guarded against dirty navigation/close; it leaves title/body unchanged and keeps aliases out of restricted context.
 
+### Fixed
+
+- Projects with relationships adopted from chat can be backed up and recovered with their exact history, including projects created earlier in the trial. Later author edits preserve historical references, and altered receipt or relationship records are refused.
+
 ### Current verification
 
 - Current chat-first development checks, native and live Codex evidence, executable identities, and remaining author/accessibility/installed gates are maintained in the [chat-first implementation ledger](docs/V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md). Chat remains opt-in pending those rollout gates.

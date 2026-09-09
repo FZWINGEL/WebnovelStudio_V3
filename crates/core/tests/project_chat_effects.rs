@@ -8,14 +8,16 @@ use webnovel_core::context::packet::MockContextBudget;
 use webnovel_core::projects::discussions::{DiscussionBegin, DiscussionFinish};
 use webnovel_core::projects::project_chat::{
     AdoptChatPreview, PrepareChatAdoption, ProjectChatDraftRef, ProjectComposer,
-    SaveAssistantDraft, StartProjectChat,
+    SaveAssistantDraft, SetChatDisposition, StartProjectChat,
 };
 use webnovel_core::projects::project_chat_output::ChatGroupEffectsOutput;
 use webnovel_core::projects::workshop::{
     PreferencePolarity, PreferenceScope, PreferenceStrength, SaveWorkshop, WorkshopPreference,
+    WorkshopRelationship, WorkshopRelationshipStatus,
 };
 use webnovel_core::projects::{
-    CreateDocument, ProjectAccess, ProjectSession, SaveCause, SaveSnapshot,
+    CheckpointReason, CheckpointRequest, CreateDocument, ProjectAccess, ProjectSession, SaveCause,
+    SaveSnapshot,
 };
 
 struct TempProject(PathBuf);
@@ -81,6 +83,42 @@ fn grouped_output(effect_from: &str, effect_to: &str) -> String {
         }
     }))
     .expect("serialize grouped project-chat output")
+}
+
+fn grouped_existing_target_output(existing_handle: &str) -> String {
+    serde_json::to_string(&json!({
+        "schemaVersion": "project-assistant-output.v1",
+        "answer": "I prepared a revised keeper and a new gate for review.",
+        "questions": [],
+        "assumptions": [],
+        "drafts": [
+            {
+                "key": "keeper-edit", "title": "Updated River Keeper", "kind": "character",
+                "targetHandle": existing_handle,
+                "changeSummary": "Clarifies the keeper's responsibility.",
+                "blocks": [{"type":"paragraph","content":[{"type":"text","text":"The keeper remembers every crossing."}] }]
+            },
+            {
+                "key": "gate-world", "title": "River Gate", "kind": "world",
+                "changeSummary": "Adds the gate where the story begins.",
+                "blocks": [{"type":"paragraph","content":[{"type":"text","text":"The gate opens at first light."}] }]
+            }
+        ],
+        "groupEffects": {
+            "relationships": [{
+                "key": "keeper-guards-gate",
+                "fromRef": existing_handle,
+                "toRef": "gate-world",
+                "type": "guards",
+                "description": "The keeper is responsible for the river gate.",
+                "uncertainty": "The exact reason for the duty is still open."
+            }],
+            "impacts": [],
+            "supersessions": [],
+            "placements": []
+        }
+    }))
+    .expect("serialize existing-target grouped project-chat output")
 }
 
 fn invalid_effect_output(bad_reference: &str, use_as_from: bool) -> String {
@@ -169,6 +207,28 @@ fn start_chat(
     String,
     webnovel_core::projects::project_chat::ChatMaterialization,
 ) {
+    start_chat_with_composer(
+        project,
+        access,
+        ProjectComposer {
+            text: "Develop the keeper and the river gate together.".into(),
+            ..ProjectComposer::default()
+        },
+        assistant_text,
+        prefix,
+    )
+}
+
+fn start_chat_with_composer(
+    project: &ProjectSession,
+    access: &ProjectAccess,
+    composer: ProjectComposer,
+    assistant_text: String,
+    prefix: &str,
+) -> (
+    String,
+    webnovel_core::projects::project_chat::ChatMaterialization,
+) {
     let conversation = project
         .read_project_conversation(
             webnovel_core::projects::project_chat::ReadProjectConversation {
@@ -178,10 +238,6 @@ fn start_chat(
             },
         )
         .expect("ensure project conversation");
-    let composer = ProjectComposer {
-        text: "Develop the keeper and the river gate together.".into(),
-        ..ProjectComposer::default()
-    };
     let saved = project
         .save_project_composer(webnovel_core::projects::project_chat::SaveProjectComposer {
             access: access.clone(),
@@ -850,4 +906,302 @@ fn unsupported_grouped_effect_categories_refuse_before_any_write() {
             .expect("count previews");
         assert_eq!(previews, 0);
     }
+}
+
+#[test]
+fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
+    let temp = TempProject::new();
+    let project =
+        ProjectSession::create(temp.project_path(), "Relationship endpoint drift").expect("create");
+    let access = project
+        .attach("effects-relationship-drift".into())
+        .expect("attach");
+
+    let character = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "relationship-character-create".into(),
+            document_id: "keeper-character".into(),
+            title: "River Keeper".into(),
+            kind: "character".into(),
+            body: body("The keeper guards every crossing."),
+        })
+        .expect("create character source");
+    let witness = project
+        .create_document(CreateDocument {
+            access: access.clone(),
+            operation_id: "relationship-witness-create".into(),
+            document_id: "keeper-witness".into(),
+            title: "Keeper Witness".into(),
+            kind: "world".into(),
+            body: body("The witness remembers the keeper's oath."),
+        })
+        .expect("create relationship endpoint source");
+    let character_checkpoint = project
+        .checkpoint(CheckpointRequest {
+            access: access.clone(),
+            expected: character.head.clone(),
+            reason: CheckpointReason::Source,
+        })
+        .expect("checkpoint character source");
+    let _witness_checkpoint = project
+        .checkpoint(CheckpointRequest {
+            access: access.clone(),
+            expected: witness.head.clone(),
+            reason: CheckpointReason::Source,
+        })
+        .expect("checkpoint relationship endpoint source");
+
+    let mut workshop = project
+        .read_workshop(access.clone())
+        .expect("read initial workshop");
+    let existing_relationship = WorkshopRelationship {
+        id: "keeper-remembers-witness".into(),
+        from_document_id: character.head.document_id.clone(),
+        to_document_id: witness.head.document_id.clone(),
+        relationship_type: "remembers".into(),
+        description: "The keeper remembers what the witness saw.".into(),
+        uncertainty: "The witness may be mistaken about the final crossing.".into(),
+        status: WorkshopRelationshipStatus::Chosen,
+        source_heads: vec![character.head.clone(), witness.head.clone()],
+    };
+    workshop
+        .state
+        .relationships
+        .push(existing_relationship.clone());
+    project
+        .save_workshop(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "relationship-save-existing".into(),
+            expected_version: workshop.version,
+            state: workshop.state,
+        })
+        .expect("save existing relationship");
+
+    let composer = ProjectComposer {
+        text: "Revise the keeper and add the river gate.".into(),
+        source_refs: vec![character.head.clone(), witness.head.clone()],
+        ..ProjectComposer::default()
+    };
+    let (conversation_id, materialization) = start_chat_with_composer(
+        &project,
+        &access,
+        composer,
+        grouped_existing_target_output(&character_checkpoint.id),
+        "effects-relationship-drift",
+    );
+    assert!(materialization.output_valid);
+    let preview = prepare(
+        &project,
+        &access,
+        &conversation_id,
+        "effects-relationship-drift-prepare",
+        drafts(&project, &access),
+        None,
+    );
+    let effects = preview.effects.as_ref().expect("effect manifest");
+    assert_eq!(effects.relationship_dependencies.len(), 1);
+    assert_eq!(
+        effects.relationship_dependencies[0].relationship_id,
+        existing_relationship.id
+    );
+    assert_eq!(
+        effects.relationship_dependencies[0].to_document_id,
+        witness.head.document_id
+    );
+
+    // This endpoint is not an adoption target, so its changed head must be
+    // caught by the existing relationship dependency fence before any new
+    // draft target or Workshop relationship is materialized.
+    let changed_witness = project
+        .save(SaveSnapshot {
+            access: access.clone(),
+            operation_id: "relationship-endpoint-drift".into(),
+            expected: witness.head.clone(),
+            local_generation: "1".into(),
+            body: body("The witness changed their account after the preview."),
+            cause: SaveCause::Typing,
+        })
+        .expect("change unselected relationship endpoint");
+    let epoch_after_drift = project.context_source_epoch().expect("read drift epoch");
+    let workshop_after_drift = project
+        .read_workshop(access.clone())
+        .expect("read workshop after endpoint drift");
+    let character_before_adoption = project
+        .document(access.clone(), character.head.document_id.clone())
+        .expect("read existing adoption target");
+    let error = project
+        .adopt_chat_preview(AdoptChatPreview {
+            access: access.clone(),
+            operation_id: "effects-relationship-drift-adopt".into(),
+            conversation_id,
+            preview_id: preview.id,
+            preview_version: preview.version,
+            preview_digest: preview.digest,
+        })
+        .expect_err("relationship endpoint drift must refuse adoption");
+    assert_eq!(error.code, "ContextChanged");
+
+    let documents = project.documents(access.clone()).expect("list documents");
+    assert!(documents
+        .iter()
+        .all(|document| document.title != "River Gate"));
+    assert_eq!(
+        project
+            .document(access.clone(), character.head.document_id.clone())
+            .expect("read target after rejected adoption")
+            .head,
+        character_before_adoption.head
+    );
+    assert_eq!(
+        project
+            .document(access.clone(), witness.head.document_id.clone())
+            .expect("read changed endpoint")
+            .head,
+        changed_witness.head
+    );
+    assert_eq!(
+        project
+            .context_source_epoch()
+            .expect("read epoch after rejection"),
+        epoch_after_drift
+    );
+    assert_eq!(
+        project
+            .read_workshop(access.clone())
+            .expect("read workshop after rejected adoption")
+            .state
+            .relationships,
+        workshop_after_drift.state.relationships
+    );
+
+    let db = Connection::open(temp.project_path().join("project.sqlite3")).expect("open db");
+    let decisions: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM conversation_items WHERE kind='adoptionDecision' AND operation_id='effects-relationship-drift-adopt'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count adoption decisions");
+    let receipts: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM command_receipts WHERE operation_id='effects-relationship-drift-adopt'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count adoption receipts");
+    assert_eq!(decisions, 0);
+    assert_eq!(receipts, 0);
+}
+
+#[test]
+fn rejected_selected_group_member_refuses_without_partial_adoption() {
+    let temp = TempProject::new();
+    let project =
+        ProjectSession::create(temp.project_path(), "Rejected grouped member").expect("create");
+    let access = project
+        .attach("effects-rejected-member".into())
+        .expect("attach");
+    let (conversation_id, materialization) = start_chat(
+        &project,
+        &access,
+        grouped_output("hero-draft", "gate-world"),
+        "effects-rejected-member",
+    );
+    assert!(materialization.output_valid);
+    let draft_refs = drafts(&project, &access);
+    assert_eq!(draft_refs.len(), 2);
+    let preview = prepare(
+        &project,
+        &access,
+        &conversation_id,
+        "effects-rejected-member-prepare",
+        draft_refs.clone(),
+        None,
+    );
+
+    let rejected = &draft_refs[0];
+    project
+        .set_chat_disposition(SetChatDisposition {
+            access: access.clone(),
+            operation_id: "effects-rejected-member-disposition".into(),
+            conversation_id: conversation_id.clone(),
+            reference_id: rejected.head.document_id.clone(),
+            expected_version: rejected.disposition_version.clone(),
+            disposition: "rejected".into(),
+            rationale: "Keep this member out of the grouped adoption.".into(),
+            scope: None,
+            unknown_to: None,
+        })
+        .expect("reject selected grouped member");
+    let epoch_before_adoption = project.context_source_epoch().expect("read epoch");
+    let workshop_before_adoption = project
+        .read_workshop(access.clone())
+        .expect("read workshop");
+    let error = project
+        .adopt_chat_preview(AdoptChatPreview {
+            access: access.clone(),
+            operation_id: "effects-rejected-member-adopt".into(),
+            conversation_id: conversation_id.clone(),
+            preview_id: preview.id,
+            preview_version: preview.version,
+            preview_digest: preview.digest,
+        })
+        .expect_err("a rejected grouped member must refuse the whole adoption");
+    assert_eq!(error.code, "DraftNotAdoptable");
+    assert_no_material_targets(&project, &access);
+    assert_eq!(
+        project
+            .context_source_epoch()
+            .expect("read epoch after rejection"),
+        epoch_before_adoption
+    );
+    assert_eq!(
+        project
+            .read_workshop(access.clone())
+            .expect("read workshop after rejection")
+            .state,
+        workshop_before_adoption.state
+    );
+    let conversation = project
+        .read_project_conversation(
+            webnovel_core::projects::project_chat::ReadProjectConversation {
+                access: access.clone(),
+                before: None,
+                limit: 100,
+            },
+        )
+        .expect("read grouped conversation after rejection");
+    assert_eq!(
+        conversation
+            .drafts
+            .iter()
+            .find(|draft| draft.document.head.document_id == rejected.head.document_id)
+            .expect("rejected draft")
+            .disposition,
+        "rejected"
+    );
+    assert!(conversation
+        .drafts
+        .iter()
+        .filter(|draft| draft.document.head.document_id != rejected.head.document_id)
+        .all(|draft| draft.disposition == "pending"));
+
+    let db = Connection::open(temp.project_path().join("project.sqlite3")).expect("open db");
+    let decisions: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM conversation_items WHERE kind='adoptionDecision' AND operation_id='effects-rejected-member-adopt'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count rejected-member adoption decisions");
+    let receipts: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM command_receipts WHERE operation_id='effects-rejected-member-adopt'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count rejected-member adoption receipts");
+    assert_eq!(decisions, 0);
+    assert_eq!(receipts, 0);
 }

@@ -562,6 +562,141 @@ fn read_state(connection: &Connection) -> CoreResult<(i64, WorkshopState)> {
     }
 }
 
+pub(crate) struct WorkshopSnapshotOrigin<'a> {
+    pub project_id: &'a str,
+    pub namespace: &'a str,
+    pub operation: &'a str,
+    pub version: i64,
+    pub payload_hash: &'a str,
+}
+
+/// Validate the authority for one immutable Workshop snapshot.
+///
+/// Normal Workshop writes have a matching `workshop_receipts` row and retain
+/// that exact payload-hash check.  Chat-origin relationship adoption uses a
+/// separate command authority rather than a `workshop_receipts` row: the
+/// immutable project-chat command/preview/decision chain, validated by the helper in
+/// `project_chat::adoption`.  Keeping the branch here makes both history reads
+/// and backup validation use the same rule.
+fn validate_snapshot_authority(
+    connection: &Connection,
+    origin: WorkshopSnapshotOrigin<'_>,
+    state_json: &str,
+    state_hash: &str,
+) -> CoreResult<WorkshopState> {
+    let WorkshopSnapshotOrigin {
+        project_id,
+        namespace,
+        operation,
+        version,
+        payload_hash,
+    } = origin;
+    if !storage_valid_id(project_id)
+        || !storage_valid_id(namespace)
+        || !storage_valid_id(operation)
+        || version < 0
+        || !valid_hash(payload_hash)
+    {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "A workshop snapshot has invalid identity or hash metadata.",
+        ));
+    }
+    let parsed = parse_state(state_json, state_hash)?;
+    let receipt: Option<(String, String, String)> = connection
+        .query_row(
+            "SELECT operation_kind,payload_hash,result_json
+             FROM workshop_receipts
+             WHERE operation_namespace=? AND operation_id=?",
+            params![namespace, operation],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    match receipt {
+        Some((kind, receipt_payload, result_json)) if receipt_payload == payload_hash => {
+            let expected = workshop_snapshot(version, parsed.clone())?;
+            match kind.as_str() {
+                "saveWorkshop" => {
+                    let saved: WorkshopSnapshot =
+                        serde_json::from_str(&result_json).map_err(|error| {
+                            CoreError::new(
+                                "InvalidProject",
+                                &format!("A workshop save receipt is invalid: {error}"),
+                            )
+                        })?;
+                    if saved != expected {
+                        return Err(CoreError::new(
+                            "InvalidProject",
+                            "A workshop snapshot does not match its save receipt result.",
+                        ));
+                    }
+                }
+                "adoptWorkshop" => {
+                    let adopted: WorkshopAdoptionAck =
+                        serde_json::from_str(&result_json).map_err(|error| {
+                            CoreError::new(
+                                "InvalidProject",
+                                &format!("A workshop adoption receipt is invalid: {error}"),
+                            )
+                        })?;
+                    if adopted.snapshot != expected {
+                        return Err(CoreError::new(
+                            "InvalidProject",
+                            "A workshop snapshot does not match its adoption receipt result.",
+                        ));
+                    }
+                }
+                "startWorkshop" => {
+                    return Err(CoreError::new(
+                        "InvalidProject",
+                        "A workshop start receipt cannot authorize a snapshot.",
+                    ));
+                }
+                _ => {
+                    return Err(CoreError::new(
+                        "InvalidProject",
+                        "A workshop snapshot has an unknown receipt kind.",
+                    ));
+                }
+            }
+            return Ok(parsed);
+        }
+        Some(_) => {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A workshop history snapshot has a mismatched immutable receipt.",
+            ));
+        }
+        None => {}
+    }
+
+    let previous: Option<(String, String)> = connection
+        .query_row(
+            "SELECT state_json,state_hash FROM workshop_snapshots
+             WHERE version=? ORDER BY id DESC LIMIT 1",
+            [version - 1],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let previous_state = match previous {
+        Some((json, hash)) => parse_state(&json, &hash)?,
+        None if version == 1 => WorkshopState::default(),
+        None => {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A chat-origin workshop snapshot has no preceding immutable state.",
+            ));
+        }
+    };
+    crate::projects::project_chat::validate_chat_workshop_snapshot(
+        connection,
+        origin,
+        &parsed,
+        &previous_state,
+    )?;
+    Ok(parsed)
+}
+
 fn validate_text(value: &str, label: &str, max: usize) -> CoreResult<()> {
     if value.len() > max
         || value
@@ -3199,42 +3334,36 @@ impl OwnedProject {
         access: ProjectAccess,
     ) -> CoreResult<Vec<WorkshopSnapshot>> {
         self.check_access(&access)?;
-        let mut statement = self.db()?.prepare(
-            "SELECT operation_namespace,operation_id,version,payload_hash,state_json,state_hash FROM workshop_snapshots ORDER BY version DESC,id DESC",
+        let db = self.db()?;
+        let mut statement = db.prepare(
+            "SELECT project_id,operation_namespace,operation_id,version,payload_hash,state_json,state_hash FROM workshop_snapshots ORDER BY version DESC,id DESC",
         )?;
         let mut output = Vec::new();
         for row in statement.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
             ))
         })? {
-            let (namespace, operation, version, payload, state, hash) = row?;
-            if !storage_valid_id(&namespace) || !valid_hash(&payload) {
-                return Err(CoreError::new(
-                    "InvalidProject",
-                    "A workshop history snapshot has invalid identity or payload hash.",
-                ));
-            }
-            let receipt_payload: Option<String> = self
-                .db()?
-                .query_row(
-                    "SELECT payload_hash FROM workshop_receipts WHERE operation_namespace=? AND operation_id=?",
-                    params![namespace, operation],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            if receipt_payload.as_deref() != Some(payload.as_str()) {
-                return Err(CoreError::new(
-                    "InvalidProject",
-                    "A workshop history snapshot has no matching immutable receipt.",
-                ));
-            }
-            output.push(workshop_snapshot(version, parse_state(&state, &hash)?)?);
+            let (project_id, namespace, operation, version, payload, state, hash) = row?;
+            let parsed = validate_snapshot_authority(
+                db,
+                WorkshopSnapshotOrigin {
+                    project_id: &project_id,
+                    namespace: &namespace,
+                    operation: &operation,
+                    version,
+                    payload_hash: &payload,
+                },
+                &state,
+                &hash,
+            )?;
+            output.push(workshop_snapshot(version, parsed)?);
         }
         Ok(output)
     }
@@ -3744,6 +3873,31 @@ pub(crate) fn validate_storage(connection: &Connection) -> CoreResult<()> {
             .map_err(|error| CoreError::new("InvalidBackup", &error.detail))?;
         validate_state_shape(&parsed)
             .map_err(|error| CoreError::new("InvalidBackup", &error.detail))?;
+        let matching_snapshot: Option<(String, String)> = connection
+            .query_row(
+                "SELECT state_json,state_hash FROM workshop_snapshots
+                 WHERE version=? ORDER BY id DESC LIMIT 1",
+                [version],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        match matching_snapshot {
+            Some((snapshot_json, snapshot_hash))
+                if snapshot_json == state && snapshot_hash == hash => {}
+            Some(_) => {
+                return Err(CoreError::new(
+                    "InvalidBackup",
+                    "The current Workshop state does not match its immutable snapshot.",
+                ));
+            }
+            None if version == 0 && parsed == WorkshopState::default() => {}
+            None => {
+                return Err(CoreError::new(
+                    "InvalidBackup",
+                    "The current Workshop state has no immutable snapshot.",
+                ));
+            }
+        }
     }
     let mut snapshots = connection.prepare("SELECT id,project_id,operation_namespace,operation_id,version,payload_hash,state_json,state_hash FROM workshop_snapshots")?;
     for row in snapshots.query_map([], |row| {
@@ -3771,23 +3925,19 @@ pub(crate) fn validate_storage(connection: &Connection) -> CoreResult<()> {
                 "A workshop snapshot has invalid identity or hash metadata.",
             ));
         }
-        let receipt_payload: Option<String> = connection
-            .query_row(
-                "SELECT payload_hash FROM workshop_receipts WHERE operation_namespace=? AND operation_id=?",
-                params![namespace, operation],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if receipt_payload.as_deref() != Some(payload.as_str()) {
-            return Err(CoreError::new(
-                "InvalidBackup",
-                "A workshop snapshot has no matching immutable receipt.",
-            ));
-        }
-        let parsed = parse_state(&state, &hash)
-            .map_err(|error| CoreError::new("InvalidBackup", &error.detail))?;
-        validate_state_shape(&parsed)
-            .map_err(|error| CoreError::new("InvalidBackup", &error.detail))?;
+        validate_snapshot_authority(
+            connection,
+            WorkshopSnapshotOrigin {
+                project_id: &project,
+                namespace: &namespace,
+                operation: &operation,
+                version,
+                payload_hash: &payload,
+            },
+            &state,
+            &hash,
+        )
+        .map_err(|error| CoreError::new("InvalidBackup", &error.detail))?;
     }
     let mut previews = connection.prepare("SELECT id,project_id,operation_namespace,session_id,expected_version,payload_hash,request_json,preview_json,preview_hash FROM workshop_adoption_previews")?;
     for row in previews.query_map([], |row| {
