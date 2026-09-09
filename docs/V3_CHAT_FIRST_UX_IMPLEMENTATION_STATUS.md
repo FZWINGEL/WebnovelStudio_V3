@@ -87,6 +87,13 @@ production change is readiness publication in the optional app-server runtime.
 The Exec adapter, request recipe, editor, and adoption code are unchanged
 between those builds.
 
+Implementation checkpoint: **`8bbef1a720a381635b82ab86543095ec778c5092`**.
+The final local gate and executable were built from the working tree recorded
+by that commit. This checkpoint includes the readiness fix; subsequent edits
+that record its identity are documentation only. The unrelated research note
+under `docs/research/` remains excluded. No hosted CI or installer result is
+claimed for this implementation commit.
+
 On the final executable, native chat again passes **17 checks in 20.173
 seconds** with confirmed owned-process cleanup. Report:
 `.local/native-results/chat/report.json`; launcher:
