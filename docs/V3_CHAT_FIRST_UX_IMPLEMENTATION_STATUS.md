@@ -36,6 +36,39 @@ harness qualification passed 24 checks in 28.749 seconds on the earlier
 executable; its evidence remains at
 `.local/isolated-native-launch/20260909-031332338-37972/launch.json`.
 
+### Windows Sandbox qualification follow-up
+
+A dedicated Windows Sandbox CLI **0.8.107.0** environment was used against
+source HEAD **`ccec4bb22d9c098131320be93b98f30ad855dde5`** and the unchanged
+executable SHA-256 **`4f75e233666f2036b1b4d82dbd09d09c814465aec94b8fcc16f4962481fa508a`**.
+Networking, clipboard, audio, video and vGPU sharing were disabled; only
+synthetic input and output mappings were exposed. The guest capability probe
+confirmed `WDAGUtilityAccount` session 1 with an owned WinForms foreground
+window (HWND `131458`, PID `12528`) on the `Default` thread and input
+desktops.
+
+The app launched by the unchanged `native-interruption.mjs` exited with code
+**101 before the first scenario**; the harness reported exit code 1.
+WebView2 reported HRESULT **`0x80070002`**, “Package
+dependency criteria could not be resolved.” The installed WebView2 directory
+reported **152.0.4191.66**. A Microsoft-signed cached standalone installer
+(SHA-256 `e7fa35755196ad9223596ef021a1ce6799509142eaa40ba35f634026be50b831`)
+settled nonzero with **`-2147219198`**, and a local-disk retry failed
+identically. Consequently, zero application scenarios qualified in this
+guest; the chat suite did not start and no model calls occurred. Evidence is
+under `.local/sandbox-probe-41324b3c-bf67-460e-abb9-4403e893cc24/`, including
+`output/window.json`, `output/native-run-3.json`,
+`output/native-fixture-3/.local/native-results/interruption/qualification.json`,
+and `output/webview-install.json`.
+
+The sandbox was then stopped by its exact environment ID and the Windows
+Sandbox environment list confirmed empty; no author data was touched. This
+does not change the separate 24-check native chat result above. Physical input,
+screen-reader, installed-package and formative-author gates remain open. The
+exact-head hosted CI run [34307555201](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34307555201)
+also failed before job steps with the recorded billing/spending-limit
+admission error, so it supplies no replacement qualification evidence.
+
 ### Additional recovery qualification
 
 The native normal-close suite passes **2 checks in 10.489 seconds**, including
