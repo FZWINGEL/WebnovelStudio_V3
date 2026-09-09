@@ -20,15 +20,21 @@ warning remains. The earlier gate and corrected argument-count lint failure
 are retained separately in `.local/chat-recovery-before-review-check.log` and
 `.local/chat-recovery-clippy-failure.log`.
 
-The expanded native chat harness passes **24 checks in 28.749 seconds** on
-the preceding executable (`79e5232b90f532b505fb109045d5fbf666f9db3dd10f3e459919ff506256f0f4`).
+The final rebuilt native chat harness passes **24 checks in 29.144 seconds**
+on implementation commit **`6e4ac07e0839ceccab61af2726da83fa82f1dae3`**.
+The 3.0.0 executable is **54,870,016 bytes**, SHA-256
+**`4f75e233666f2036b1b4d82dbd09d09c814465aec94b8fcc16f4962481fa508a`**,
+built at 03:30 UTC and qualified on WebView2 **152.0.4191.66**. Build log:
+`.local/chat-recovery-final-build.log`.
 Added cases cover exact-source follow-up after adoption, world-first and
 character-first blank-project entry, word/sentence scope, explicit Apply with
 a protected ending, and typing while a request retains its older source.
-Launcher: `.local/isolated-native-launch/20260909-031332338-37972/launch.json`.
+Launcher: `.local/isolated-native-launch/20260909-033147717-23700/launch.json`.
 This is synthetic native workflow evidence, with no page errors and confirmed
-owned-process cleanup; it does not measure narrative quality. Final rebuilt
-executable qualification is recorded separately when complete.
+owned-process cleanup; it does not measure narrative quality. The preceding
+harness qualification passed 24 checks in 28.749 seconds on the earlier
+executable; its evidence remains at
+`.local/isolated-native-launch/20260909-031332338-37972/launch.json`.
 
 ### Additional recovery qualification
 
