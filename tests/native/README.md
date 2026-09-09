@@ -2,13 +2,55 @@
 
 These checks drive the built Windows Tauri application through its development-only WebView2 remote debugging endpoint. They do not launch a standalone Chromium browser. The smoke flow is implemented by `apps/desktop/scripts/native-smoke.mjs` and writes ignored output under `.local/native-results/`. The separate local diagnostic subset intentionally omits the currently blocked OS clipboard step and labels that omission; it cannot establish a strict pass.
 
-The current harness includes **52 checks**. Two character-knowledge groups cover exact selected evidence, reader/private observations, identity reuse, author-room history/source inspection and restricted continuation filtering. Two accepted-summary groups exercise explicit generated-memory seeding, saved-stage resumption, acceptance without a model call, context inspection, and clearing after a prose change. Current executed results are in [implementation status](../../docs/IMPLEMENTATION_STATUS.md). Its new recovery-copy group injects
+The existing Writer/native harness includes **52 checks**. Two character-knowledge groups cover exact selected evidence, reader/private observations, identity reuse, author-room history/source inspection and restricted continuation filtering. Two accepted-summary groups exercise explicit generated-memory seeding, saved-stage resumption, acceptance without a model call, context inspection, and clearing after a prose change. Current executed results are in [implementation status](../../docs/IMPLEMENTATION_STATUS.md). Its new recovery-copy group injects
 a SQLite save failure in an owned temporary project, uses the actual Markdown
 Save/Cancel dialogs, verifies unchanged durable text and retained unsaved editor
 content, then removes the fault and retries. The focused native run passes;
 the full current suite's status is recorded in
 [implementation status](../../docs/IMPLEMENTATION_STATUS.md). Historical counts
 below describe their named checkpoints.
+
+## Current chat-first slice — 9 September 2026
+
+The project conversation is integrated as an **opt-in** native development
+surface. One conversation can handle project questions and chapter feedback;
+assistant output stays in isolated task drafts until explicit review and
+adoption. Direct source attachment, explicit chapter handoff, original-request
+and deterministic-diff review, and the project-scoped resizer are included.
+The current project reader floor is schema 40. The authoritative
+[chat-first implementation status](../../docs/V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md)
+records current test counts, native/live evidence, and build identities.
+
+A local native 200% zoom geometry check is verified. Human formative evaluation,
+installed-package behavior, screen-reader behavior, and broader provider and
+narrative qualification remain open; chat remains opt-in. English-only
+authoring means IME qualification is not a product requirement.
+
+Run the rebuilt chat smoke after `.\scripts\desktop.ps1 -Command spike`:
+
+```powershell
+npm.cmd exec --yes --package=node@24.20.0 -- node apps/desktop/scripts/native-chat-smoke.mjs
+```
+
+To deliberately run the two-request live Codex Exec trial, set the opt-in
+variable for that process only:
+
+```powershell
+$previous = $env:WNS_V3_ALLOW_LIVE_CHAT
+try {
+    $env:WNS_V3_ALLOW_LIVE_CHAT = '1'
+    npm.cmd exec --yes --package=node@24.20.0 -- node apps/desktop/scripts/native-chat-live.mjs
+} finally {
+    $env:WNS_V3_ALLOW_LIVE_CHAT = $previous
+}
+```
+
+The live trial is separately opt-in and submits exactly two requests. Do not
+use it as a default or release check. See [the chat-first implementation
+status](../../docs/V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md) and [ADR
+0034](../../docs/ADR_0034_PROJECT_CONVERSATION.md) for current qualification
+boundaries, including the verified local 200% zoom geometry check and the open
+human, screen-reader, installed-package, and broader provider gates.
 
 The separate `apps/desktop/scripts/native-app-close.mjs` qualification drives
 real PID-verified WM_CLOSE requests. Its two groups check a verified dirty

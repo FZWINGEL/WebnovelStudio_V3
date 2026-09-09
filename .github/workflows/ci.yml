@@ -130,6 +130,11 @@ jobs:
         env:
           WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/workshop.events.jsonl
         working-directory: apps/desktop
+      - run: npm run test:native-chat
+        if: inputs.native_layout == 'serial'
+        env:
+          WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/chat.events.jsonl
+        working-directory: apps/desktop
       - run: npm run test:native
         if: inputs.native_layout == 'serial'
         env:

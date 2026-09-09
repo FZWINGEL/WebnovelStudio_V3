@@ -741,7 +741,7 @@ fn insert_document(
     body: &str,
 ) -> CoreResult<()> {
     let hash = sha256_hex(body.as_bytes());
-    tx.execute("INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash,projection_dirty,trashed) VALUES(?,?,?, ?,0,1,?,?,0,0)", params![id,kind,title,position,body,hash])?;
+    tx.execute("INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash,projection_dirty,trashed,role) VALUES(?,?,?, ?,0,1,?,?,0,0,'ordinary')", params![id,kind,title,position,body,hash])?;
     Ok(())
 }
 

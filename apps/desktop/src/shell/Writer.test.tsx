@@ -6,11 +6,13 @@ import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
 import { DocumentSession } from '../editor/session';
 import type { DocumentRecord, Head, ProjectAccess, ProjectTransport, SaveAck, SaveSnapshot, ViewState } from '../ipc/projects';
 import { Writer } from './Writer';
+import type { ProjectChapterComposer } from '../ipc/projectChat';
 
 const mocks = vi.hoisted(() => ({
   readDocumentAliases: vi.fn(),
   setDocumentAliases: vi.fn(),
   saveViewState: vi.fn(),
+  readProjectChapterFeedback: vi.fn(),
 }));
 
 vi.mock('../ipc/context', async importOriginal => {
@@ -18,7 +20,8 @@ vi.mock('../ipc/context', async importOriginal => {
   return { ...original, readDocumentAliases: mocks.readDocumentAliases, setDocumentAliases: mocks.setDocumentAliases };
 });
 vi.mock('../ipc/projects', () => ({ saveViewState: mocks.saveViewState }));
-vi.mock('../ipc/proposals', () => ({ prepareContinuationProposal: vi.fn(), prepareProposal: vi.fn(), prepareStructuredProposal: vi.fn() }));
+vi.mock('../ipc/proposals', () => ({ prepareContinuationProposal: vi.fn(), prepareProposal: vi.fn(), prepareStructuredProposal: vi.fn(), readProposals: vi.fn(async () => []) }));
+vi.mock('../ipc/projectChat', () => ({ readProjectChapterFeedback: mocks.readProjectChapterFeedback }));
 vi.mock('../assistant/FeedbackPanel', () => ({ FeedbackPanel: () => null }));
 vi.mock('./HistoryPanel', () => ({ HistoryPanel: () => null }));
 vi.mock('./ReviewPanel', () => ({ ReviewPanel: () => null }));
@@ -159,5 +162,56 @@ describe('Writer names and aliases lifecycle boundary', () => {
     await render();
     expect(host.textContent).not.toContain('Names & aliases');
     expect(mocks.readDocumentAliases).not.toHaveBeenCalled();
+  });
+});
+
+describe('Writer project conversation bridge', () => {
+  it('flushes the real editor and captures exact whole-chapter revision scope without sending a request', async () => {
+    current = await makeHarness('chapter');
+    const stageChapter = vi.fn(async (_task: ProjectChapterComposer) => {});
+    const bridge = { stageChapter, attachSource: vi.fn(async () => {}), reviewRunId: null };
+    const onError = vi.fn();
+    const props = { active: { record: current.record, session: current.session, viewState: null }, sources: [], onError, onRename: vi.fn(), conversation: bridge };
+    await act(async () => root.render(<Writer {...props} />));
+    const mounted = host.querySelector('.ProseMirror');
+    await editManuscript('The city waited for the healer.');
+    await act(async () => button('Suggest chapter changes').click());
+    await waitFor(() => expect(stageChapter).toHaveBeenCalledOnce());
+    expect(stageChapter.mock.calls[0][0]).toMatchObject({ target: current.session.state.head, intent: 'proposeEdits', scope: { kind: 'wholeDocument', quote: 'The city waited for the healer.', sourceBodyHash: current.session.state.head.bodyHash } });
+    expect(current.session.state.dirty).toBe(false);
+    expect(onError).not.toHaveBeenCalled();
+    await act(async () => root.render(<Writer {...props} conversation={{ ...bridge }} />));
+    expect(host.querySelector('.ProseMirror')).toBe(mounted);
+    expect(textOf(current.session.body)).toBe('The city waited for the healer.');
+  });
+
+  it('attaches the saved world head to chat while leaving the world directly editable', async () => {
+    current = await makeHarness('world');
+    const attachSource = vi.fn(async () => {});
+    const stageChapter = vi.fn(async () => {});
+    await act(async () => root.render(<Writer active={{ record: current.record, session: current.session, viewState: null }} sources={[]} onError={vi.fn()} onRename={vi.fn()} conversation={{ attachSource, stageChapter, reviewRunId: null }} />));
+    await editManuscript('The harbor has seven bridges.');
+    await act(async () => button('Discuss in project chat').click());
+    await waitFor(() => expect(attachSource).toHaveBeenCalledOnce());
+    expect(attachSource).toHaveBeenCalledWith(current.session.state.head);
+    expect(stageChapter).not.toHaveBeenCalled();
+    expect(current.session.state.editable).toBe(true);
+  });
+
+  it('reviews and confirms a suggested passage into the composer without changing the mounted editor', async () => {
+    current = await makeHarness('chapter');
+    const feedback = { runId: 'feedback-run', target: current.record.head, answer: 'Focus the tension here.', rangeProposal: { sourceHead: current.record.head, firstBlockId: 'paragraph-1', lastBlockId: 'paragraph-1', quote: 'initial manuscript' } };
+    mocks.readProjectChapterFeedback.mockResolvedValue(feedback);
+    const stageChapter = vi.fn(async (_task: ProjectChapterComposer) => {});
+    await act(async () => root.render(<Writer active={{ record: current.record, session: current.session, viewState: null }} sources={[]} onError={vi.fn()} onRename={vi.fn()} conversation={{ attachSource: vi.fn(), stageChapter, reviewRunId: feedback.runId }} />));
+    await waitFor(() => expect(host.textContent).toContain('Use this passage for an edit'));
+    const editor = host.querySelector('.ProseMirror');
+    expect(stageChapter).not.toHaveBeenCalled();
+    await act(async () => button('Use this passage for an edit').click());
+    await waitFor(() => expect(stageChapter).toHaveBeenCalledOnce());
+    expect(mocks.readProjectChapterFeedback).toHaveBeenCalledTimes(2);
+    expect(stageChapter.mock.calls[0][0]).toMatchObject({ target: current.record.head, intent: 'proposeEdits', scope: { kind: 'blocks', quote: 'initial manuscript' } });
+    expect(current.saves).toHaveLength(0); expect(host.querySelector('.ProseMirror')).toBe(editor);
+    expect(host.textContent).toContain('Passage confirmed in the composer');
   });
 });

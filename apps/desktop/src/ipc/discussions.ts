@@ -22,7 +22,13 @@ export type ContinuationBasis = 'working' | 'reviewed';
 export const DEFAULT_FEEDBACK_INTENT: FeedbackIntent = 'discuss';
 
 export interface DiscussionScope { kind: ScopeGrant['kind']; start: Endpoint | null; end: Endpoint | null; quote: string; sourceBodyHash: string }
-export interface SafeBriefInput { text: string; originMessageId: string | null; confirmed: boolean }
+export interface SafeBriefInput {
+  text: string; originMessageId: string | null; confirmed: boolean;
+  projectOrigin?: {
+    version: 'project-conversation-brief.v1'; projectId: string; operationNamespace: string;
+    conversationId: string; messageId: string; target: Head; scopeHash: string; textHash: string;
+  } | null;
+}
 export interface ComposerBody { text: string; scope: DiscussionScope | null; pinnedDocumentIds: string[]; intent?: FeedbackIntent; basis?: ContinuationBasis | null; previousRunId?: string | null; safeBrief?: SafeBriefInput | null; lookup?: LookupAllowance }
 export interface DiscussionDraft extends ComposerBody { documentId: string; version: string; updatedAt: string }
 export interface DiscussionMessage { id: string; threadId: string; runId: string | null; role: 'user' | 'assistant'; content: string; scope: ScopeGrant | null; packetId: string | null; createdAt: string }

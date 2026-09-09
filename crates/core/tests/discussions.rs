@@ -663,6 +663,7 @@ fn safe_brief(text: &str, origin_message_id: Option<String>, confirmed: bool) ->
         text: text.into(),
         origin_message_id,
         confirmed,
+        project_origin: None,
     }
 }
 
@@ -2292,7 +2293,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("schema6-before-schema38-")
+            .starts_with("schema6-before-schema40-")
     }));
 }
 

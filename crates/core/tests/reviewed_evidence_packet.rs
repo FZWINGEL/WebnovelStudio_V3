@@ -157,6 +157,7 @@ fn request(
             reviewed_evidence: evidence,
             reviewed_promises: Vec::new(),
             reviewed_summaries: Vec::new(),
+            project_chat: None,
         },
         instruction: "Answer from reviewed evidence and exact prose.".into(),
         sources: reads,

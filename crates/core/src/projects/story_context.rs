@@ -1,5 +1,6 @@
 //! Frozen, project-owned evidence. Revisions remain the only text authority;
 //! passage projections can be deleted without losing story material.
+use super::project_chat_context::{FrozenProjectChat, ProjectChatFreeze};
 use super::*;
 use crate::context::conversation::{FrozenConversation, validate_conversation};
 use crate::context::guidance::{FrozenGuidance, validate_frozen_guidance};
@@ -94,6 +95,11 @@ pub struct FrozenContext {
     pub reviewed_knowledge: Vec<ReviewedKnowledgeSet>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_summaries: Vec<ReviewedSummarySet>,
+    /// Present only for a project-level author-room discussion. Ordinary
+    /// snapshots omit this field so their historical manifest bytes remain
+    /// stable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_chat: Option<FrozenProjectChat>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -574,7 +580,10 @@ impl OwnedProject {
             tx.execute("UPDATE documents SET projection_dirty=0 WHERE id=?", [id])?;
         } else {
             tx.execute("DELETE FROM passage_projections", [])?;
-            tx.execute("UPDATE documents SET projection_dirty=1", [])?;
+            tx.execute(
+                "UPDATE documents SET projection_dirty=1 WHERE role='ordinary'",
+                [],
+            )?;
         }
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(count)
@@ -590,7 +599,7 @@ pub(super) fn freeze_story_at(
     request: &FreezeStory,
     payload_hash: &str,
 ) -> CoreResult<FrozenContext> {
-    freeze_story_impl(tx, request, payload_hash, false, None)
+    freeze_story_impl(tx, request, payload_hash, false, None, None)
 }
 
 /// Freeze the explicit reviewed-continuation basis without treating the
@@ -618,7 +627,7 @@ pub(super) fn freeze_reviewed_continuation_at(
     }
     require_head(&document.head, &request.expected)?;
     let target_position: i64 = tx.query_row(
-        "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0",
+        "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0 AND role='ordinary'",
         [&request.expected.document_id],
         |row| row.get(0),
     )?;
@@ -685,7 +694,7 @@ pub(super) fn freeze_reviewed_continuation_at(
             ));
         }
         let position: i64 = tx.query_row(
-            "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0",
+            "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0 AND role='ordinary'",
             [&item.document_id],
             |row| row.get(0),
         )?;
@@ -875,6 +884,7 @@ pub(super) fn freeze_reviewed_continuation_at(
         reviewed_promises,
         reviewed_knowledge,
         reviewed_summaries,
+        project_chat: None,
     };
     for evidence in &frozen.reviewed_evidence {
         validate_frozen_evidence_set(evidence, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
@@ -941,7 +951,19 @@ pub(super) fn freeze_discussion_story_at(
     payload_hash: &str,
     retry_guidance: Option<&[crate::context::guidance::FrozenGuidance]>,
 ) -> CoreResult<FrozenContext> {
-    freeze_story_impl(tx, request, payload_hash, true, retry_guidance)
+    freeze_story_impl(tx, request, payload_hash, true, retry_guidance, None)
+}
+
+/// Project-chat variant of the discussion freeze. It shares the ordinary
+/// source compiler and attaches the authenticated project projection before
+/// the immutable manifest is persisted.
+pub(super) fn freeze_project_chat_at(
+    tx: &Connection,
+    request: &FreezeStory,
+    payload_hash: &str,
+    chat: &ProjectChatFreeze,
+) -> CoreResult<FrozenContext> {
+    freeze_story_impl(tx, request, payload_hash, true, None, Some(chat))
 }
 
 /// The first memory recipe reads exactly one saved chapter. Source freezing
@@ -957,7 +979,7 @@ pub(super) fn freeze_memory_story_at(
             "Use the chapter memory analysis recipe.",
         ));
     }
-    freeze_story_impl(tx, request, payload_hash, false, None)
+    freeze_story_impl(tx, request, payload_hash, false, None, None)
 }
 
 fn freeze_story_impl(
@@ -966,6 +988,7 @@ fn freeze_story_impl(
     payload_hash: &str,
     include_request_guidance: bool,
     retry_guidance: Option<&[crate::context::guidance::FrozenGuidance]>,
+    chat: Option<&ProjectChatFreeze>,
 ) -> CoreResult<FrozenContext> {
     if request.basis != BasisKind::Working {
         return Err(CoreError::new(
@@ -987,7 +1010,15 @@ fn freeze_story_impl(
             "Prepare a new request using the current source permissions.",
         ));
     }
-    let target_document = read_document(tx, &request.expected.document_id)?;
+    let target_document = if chat.is_some() {
+        read_document_with_role(
+            tx,
+            &request.expected.document_id,
+            DocumentRole::ConversationAnchor,
+        )?
+    } else {
+        read_document(tx, &request.expected.document_id)?
+    };
     require_head(&target_document.head, &request.expected)?;
     if request.policy.audience == Audience::AuthorRoom
         && matches!(
@@ -1002,6 +1033,12 @@ fn freeze_story_impl(
         ));
     }
     let memory_analysis = request.purpose == ContextPurpose::MemoryAnalysis;
+    if chat.is_some() && request.expected.document_id.is_empty() {
+        return Err(CoreError::new(
+            "InvalidProjectChatContext",
+            "Project chat requires its blank conversation anchor as the run target.",
+        ));
+    }
     if memory_analysis && target_document.kind != "chapter" {
         return Err(CoreError::new(
             "InvalidMemoryRequest",
@@ -1045,6 +1082,24 @@ fn freeze_story_impl(
                 reader_position: chapter.then(|| position.to_string()),
                 visible_to_characters: Vec::new(),
                 author_only: !chapter,
+                future_private: false,
+            },
+            story_time: None,
+            dependencies: Vec::new(),
+        });
+    }
+    if chat.is_some() {
+        snapshot.sources.push(SourceDescriptor {
+            handle: target.id.clone(),
+            source: source_ref(&target),
+            display_name: target_document.title.clone(),
+            kind: SourceKind::ConversationControl,
+            current: true,
+            coverage: CoverageLabel::Verbatim,
+            disclosure: Disclosure {
+                reader_position: None,
+                visible_to_characters: Vec::new(),
+                author_only: true,
                 future_private: false,
             },
             story_time: None,
@@ -1143,6 +1198,7 @@ fn freeze_story_impl(
         reviewed_promises: Vec::new(),
         reviewed_knowledge: Vec::new(),
         reviewed_summaries: Vec::new(),
+        project_chat: None,
     };
     frozen.navigation_views = select_navigation_views_at(tx, &frozen)?;
     if frozen.policy.audience == Audience::AuthorRoom
@@ -1265,6 +1321,9 @@ fn freeze_story_impl(
     for summary in &frozen.reviewed_summaries {
         validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
+    if let Some(chat) = chat {
+        project_chat_context::augment_frozen_chat(tx, request, &mut frozen, chat)?;
+    }
     validate_frozen_navigation_views(
         &frozen.navigation_views,
         &frozen.snapshot,
@@ -1368,7 +1427,7 @@ fn select_navigation_views_at(
             continue;
         }
         let is_chapter: bool = db.query_row(
-            "SELECT kind='chapter' FROM documents WHERE id=? AND trashed=0",
+            "SELECT kind='chapter' FROM documents WHERE id=? AND trashed=0 AND role='ordinary'",
             [&source.source.document_id],
             |row| row.get(0),
         )?;
@@ -1512,7 +1571,7 @@ fn epochs(db: &Connection) -> CoreResult<ContextEpochs> {
 
 fn ordered_documents(db: &Connection) -> CoreResult<Vec<(String, i64)>> {
     let mut statement =
-        db.prepare("SELECT id,position FROM documents WHERE trashed=0 ORDER BY position,id")?;
+        db.prepare("SELECT id,position FROM documents WHERE trashed=0 AND role='ordinary' ORDER BY position,id")?;
     Ok(statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<Vec<_>, _>>()?)
@@ -1600,6 +1659,47 @@ pub(super) fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContex
     }
     let frozen: FrozenContext =
         serde_json::from_str(json).map_err(|e| CoreError::new("InvalidContext", &e.to_string()))?;
+    if let Some(chat) = &frozen.project_chat
+        && (frozen.snapshot.basis != BasisKind::Working
+            || frozen.purpose != ContextPurpose::Discuss
+            || frozen.policy.audience != Audience::AuthorRoom
+            || chat.conversation_id.is_empty()
+            || chat.anchor_document_id.is_empty()
+            || chat.operation_namespace.is_empty())
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChatContext",
+            "Project-chat metadata is only valid for a Working author-room discussion.",
+        ));
+    }
+    let control_sources: Vec<_> = frozen
+        .snapshot
+        .sources
+        .iter()
+        .filter(|source| source.kind == SourceKind::ConversationControl)
+        .collect();
+    if !control_sources.is_empty()
+        && (frozen.project_chat.is_none()
+            || control_sources.len() != 1
+            || control_sources[0].source != frozen.snapshot.target)
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChatContext",
+            "A conversation control anchor may appear only as the project-chat target.",
+        ));
+    }
+    if frozen.project_chat.is_none()
+        && frozen
+            .snapshot
+            .sources
+            .iter()
+            .any(|source| source.kind == SourceKind::AssistantDraft)
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChatContext",
+            "An assistant draft source requires explicit project-chat metadata.",
+        ));
+    }
     if frozen.purpose == ContextPurpose::MemoryAnalysis
         && (!frozen.aliases.is_empty()
             || !frozen.guidance.is_empty()
@@ -1681,6 +1781,7 @@ fn validate_pins(
     frozen: &FrozenContext,
     snapshot_namespace: &str,
 ) -> CoreResult<()> {
+    project_chat_context::validate_frozen_project_chat(db, frozen, snapshot_namespace)?;
     let mut review_validation = reviewed_story::ReviewValidationContext::new(db);
     let mut summary_handles = HashSet::new();
     for summary in &frozen.reviewed_summaries {
@@ -1797,6 +1898,10 @@ fn validate_pins(
         ));
     }
     for source in &frozen.snapshot.sources {
+        // The ordinary read path is role-aware.  Rechecking each pinned
+        // source here prevents a forged manifest from relabeling a draft or
+        // control anchor as ordinary evidence after it was persisted.
+        let _ = read_source(db, frozen, &source.handle)?;
         let pin: Option<Option<i64>> = db
             .query_row(
                 "SELECT s.reader_position FROM snapshot_sources s JOIN revisions r ON r.document_id=s.document_id AND r.id=s.revision_id WHERE s.snapshot_id=? AND s.handle=? AND s.document_id=? AND s.revision_id=? AND s.body_hash=? AND r.body_hash=s.body_hash",
@@ -1975,6 +2080,22 @@ pub(super) fn read_source(
                 "This source is outside the frozen request.",
             )
         })?;
+    let stored_role: String = db.query_row(
+        "SELECT role FROM documents WHERE id=?",
+        [&descriptor.source.document_id],
+        |row| row.get(0),
+    )?;
+    let expected_role = match descriptor.kind {
+        SourceKind::AssistantDraft => DocumentRole::AssistantDraft,
+        SourceKind::ConversationControl => DocumentRole::ConversationAnchor,
+        _ => DocumentRole::Ordinary,
+    };
+    if stored_role != expected_role.storage_name() {
+        return Err(CoreError::new(
+            "DocumentRoleMismatch",
+            "The frozen source does not match its persisted authority role.",
+        ));
+    }
     let revision = read_revision(db, &descriptor.source.revision_id)?;
     if revision.head.document_id != descriptor.source.document_id
         || revision.head.body_hash != descriptor.source.body_hash

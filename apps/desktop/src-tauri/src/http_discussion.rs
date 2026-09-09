@@ -1,4 +1,5 @@
 //! One frozen OpenAI-compatible request. Only local outcome saves can be retried.
+use crate::discussion_commands::AuthorStart;
 use crate::discussion_recovery::{DiscussionRecovery, PendingSave, SaveOutcome};
 use crate::library_commands::DesktopLibrary;
 use crate::project_commands::execute;
@@ -116,7 +117,26 @@ pub async fn start(
 /// receipt path as ordinary discussions. The actor resolves the Workshop
 /// session and freezes its request before this function claims the queued run.
 pub async fn start_workshop(
-    mut request: StartWorkshop,
+    request: StartWorkshop,
+    selected: ModelSelection,
+    project: ProjectSession,
+    recovery: DiscussionRecovery,
+    library: DesktopLibrary,
+    runtime: DesktopProviders,
+) -> CoreResult<DiscussionStart> {
+    start_author(
+        AuthorStart::Workshop(request),
+        selected,
+        project,
+        recovery,
+        library,
+        runtime,
+    )
+    .await
+}
+
+pub async fn start_author(
+    mut request: AuthorStart,
     selected: ModelSelection,
     project: ProjectSession,
     recovery: DiscussionRecovery,
@@ -125,13 +145,13 @@ pub async fn start_workshop(
 ) -> CoreResult<DiscussionStart> {
     execute(move || {
         let _admission = runtime.admit_request()?;
-        let saved = crate::discussion_commands::saved_workshop_request(&project, &request)?;
+        let saved = request.saved(&project)?;
         let (started, adapter) = if let Some(saved) = &saved {
             // Resolve saved retries through the durable receipt before reading
             // endpoint settings. A terminal receipt therefore works offline;
             // a queued receipt is claimed below without replaying an API call.
-            request.provider_binding = saved.provider_binding.clone();
-            (project.start_workshop(request)?, None)
+            request.set_binding(saved.provider_binding.clone());
+            (request.accept(&project)?, None)
         } else {
             let library = library
                 .0
@@ -141,7 +161,7 @@ pub async fn start_workshop(
                 if state.settings.active != selected {
                     return Err(CoreError::new(
                         "ModelChoiceChanged",
-                        "The selected model changed before this workshop started. Check the model selector and send again.",
+                        "The selected model changed before this request started. Check the model selector and send again.",
                     ));
                 }
                 let profile = library
@@ -170,12 +190,13 @@ pub async fn start_workshop(
                     &profile,
                     &WindowsCredentialStore,
                 )?;
-                request.provider_binding = Some(binding_for(
+                let intent = request.intent();
+                request.set_binding(Some(binding_for(
                     &profile,
                     &selected,
-                    FeedbackIntent::WorkshopExplore,
-                ));
-                (project.start_workshop(request)?, Some(adapter))
+                    intent,
+                )));
+                (request.accept(&project)?, Some(adapter))
         };
         if started.run.status != DiscussionRunStatus::Queued {
             return Ok(started);

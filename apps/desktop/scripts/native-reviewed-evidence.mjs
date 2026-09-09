@@ -210,9 +210,9 @@ export async function qualifyReviewedEvidence({ page, data, output, createWritin
     assert.deepEqual(db.prepare('SELECT * FROM context_packets WHERE id=?').get(continuationRow.id), continuationRow);
     await page.screenshot({ path: resolve(output, 'reviewed-evidence-cleared.png') });
     await back();
-    if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
+    if (await page.locator('.project-tools:not(.recent-project-picker)').getAttribute('open') === null) await page.locator('.project-tools:not(.recent-project-picker) > summary').click();
     await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
-    await page.locator('.brand strong').filter({ hasText: 'Reviewed evidence story copy' }).waitFor();
+    await page.locator('.brand > strong').filter({ hasText: 'Reviewed evidence story copy' }).waitFor();
     const copiedLibrary = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
     const copyPath = await realpath(copiedLibrary.entries.find(entry => entry.title === 'Reviewed evidence story copy').path);
     const copiedChild = relative(toNamespacedPath(await realpath(data)), toNamespacedPath(copyPath));

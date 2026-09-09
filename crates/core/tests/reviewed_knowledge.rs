@@ -350,7 +350,7 @@ fn schema_33_migrates_legacy_rows_and_keeps_knowledge_absent_bytes_compatible() 
     let version: i64 = migrated
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 38);
+    assert_eq!(version, 40);
     for (table, column) in [
         ("review_stages", "knowledge_json"),
         ("review_stages", "knowledge_hash"),
@@ -744,6 +744,7 @@ fn history_keeps_attitudes_and_marks_disclosure_uncertainty() {
         reviewed_promises: Vec::new(),
         reviewed_knowledge: vec![set],
         reviewed_summaries: Vec::new(),
+        project_chat: None,
     };
     // The restricted route is intentionally rejected for Working snapshots;
     // this guards the same route boundary used by promises/evidence.

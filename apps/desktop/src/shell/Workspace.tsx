@@ -8,13 +8,19 @@ import { CreateIntentRecoveryError, CreateIntentUnresolvedError, runCreateIntent
 import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, libraryResumeImport, projectBackup, type LibrarySnapshot } from '../ipc/library';
 import { prepareDraftExport, prepareReviewedDraftExport, exportPreparedDraft, type DraftExportPreview, type DraftFormat } from '../ipc/exports';
 import { Writer } from './Writer';
+import type { DiscussionRun } from '../ipc/discussions';
 import { ExportDialog, type ExportBasis } from './ExportDialog';
 import { V2ImportDialog } from './V2ImportDialog';
 import { runtimeInfo } from '../ipc/native';
 import { ModelSelector } from '../providers/ModelSelector';
 import { ModelSettings } from '../providers/ModelSettings';
 import { PROJECT_TABS, documentsForTab, tabForKind, readProjectTabs, writeProjectTabs, type ProjectTabId } from './projectTabs';
-import { readWorkspaceMode, writeWorkspaceMode, type WorkspaceMode } from './workspaceModes';
+import { readWorkspaceMode, writeWorkspaceMode, CHAT_FIRST_TRIAL_ENABLED, type WorkspaceMode } from './workspaceModes';
+import { RecentProjectPicker, type RecentProjectPickerItem } from './RecentProjectPicker';
+import { ProjectConversation, type ProjectConversationHandle } from '../chat/ProjectConversation';
+import { ConversationHistoryPanel } from '../chat/ConversationHistoryPanel';
+import type { ChatAdoptionTarget } from '../ipc/projectChat';
+import { readProjectActivity, type ProjectActivitySnapshot } from '../ipc/projectActivity';
 import { Workshop, type WorkshopHandle } from './Workshop';
 import { StoryBible } from './StoryBible';
 import { AppCloseDialog, type AppCloseDialogPhase } from './AppCloseDialog';
@@ -26,6 +32,7 @@ const EditorTrial = typeof __WNS_EDITOR_TRIAL__ !== 'undefined' && __WNS_EDITOR_
   : null;
 
 type ActiveDocument = { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null };
+type WorkspaceIdentity = Pick<ProjectAccess, 'projectId' | 'operationNamespace' | 'session'>;
 const emptyLibrary: LibrarySnapshot = { entries: [], pending: [] };
 const kinds = ['chapter', 'character', 'world', 'theme', 'hook', 'scene', 'note'];
 function errorText(error: unknown): string {
@@ -67,6 +74,27 @@ const closeBlockedMessage = (status: AppCloseStatus) => closeHasActiveWork(statu
     ? 'Some replies or story memory still need saving. Stay open and retry saving them.'
     : 'The app is still finishing local work. Stay open and try closing again.';
 
+function projectIdentity(project: OpenedProject): WorkspaceIdentity {
+  return {
+    projectId: project.project.projectId,
+    operationNamespace: project.access.operationNamespace,
+    session: project.access.session,
+  };
+}
+
+function sameWorkspaceIdentity(project: OpenedProject | null, identity: WorkspaceIdentity): boolean {
+  return !!project
+    && project.project.projectId === identity.projectId
+    && project.access.operationNamespace === identity.operationNamespace
+    && project.access.session === identity.session;
+}
+
+function sameAccessIdentity(access: ProjectAccess, identity: WorkspaceIdentity): boolean {
+  return access.projectId === identity.projectId
+    && access.operationNamespace === identity.operationNamespace
+    && access.session === identity.session;
+}
+
 export function Workspace() {
   const [library, setLibrary] = useState(emptyLibrary);
   const [project, setProject] = useState<OpenedProject | null>(null);
@@ -74,6 +102,7 @@ export function Workspace() {
   const [exporting, setExporting] = useState<ActiveDocument | null>(null);
   const exportButton = useRef<HTMLButtonElement>(null);
   const activeRef = useRef(active); activeRef.current = active;
+  const projectRef = useRef(project); projectRef.current = project;
   const [search, setSearch] = useState('');
   const [archived, setArchived] = useState(false);
   const [newProject, setNewProject] = useState(false);
@@ -88,11 +117,15 @@ export function Workspace() {
   const [kind, setKind] = useState('chapter');
   const [projectTab, setProjectTab] = useState<ProjectTabId>('chapters');
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode | null>(null);
+  const [chatReviewRun, setChatReviewRun] = useState<DiscussionRun | null>(null);
+  const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
   const [storyBibleOpen, setStoryBibleOpen] = useState(false);
   const storyBibleButton = useRef<HTMLButtonElement>(null);
   const [trial, setTrial] = useState(false);
   const [trialAvailable, setTrialAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [projectActivity, setProjectActivity] = useState<Record<string, ProjectActivitySnapshot>>({});
   const running = useRef(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -102,9 +135,53 @@ export function Workspace() {
   const recovery = useRef(crypto.randomUUID());
   const duplication = useRef({ id: crypto.randomUUID(), source: '' });
   const workshopRef = useRef<WorkshopHandle>(null);
+  const projectChatRef = useRef<ProjectConversationHandle>(null);
+  const chatAdoptionTarget = useRef<{
+    projectId: string;
+    documentId: string;
+    access: ProjectAccess;
+    record: DocumentRecord;
+    viewState: ViewState | null;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [closePrompt, setClosePrompt] = useState<ClosePrompt | null>(null);
   const closeAttempt = useRef<CloseAttempt | null>(null);
+
+  async function acceptChatAccess(access: ProjectAccess): Promise<void> {
+    const currentProject = projectRef.current;
+    if (!currentProject || !sameAccessIdentity(access, projectIdentity(currentProject))) return;
+    const identity = projectIdentity(currentProject);
+    const current = activeRef.current;
+    if (current && current.session.projectAccess.projectId === access.projectId) {
+      await current.session.acceptProjectAccess(access);
+    }
+    if (!sameWorkspaceIdentity(projectRef.current, identity)) return;
+    if (current && activeRef.current?.session !== current.session) return;
+    setProject(value => value && sameWorkspaceIdentity(value, identity)
+      ? { ...value, access } : value);
+  }
+  useEffect(() => {
+    if (!active) return;
+    let previous = active.session.projectAccess.writerLease;
+    let previousHead = canonicalJson(active.session.state.head);
+    return active.session.subscribe(() => {
+      const access = active.session.projectAccess;
+      const head = canonicalJson(active.session.state.head);
+      if (head !== previousHead) {
+        previousHead = head;
+        if (projectRef.current && sameAccessIdentity(access, projectIdentity(projectRef.current))) {
+          // A successful ordinary save can invalidate a reply immediately,
+          // including after it finished. Refresh counts/context locally;
+          // this does not dispatch or replace the mounted editor.
+          void projectChatRef.current?.refresh?.().catch(() => {});
+        }
+      }
+      if (access.writerLease === previous) return;
+      previous = access.writerLease;
+      setProject(value => value && value.access.projectId === access.projectId && value.access.session === access.session
+        ? { ...value, access } : value);
+    });
+  }, [active?.session]);
 
   async function refreshLibrary() { setLibrary(await librarySnapshot()); }
   useEffect(() => { void refreshLibrary().catch(reason => setError(errorText(reason))).finally(() => setLoading(false)); }, []);
@@ -113,6 +190,38 @@ export function Workspace() {
     if (isTauri()) void runtimeInfo().then(info => { if (!disposed) setTrialAvailable(info.editorTrial === true); }).catch(() => {});
     return () => { disposed = true; };
   }, []);
+  useEffect(() => {
+    setProjectActivity({});
+    if (!projectPickerOpen) return;
+    let disposed = false;
+    let inFlight = false;
+    const identity = project ? projectIdentity(project) : null;
+    const stillCurrent = () => identity ? sameWorkspaceIdentity(projectRef.current, identity) : projectRef.current === null;
+    const refresh = async () => {
+      if (disposed || inFlight) return;
+      inFlight = true;
+      try {
+        const snapshots = await readProjectActivity();
+        if (disposed || !stillCurrent()) return;
+        const knownProjectIds = new Set(library.entries.map(entry => entry.projectId));
+        const next: Record<string, ProjectActivitySnapshot> = {};
+        for (const snapshot of snapshots) {
+          if (!knownProjectIds.has(snapshot.projectId)
+            && !(snapshot.projectId === identity?.projectId && snapshot.operationNamespace === identity.operationNamespace)) continue;
+          if (identity && snapshot.projectId === identity.projectId && snapshot.operationNamespace !== identity.operationNamespace) continue;
+          next[snapshot.projectId] = snapshot;
+        }
+        setProjectActivity(next);
+      } catch {
+        if (!disposed && stillCurrent()) setProjectActivity({});
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 2000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [projectPickerOpen, project?.project.projectId, project?.access.operationNamespace, project?.access.session, library.entries]);
 
   function currentCloseAttempt(attempt: CloseAttempt): boolean {
     return closeAttempt.current === attempt && !attempt.invalidated;
@@ -338,16 +447,23 @@ export function Workspace() {
   }
 
   async function flushWorkshop(): Promise<void> {
+    await projectChatRef.current?.flush();
     await workshopRef.current?.flush();
   }
 
   function activate(opened: OpenedProject, document?: DocumentRecord) {
     if (document) opened = { ...opened, documents: opened.documents.map(item => item.head.documentId === document.head.documentId ? document : item) };
+    // A project activation fences callbacks from the previous conversation or
+    // adoption. Their acknowledgments must never hydrate the newly mounted
+    // project or attach an old chapter review to it.
+    chatAdoptionTarget.current = null;
+    setChatReviewRun(null);
     setExporting(null);
     setStoryBibleOpen(false);
     setProject(opened);
     const preferences = readProjectTabs(opened.project.projectId);
-    const mode = readWorkspaceMode(opened.project.projectId) ?? (opened.documents.length ? 'write' : null);
+    const savedMode = readWorkspaceMode(opened.project.projectId);
+    const mode = (savedMode === 'chat' && !CHAT_FIRST_TRIAL_ENABLED ? null : savedMode) ?? (opened.documents.length ? 'write' : null);
     const previousDocument = opened.documents.find(item => item.head.documentId === opened.viewState?.documentId) ?? opened.documents[0];
     const tab = document ? tabForKind(document.kind) : preferences.activeTab ?? tabForKind(previousDocument?.kind ?? 'chapter');
     const eligible = documentsForTab(opened.documents, tab);
@@ -355,7 +471,7 @@ export function Workspace() {
     setWorkspaceMode(mode);
     setProjectTab(tab);
     writeProjectTabs(opened.project.projectId, { ...preferences, activeTab: tab, lastDocumentByTab: { ...preferences.lastDocumentByTab, ...(next ? { [tab]: next.head.documentId } : {}) } });
-    setActive(mode === 'write' && next ? { record: next, session: new DocumentSession(opened.access, next, projectTransport), viewState: opened.viewState } : null);
+    setActive((mode === 'write' || mode === 'chat') && next ? { record: next, session: new DocumentSession(opened.access, next, projectTransport), viewState: opened.viewState } : null);
     setSearch(''); setNewProject(false); setNewDocument(false); setRenaming(false); setRenamingDocument(false);
     if (opened.libraryWarning) setNotice(`Project opened. Library update needs attention: ${opened.libraryWarning}`);
   }
@@ -392,6 +508,8 @@ export function Workspace() {
 
   async function transitionMode(next: WorkspaceMode): Promise<void> {
     if (!project || workspaceMode === next) return;
+    if (next === 'chat' && !CHAT_FIRST_TRIAL_ENABLED) return;
+    await flushWorkshop();
     const projectId = project.project.projectId;
     if (next === 'develop') {
       await settlePendingDocumentIntent();
@@ -417,21 +535,242 @@ export function Workspace() {
     // destination only after that boundary succeeds, keeping Develop mounted
     // if either operation fails.
     await flushWorkshop();
-    const base = project;
+    let base = project;
+    const current = activeRef.current;
+    if (current) {
+      const record = await current.session.detachAfter(() => readDocument(current.session.projectAccess, current.record.head.documentId), 'switch');
+      base = { ...base, access: current.session.projectAccess, documents: base.documents.map(document => document.head.documentId === record.head.documentId ? record : document) };
+    }
     if (base.documents.length) await restoreWriteDocument(base, projectTab);
     else {
       setProject(base);
       setProjectTab(projectTab);
       setActive(null);
     }
-    writeWorkspaceMode(projectId, 'write');
-    setWorkspaceMode('write');
+    writeWorkspaceMode(projectId, next);
+    setWorkspaceMode(next);
     setStoryBibleOpen(false);
   }
 
   function selectWorkspaceMode(next: WorkspaceMode): void {
     if (!project || workspaceMode === next) return;
     void perform(() => transitionMode(next));
+  }
+
+  async function openChatChapterResult(run: DiscussionRun): Promise<void> {
+    const currentProject = projectRef.current;
+    if (!currentProject || run.owner.projectId !== currentProject.project.projectId || run.owner.operationNamespace !== currentProject.access.operationNamespace) return;
+    const identity = projectIdentity(currentProject);
+    await perform(async () => {
+      if (!sameWorkspaceIdentity(projectRef.current, identity)) return;
+      const current = activeRef.current;
+      if (current?.record.head.documentId !== run.target.documentId) {
+        const sourceSession = current?.session ?? null;
+        const access = current?.session.projectAccess ?? currentProject.access;
+        const record = await navigate(() => readDocument(access, run.target.documentId));
+        // Navigation/read can settle after the author has switched projects or
+        // replaced the mounted session. Never let that old result activate a
+        // document in the new workspace.
+        if (!sameWorkspaceIdentity(projectRef.current, identity)) return;
+        if (sourceSession && activeRef.current?.session !== sourceSession) return;
+        const latestProject = projectRef.current;
+        if (!latestProject) return;
+        activate({ ...latestProject, access }, record);
+      }
+      if (!sameWorkspaceIdentity(projectRef.current, identity)) return;
+      setChatReviewRun(run);
+    });
+  }
+
+  async function prepareChatAdoption(targets: ChatAdoptionTarget[]): Promise<void> {
+    const currentProject = projectRef.current;
+    const current = activeRef.current;
+    if (!currentProject || !current || !targets.some(target => target.documentId === current.record.head.documentId)) return;
+    const identity = projectIdentity(currentProject);
+    const sourceSession = current.session;
+    const sourceAccess = current.session.projectAccess;
+    await current.session.detachAfter(() => Promise.resolve(), 'switch');
+    if (!sameWorkspaceIdentity(projectRef.current, identity) || activeRef.current?.session !== sourceSession) {
+      throw new Error('The project changed while the adoption was being prepared. Prepare the preview again.');
+    }
+    chatAdoptionTarget.current = {
+      projectId: sourceAccess.projectId,
+      documentId: current.record.head.documentId,
+      access: sourceAccess,
+      // detachAfter has flushed the current editor. Keep that exact flushed
+      // body/head locally so failure recovery never depends on a second IPC
+      // read or risks replacing the author's text with an older project row.
+      record: { ...current.record, head: sourceSession.state.head, body: sourceSession.body },
+      viewState: current.viewState,
+    };
+    setActive(null);
+  }
+
+  async function acceptChatDocuments(documents: DocumentRecord[]): Promise<void> {
+    const currentProject = projectRef.current;
+    if (!currentProject) return;
+    const identity = projectIdentity(currentProject);
+    const previous = chatAdoptionTarget.current;
+    if (previous && !sameAccessIdentity(previous.access, identity)) return;
+    // Replayed adoption receipts deliberately contain historical after
+    // revisions. Read the current Working heads before showing the result so
+    // a lost acknowledgment cannot replace later author edits in the editor.
+    const sourceSession = previous ? null : activeRef.current?.session ?? null;
+    const access = previous?.access ?? activeRef.current?.session.projectAccess ?? currentProject.access;
+    const refreshed = await Promise.all(documents.map(document => readDocument(access, document.head.documentId)));
+    if (!sameWorkspaceIdentity(projectRef.current, identity)) return;
+    // A prepared adoption intentionally detached the source session. For an
+    // ordinary document update, however, a session replacement means the
+    // acknowledgment belongs to an older editor and must be ignored.
+    if (!previous && sourceSession && activeRef.current?.session !== sourceSession) return;
+    if (previous && chatAdoptionTarget.current !== previous) return;
+    const latestProject = projectRef.current;
+    if (!latestProject) return;
+    const replacement = previous && refreshed.find(document => document.head.documentId === previous.documentId);
+    if (previous && replacement) {
+      // The review action flushed this editor before Rust accepted the exact
+      // source. Display only the document returned by that committed receipt.
+      setActive({ record: replacement, session: new DocumentSession(previous.access, replacement, projectTransport), viewState: previous.viewState });
+    }
+    if (chatAdoptionTarget.current === previous) chatAdoptionTarget.current = null;
+    setProject(base => {
+      if (!base || !sameWorkspaceIdentity(base, identity)) return base;
+      const merged = new Map(base.documents.map(document => [document.head.documentId, document]));
+      for (const document of refreshed) merged.set(document.head.documentId, document);
+      return { ...base, documents: [...merged.values()] };
+    });
+  }
+
+  /*
+   * ProjectConversation calls this after a failed or unresolved adoption.
+   * The source session was deliberately disposed to fence edits while Rust
+   * validated the exact preview, so restoring a fresh session from the
+   * flushed source keeps the editor visible and usable for an explicit retry.
+   */
+  async function restoreChatAdoption(): Promise<void> {
+    const previous = chatAdoptionTarget.current;
+    const currentProject = projectRef.current;
+    if (!previous || !currentProject || !sameAccessIdentity(previous.access, projectIdentity(currentProject))) return;
+    const identity = projectIdentity(currentProject);
+    if (!sameWorkspaceIdentity(projectRef.current, identity) || chatAdoptionTarget.current !== previous) return;
+    // An adoption failure is not evidence that Rust did not commit. Reopen a
+    // fenced session from the flushed source and run the normal empty-pending
+    // reconciliation query. A committed adoption becomes a visible conflict;
+    // an uncommitted one rotates the lease and returns the editor to editing.
+    const session = new DocumentSession(previous.access, previous.record, projectTransport);
+    setActive({ record: previous.record, session, viewState: previous.viewState });
+    await session.reconcile();
+    if (!sameWorkspaceIdentity(projectRef.current, identity) || chatAdoptionTarget.current !== previous) return;
+    const access = session.projectAccess;
+    setProject(base => base && sameWorkspaceIdentity(base, identity) ? { ...base, access } : base);
+    chatAdoptionTarget.current = null;
+  }
+
+  /** Create an ordinary empty note through the same idempotent, local-only
+   * document intent used by the writing workspace. This action never asks a
+   * provider for content; the author can edit the note or attach it later. */
+  async function createChatNote(): Promise<void> {
+    try {
+      await perform(async () => {
+        const currentProject = projectRef.current;
+        if (!currentProject) throw new Error('Open a project before creating a note.');
+        await flushWorkshop();
+        let projectBase = currentProject;
+        let settledAccess: ProjectAccess | null = null;
+        if (documentIntent.current) {
+          const settled = await settlePendingDocumentIntent();
+          projectBase = settled?.opened ?? projectBase;
+          settledAccess = settled?.access ?? null;
+        }
+        const current = activeRef.current;
+        if (current && current.session.state.phase === 'reconciling') await current.session.reconcile();
+        if (current && ['editing', 'saveFailed'].includes(current.session.state.phase)) await current.session.flush();
+        const intent = documentIntent.current ?? {
+          operationId: crypto.randomUUID(),
+          documentId: crypto.randomUUID(),
+          title: 'Untitled note',
+          kind: 'note',
+          body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: crypto.randomUUID() } }] } },
+        } satisfies CreateDocumentIntent;
+        documentIntent.current = intent;
+        let result;
+        try {
+          result = await runCreateIntent({
+            projectId: projectBase.project.projectId,
+            session: renderer.current,
+            access: current?.session.projectAccess ?? settledAccess ?? projectBase.access,
+            intent,
+            transport: { createDocument, reconcileProject },
+            onReconciled: adoptCreateSnapshot,
+          });
+        } catch (reason) {
+          if (!(reason instanceof CreateIntentRecoveryError) && !(reason instanceof CreateIntentUnresolvedError)) documentIntent.current = null;
+          throw reason;
+        }
+        documentIntent.current = null;
+        const base = result.snapshot ?? projectBase;
+        const opened: OpenedProject = {
+          ...base,
+          access: result.access,
+          documents: base.documents.some(document => document.head.documentId === result.record.head.documentId)
+            ? base.documents.map(document => document.head.documentId === result.record.head.documentId ? result.record : document)
+            : [...base.documents, result.record],
+        };
+        await navigate(() => Promise.resolve());
+        activate(opened, result.record);
+      });
+    } catch (reason) { setError(errorText(reason)); }
+  }
+
+  async function createChatChapter(): Promise<void> {
+    try { await prepareChatChapter(null, `Chapter ${(project?.documents.filter(document => document.kind === 'chapter').length ?? 0) + 1}`); }
+    catch (reason) { setError(errorText(reason)); }
+  }
+
+  async function prepareChatChapter(targetId: string | null, proposedTitle: string): Promise<DocumentRecord> {
+    if (!project) throw new Error('Open a project before preparing a chapter.');
+    let prepared: DocumentRecord | undefined;
+    await perform(async () => {
+      await flushWorkshop();
+      if (targetId) {
+        const requested = project.documents.find(document => document.head.documentId === targetId && document.kind === 'chapter' && (document.role ?? 'ordinary') === 'ordinary');
+        if (!requested) throw new Error('The selected chapter is no longer available.');
+        const current = activeRef.current;
+        if (current?.record.head.documentId === targetId) {
+          await current.session.flush();
+          prepared = { ...current.record, head: current.session.state.head };
+        } else {
+          const access = current?.session.projectAccess ?? project.access;
+          prepared = await navigate(() => readDocument(access, targetId));
+          activate({ ...project, access }, prepared);
+        }
+        return;
+      }
+      if (documentIntent.current && (documentIntent.current.kind !== 'chapter' || documentIntent.current.title !== proposedTitle)) {
+        throw new Error('Finish the pending document creation before preparing another chapter.');
+      }
+      if (!documentIntent.current) documentIntent.current = {
+        operationId: crypto.randomUUID(), documentId: crypto.randomUUID(),
+        title: proposedTitle, kind: 'chapter',
+        body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: crypto.randomUUID() } }] } },
+      };
+      const result = await settlePendingDocumentIntent();
+      if (!result) return;
+      await navigate(() => Promise.resolve());
+      activate(result.opened, result.record);
+      prepared = result.record;
+    });
+    if (!prepared) throw new Error('The chapter was not prepared. Resolve the project operation before trying again.');
+    return prepared;
+  }
+
+  async function prepareChatSource(document: DocumentRecord) {
+    const current = activeRef.current;
+    if (current?.record.head.documentId === document.head.documentId) {
+      await current.session.flush();
+      return current.session.state.head;
+    }
+    return document.head;
   }
 
   function openDocumentFromWorkshop(projectId: string, documentId: string): void {
@@ -741,12 +1080,40 @@ export function Workspace() {
 
   if (trial && trialAvailable && EditorTrial) return <><button className="trial-return" onClick={() => setTrial(false)}>Back to library</button><Suspense fallback={<p role="status">Opening editor trial…</p>}><EditorTrial /></Suspense></>;
   const entries = library.entries.filter(entry => entry.archived === archived && entry.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  const currentEntry = project ? library.entries.find(entry => entry.projectId === project.project.projectId) : undefined;
+  const activityBadges = (activity: ProjectActivitySnapshot | undefined): Pick<RecentProjectPickerItem, 'activityLabel' | 'pendingDrafts'> => ({
+    activityLabel: activity && activity.activeWorkCount > 0
+      ? `${activity.activeWorkCount} active task${activity.activeWorkCount === 1 ? '' : 's'}`
+      : undefined,
+    pendingDrafts: activity && activity.pendingDrafts > 0 ? activity.pendingDrafts : undefined,
+  });
+  const pickerCurrent: RecentProjectPickerItem | null = project ? {
+    projectId: project.project.projectId,
+    title: project.project.title,
+    path: currentEntry?.path ?? '',
+    lastOpened: currentEntry?.lastOpened ?? '',
+    missing: false,
+    archived: false,
+    current: true,
+    ...activityBadges(projectActivity[project.project.projectId]),
+  } : null;
+  const pickerRecent: RecentProjectPickerItem[] = library.entries.filter(entry => !entry.archived).slice().sort((left, right) => {
+    const leftOpened = Date.parse(left.lastOpened);
+    const rightOpened = Date.parse(right.lastOpened);
+    if (Number.isNaN(leftOpened) && Number.isNaN(rightOpened)) return left.projectId.localeCompare(right.projectId);
+    if (Number.isNaN(leftOpened)) return 1;
+    if (Number.isNaN(rightOpened)) return -1;
+    return rightOpened - leftOpened || left.projectId.localeCompare(right.projectId);
+  }).map(entry => ({
+    ...entry,
+    ...activityBadges(projectActivity[entry.projectId]),
+  }));
   const currentTab = PROJECT_TABS.find(tab => tab.id === projectTab)!;
   const tabDocuments = documentsForTab(project?.documents ?? [], projectTab);
   const documents = tabDocuments.filter(document => document.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const activeIndex = tabDocuments.findIndex(document => document.head.documentId === active?.record.head.documentId);
   return <div className="app persistent-workspace">
-    <header className="app-header"><div className="brand">{project && <button className="library-back" disabled={busy} onClick={backToLibrary}>All projects</button>}<strong>{project ? project.project.title : 'WebnovelStudio'}</strong>{!project && <span className="trial-label">Your library</span>}</div>
+    <header className="app-header"><div className="brand">{project && <button className="library-back" disabled={busy} onClick={backToLibrary}>All projects</button>}<strong>{project ? project.project.title : 'WebnovelStudio'}</strong>{!project && <span className="trial-label">Your library</span>}<RecentProjectPicker current={pickerCurrent} recent={pickerRecent} disabled={busy} onVisibilityChange={setProjectPickerOpen} onOpen={path => open(path)} /></div>
       <div className="assistant-controls"><ModelSelector /><ModelSettings /></div>
     </header>
     {project && <div className="project-navigation">
@@ -757,10 +1124,10 @@ export function Workspace() {
           const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
           if (next >= 0) { event.preventDefault(); tabs[next]?.focus(); }
         }}>
-          {(['develop', 'write'] as const).map(mode => <button key={mode} id={`workspace-mode-${mode}`} role="tab" aria-selected={workspaceMode === mode} aria-controls="workspace-mode-panel" tabIndex={workspaceMode === mode ? 0 : -1} disabled={busy} onClick={() => selectWorkspaceMode(mode)}>{mode === 'develop' ? 'Develop' : 'Write'}</button>)}
+          {([...(CHAT_FIRST_TRIAL_ENABLED ? ['chat' as const] : []), 'develop', 'write'] as WorkspaceMode[]).map(mode => <button key={mode} id={`workspace-mode-${mode}`} role="tab" aria-selected={workspaceMode === mode} aria-controls="workspace-mode-panel" tabIndex={workspaceMode === mode ? 0 : -1} disabled={busy} onClick={() => selectWorkspaceMode(mode)}>{mode === 'chat' ? 'Project chat · trial' : mode === 'develop' ? 'Develop' : 'Write'}</button>)}
         </div>
         <button ref={storyBibleButton} className="story-bible-action" disabled={busy} onClick={openStoryBible}>Story Bible</button>
-        <details className="project-tools"><summary>Project options</summary><div className="project-tools-menu"><button disabled={busy} onClick={() => { setRenamedTitle(project.project.title); setRenaming(!renaming); }}>Rename</button><button disabled={busy} onClick={duplicate}>Duplicate</button><button disabled={busy} onClick={() => void perform(backup)}>Backup</button><button ref={exportButton} disabled={busy || !active} onClick={() => void perform(exportDraft)}>Export draft</button></div></details>
+        <details className="project-tools"><summary>Project options</summary><div className="project-tools-menu"><button disabled={busy} onClick={() => { setRenamedTitle(project.project.title); setRenaming(!renaming); }}>Rename</button><button disabled={busy} onClick={() => setChatHistoryOpen(true)}>Conversation history</button><button disabled={busy} onClick={duplicate}>Duplicate</button><button disabled={busy} onClick={() => void perform(backup)}>Backup</button><button ref={exportButton} disabled={busy || !active} onClick={() => void perform(exportDraft)}>Export draft</button></div></details>
       </div>
       {workspaceMode === 'write' && <div className="project-tabs" role="tablist" aria-label="Project workspace" onKeyDown={event => {
         const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
@@ -785,10 +1152,13 @@ export function Workspace() {
         <h1 id="workspace-mode-choice-title">How do you want to begin?</h1>
         <p>Explore the story first, or open the writing desk and create a chapter when you are ready.</p>
         <div className="workspace-mode-choice-actions">
+          {CHAT_FIRST_TRIAL_ENABLED && <button className="primary-button" disabled={busy} onClick={() => selectWorkspaceMode('chat')}>Start a conversation · trial</button>}
           <button className="primary-button" disabled={busy} onClick={() => selectWorkspaceMode('develop')}>Develop a story</button>
           <button className="secondary-button" disabled={busy} onClick={() => selectWorkspaceMode('write')}>Start writing</button>
         </div>
       </div>
+    </main> : workspaceMode === 'chat' ? <main className="workspace-chat" id="workspace-mode-panel" aria-labelledby="workspace-mode-chat">
+      <ProjectConversation ref={projectChatRef} key={`${project.project.projectId}:${project.access.operationNamespace}:${project.access.session}`} project={project} activeDocument={active?.record} onOpenDocument={selectDocument} onDocumentsChanged={acceptChatDocuments} onPrepareSource={prepareChatSource} onPrepareChapter={prepareChatChapter} onEarlierWorkshop={() => selectWorkspaceMode('develop')} onBeforeAdoption={prepareChatAdoption} onAdoptionFailure={restoreChatAdoption} onAccessChanged={acceptChatAccess} onCreateChapter={createChatChapter} onCreateNote={createChatNote} onOpenChapterResult={openChatChapterResult} documentEditor={active ? <Writer key={`${project.project.projectId}:${active.record.head.documentId}`} active={active} sources={project.documents.map(document => ({ id: document.head.documentId, title: document.title }))} onError={setError} onRename={() => { setRenamedDocumentTitle(active.record.title); setRenamingDocument(!renamingDocument); }} conversation={{ stageChapter: async task => { await projectChatRef.current?.stageChapter(task); }, attachSource: async head => { await projectChatRef.current?.attachSource(head); }, reviewRunId: chatReviewRun?.target.documentId === active.record.head.documentId ? chatReviewRun.id : null }} /> : undefined} />
     </main> : workspaceMode === 'develop' ? <main className="workspace-develop" id="workspace-mode-panel" aria-labelledby="workspace-mode-develop-title">
       <h1 id="workspace-mode-develop-title" className="sr-only">Develop your story</h1>
       <Workshop ref={workshopRef} project={project} navigationBusy={busy} onOpenDocument={(documentId: string) => openDocumentFromWorkshop(project.project.projectId, documentId)} onDocumentsChanged={(documents: DocumentRecord[]) => mergeWorkshopDocuments(project.project.projectId, documents)} onError={setError} />
@@ -809,6 +1179,7 @@ export function Workspace() {
       onImported={opened => { setImportingV2(false); activate(opened); void refreshLibrary(); }}
       onClose={() => { setImportingV2(false); void refreshLibrary(); }} />}
     {storyBibleOpen && project && <StoryBible project={project} onClose={closeStoryBible} onOpenDocument={(documentId: string) => { setStoryBibleOpen(false); openDocumentFromWorkshop(project.project.projectId, documentId); }} />}
+    {chatHistoryOpen && project && <ConversationHistoryPanel access={active?.session.projectAccess ?? project.access} onClose={() => setChatHistoryOpen(false)} />}
     {(error || notice || busy) && <footer className="workspace-notice" role={error ? 'alert' : 'status'}><span className={error ? 'error-status' : ''}>{error || notice || 'Working…'}</span>{error && <button onClick={() => setError('')}>Dismiss</button>}</footer>}
   </div>;
 }

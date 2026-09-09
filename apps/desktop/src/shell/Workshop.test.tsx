@@ -479,8 +479,9 @@ describe('Story Workshop behavioral contracts', () => {
     expect(host.querySelector('.workshop-question h2')!.textContent).toBe('A current question');
     expect(host.textContent).toContain('This question is marked Not relevant.');
     await act(async () => exactButton('Explore this question').click());
-    expect(host.querySelector('.workshop-question h2')!.textContent).toBe('A current question');
-    expect(host.textContent).toContain('This question is marked Not now.');
+    expect(host.querySelector('.workshop-question h2')!.textContent).toBe(offered);
+    await act(async () => workshopHandle.current!.flush());
+    expect(currentView.state.sessions[0].questions.find(question => question.id === 'offered-question')?.status).toBe('open');
     await act(async () => exactButton('World').click());
     const record = [...host.querySelectorAll('.workshop-question-record')].find(element => element.querySelector('p')!.textContent === world.text)!;
     await act(async () => {

@@ -22,7 +22,11 @@ pub mod exports;
 pub mod guidance;
 pub mod history;
 pub mod import;
+mod material_adoption;
 pub mod memory;
+pub mod project_chat;
+pub(crate) mod project_chat_context;
+pub mod project_chat_output;
 pub mod proposals;
 pub mod reviewed_story;
 pub mod reviewed_summary;
@@ -93,7 +97,7 @@ pub struct ProjectAccess {
     pub writer_lease: String,
     pub operation_namespace: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Head {
     pub document_id: String,
@@ -164,6 +168,50 @@ pub struct DocumentRecord {
     pub metadata_version: String,
     pub body: Value,
     pub last_checkpoint_id: Option<String>,
+    /// Ordinary documents are the only records exposed through the generic
+    /// editor and story-context APIs.  Assistant drafts and conversation
+    /// anchors use explicit, typed paths and are omitted from legacy JSON so
+    /// historical previews and hashes remain byte-compatible.
+    #[serde(default, skip_serializing_if = "DocumentRole::is_ordinary")]
+    pub role: DocumentRole,
+}
+
+/// Authority role for a document row.  This is deliberately an enum rather
+/// than a title/ID convention so every source consumer can apply the same
+/// fence.  New roles must be added with a reader-floor migration.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum DocumentRole {
+    #[default]
+    Ordinary,
+    AssistantDraft,
+    ConversationAnchor,
+}
+
+impl DocumentRole {
+    pub(crate) fn storage_name(self) -> &'static str {
+        match self {
+            Self::Ordinary => "ordinary",
+            Self::AssistantDraft => "assistantDraft",
+            Self::ConversationAnchor => "conversationAnchor",
+        }
+    }
+
+    pub(crate) fn from_storage(value: &str) -> CoreResult<Self> {
+        match value {
+            "ordinary" => Ok(Self::Ordinary),
+            "assistantDraft" => Ok(Self::AssistantDraft),
+            "conversationAnchor" => Ok(Self::ConversationAnchor),
+            _ => Err(CoreError::new(
+                "InvalidProject",
+                "The document contains an unknown authority role.",
+            )),
+        }
+    }
+
+    fn is_ordinary(&self) -> bool {
+        matches!(self, Self::Ordinary)
+    }
 }
 #[derive(Debug)]
 pub struct AttachedProject {
@@ -283,6 +331,7 @@ pub struct StorageInfo {
 
 type Reply<T> = mpsc::SyncSender<CoreResult<T>>;
 enum Command {
+    ProjectChat(Box<project_chat::ProjectChatCommand>),
     Memory(Box<memory::MemoryCommand>),
     Packet(Box<context_packets::PacketCommand>),
     Context(Box<story_context::ContextCommand>),
@@ -456,6 +505,7 @@ impl ProjectSession {
                     while let Ok(command) = receiver.recv() {
                         match command {
                             Command::Memory(command) => project.handle_memory(*command),
+                            Command::ProjectChat(command) => project.handle_project_chat(*command),
                             Command::Packet(command) => project.handle_packet(*command),
                             Command::Context(command) => project.handle_context(*command),
                             Command::Discussion(command) => project.handle_discussion(*command),
@@ -995,6 +1045,41 @@ impl OwnedProject {
     /// it must verify the physical floor before any retained rows are read.
     fn validate_schema_floor(connection: &Connection) -> CoreResult<()> {
         let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version >= 39 {
+            let roles: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('documents') WHERE name='role')",
+                [],
+                |r| r.get(0),
+            )?;
+            let immutable: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='trigger' AND name='documents_role_immutable')", [], |r| r.get(0))?;
+            if !roles || !immutable {
+                return Err(CoreError::new(
+                    "UnsupportedSchema",
+                    "This project is missing its document-role isolation contract.",
+                ));
+            }
+        }
+        if version >= 40 {
+            for (table, column) in [
+                ("project_conversations", "anchor_document_id"),
+                ("conversation_items", "payload_hash"),
+                ("assistant_drafts", "disposition_version"),
+            ] {
+                let present: bool = connection.query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name=?)"
+                    ),
+                    [column],
+                    |r| r.get(0),
+                )?;
+                if !present {
+                    return Err(CoreError::new(
+                        "UnsupportedSchema",
+                        "This project is missing its conversation persistence contract.",
+                    ));
+                }
+            }
+        }
         if version < 33 {
             return Ok(());
         }
@@ -1378,7 +1463,7 @@ impl OwnedProject {
             tx.commit().map_err(CoreError::uncertain)?;
             return Ok(record);
         }
-        tx.execute("INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash) VALUES(?,?,?,(SELECT COUNT(*) FROM documents),0,1,?,?)", params![request.document_id, request.kind, request.title, validated.canonical_json, validated.hash])?;
+        tx.execute("INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash,role) VALUES(?,?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM documents WHERE role='ordinary'),0,1,?,?, 'ordinary')", params![request.document_id, request.kind, request.title, validated.canonical_json, validated.hash])?;
         tx.execute(
             "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
             [],
@@ -1410,9 +1495,9 @@ impl OwnedProject {
         self.document_records()
     }
     fn document_records(&self) -> CoreResult<Vec<DocumentRecord>> {
-        let mut statement = self
-            .db()?
-            .prepare("SELECT id FROM documents WHERE trashed=0 ORDER BY position,id")?;
+        let mut statement = self.db()?.prepare(
+            "SELECT id FROM documents WHERE trashed=0 AND role='ordinary' ORDER BY position,id",
+        )?;
         let ids = statement
             .query_map([], |r| r.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1515,6 +1600,7 @@ impl OwnedProject {
     }
     fn history(&self, access: ProjectAccess, document_id: &str) -> CoreResult<Vec<Revision>> {
         self.check_access(&access)?;
+        read_document(self.db()?, document_id)?;
         let mut statement = self.db()?.prepare(
             "SELECT id FROM revisions WHERE document_id=? ORDER BY source_working_version DESC",
         )?;
@@ -1906,16 +1992,46 @@ fn require_head(current: &Head, expected: &Head) -> CoreResult<()> {
     }
     Ok(())
 }
-type DocumentRow = (String, String, i64, i64, String, String, Option<String>);
+type DocumentRow = (
+    String,
+    String,
+    i64,
+    i64,
+    String,
+    String,
+    Option<String>,
+    String,
+);
+
+/// Read an ordinary story document.  This narrow helper is intentionally the
+/// only generic read path: control anchors and assistant drafts cannot leak
+/// into project attach, editor, source, memory, review, or export flows.
 fn read_document(connection: &Connection, id: &str) -> CoreResult<DocumentRecord> {
-    let row: Option<DocumentRow> = connection.query_row("SELECT title,kind,working_version,metadata_version,body_hash,body_json,last_checkpoint_id FROM documents WHERE id=? AND trashed=0", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional()?;
-    let (title, kind, version, metadata_version, hash, body, checkpoint) =
-        row.ok_or_else(|| {
+    read_document_with_role(connection, id, DocumentRole::Ordinary)
+}
+
+/// Read one document through an explicitly authorized role path.  Callers
+/// must name the role they expect; there is no broad "include hidden" flag.
+pub(super) fn read_document_with_role(
+    connection: &Connection,
+    id: &str,
+    expected_role: DocumentRole,
+) -> CoreResult<DocumentRecord> {
+    let row: Option<DocumentRow> = connection.query_row("SELECT title,kind,working_version,metadata_version,body_hash,body_json,last_checkpoint_id,role FROM documents WHERE id=? AND trashed=0", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional()?;
+    let (title, kind, version, metadata_version, hash, body, checkpoint, stored_role) = row
+        .ok_or_else(|| {
             CoreError::new(
                 "DocumentNotFound",
                 "This document is not available in this project.",
             )
         })?;
+    let role = DocumentRole::from_storage(&stored_role)?;
+    if role != expected_role {
+        return Err(CoreError::new(
+            "DocumentRoleMismatch",
+            "This document is not available through the requested authority path.",
+        ));
+    }
     let valid = validate_snapshot_json(&body).map_err(|e| CoreError::new("InvalidDocument", &e))?;
     if valid.hash != hash || valid.canonical_json != body {
         return Err(CoreError::new(
@@ -1934,6 +2050,7 @@ fn read_document(connection: &Connection, id: &str) -> CoreResult<DocumentRecord
         metadata_version: parse_stored_version(metadata_version)?,
         body: valid.snapshot,
         last_checkpoint_id: checkpoint,
+        role,
     })
 }
 fn read_revision(connection: &Connection, id: &str) -> CoreResult<Revision> {

@@ -284,9 +284,9 @@ export async function runPromiseHistoryFlow({ page, data, output, createWritingP
     await openPromises();
     await page.getByText('No promises recorded for this review. Adding one is optional.', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Back to writing', exact: true }).click();
-    if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
+    if (await page.locator('.project-tools:not(.recent-project-picker)').getAttribute('open') === null) await page.locator('.project-tools:not(.recent-project-picker) > summary').click();
     await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
-    await page.locator('.brand strong').filter({ hasText: `${title} copy` }).waitFor();
+    await page.locator('.brand > strong').filter({ hasText: `${title} copy` }).waitFor();
     const copiedLibrary = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('library_snapshot'));
     const copiedEntry = copiedLibrary.entries.find(item => item.title === `${title} copy`);
     assert(copiedEntry);

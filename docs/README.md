@@ -4,10 +4,15 @@ This index is for the private WebnovelStudio V3.0.0 Windows development candidat
 
 Use [implementation status](IMPLEMENTATION_STATUS.md) for current tests, native and provider evidence, and remaining qualification. Codex is the primary provider; current summary and Story Memory maintenance uses GPT-6 Astra with low reasoning, while the author picker remains independent. Claude and OpenAI-compatible endpoints remain available, with further adapter ports deferred. The optional persistent Codex app-server route is implemented for development, but Exec remains the default and lookup remains on Exec. Source and executed checks establish current behavior; the design documents below define contracts and target architecture.
 
-The [ChatGPT Pro handoff](V3_CHAT_FIRST_UX_PRO_PROMPT.md) requests a proposed
-chat-first UX specification and implementation plan against product commit
-`6ab1505`. It captures the author's next direction; it is not an implemented
-feature or a completed replacement specification.
+The author accepted the [chat-first specification](../V3_CHAT_FIRST_UX_SPEC.md)
+and [implementation plan](../V3_CHAT_FIRST_UX_IMPLEMENTATION_PLAN.md) returned
+from the [Pro handoff](V3_CHAT_FIRST_UX_PRO_PROMPT.md). The schema-40 project
+conversation is being qualified as an opt-in trial. See the
+[architecture decision](ADR_0034_PROJECT_CONVERSATION.md) and
+[implementation ledger](V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md) for current
+behavior, executed checks, and remaining rollout gates. The
+[author trial protocol](CHAT_FIRST_AUTHOR_TRIAL.md) defines the unexecuted human
+comparison and accessibility observations needed before default rollout.
 
 | Read | Document | Responsibility |
 | --- | --- | --- |

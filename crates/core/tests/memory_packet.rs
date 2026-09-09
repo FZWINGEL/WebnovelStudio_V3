@@ -111,6 +111,7 @@ fn frozen(descriptors: Vec<SourceDescriptor>) -> FrozenContext {
         reviewed_evidence: Vec::new(),
         reviewed_promises: Vec::new(),
         reviewed_summaries: Vec::new(),
+        project_chat: None,
     }
 }
 
@@ -228,6 +229,7 @@ fn memory_recipe_rejects_wrong_contract_and_authority_inputs() {
         text: "Rewrite it".into(),
         origin_message_id: None,
         confirmed: true,
+        project_origin: None,
     });
     invalid_request(request);
 
@@ -268,6 +270,7 @@ fn memory_recipe_rejects_conversation_context() {
         project_id: PROJECT.into(),
         operation_namespace: "memory".into(),
         document_id: "chapter-1".into(),
+        project_conversation_id: None,
         thread_id: "chat".into(),
         omitted_turns: 0,
         turns: Vec::new(),

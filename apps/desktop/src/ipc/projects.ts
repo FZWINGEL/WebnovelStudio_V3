@@ -10,7 +10,7 @@ export interface ProjectInfo { projectId: string; operationNamespace: string; ti
 export interface Endpoint { blockId: string; utf16Offset: number }
 export interface ViewState { documentId: string; head: Head; anchor: Endpoint; focus: Endpoint }
 export interface ProjectMetadata { project: ProjectInfo; metadataVersion: string; libraryWarning?: string | null }
-export interface DocumentRecord { head: Head; title: string; kind: string; metadataVersion: string; body: WnsDocument; lastCheckpointId: string | null }
+export interface DocumentRecord { head: Head; title: string; kind: string; metadataVersion: string; body: WnsDocument; lastCheckpointId: string | null; role?: 'ordinary' | 'assistantDraft' | 'conversationAnchor' }
 export interface OpenedProject { project: ProjectInfo; access: ProjectAccess; documents: DocumentRecord[]; metadataVersion: string; viewState: ViewState | null; libraryWarning: string | null }
 /**
  * The immutable identity and payload of one document creation intent.

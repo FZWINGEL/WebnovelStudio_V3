@@ -7,7 +7,7 @@
 
 use crate::projects::source_pins::AUTHOR_ROOM_AUDIENCE;
 use crate::projects::{
-    CheckpointReason, CheckpointRequest, CoreError, CoreResult, CreationOrigin, Head,
+    CheckpointReason, CheckpointRequest, CoreError, CoreResult, CreationOrigin, DocumentRole, Head,
     ProjectAccess, ProjectInfo, ProjectSession, StoredResult, read_creation_origin,
     write_creation_origin,
 };
@@ -691,7 +691,7 @@ fn validate_project_connection_heads(
     validate_import_storage(connection, &info)?;
     let mut documents = Vec::new();
     let mut statement = connection.prepare(
-        "SELECT id,working_version,body_hash,last_checkpoint_id,body_json,schema_version \
+        "SELECT id,working_version,body_hash,last_checkpoint_id,body_json,schema_version,role \
          FROM documents ORDER BY id",
     )?;
     let rows = statement.query_map([], |row| {
@@ -702,16 +702,23 @@ fn validate_project_connection_heads(
             row.get::<_, Option<String>>(3)?,
             row.get::<_, String>(4)?,
             row.get::<_, i64>(5)?,
+            row.get::<_, String>(6)?,
         ))
     })?;
     for row in rows {
-        let (id, version, hash, checkpoint, body, schema_version) = row?;
+        let (id, version, hash, checkpoint, body, schema_version, role) = row?;
         if !valid_id(&id) || !valid_hash(&hash) || schema_version != 1 {
             return Err(transfer_error(
                 "InvalidBackup",
                 "A document row has invalid identity, schema, or hash metadata.",
             ));
         }
+        DocumentRole::from_storage(&role).map_err(|error| {
+            transfer_error(
+                "InvalidBackup",
+                format!("A document row has an invalid authority role: {error}"),
+            )
+        })?;
         canonical_body(&body, &hash, "document body")?;
         documents.push(DocumentHeadManifest {
             document_id: id,
@@ -754,7 +761,7 @@ fn validate_project_connection_heads(
         });
     }
     let mut receipts = connection.prepare(
-        "SELECT operation_namespace,operation_id,document_id,payload_hash,result_json \
+        "SELECT operation_namespace,operation_id,document_id,payload_hash,operation_kind,result_json \
          FROM command_receipts",
     )?;
     let rows = receipts.query_map([], |row| {
@@ -764,10 +771,11 @@ fn validate_project_connection_heads(
             row.get::<_, String>(2)?,
             row.get::<_, String>(3)?,
             row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
         ))
     })?;
     for row in rows {
-        let (namespace, operation, document, payload, result) = row?;
+        let (namespace, operation, document, payload, operation_kind, result) = row?;
         if !valid_id(&namespace)
             || !valid_id(&operation)
             || !valid_id(&document)
@@ -778,23 +786,35 @@ fn validate_project_connection_heads(
                 "A command receipt has invalid identity or hash metadata.",
             ));
         }
-        let stored: StoredResult = serde_json::from_str(&result).map_err(|error| {
-            transfer_error(
-                "InvalidBackup",
-                format!("A command receipt result is invalid: {error}"),
-            )
-        })?;
-        if stored.head.document_id != document
-            || !valid_hash(&stored.head.body_hash)
-            || !valid_version_string(&stored.head.version)
-            || !valid_version_string(&stored.saved_generation)
-        {
-            return Err(transfer_error(
-                "InvalidBackup",
-                "A command receipt result has invalid head metadata.",
-            ));
+        // Project-chat adoption uses a ref-only receipt rather than the
+        // ordinary StoredResult envelope.  Its immutable preview, decision,
+        // revision, and provenance are validated by the project-chat transfer
+        // pass below; do not coerce it into the older document receipt shape.
+        if operation_kind != "adoptChatPreview" {
+            let stored: StoredResult = serde_json::from_str(&result).map_err(|error| {
+                transfer_error(
+                    "InvalidBackup",
+                    format!("A command receipt result is invalid: {error}"),
+                )
+            })?;
+            if stored.head.document_id != document
+                || !valid_hash(&stored.head.body_hash)
+                || !valid_version_string(&stored.head.version)
+                || !valid_version_string(&stored.saved_generation)
+            {
+                return Err(transfer_error(
+                    "InvalidBackup",
+                    "A command receipt result has invalid head metadata.",
+                ));
+            }
         }
     }
+    crate::projects::project_chat::validate_storage(connection).map_err(|error| {
+        transfer_error(
+            "InvalidBackup",
+            format!("The project-chat records are invalid: {error}"),
+        )
+    })?;
     Ok(DatabaseHeads {
         info,
         context_source_epoch,
@@ -839,6 +859,15 @@ fn validate_source_pin_storage(connection: &Connection, info: &ProjectInfo) -> C
             ));
         }
         validate_source_pin_set_fields(&scope, &target, version, &ids_json, &audience)?;
+        if scope == "document" {
+            validate_ordinary_document_role(connection, &target)?;
+        }
+        let ids: Vec<String> = serde_json::from_str(&ids_json).map_err(|_| {
+            transfer_error("InvalidBackup", "A source-pin set contains invalid JSON.")
+        })?;
+        for id in ids {
+            validate_ordinary_document_role(connection, &id)?;
+        }
     }
 
     // Receipt rows are immutable historical records.  A recovery rotates the
@@ -900,6 +929,12 @@ fn validate_source_pin_storage(connection: &Connection, info: &ProjectInfo) -> C
                 )
             })?;
         validate_source_pin_result(&scope, &target, &result)?;
+        if scope == "document" {
+            validate_ordinary_document_role(connection, &target)?;
+        }
+        for id in &result.source_document_ids {
+            validate_ordinary_document_role(connection, id)?;
+        }
         let result_version = result.version.parse::<i64>().map_err(|_| {
             transfer_error(
                 "InvalidBackup",
@@ -1036,7 +1071,7 @@ fn validate_import_storage(connection: &Connection, info: &ProjectInfo) -> CoreR
             || mapped_project != manifest.source_project_id
             || connection
                 .query_row(
-                    "SELECT 1 FROM documents WHERE id=?",
+                    "SELECT 1 FROM documents WHERE id=? AND role='ordinary'",
                     [&document_id],
                     |row| row.get::<_, i64>(0),
                 )
@@ -1237,6 +1272,25 @@ fn validate_source_pin_set_fields(
     // retained so the author can remove it; discussion preparation refuses it
     // when it is no longer resolvable.  Structural ID validation above keeps
     // the transfer boundary bounded without destroying repairable state.
+    Ok(())
+}
+
+fn validate_ordinary_document_role(connection: &Connection, document_id: &str) -> CoreResult<()> {
+    let role: Option<String> = connection
+        .query_row(
+            "SELECT role FROM documents WHERE id=?",
+            [document_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(role) = role
+        && role != DocumentRole::Ordinary.storage_name()
+    {
+        return Err(transfer_error(
+            "InvalidBackup",
+            "A source-pin reference points at a non-ordinary document.",
+        ));
+    }
     Ok(())
 }
 

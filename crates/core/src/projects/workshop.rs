@@ -634,7 +634,8 @@ fn validate_kind(kind: &str) -> CoreResult<()> {
 }
 
 fn existing_document_ids(connection: &Connection) -> CoreResult<HashSet<String>> {
-    let mut statement = connection.prepare("SELECT id FROM documents WHERE trashed=0")?;
+    let mut statement =
+        connection.prepare("SELECT id FROM documents WHERE trashed=0 AND role='ordinary'")?;
     Ok(statement
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?
@@ -1934,6 +1935,68 @@ fn target_fixed_text(
     Ok(protected)
 }
 
+/// Apply the existing Workshop protection fence to chat-origin material.
+///
+/// Chat drafts do not carry Workshop candidate or relationship records, so
+/// they must not be routed through the Workshop adoption state machine.  They
+/// still have to preserve text the author explicitly marked fixed, including
+/// fixed decisions from prior sessions.  This narrow helper lets the chat
+/// transaction enforce that invariant without changing the legacy Workshop
+/// preview or receipt formats.
+pub(super) fn validate_chat_material_targets(
+    connection: &Connection,
+    targets: &[crate::projects::material_adoption::MaterialTarget],
+) -> CoreResult<()> {
+    let (_, state) = read_state(connection)?;
+    for target in targets {
+        let Ok(current) = read_document(connection, &target.document_id) else {
+            continue;
+        };
+        let mut protected = Vec::new();
+        if let Some(session_id) = state.current_session_id.as_deref() {
+            if let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.id == session_id)
+            {
+                protected.extend(
+                    session
+                        .selected_details
+                        .iter()
+                        .filter(|detail| {
+                            detail.fixed
+                                && !detail.text.is_empty()
+                                && body_text(&current.body).contains(&detail.text)
+                        })
+                        .map(|detail| detail.text.clone()),
+                );
+            } else {
+                return Err(CoreError::new(
+                    "InvalidProject",
+                    "The active Workshop session is missing.",
+                ));
+            }
+        }
+        for decision in state
+            .decisions
+            .iter()
+            .filter(|decision| decision.fixed && decision.document_id == target.document_id)
+        {
+            if decision.protected_text.is_empty() {
+                protected.push(body_text(
+                    &read_revision(connection, &decision.revision_id)?.body,
+                ));
+            } else {
+                protected.extend(decision.protected_text.iter().cloned());
+            }
+        }
+        protected.sort();
+        protected.dedup();
+        validate_protected_text(Some(&current), &target.body, &protected, &protected)?;
+    }
+    Ok(())
+}
+
 fn validate_adoption_targets(
     connection: &Connection,
     state: &WorkshopState,
@@ -2888,7 +2951,7 @@ impl OwnedProject {
             .db_mut()?
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let inserted = tx.execute(
-            "INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash) VALUES(?,?,?,(SELECT COUNT(*) FROM documents),0,1,?,?) ON CONFLICT(id) DO NOTHING",
+            "INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash) VALUES(?,?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM documents WHERE role='ordinary'),0,1,?,?) ON CONFLICT(id) DO NOTHING",
             params![document_id, "note", title, serde_json::to_string(&canonical)?, hash],
         )?;
         if inserted == 1 {
@@ -3300,35 +3363,18 @@ impl OwnedProject {
         let mut decisions = Vec::new();
         let mut changed_heads: HashMap<String, Head> = HashMap::new();
         for target in &targets {
-            let current = match read_document(&tx, &target.document_id) {
-                Ok(document) => Some(document),
-                Err(error) if error.code == "DocumentNotFound" => None,
-                Err(error) => return Err(error),
-            };
-            let (canonical, hash) = canonical_body(&target.body)?;
-            let record = if let Some(current) = current {
-                checkpoint_at(&tx, &current, "beforeWorkshopAdoption")?;
-                let next = parse_version(&current.head.version)?
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        CoreError::new("VersionLimit", "The document version limit was reached.")
-                    })?;
-                tx.execute(
-                    "UPDATE documents SET working_version=?,body_json=?,body_hash=?,projection_dirty=1 WHERE id=? AND working_version=? AND body_hash=?",
-                    params![next, serde_json::to_string(&canonical)?, hash, target.document_id, parse_version(&current.head.version)?, current.head.body_hash],
-                )?;
-                let updated = read_document(&tx, &target.document_id)?;
-                checkpoint_at(&tx, &updated, "workshopAdoption")?;
-                read_document(&tx, &target.document_id)?
-            } else {
-                tx.execute(
-                    "INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash) VALUES(?,?,?,(SELECT COUNT(*) FROM documents),0,1,?,?)",
-                    params![target.document_id, target.kind, target.title, serde_json::to_string(&canonical)?, hash],
-                )?;
-                let inserted = read_document(&tx, &target.document_id)?;
-                checkpoint_at(&tx, &inserted, "workshopAdoption")?;
-                read_document(&tx, &target.document_id)?
-            };
+            let record = crate::projects::material_adoption::write_material_target_at(
+                &tx,
+                &crate::projects::material_adoption::MaterialTarget {
+                    document_id: target.document_id.clone(),
+                    title: target.title.clone(),
+                    kind: target.kind.clone(),
+                    body: target.body.clone(),
+                    expected: target.expected.clone(),
+                },
+                "beforeWorkshopAdoption",
+                "workshopAdoption",
+            )?;
             changed_heads.insert(target.document_id.clone(), record.head.clone());
             let supersedes = state
                 .decisions

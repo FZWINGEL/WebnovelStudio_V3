@@ -277,6 +277,7 @@ impl<'db> ReviewValidationContext<'db> {
                 "Reviewed evidence source belongs to another project.",
             ));
         }
+        validate_ordinary_document_role(self.db, &source.document_id)?;
         let revision_id = {
             let bundle = self.read_bundle(bundle_id)?.ok_or_else(|| {
                 CoreError::new(
@@ -346,6 +347,7 @@ impl<'db> ReviewValidationContext<'db> {
                 "Reviewed promise source belongs to another project.",
             ));
         }
+        validate_ordinary_document_role(self.db, &source.document_id)?;
         let revision_id = {
             let bundle = self.read_bundle(bundle_id)?.ok_or_else(|| {
                 CoreError::new(
@@ -415,6 +417,7 @@ impl<'db> ReviewValidationContext<'db> {
                 "Reviewed knowledge source belongs to another project.",
             ));
         }
+        validate_ordinary_document_role(self.db, &source.document_id)?;
         let revision_id = {
             let bundle = self.read_bundle(bundle_id)?.ok_or_else(|| {
                 CoreError::new(
@@ -567,6 +570,7 @@ impl<'db> ReviewValidationContext<'db> {
         let mut revisions = HashSet::new();
         for (index, member) in manifest.prefix.iter().enumerate() {
             check_id(&member.document_id)?;
+            validate_ordinary_document_role(self.db, &member.document_id)?;
             check_id(&member.bundle_id)?;
             check_id(&member.revision_id)?;
             parse_version(&member.version)?;
@@ -716,6 +720,7 @@ impl<'db> ReviewValidationContext<'db> {
         bundle: Option<&BundleRow>,
         expected_prefix: &[ReviewPrefixItem],
     ) -> CoreResult<()> {
+        validate_ordinary_document_role(self.db, &item.document_id)?;
         let bundle = bundle.ok_or_else(|| {
             CoreError::new(
                 "InvalidProject",
@@ -1357,13 +1362,13 @@ impl OwnedProject {
             ],
         )?;
         let target_position: i64 = tx.query_row(
-            "SELECT position FROM documents WHERE id=? AND trashed=0",
+            "SELECT position FROM documents WHERE id=? AND trashed=0 AND role='ordinary'",
             [&stage.document_id],
             |row| row.get(0),
         )?;
         let mut later = tx.prepare(
             "SELECT h.bundle_id FROM ready_heads h JOIN documents d ON d.id=h.document_id
-             WHERE h.project_id=? AND h.operation_namespace=? AND d.kind='chapter' AND d.trashed=0
+             WHERE h.project_id=? AND h.operation_namespace=? AND d.kind='chapter' AND d.trashed=0 AND d.role='ordinary'
              AND (d.position>? OR (d.position=? AND d.id>?)) ORDER BY d.position,d.id LIMIT ?",
         )?;
         let later_ids = later
@@ -2000,12 +2005,12 @@ pub(super) fn selected_prefix(
     policy_epoch: i64,
 ) -> CoreResult<Vec<ReviewPrefixItem>> {
     let target_position: i64 = db.query_row(
-        "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0",
+        "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0 AND role='ordinary'",
         [target_document_id],
         |row| row.get(0),
     )?;
     let mut statement = db.prepare(
-        "SELECT id,title,position FROM documents WHERE kind='chapter' AND trashed=0
+        "SELECT id,title,position FROM documents WHERE kind='chapter' AND trashed=0 AND role='ordinary'
          AND (position<? OR (position=? AND id<?)) ORDER BY position,id LIMIT ?",
     )?;
     let rows = statement
@@ -2198,7 +2203,7 @@ pub(super) fn current_records_for_sources(
             continue;
         }
         let target_position: i64 = db.query_row(
-            "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0",
+            "SELECT position FROM documents WHERE id=? AND kind='chapter' AND trashed=0 AND role='ordinary'",
             [&source.document_id],
             |row| row.get(0),
         )?;
@@ -2294,7 +2299,7 @@ fn batch_selected_prefixes(
         })
         .expect("batch prefix validation requires a candidate");
     let mut statement = db.prepare(
-        "SELECT id,title,position FROM documents WHERE kind='chapter' AND trashed=0
+        "SELECT id,title,position FROM documents WHERE kind='chapter' AND trashed=0 AND role='ordinary'
          AND (position<? OR (position=? AND id<?)) ORDER BY position,id LIMIT ?",
     )?;
     let rows = statement
@@ -2655,6 +2660,23 @@ fn validate_previous_bundle(
     Ok(())
 }
 
+fn validate_ordinary_document_role(db: &Connection, document_id: &str) -> CoreResult<()> {
+    let role: Option<String> = db
+        .query_row(
+            "SELECT role FROM documents WHERE id=?",
+            [document_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if role.as_deref() != Some(DocumentRole::Ordinary.storage_name()) {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "Reviewed story evidence points at a non-ordinary document.",
+        ));
+    }
+    Ok(())
+}
+
 fn status_needs_review(
     document: &DocumentRecord,
     bundle_id: String,
@@ -2779,6 +2801,7 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
         check_id(&operation_id)?;
         check_id(&document_id)?;
         check_id(&revision_id)?;
+        validate_ordinary_document_role(db, &document_id)?;
         let _ = (
             parse_stored_version(version)?,
             parse_stored_version(source_epoch)?,
@@ -2891,6 +2914,7 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
         ] {
             check_id(id)?;
         }
+        validate_ordinary_document_role(db, &document_id)?;
         if payload_hash.is_empty() || coverage != "authorOnly" {
             return Err(CoreError::new(
                 "InvalidProject",
@@ -3016,6 +3040,7 @@ pub(crate) fn validate_review_storage(db: &Connection) -> CoreResult<()> {
         }
         check_id(&document_id)?;
         check_id(&bundle_id)?;
+        validate_ordinary_document_role(db, &document_id)?;
         let bundle = read_bundle(db, &bundle_id)?.ok_or_else(|| {
             CoreError::new(
                 "InvalidProject",

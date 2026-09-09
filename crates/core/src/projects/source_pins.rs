@@ -222,7 +222,7 @@ fn validate_source_state(
             )
         })?;
         let exists: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0)",
+            "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0 AND role='ordinary')",
             [target],
             |row| row.get(0),
         )?;
@@ -248,7 +248,7 @@ fn canonical_ids(ids: &[String]) -> CoreResult<Vec<String>> {
 fn validate_sources(db: &Connection, ids: &[String]) -> CoreResult<()> {
     for id in ids {
         let exists: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0)",
+            "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0 AND role='ordinary')",
             [id],
             |row| row.get(0),
         )?;
@@ -294,7 +294,7 @@ fn read_source_pins(
 ) -> CoreResult<SourcePinsView> {
     check_id(document_id)?;
     let exists: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0)",
+        "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0 AND role='ordinary')",
         [document_id],
         |row| row.get(0),
     )?;

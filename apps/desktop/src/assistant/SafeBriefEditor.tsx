@@ -17,7 +17,7 @@ export function SafeBriefEditor({ value, disabled, focusKey, onChange, onRemove 
   return <section ref={section} className="safe-brief-editor" aria-label="Writing brief editor">
     <div className="scope-title"><h3>Writing brief</h3><button className="text-button" disabled={disabled} onClick={onRemove}>Remove brief</button></div>
     <p className="small-copy">Write only what may guide this scene. Approving shares this exact text with the edit request, without adding the original discussion or private notes.</p>
-    {value.originMessageId && <p className="small-copy">Adapted from this document’s discussion. Review the wording before approving.</p>}
+    {value.originMessageId && <p className="small-copy">Adapted from {value.projectOrigin ? 'the project conversation' : 'this document’s discussion'}. Review the wording before approving.</p>}
     <label htmlFor={id}>Directions for this edit request</label>
     <textarea id={id} ref={input} value={value.text} disabled={disabled} maxLength={16_384} rows={5}
       placeholder="The mentor notices the pendant, then changes the subject. Mei reads the pause as grief…"

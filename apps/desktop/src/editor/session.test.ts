@@ -59,6 +59,34 @@ function expectSessionError(error: unknown, code: string): void { expect(error).
 afterEach(() => { vi.useRealTimers(); });
 
 describe('DocumentSession', () => {
+  it('adopts a sibling recovery lease without replacing dirty text or acknowledging it', async () => {
+    const { session, transport } = await makeHarness({ autosave: false });
+    session.update(makeBody('local text still being edited'));
+    const before = session.state;
+    await session.acceptProjectAccess({ ...access, writerLease: 'recovered-lease' });
+    expect(session.body).toEqual(makeBody('local text still being edited'));
+    expect(session.state.savedGeneration).toBe(before.savedGeneration);
+    expect(session.state.dirty).toBe(true);
+    expect(transport.saves).toHaveLength(0);
+    await session.flush();
+    expect(transport.saves[0].access.writerLease).toBe('recovered-lease');
+    await expect(session.acceptProjectAccess({ ...access, projectId: 'other-project' })).rejects.toMatchObject({ code: 'WrongProjectSession' });
+  });
+  it('settles an existing save before changing the lease and preserves an uncertain capture', async () => {
+    const { session, transport } = await makeHarness({ autosave: false });
+    const gate = defer<SaveAck>(); transport.saveImpl = () => gate.promise;
+    session.update(makeBody('uncertain text'));
+    const flushing = session.flush().catch(() => {});
+    await waitForSaves(transport, 1);
+    const accessChange = session.acceptProjectAccess({ ...access, writerLease: 'recovered-lease' });
+    expect(session.projectAccess.writerLease).toBe('lease-1');
+    gate.reject(new Error('lost acknowledgment'));
+    await flushing; await accessChange;
+    expect(session.state.phase).toBe('reconciling');
+    expect(session.state.dirty).toBe(true);
+    expect(session.body).toEqual(makeBody('uncertain text'));
+    expect(transport.saves).toHaveLength(1);
+  });
   it('keeps an immutable in-flight capture while later typing updates the live body', async () => {
     const { session, transport } = await makeHarness({ autosave: false }); const gate = defer<SaveAck>(); transport.saveImpl = () => gate.promise;
     const firstBody = makeBody('first'); session.update(firstBody); const flush = session.flush(); await waitForSaves(transport, 1);

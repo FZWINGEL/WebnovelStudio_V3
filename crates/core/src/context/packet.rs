@@ -44,7 +44,11 @@ use super::reviewed_promises::{
 use super::reviewed_summaries::{
     self, ReviewedSummaryOmission, ReviewedSummaryOmissionReason, ReviewedSummarySet,
 };
-use crate::documents::{ScopeGrant, ScopeKind, ScopeValidationRequest, validate_scope};
+use crate::documents::{Endpoint, ScopeGrant, ScopeKind, ScopeValidationRequest, validate_scope};
+use crate::projects::project_chat_output::{
+    CHAPTER_DISCUSSION_RESPONSE_CONTRACT, CHAPTER_DISCUSSION_RESPONSE_INSTRUCTION,
+    PROJECT_CHAT_RESPONSE_CONTRACT, project_chat_response_instruction,
+};
 use crate::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
 use crate::projects::workshop_generation::{
     WORKSHOP_RESPONSE_CONTRACT, metadata_from_instruction, metadata_value,
@@ -967,6 +971,8 @@ fn summary_payload(set: &ReviewedSummarySet) -> AcceptedSummaryPayload {
 struct ContextEnvelope {
     schema: &'static str,
     snapshot_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_chat: Option<crate::projects::project_chat_context::FrozenProjectChat>,
     purpose: ContextPurpose,
     audience: Audience,
     reader_frontier: Option<String>,
@@ -2235,6 +2241,7 @@ fn finish_packet(
             text: brief.text.clone(),
             text_hash: sha256_hex(brief.text.as_bytes()),
             origin_message_id: brief.origin_message_id.clone(),
+            project_origin: brief.project_origin.clone(),
         }),
         coverage,
         omissions: summary_source_omissions(&omissions, receipts.accepted_summaries),
@@ -3186,6 +3193,7 @@ fn build_serialized(
     let envelope = ContextEnvelope {
         schema: packing.schema.envelope_schema(),
         snapshot_id: request.frozen.snapshot.snapshot_id.clone(),
+        project_chat: request.frozen.project_chat.clone(),
         purpose: request.frozen.purpose,
         audience: request.frozen.policy.audience,
         reader_frontier: request.frozen.policy.reader_frontier.clone(),
@@ -3383,6 +3391,19 @@ fn build_serialized(
         Some(WORKSHOP_RESPONSE_CONTRACT) => {
             format!("{base_system_instruction}\n\n{WORKSHOP_RESPONSE_INSTRUCTION}")
         }
+        Some(PROJECT_CHAT_RESPONSE_CONTRACT) => {
+            let prompt_recipe_version = request
+                .frozen
+                .project_chat
+                .as_ref()
+                .and_then(|chat| chat.prompt_recipe_version.as_deref());
+            let project_chat_instruction = project_chat_response_instruction(prompt_recipe_version)
+                .map_err(|message| PacketError::InvalidRequest { message })?;
+            format!("{base_system_instruction}\n\n{project_chat_instruction}")
+        }
+        Some(CHAPTER_DISCUSSION_RESPONSE_CONTRACT) => {
+            format!("{base_system_instruction}\n\n{CHAPTER_DISCUSSION_RESPONSE_INSTRUCTION}")
+        }
         Some(_) => unreachable!("response contract is validated before packet compilation"),
         None => base_system_instruction.to_owned(),
     };
@@ -3412,39 +3433,51 @@ fn build_serialized(
 }
 
 fn validate_response_contract(request: &PacketRequest) -> Result<(), PacketError> {
-    if request
-        .provider_binding
-        .as_ref()
-        .is_some_and(ProviderBinding::is_claude)
-        && (request.lookup.is_some() || request.frozen.purpose == ContextPurpose::MemoryAnalysis)
-    {
-        return Err(PacketError::InvalidRequest {
-            message: if request.lookup.is_some() {
-                "Claude author requests are not qualified for story lookup.".to_owned()
-            } else {
-                "Claude author requests are not qualified for chapter memory analysis.".to_owned()
-            },
-        });
+    // Provider capability restrictions apply to every response contract,
+    // including the early-return author-room contracts below. Keep this
+    // check before those branches so a maintenance-only HTTP memory binding
+    // cannot be reused for project chat or chapter discussion.
+    validate_provider_capability(request)?;
+
+    let is_project_chat = request.frozen.project_chat.is_some();
+    let has_project_chat_contract =
+        request.response_contract.as_deref() == Some(PROJECT_CHAT_RESPONSE_CONTRACT);
+    if is_project_chat || has_project_chat_contract {
+        if !is_project_chat
+            || !has_project_chat_contract
+            || request.frozen.snapshot.basis != super::BasisKind::Working
+            || request.frozen.purpose != ContextPurpose::Discuss
+            || request.frozen.policy.audience != Audience::AuthorRoom
+            || request.scope.is_some()
+            || request.safe_brief.is_some()
+            || request.lookup.is_some()
+        {
+            return Err(PacketError::InvalidRequest {
+                message: "Project-chat packets require explicit project-chat metadata, the versioned response contract, and a Working author-room discussion without a writing scope.".to_owned(),
+            });
+        }
+        let prompt_recipe_version = request
+            .frozen
+            .project_chat
+            .as_ref()
+            .and_then(|chat| chat.prompt_recipe_version.as_deref());
+        project_chat_response_instruction(prompt_recipe_version)
+            .map_err(|message| PacketError::InvalidRequest { message })?;
+        return Ok(());
     }
-    if let Some(binding) = request
-        .provider_binding
-        .as_ref()
-        .filter(|binding| binding.is_http())
-        && (request.lookup.is_some()
-            || (request.frozen.purpose == ContextPurpose::MemoryAnalysis
-                && !binding.is_http_memory())
-            || (request.frozen.purpose != ContextPurpose::MemoryAnalysis
-                && binding.is_http_memory()))
-    {
-        return Err(PacketError::InvalidRequest {
-            message: if request.lookup.is_some() {
-                "OpenAI-compatible HTTP is not qualified for story lookup.".to_owned()
-            } else if binding.is_http_memory() {
-                "The OpenAI-compatible chapter-memory profile is only valid for chapter memory analysis.".to_owned()
-            } else {
-                "The ordinary OpenAI-compatible profile is not qualified for chapter memory analysis.".to_owned()
-            },
-        });
+    if request.response_contract.as_deref() == Some(CHAPTER_DISCUSSION_RESPONSE_CONTRACT) {
+        if request.frozen.snapshot.basis != super::BasisKind::Working
+            || request.frozen.purpose != ContextPurpose::Discuss
+            || request.frozen.policy.audience != Audience::AuthorRoom
+            || request.scope.is_some()
+            || request.safe_brief.is_some()
+            || request.lookup.is_some()
+        {
+            return Err(PacketError::InvalidRequest {
+                message: "The chapter discussion response contract requires a Working author-room discussion without a writing scope, brief, or lookup.".to_owned(),
+            });
+        }
+        return Ok(());
     }
     if request.lookup.is_some()
         || request.response_contract.as_deref() == Some(LOOKUP_RESPONSE_CONTRACT)
@@ -3548,6 +3581,44 @@ fn validate_response_contract(request: &PacketRequest) -> Result<(), PacketError
         return Err(PacketError::InvalidRequest {
             message: "the proposal response contract requires a live scoped revision request"
                 .to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_provider_capability(request: &PacketRequest) -> Result<(), PacketError> {
+    if request
+        .provider_binding
+        .as_ref()
+        .is_some_and(ProviderBinding::is_claude)
+        && (request.lookup.is_some() || request.frozen.purpose == ContextPurpose::MemoryAnalysis)
+    {
+        return Err(PacketError::InvalidRequest {
+            message: if request.lookup.is_some() {
+                "Claude author requests are not qualified for story lookup.".to_owned()
+            } else {
+                "Claude author requests are not qualified for chapter memory analysis.".to_owned()
+            },
+        });
+    }
+    if let Some(binding) = request
+        .provider_binding
+        .as_ref()
+        .filter(|binding| binding.is_http())
+        && (request.lookup.is_some()
+            || (request.frozen.purpose == ContextPurpose::MemoryAnalysis
+                && !binding.is_http_memory())
+            || (request.frozen.purpose != ContextPurpose::MemoryAnalysis
+                && binding.is_http_memory()))
+    {
+        return Err(PacketError::InvalidRequest {
+            message: if request.lookup.is_some() {
+                "OpenAI-compatible HTTP is not qualified for story lookup.".to_owned()
+            } else if binding.is_http_memory() {
+                "The OpenAI-compatible chapter-memory profile is only valid for chapter memory analysis.".to_owned()
+            } else {
+                "The ordinary OpenAI-compatible profile is not qualified for chapter memory analysis.".to_owned()
+            },
         });
     }
     Ok(())
@@ -3779,7 +3850,69 @@ fn validate_safe_brief(request: &PacketRequest) -> Result<(), PacketError> {
             message: "The approved writing brief origin message ID is invalid.".to_owned(),
         });
     }
+    if let Some(origin) = brief.project_origin.as_ref() {
+        if origin.version != "project-conversation-brief.v1"
+            || origin.project_id.is_empty()
+            || origin.operation_namespace.is_empty()
+            || origin.conversation_id.is_empty()
+            || origin.message_id.is_empty()
+            || origin.scope_hash.len() != 64
+            || origin.text_hash != sha256_hex(brief.text.as_bytes())
+            || !origin
+                .scope_hash
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(PacketError::InvalidRequest {
+                message: "The project conversation brief provenance is malformed or does not match its text.".to_owned(),
+            });
+        }
+        // The project-origin hash is over the renderer-facing
+        // DiscussionScopeInput shape.  Continuation has no author-selected
+        // scope (`StartDiscussion.scope` is None); its compiled Append grant
+        // is derived from the exact frozen target solely to constrain the
+        // provider.  Keep the author-confirmed null provenance in that case,
+        // while still requiring the derived Append grant above.  For scoped
+        // revisions, normalize the trusted ScopeGrant back to the input shape
+        // before hashing so the same author-confirmed digest survives
+        // compilation.
+        let scope_input = if request.frozen.purpose == ContextPurpose::Continue {
+            None
+        } else {
+            request.scope.as_ref().map(|scope| BriefScopeInput {
+                kind: scope.kind,
+                start: scope.start.clone(),
+                end: scope.end.clone(),
+                quote: scope.quote.clone(),
+                source_body_hash: scope.source_hash.clone(),
+            })
+        };
+        let scope_hash = sha256_hex(&serde_json::to_vec(&scope_input).map_err(|error| {
+            PacketError::InvalidRequest {
+                message: format!("failed to hash the approved brief scope: {error}"),
+            }
+        })?);
+        if origin.scope_hash != scope_hash
+            || origin.target.document_id != request.frozen.snapshot.target.document_id
+            || origin.target.body_hash != request.frozen.snapshot.target.body_hash
+        {
+            return Err(PacketError::InvalidRequest {
+                message: "The project conversation brief is bound to another target or scope."
+                    .to_owned(),
+            });
+        }
+    }
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BriefScopeInput {
+    kind: ScopeKind,
+    start: Option<Endpoint>,
+    end: Option<Endpoint>,
+    quote: String,
+    source_body_hash: String,
 }
 
 fn mandatory_handles(request: &PacketRequest) -> Result<Vec<String>, PacketError> {

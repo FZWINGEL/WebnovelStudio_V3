@@ -18,6 +18,7 @@
     "test:native-menus": "node scripts/native-interruption.mjs --context-menu-only",
     "test:native-recovery": "node scripts/native-project-recovery.mjs",
     "test:native-workshop": "node scripts/native-workshop-smoke.mjs",
+    "test:native-chat": "node scripts/native-chat-smoke.mjs",
     "test:native-memory-lookup": "node scripts/native-memory-lookup-smoke.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build --no-bundle",

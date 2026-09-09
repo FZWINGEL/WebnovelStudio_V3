@@ -571,6 +571,36 @@ fn apply_basis_policy(
     purpose: ContextPurpose,
     is_target: bool,
 ) -> Result<(), EligibilityError> {
+    if descriptor.kind == SourceKind::ConversationControl
+        && !(basis == BasisKind::Working
+            && purpose == ContextPurpose::Discuss
+            && policy.audience == Audience::AuthorRoom
+            && is_target)
+    {
+        return Err(EligibilityError::for_handle(
+            EligibilityErrorCode::InvalidDescriptor,
+            &descriptor.handle,
+            "A project-conversation control anchor is not story evidence.",
+        ));
+    }
+    if descriptor.kind == SourceKind::ConversationControl && !is_target {
+        return Err(EligibilityError::for_handle(
+            EligibilityErrorCode::InvalidDescriptor,
+            &descriptor.handle,
+            "A conversation control anchor cannot be selected as a source.",
+        ));
+    }
+    if descriptor.kind == SourceKind::AssistantDraft
+        && !(basis == BasisKind::Working
+            && purpose == ContextPurpose::Discuss
+            && policy.audience == Audience::AuthorRoom)
+    {
+        return Err(EligibilityError::for_handle(
+            EligibilityErrorCode::PrivateSource,
+            &descriptor.handle,
+            "An unadopted assistant draft is available only to its explicit author-room task.",
+        ));
+    }
     match basis {
         BasisKind::Working => {
             if !descriptor.current {

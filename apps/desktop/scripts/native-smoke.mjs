@@ -543,11 +543,11 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Mei keeps the brass key. She has made her choice.');
   await page.screenshot({ path: resolve(output, 'persistent-workspace.png') });
   recordCheck(checks, 'native-smoke:15', 'Native library creates character-first and chapter-first projects; typing, detach-after-flush switching and renderer reload retain isolated prose');
-  if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
+  if (await page.locator('.project-tools:not(.recent-project-picker)').getAttribute('open') === null) await page.locator('.project-tools:not(.recent-project-picker) > summary').click();
   await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.brand strong')?.textContent.includes('Harbour A copy') || !!document.querySelector('[role="alert"]'));
+  await page.waitForFunction(() => document.querySelector('.brand > strong')?.textContent.includes('Harbour A copy') || !!document.querySelector('[role="alert"]'));
   assert.equal(await page.getByRole('alert').count(), 0, await page.getByRole('alert').allTextContents().then(text => text.join('\n')));
-  await page.locator('.brand strong').filter({ hasText: 'Harbour A copy' }).waitFor();
+  await page.locator('.brand > strong').filter({ hasText: 'Harbour A copy' }).waitFor();
   await fillManuscript('Only the independent copy changes.');
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   // A click acknowledges the gesture, not asynchronous detach/flush. Kill only
@@ -729,11 +729,11 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(), 'Only the independent copy changes.');
   recordCheck(checks, 'native-smoke:17', 'Native continuation refuses an unavailable reviewed prefix, requires explicit working-draft fallback, retries one lost preparation acknowledgment with the exact operation/body/IDs and one stored version, previews typed paragraphs without mutating the mounted editor, applies after the unchanged ending, survives visible undo/redo, and retains the new body in history after reload');
   const editorBeforeRename = await page.evaluate(() => { window.editorBeforeRename = document.querySelector('.tiptap').editor; return window.editorBeforeRename.getJSON(); });
-  if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
+  if (await page.locator('.project-tools:not(.recent-project-picker)').getAttribute('open') === null) await page.locator('.project-tools:not(.recent-project-picker) > summary').click();
   await page.getByRole('button', { name: 'Rename', exact: true }).click();
   await page.getByRole('textbox', { name: 'Project title', exact: true }).fill('Harbour C');
   await page.getByRole('button', { name: 'Save title', exact: true }).click();
-  await page.locator('.brand strong').filter({ hasText: /^Harbour C$/ }).waitFor();
+  await page.locator('.brand > strong').filter({ hasText: /^Harbour C$/ }).waitFor();
   await page.getByRole('button', { name: 'Rename document', exact: true }).click();
   await page.getByRole('textbox', { name: 'Document title', exact: true }).fill("Mei's voice");
   await page.getByRole('button', { name: 'Save document title', exact: true }).click();
@@ -1070,7 +1070,7 @@ try {
   await page.getByRole('button', { name: 'Bold', exact: true }).click();
   await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor();
   const exportSource = await page.evaluate(() => document.querySelector('.tiptap').editor.getJSON());
-  if (await page.locator('.project-tools').getAttribute('open') === null) await page.locator('.project-tools > summary').click();
+  if (await page.locator('.project-tools:not(.recent-project-picker)').getAttribute('open') === null) await page.locator('.project-tools:not(.recent-project-picker) > summary').click();
   await page.getByRole('button', { name: 'Export draft', exact: true }).click();
   const exportDialog = page.getByRole('dialog', { name: 'Export draft', exact: true });
   await exportDialog.getByRole('button', { name: 'Choose destination…', exact: true }).waitFor();

@@ -24,9 +24,9 @@ pub mod reviewed_summaries;
 pub use contracts::{
     Audience, BasisKind, BudgetError, BudgetErrorCode, CharacterGrant, ContextPurpose,
     CoverageEntry, CoverageLabel, Disclosure, EligibilityRequest, InformationPolicy,
-    MAX_SAFE_BRIEF_BYTES, PacketReceipt, ReviewedBasisManifest, ReviewedBasisMember,
-    SafeBriefInput, SafeBriefReceipt, SourceDescriptor, SourceKind, SourceRef, StorySnapshot,
-    StoryTime,
+    MAX_SAFE_BRIEF_BYTES, PacketReceipt, ProjectBriefOrigin, ReviewedBasisManifest,
+    ReviewedBasisMember, SafeBriefInput, SafeBriefReceipt, SourceDescriptor, SourceKind, SourceRef,
+    StorySnapshot, StoryTime,
 };
 pub(crate) use eligibility::author_room_structured_revision_allowed;
 pub use eligibility::{

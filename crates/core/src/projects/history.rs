@@ -256,7 +256,7 @@ impl OwnedProject {
 
 fn ensure_document_exists(connection: &Connection, document_id: &str) -> CoreResult<()> {
     let exists: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0)",
+        "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0 AND role='ordinary')",
         [document_id],
         |row| row.get(0),
     )?;
@@ -388,7 +388,7 @@ fn read_document_revision(
 
 fn ensure_document_retained(connection: &Connection, document_id: &str) -> CoreResult<()> {
     let exists: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM documents WHERE id=?)",
+        "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND role='ordinary')",
         [document_id],
         |row| row.get(0),
     )?;
@@ -435,6 +435,24 @@ pub(crate) fn validate_history_storage(connection: &Connection) -> CoreResult<()
                 "InvalidProject",
                 "A restore receipt contains an invalid request hash.",
             ));
+        }
+        if kind == "restore"
+            && !connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND role='ordinary')",
+                [&document_id],
+                |row| row.get::<_, bool>(0),
+            )?
+        {
+            return Err(CoreError::new(
+                "InvalidProject",
+                "A restore receipt points at a non-ordinary document.",
+            ));
+        }
+        // Grouped chat adoption has a ref-only, multi-document receipt. Its
+        // revision/preview/decision proof is checked by project_chat's storage
+        // validator; it cannot contain a single-document restore result.
+        if kind == "adoptChatPreview" {
+            continue;
         }
         let result: StoredResult = serde_json::from_str(&result_json)?;
         let Some(_restored) = result.restored.as_ref() else {

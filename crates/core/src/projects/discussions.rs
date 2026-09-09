@@ -871,6 +871,36 @@ impl OwnedProject {
         let tx = self
             .db_mut()?
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let result = start_discussion_at(&tx, &request, &payload_hash, None, false)?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        Ok(result)
+    }
+
+    /// Start a discussion using an already-open actor transaction. Project
+    /// chat uses this seam to persist its conversation reference atomically
+    /// with the ordinary discussion run, packet, and message. It performs no
+    /// access check or commit and therefore cannot nest actor transactions.
+    pub(super) fn start_discussion_at(
+        tx: &Connection,
+        request: &StartDiscussion,
+        payload_hash: &str,
+        chat: Option<&crate::projects::project_chat_context::ProjectChatFreeze>,
+        chapter_range: bool,
+    ) -> CoreResult<DiscussionStart> {
+        if let Some(chat) = chat {
+            if request.intent != FeedbackIntent::Discuss
+                || request.scope.is_some()
+                || request.safe_brief.is_some()
+                || request.lookup.is_some()
+                || request.basis.is_some()
+            {
+                return Err(CoreError::new(
+                    "InvalidProjectChatRequest",
+                    "Project chat uses a plain author-room discussion without a writing scope, lookup, or brief.",
+                ));
+            }
+            check_id(&chat.conversation_id)?;
+        }
         let existing: Option<(String, String)> = tx
             .query_row(
                 "SELECT id,payload_hash FROM discussion_runs WHERE project_id=? AND operation_namespace=? AND operation_id=?",
@@ -885,14 +915,13 @@ impl OwnedProject {
                     "This discussion operation was already used for a different request.",
                 ));
             }
-            let result = read_start(&tx, &run_id)?;
-            tx.commit().map_err(CoreError::uncertain)?;
+            let result = read_start(tx, &run_id)?;
             return Ok(result);
         }
-        validate_safe_brief_origin(&tx, &request)?;
+        validate_safe_brief_origin(tx, request)?;
 
-        let retry_guidance = retry::guidance(&tx, &request)?;
-        let (purpose, policy) = discussion_context_policy(&tx, &request)?;
+        let retry_guidance = retry::guidance(tx, request)?;
+        let (purpose, policy) = discussion_context_policy(tx, request)?;
         let context_request = FreezeStory {
             access: request.access.clone(),
             operation_id: new_id(),
@@ -910,27 +939,91 @@ impl OwnedProject {
                 policy: context_request.policy.clone(),
             };
             let payload = logical_hash(&reviewed)?;
-            story_context::freeze_reviewed_continuation_at(&tx, &reviewed, &payload)?
+            story_context::freeze_reviewed_continuation_at(tx, &reviewed, &payload)?
+        } else if let Some(chat) = chat {
+            crate::projects::project_chat_context::freeze_project_chat_at(
+                tx,
+                &context_request,
+                &context_payload,
+                chat,
+            )?
         } else {
             story_context::freeze_discussion_story_at(
-                &tx,
+                tx,
                 &context_request,
                 &context_payload,
                 retry_guidance.as_deref(),
             )?
         };
-        let target = read_revision(&tx, &frozen_context.snapshot.target.revision_id)?;
-        let persistent_ids = source_pins::persistent_for_discussion(
-            &tx,
-            &request.access,
-            &request.expected.document_id,
-            request.intent.is_discuss(),
-        )?;
+        let target = read_revision(tx, &frozen_context.snapshot.target.revision_id)?;
+        if chapter_range {
+            let target_kind: Option<String> = tx
+                .query_row(
+                    "SELECT kind FROM documents WHERE id=? AND trashed=0",
+                    [&request.expected.document_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if request.intent != FeedbackIntent::Discuss
+                || request.scope.is_some()
+                || target_kind.as_deref() != Some("chapter")
+            {
+                return Err(CoreError::new(
+                    "InvalidChapterRequest",
+                    "The chapter range response contract requires an unscoped Discuss request targeting an ordinary chapter.",
+                ));
+            }
+        }
+        // Project chat is rooted at its blank control anchor. Persistent
+        // document pins are a legacy document-discussion feature and cannot
+        // be read through that control identity; project-chat source refs are
+        // authenticated by its dedicated freeze path instead.
+        let persistent_ids = if chat.is_some() {
+            Vec::new()
+        } else {
+            source_pins::persistent_for_discussion(
+                tx,
+                &request.access,
+                &request.expected.document_id,
+                request.intent.is_discuss(),
+            )?
+        };
         let merged_document_ids =
             merge_pinned_document_ids(&persistent_ids, &request.pinned_document_ids)?;
         let transient_handles =
             resolve_pinned_handles(&frozen_context, &request.pinned_document_ids)?;
-        let all_mandatory_handles = resolve_pinned_handles(&frozen_context, &merged_document_ids)?;
+        let mut all_mandatory_handles =
+            resolve_pinned_handles(&frozen_context, &merged_document_ids)?;
+        if let Some(chat) = chat {
+            // Explicit project-chat source refs are author-selected evidence;
+            // they are mandatory packet inputs and may not disappear under
+            // layered budget packing. The blank control target remains
+            // mandatory through the shared target rule.
+            for head in chat
+                .source_refs
+                .iter()
+                .chain(chat.task_draft_refs.iter().map(|draft| &draft.head))
+            {
+                let handle = frozen_context
+                    .snapshot
+                    .sources
+                    .iter()
+                    .find(|source| {
+                        source.source.document_id == head.document_id
+                            && source.source.body_hash == head.body_hash
+                    })
+                    .map(|source| source.handle.clone())
+                    .ok_or_else(|| {
+                        CoreError::new(
+                            "SourceOutsideFrozenContext",
+                            "A project-chat source ref has no frozen source handle.",
+                        )
+                    })?;
+                if !all_mandatory_handles.contains(&handle) {
+                    all_mandatory_handles.push(handle);
+                }
+            }
+        }
         let target_handle = frozen_context
             .snapshot
             .sources
@@ -962,7 +1055,7 @@ impl OwnedProject {
             .snapshot
             .sources
             .iter()
-            .map(|source| story_context::read_source(&tx, &frozen_context, &source.handle))
+            .map(|source| story_context::read_source(tx, &frozen_context, &source.handle))
             .collect::<CoreResult<Vec<_>>>()?;
         let scope = if request.intent == FeedbackIntent::Continue {
             Some(
@@ -978,29 +1071,38 @@ impl OwnedProject {
         if request.intent == FeedbackIntent::WorkshopExplore {
             crate::projects::workshop_generation::metadata_from_instruction(&request.instruction)?;
         }
-        let response_contract = match request.intent {
-            FeedbackIntent::Discuss if request.lookup.is_some() => {
-                Some(LOOKUP_RESPONSE_CONTRACT.to_owned())
+        let response_contract = if chat.is_some() {
+            Some(crate::projects::project_chat_output::PROJECT_CHAT_RESPONSE_CONTRACT.to_owned())
+        } else if chapter_range {
+            Some(
+                crate::projects::project_chat_output::CHAPTER_DISCUSSION_RESPONSE_CONTRACT
+                    .to_owned(),
+            )
+        } else {
+            match request.intent {
+                FeedbackIntent::Discuss if request.lookup.is_some() => {
+                    Some(LOOKUP_RESPONSE_CONTRACT.to_owned())
+                }
+                FeedbackIntent::Continue => Some(CONTINUATION_RESPONSE_CONTRACT.to_owned()),
+                FeedbackIntent::ProposeEdits if request.provider_binding.is_some() => Some(
+                    if scope.as_ref().is_some_and(|scope| {
+                        matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument)
+                    }) {
+                        STRUCTURED_PROPOSAL_RESPONSE_CONTRACT.to_owned()
+                    } else {
+                        PROPOSAL_RESPONSE_CONTRACT.to_owned()
+                    },
+                ),
+                FeedbackIntent::WorkshopExplore => Some(WORKSHOP_RESPONSE_CONTRACT.to_owned()),
+                _ => None,
             }
-            FeedbackIntent::Continue => Some(CONTINUATION_RESPONSE_CONTRACT.to_owned()),
-            FeedbackIntent::ProposeEdits if request.provider_binding.is_some() => Some(
-                if scope.as_ref().is_some_and(|scope| {
-                    matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument)
-                }) {
-                    STRUCTURED_PROPOSAL_RESPONSE_CONTRACT.to_owned()
-                } else {
-                    PROPOSAL_RESPONSE_CONTRACT.to_owned()
-                },
-            ),
-            FeedbackIntent::WorkshopExplore => Some(WORKSHOP_RESPONSE_CONTRACT.to_owned()),
-            _ => None,
         };
         let packet = compile_packet(&PacketRequest {
             packet_id: new_id(),
             session_id: new_id(),
             invocation_ordinal: "0".into(),
             frozen: frozen_context.clone(),
-            instruction: request.instruction.clone(),
+            instruction: packet_instruction(request, response_contract.as_deref())?,
             sources: source_reads,
             mandatory_handles: mandatory_handles.clone(),
             scope: scope.clone(),
@@ -1022,22 +1124,23 @@ impl OwnedProject {
         })
         .map_err(packet_error)?;
         insert_packet(
-            &tx,
+            tx,
             &packet,
-            &request,
+            request,
             &mandatory_handles,
             Some(transient_handles),
             scope.as_ref(),
+            response_contract.as_deref(),
         )?;
         if retry_guidance.is_none() {
             guidance::consume_request_guidance_at(
-                &tx,
+                tx,
                 &frozen_context.snapshot.snapshot_id,
                 &frozen_context.guidance,
             )?;
         }
 
-        let thread_id = ensure_thread(&tx, &request.access, &request.expected.document_id)?;
+        let thread_id = ensure_thread(tx, &request.access, &request.expected.document_id)?;
         let run_id = new_id();
         tx.execute(
             "INSERT INTO discussion_runs(id,thread_id,project_id,operation_namespace,operation_id,payload_hash,target_document_id,target_version,target_body_hash,packet_id,previous_run_id,status,sequence,output_text) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0,'')",
@@ -1058,7 +1161,7 @@ impl OwnedProject {
         )?;
         if let Some(lookup_allowance) = request.lookup.as_ref() {
             discussion_lookup::insert_initial(
-                &tx,
+                tx,
                 &run_id,
                 &packet,
                 &frozen_context,
@@ -1079,9 +1182,8 @@ impl OwnedProject {
                 packet.receipt.packet_id,
             ],
         )?;
-        let run = read_run(&tx, &run_id)?;
-        let user_message = read_message(&tx, &user_message_id)?;
-        tx.commit().map_err(CoreError::uncertain)?;
+        let run = read_run(tx, &run_id)?;
+        let user_message = read_message(tx, &user_message_id)?;
         Ok(DiscussionStart {
             thread_id,
             run,
@@ -1167,17 +1269,28 @@ impl OwnedProject {
         validate_owner(&current, &request.owner)?;
         match current.status {
             DiscussionRunStatus::Queued => {
-                let (snapshot_source_epoch, snapshot_policy_epoch): (i64, i64) = tx.query_row(
+                let (snapshot_id, snapshot_source_epoch, snapshot_policy_epoch): (String, i64, i64) = tx.query_row(
                     "SELECT cp.snapshot_id,ss.context_source_epoch,ss.disclosure_policy_epoch FROM discussion_runs dr JOIN context_packets cp ON cp.id=dr.packet_id JOIN story_snapshots ss ON ss.id=cp.snapshot_id WHERE dr.id=?",
                     [&request.owner.run_id],
-                    |row| Ok((row.get(1)?, row.get(2)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )?;
                 let (source_epoch, policy_epoch): (i64, i64) = tx.query_row(
                     "SELECT context_source_epoch,disclosure_policy_epoch FROM project WHERE singleton=1",
                     [],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )?;
-                if snapshot_source_epoch != source_epoch || snapshot_policy_epoch != policy_epoch {
+                let project_chat_current = if snapshot_source_epoch == source_epoch
+                    && snapshot_policy_epoch == policy_epoch
+                {
+                    let (frozen, _) = story_context::validated_snapshot_record(&tx, &snapshot_id)?;
+                    !frozen.project_chat.is_some()
+                        || crate::projects::project_chat_context::project_chat_basis_is_current(
+                            &tx, &frozen,
+                        )?
+                } else {
+                    false
+                };
+                if !project_chat_current {
                     let stale_message = "The story changed before this discussion started; the saved response was not dispatched.";
                     let _ = seal_run(
                         &tx,
@@ -2443,6 +2556,19 @@ impl OwnedProject {
     }
 }
 
+/// Start a discussion using an already-open transaction. Project chat calls
+/// this free module seam so it can atomically add its conversation item after
+/// the run, packet, and author message have been prepared.
+pub(super) fn start_discussion_at(
+    tx: &Connection,
+    request: &StartDiscussion,
+    payload_hash: &str,
+    chat: Option<&crate::projects::project_chat_context::ProjectChatFreeze>,
+    chapter_range: bool,
+) -> CoreResult<DiscussionStart> {
+    OwnedProject::start_discussion_at(tx, request, payload_hash, chat, chapter_range)
+}
+
 fn validate_feedback_basis(
     intent: FeedbackIntent,
     basis: Option<BasisKind>,
@@ -2472,7 +2598,7 @@ fn basis_label(basis: BasisKind) -> &'static str {
     }
 }
 
-fn validate_start(request: &StartDiscussion) -> CoreResult<()> {
+pub(super) fn validate_start(request: &StartDiscussion) -> CoreResult<()> {
     validate_feedback_basis(request.intent, request.basis, request.scope.as_ref())?;
     validate_lookup_request(request.intent, request.basis, request.lookup.as_ref())?;
     check_id(&request.operation_id)?;
@@ -2571,6 +2697,39 @@ fn validate_safe_brief_shape(brief: &SafeBriefInput) -> CoreResult<()> {
             "The writing brief origin message ID is invalid.",
         ));
     }
+    if let Some(origin) = brief.project_origin.as_ref()
+        && (origin.version != "project-conversation-brief.v1"
+            || origin.project_id.is_empty()
+            || origin.operation_namespace.is_empty()
+            || origin.conversation_id.is_empty()
+            || origin.message_id.is_empty()
+            || origin.scope_hash.len() != 64
+            || origin.text_hash.len() != 64
+            || !origin
+                .scope_hash
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+            || !origin
+                .text_hash
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit()))
+    {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The project conversation brief provenance is malformed.",
+        ));
+    }
+    if let Some(origin_id) = brief.origin_message_id.as_deref()
+        && brief
+            .project_origin
+            .as_ref()
+            .is_some_and(|origin| origin.message_id != origin_id)
+    {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The legacy and project brief origins do not identify the same message.",
+        ));
+    }
     Ok(())
 }
 
@@ -2615,6 +2774,18 @@ fn validate_safe_brief_origin(tx: &Connection, request: &StartDiscussion) -> Cor
     let Some(brief) = request.safe_brief.as_ref() else {
         return Ok(());
     };
+    if let Some(origin) = brief.project_origin.as_ref() {
+        validate_project_brief_origin(tx, request, brief, origin)?;
+        // A project-conversation origin is intentionally cross-document: the
+        // retained AuthorRoom message belongs to the project conversation's
+        // control anchor, while this request targets an ordinary chapter.
+        // The legacy origin path below requires the message's discussion
+        // thread to be the chapter itself, so running it as well would reject
+        // every valid project brief after approval. The project-origin
+        // validator already authenticates the exact message, conversation,
+        // project identity, target, scope, text, and AuthorRoom packet.
+        return Ok(());
+    }
     let Some(origin_id) = brief.origin_message_id.as_deref() else {
         return Ok(());
     };
@@ -2680,6 +2851,82 @@ fn validate_safe_brief_origin(tx: &Connection, request: &StartDiscussion) -> Cor
         return Err(CoreError::new(
             "InvalidSafeBrief",
             "The writing brief origin message is not readable in the current AuthorRoom policy.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_project_brief_origin(
+    tx: &Connection,
+    request: &StartDiscussion,
+    brief: &SafeBriefInput,
+    origin: &crate::context::ProjectBriefOrigin,
+) -> CoreResult<()> {
+    if origin.version != "project-conversation-brief.v1"
+        || origin.project_id != request.access.project_id
+        || origin.operation_namespace != request.access.operation_namespace
+        || origin.conversation_id.is_empty()
+        || origin.message_id.is_empty()
+        || origin.target != request.expected
+        || origin.text_hash != sha256_hex(brief.text.as_bytes())
+    {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The project conversation brief is bound to another project, target, or text.",
+        ));
+    }
+    let scope_hash = sha256_hex(&serde_json::to_vec(&request.scope)?);
+    if origin.scope_hash != scope_hash {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The project conversation brief is bound to another selection scope.",
+        ));
+    }
+    let source: Option<(String, String, String)> = tx
+        .query_row(
+            "SELECT ci.kind,r.status,cp.snapshot_id
+             FROM conversation_items ci
+             JOIN discussion_runs r ON r.id=ci.reference_id
+             JOIN context_packets cp ON cp.id=r.packet_id
+             JOIN discussion_messages dm ON dm.run_id=r.id
+             WHERE ci.conversation_id=? AND ci.project_id=?
+               AND ci.operation_namespace=? AND r.project_id=?
+               AND r.operation_namespace=?
+               AND ci.kind IN ('request','chapterRequest')
+               AND dm.id=? AND dm.role IN ('user','assistant')",
+            params![
+                origin.conversation_id,
+                request.access.project_id,
+                request.access.operation_namespace,
+                request.access.project_id,
+                request.access.operation_namespace,
+                origin.message_id
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((item_kind, status, snapshot_id)) = source else {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "The project conversation brief origin message is not retained in this project.",
+        ));
+    };
+    if item_kind != "request" || status != "completed" {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "A project conversation brief must come from a completed author-room request.",
+        ));
+    }
+    let frozen = story_context::load_snapshot(tx, &request.access, &snapshot_id)?;
+    if frozen.policy.audience != Audience::AuthorRoom
+        || frozen
+            .project_chat
+            .as_ref()
+            .is_none_or(|chat| chat.conversation_id != origin.conversation_id)
+    {
+        return Err(CoreError::new(
+            "InvalidSafeBrief",
+            "A project conversation brief must come from a completed author-room request.",
         ));
     }
     Ok(())
@@ -2886,6 +3133,7 @@ fn insert_packet(
     mandatory_handles: &[String],
     transient_handles: Option<Vec<String>>,
     scope: Option<&ScopeGrant>,
+    response_contract: Option<&str>,
 ) -> CoreResult<()> {
     // context_packets is validated on packet reads and transfers. Persist its
     // canonical PrepareContext envelope rather than the larger discussion
@@ -2894,7 +3142,7 @@ fn insert_packet(
         access: request.access.clone(),
         operation_id: request.operation_id.clone(),
         snapshot_id: packet.receipt.snapshot_id.clone(),
-        instruction: request.instruction.clone(),
+        instruction: packet_instruction(request, response_contract)?,
         mandatory_handles: mandatory_handles.to_vec(),
         transient_mandatory_handles: transient_handles,
         safe_brief: request.safe_brief.clone(),
@@ -2913,29 +3161,49 @@ fn insert_packet(
                     crate::context::lookup::REVIEWED_MEMORY_CAPABILITY.to_owned(),
                 ),
             }),
-        response_contract: match request.intent {
-            FeedbackIntent::Discuss if request.lookup.is_some() => {
-                Some(LOOKUP_RESPONSE_CONTRACT.to_owned())
-            }
-            FeedbackIntent::Continue => Some(CONTINUATION_RESPONSE_CONTRACT.to_owned()),
-            FeedbackIntent::ProposeEdits if packet.options.provider_binding.is_some() => Some(
-                if scope.is_some_and(|scope| {
-                    matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument)
-                }) {
-                    STRUCTURED_PROPOSAL_RESPONSE_CONTRACT.to_owned()
-                } else {
-                    PROPOSAL_RESPONSE_CONTRACT.to_owned()
-                },
-            ),
-            FeedbackIntent::WorkshopExplore => Some(WORKSHOP_RESPONSE_CONTRACT.to_owned()),
-            _ => None,
-        },
+        response_contract: response_contract
+            .map(str::to_owned)
+            .or_else(|| match request.intent {
+                FeedbackIntent::Discuss if request.lookup.is_some() => {
+                    Some(LOOKUP_RESPONSE_CONTRACT.to_owned())
+                }
+                FeedbackIntent::Continue => Some(CONTINUATION_RESPONSE_CONTRACT.to_owned()),
+                FeedbackIntent::ProposeEdits if packet.options.provider_binding.is_some() => Some(
+                    if scope.is_some_and(|scope| {
+                        matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument)
+                    }) {
+                        STRUCTURED_PROPOSAL_RESPONSE_CONTRACT.to_owned()
+                    } else {
+                        PROPOSAL_RESPONSE_CONTRACT.to_owned()
+                    },
+                ),
+                FeedbackIntent::WorkshopExplore => Some(WORKSHOP_RESPONSE_CONTRACT.to_owned()),
+                _ => None,
+            }),
     };
     let payload_hash = logical_hash(&prepared)?;
     let request_json = serde_json::to_string(&prepared)?;
     let packet_json = serde_json::to_string(packet)?;
     tx.execute("INSERT INTO context_packets(id,project_id,operation_namespace,operation_id,payload_hash,request_json,snapshot_id,session_id,invocation_ordinal,packet_json,packet_hash,input_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", params![packet.receipt.packet_id, request.access.project_id, request.access.operation_namespace, request.operation_id, payload_hash, request_json, packet.receipt.snapshot_id, packet.receipt.session_id, parse_version(&packet.receipt.invocation_ordinal)?, packet_json, sha256_hex(packet_json.as_bytes()), packet.receipt.input_hash])?;
     Ok(())
+}
+
+fn packet_instruction(
+    request: &StartDiscussion,
+    response_contract: Option<&str>,
+) -> CoreResult<String> {
+    if response_contract
+        == Some(crate::projects::project_chat_output::CHAPTER_DISCUSSION_RESPONSE_CONTRACT)
+    {
+        let target = serde_json::to_string(&request.expected)?;
+        return Ok(format!(
+            "{}\n\n{}\n{}",
+            request.instruction,
+            crate::projects::project_chat_output::CHAPTER_TARGET_HEAD_MARKER,
+            target
+        ));
+    }
+    Ok(request.instruction.clone())
 }
 
 fn ensure_thread(tx: &Connection, access: &ProjectAccess, document_id: &str) -> CoreResult<String> {

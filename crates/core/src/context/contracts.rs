@@ -26,6 +26,28 @@ pub struct SafeBriefInput {
     pub text: String,
     pub origin_message_id: Option<String>,
     pub confirmed: bool,
+    /// Optional project-conversation provenance for a brief that an author
+    /// explicitly selected for a restricted chapter request.  This is kept
+    /// separate from the legacy same-document message origin so old request
+    /// and receipt bytes remain unchanged when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_origin: Option<ProjectBriefOrigin>,
+}
+
+/// Versioned provenance for a brief selected from the project conversation.
+/// The project owner authenticates every field before the brief can enter a
+/// restricted packet; a conversation label or copied text is not sufficient.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectBriefOrigin {
+    pub version: String,
+    pub project_id: String,
+    pub operation_namespace: String,
+    pub conversation_id: String,
+    pub message_id: String,
+    pub target: crate::projects::Head,
+    pub scope_hash: String,
+    pub text_hash: String,
 }
 
 pub const MAX_SAFE_BRIEF_BYTES: usize = 16 * 1024;
@@ -36,6 +58,8 @@ pub struct SafeBriefReceipt {
     pub text: String,
     pub text_hash: String,
     pub origin_message_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_origin: Option<ProjectBriefOrigin>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +89,12 @@ pub enum SourceKind {
     Historical,
     PrivateFuture,
     AuthorRoomDiscussion,
+    /// An explicitly selected, unadopted project-chat draft.  Drafts are
+    /// author-room task material and never ordinary story evidence.
+    AssistantDraft,
+    /// Reserved for the blank project-conversation control anchor.  Anchors
+    /// are bookkeeping identities and must never be admitted as evidence.
+    ConversationControl,
 }
 
 /// Coverage describes how a source may be represented in a later packet. A

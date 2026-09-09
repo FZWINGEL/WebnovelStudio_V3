@@ -13,16 +13,33 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class OwnedCloseWindow {
+    private delegate bool EnumWindowCallback(IntPtr window, IntPtr arg);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowCallback callback, IntPtr arg);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, System.Text.StringBuilder text, int count);
     [DllImport("user32.dll", EntryPoint="GetWindowThreadProcessId")]
     public static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
     [DllImport("user32.dll")]
     public static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll", EntryPoint="PostMessageW")]
     public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+    public static IntPtr FindMainWindow(uint owner) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((window, unused) => {
+            uint pid; GetWindowThreadProcessId(window, out pid);
+            if (pid != owner) return true;
+            var text = new System.Text.StringBuilder(256);
+            GetWindowText(window, text, 256);
+            if (!text.ToString().StartsWith("WebnovelStudio V3", StringComparison.Ordinal)) return true;
+            found = window; return false;
+        }, IntPtr.Zero);
+        return found;
+    }
 }
 "@
 
-$handle = [IntPtr]$process.MainWindowHandle
+# Process.MainWindowHandle can return Tauri's untitled helper window.
+# WM_CLOSE must target the owned writing window to exercise its save guard.
+$handle = [OwnedCloseWindow]::FindMainWindow([uint32]$OwnerPid)
 if ($handle -eq [IntPtr]::Zero) {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes

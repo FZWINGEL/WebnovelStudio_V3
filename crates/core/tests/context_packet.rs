@@ -126,6 +126,7 @@ fn frozen(
         reviewed_evidence: Vec::new(),
         reviewed_promises: Vec::new(),
         reviewed_summaries: Vec::new(),
+        project_chat: None,
     })
 }
 
@@ -225,6 +226,7 @@ fn conversation_request() -> PacketRequest {
         project_id: PROJECT.into(),
         operation_namespace: "operations".into(),
         document_id: "target-doc".into(),
+        project_conversation_id: None,
         thread_id: "discussion".into(),
         omitted_turns: 3,
         turns: (0..2)
@@ -256,6 +258,61 @@ fn conversation_request() -> PacketRequest {
 }
 
 #[test]
+fn memory_http_binding_cannot_prepare_project_chat_or_chapter_discuss_packets() {
+    let target_body = body(&[("target-1", "The author-room target.")]);
+    let target = source("target", "target-doc", &target_body);
+    let binding = ProviderBinding::http_memory(
+        "openai-compatible:00000000-0000-0000-0000-000000000001",
+        "https://example.test/v1",
+        "1",
+        true,
+        webnovel_core::context::packet::HttpResponseFormat::Text,
+    );
+
+    let mut project_chat = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Discuss,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    let mut frozen_json = serde_json::to_value(&project_chat.frozen).unwrap();
+    frozen_json["projectChat"] = json!({
+        "conversationId": "conversation-1",
+        "anchorDocumentId": "anchor-1",
+        "operationNamespace": "operations",
+        "sourceRefs": [],
+        "taskDraftRefs": [],
+        "promptRecipeVersion": "project-chat-prompt.v2",
+        "dispositions": []
+    });
+    project_chat.frozen = serde_json::from_value(frozen_json).unwrap();
+    project_chat.response_contract = Some("project-assistant-output.v1".into());
+    project_chat.provider_binding = Some(binding.clone());
+
+    let mut chapter_discuss = request(
+        frozen(
+            vec![target.clone()],
+            ContextPurpose::Discuss,
+            Audience::AuthorRoom,
+        ),
+        vec![read(&target, &target_body)],
+    );
+    chapter_discuss.response_contract = Some("chapter-discussion-output.v1".into());
+    chapter_discuss.provider_binding = Some(binding);
+
+    for (label, candidate) in [("project chat", project_chat), ("chapter discuss", chapter_discuss)]
+    {
+        let error = compile_packet(&candidate).expect_err("memory HTTP must be rejected");
+        assert!(
+            matches!(error, PacketError::InvalidRequest { ref message } if message.contains("chapter-memory profile")),
+            "{label} should fail the provider capability check: {error}"
+        );
+    }
+}
+
+#[test]
 fn safe_brief_compiler_projects_exact_text_receipt_and_restricted_instruction() {
     use sha2::{Digest, Sha256};
 
@@ -275,6 +332,7 @@ fn safe_brief_compiler_projects_exact_text_receipt_and_restricted_instruction() 
         text: text.into(),
         origin_message_id: None,
         confirmed: true,
+        project_origin: None,
     });
 
     let packet = compile(request);
@@ -325,6 +383,7 @@ fn safe_brief_compiler_refuses_wrong_policy_scope_empty_unconfirmed_and_oversize
         text: "Keep the scene quiet.".into(),
         origin_message_id: None,
         confirmed: true,
+        project_origin: None,
     });
 
     let mut wrong_audience = valid.clone();
@@ -380,6 +439,7 @@ fn safe_brief_counts_as_mandatory_context_and_never_truncates() {
         text: "A".repeat(512),
         origin_message_id: None,
         confirmed: true,
+        project_origin: None,
     });
     baseline.budget = MockContextBudget::new(baseline_tokens.to_string(), "0", "0");
     match compile_packet(&baseline).expect_err("brief must not be silently truncated") {

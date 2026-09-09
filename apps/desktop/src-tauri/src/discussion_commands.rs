@@ -6,13 +6,18 @@ use crate::library_commands::DesktopLibrary;
 use crate::project_commands::{DesktopProjects, execute};
 use crate::provider_runtime::{DesktopProviders, binding_matches_author_choice};
 use tauri::State;
+use webnovel_core::context::packet::ProviderBinding;
 use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, packet_input_hash};
 #[cfg(windows)]
 use webnovel_core::library::codex_transport::CodexTransport;
 use webnovel_core::projects::discussions::*;
+use webnovel_core::projects::project_chat::{StartProjectChapter, StartProjectChat};
+use webnovel_core::projects::project_chat_output::{
+    CHAPTER_DISCUSSION_RESPONSE_CONTRACT, CHAPTER_TARGET_HEAD_MARKER,
+};
 use webnovel_core::projects::proposals::*;
 use webnovel_core::projects::workshop_generation::StartWorkshop;
-use webnovel_core::projects::{CoreError, CoreResult, ProjectAccess, ProjectSession};
+use webnovel_core::projects::{CoreError, CoreResult, Head, ProjectAccess, ProjectSession};
 #[cfg(windows)]
 use webnovel_core::providers::codex_app_server::{connection::AppServerRequest, is_app_server};
 use webnovel_core::providers::preferences::ModelSelection;
@@ -410,7 +415,76 @@ pub(crate) fn dispatch_started(
 /// session/CAS resolution; this helper only mirrors the ordinary discussion
 /// admission and dispatch boundary.
 pub(crate) fn start_workshop_native(
-    mut request: StartWorkshop,
+    request: StartWorkshop,
+    selected: ModelSelection,
+    project: ProjectSession,
+    recovery: DiscussionRecovery,
+    library: DesktopLibrary,
+    runtime: DesktopProviders,
+) -> CoreResult<DiscussionStart> {
+    start_author_native(
+        AuthorStart::Workshop(request),
+        selected,
+        project,
+        recovery,
+        library,
+        runtime,
+    )
+}
+
+/// Typed acceptance into the same native dispatch lifecycle. The enum changes
+/// the core command only; transport, admission, ownership and Stop are shared.
+pub(crate) enum AuthorStart {
+    Workshop(StartWorkshop),
+    ProjectChat(StartProjectChat),
+    ProjectChapter(StartProjectChapter),
+}
+impl AuthorStart {
+    pub(crate) fn set_binding(&mut self, binding: Option<ProviderBinding>) {
+        match self {
+            Self::Workshop(r) => r.provider_binding = binding,
+            Self::ProjectChat(r) => r.provider_binding = binding,
+            Self::ProjectChapter(r) => r.provider_binding = binding,
+        }
+    }
+    pub(crate) fn saved(&self, project: &ProjectSession) -> CoreResult<Option<DiscussionRun>> {
+        match self {
+            Self::Workshop(r) => saved_workshop_request(project, r),
+            Self::ProjectChat(r) => project.find_project_chat_request(
+                r.access.clone(),
+                r.conversation_id.clone(),
+                r.operation_id.clone(),
+            ),
+            Self::ProjectChapter(r) => project.find_project_chapter_request(
+                r.access.clone(),
+                r.conversation_id.clone(),
+                r.operation_id.clone(),
+            ),
+        }
+    }
+    pub(crate) fn accept(self, project: &ProjectSession) -> CoreResult<DiscussionStart> {
+        match self {
+            Self::Workshop(r) => project.start_workshop(r),
+            Self::ProjectChat(r) => project.start_project_chat(r),
+            Self::ProjectChapter(r) => project.start_project_chapter(r),
+        }
+    }
+    pub(crate) fn intent(&self) -> FeedbackIntent {
+        match self {
+            Self::Workshop(_) => FeedbackIntent::WorkshopExplore,
+            Self::ProjectChat(_) => FeedbackIntent::Discuss,
+            Self::ProjectChapter(request) => request
+                .composer
+                .chapter
+                .as_ref()
+                .map(|chapter| chapter.intent)
+                .unwrap_or(FeedbackIntent::Discuss),
+        }
+    }
+}
+
+pub(crate) fn start_author_native(
+    mut request: AuthorStart,
     selected: ModelSelection,
     project: ProjectSession,
     recovery: DiscussionRecovery,
@@ -418,7 +492,7 @@ pub(crate) fn start_workshop_native(
     runtime: DesktopProviders,
 ) -> CoreResult<DiscussionStart> {
     let _admission = runtime.admit_request()?;
-    let saved = saved_workshop_request(&project, &request)?;
+    let saved = request.saved(&project)?;
 
     // Resolve a lost-acknowledgment retry through the durable actor receipt
     // before touching provider connections. Terminal runs return immediately;
@@ -426,8 +500,8 @@ pub(crate) fn start_workshop_native(
     // be reacquired. recovery.claim remains the ownership gate, while an
     // unavailable provider leaves the durable queue for a later retry.
     if let Some(saved_run) = saved.as_ref() {
-        request.provider_binding = saved_run.provider_binding.clone();
-        let started = project.start_workshop(request)?;
+        request.set_binding(saved_run.provider_binding.clone());
+        let started = request.accept(&project)?;
         if started.run.status != DiscussionRunStatus::Queued {
             return Ok(started);
         }
@@ -496,7 +570,7 @@ pub(crate) fn start_workshop_native(
         if active != selected {
             return Err(CoreError::new(
                 "ModelChoiceChanged",
-                "The selected model changed before this workshop started. Check the model selector and send again.",
+                "The selected model changed before this request started. Check the model selector and send again.",
             ));
         }
     }
@@ -507,7 +581,7 @@ pub(crate) fn start_workshop_native(
         Some(runtime.connection().map_err(|_| {
             CoreError::new(
                 "ProviderUnavailable",
-                "Check the Codex connection in Settings before sending this workshop.",
+                "Check the Codex connection in Settings before sending this request.",
             )
         })?)
     } else {
@@ -518,13 +592,13 @@ pub(crate) fn start_workshop_native(
         Some(runtime.claude_connection().map_err(|_| {
             CoreError::new(
                 "ProviderUnavailable",
-                "Check the Claude Code connection in Settings before sending this workshop.",
+                "Check the Claude Code connection in Settings before sending this request.",
             )
         })?)
     } else {
         None
     };
-    request.provider_binding = if selected.provider_id == "mock" {
+    let binding = if selected.provider_id == "mock" {
         None
     } else if selected.provider_id == "codex" {
         #[cfg(windows)]
@@ -568,10 +642,11 @@ pub(crate) fn start_workshop_native(
     } else {
         return Err(CoreError::new(
             "ProviderUnavailable",
-            "This workshop provider is unavailable. Check Settings before sending.",
+            "This provider is unavailable. Check Settings before sending.",
         ));
     };
-    let started = project.start_workshop(request)?;
+    request.set_binding(binding);
+    let started = request.accept(&project)?;
     drop(library_guard);
     #[cfg(windows)]
     {
@@ -865,6 +940,67 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
     let envelope: serde_json::Value =
         serde_json::from_str(&packet.messages.get(1).ok_or_else(invalid)?.content)
             .map_err(|_| invalid())?;
+    let allowance = packet
+        .options
+        .max_output_tokens
+        .parse::<usize>()
+        .map_err(|_| invalid())?;
+    let chapter_discussion_contract = packet.messages.first().is_some_and(|message| {
+        message
+            .content
+            .contains(CHAPTER_DISCUSSION_RESPONSE_CONTRACT)
+    });
+    if chapter_discussion_contract {
+        let target_head = full_instruction
+            .split(CHAPTER_TARGET_HEAD_MARKER)
+            .nth(1)
+            .and_then(|tail| tail.lines().find(|line| !line.trim().is_empty()))
+            .ok_or_else(invalid)
+            .and_then(|json| serde_json::from_str::<Head>(json.trim()).map_err(|_| invalid()))?;
+        let target = envelope.get("target").ok_or_else(invalid)?;
+        let range = first_nonempty_target_block(target);
+        let output = serde_json::json!({
+            "schemaVersion": CHAPTER_DISCUSSION_RESPONSE_CONTRACT,
+            "answer": "The local test response identifies the first nonempty chapter paragraph for review; no live AI model was called.",
+            "rangeProposal": range.map(|(block_id, quote)| serde_json::json!({
+                "sourceHead": target_head,
+                "firstBlockId": block_id,
+                "lastBlockId": block_id,
+                "quote": quote,
+            })),
+        });
+        let encoded = serde_json::to_string(&output).map_err(|_| invalid())?;
+        if encoded.len() > allowance {
+            return Err(CoreError::new(
+                "OutputBudgetTooSmall",
+                "The reserved response allowance is too small for the local chapter discussion response.",
+            ));
+        }
+        return Ok(vec![encoded]);
+    }
+    if envelope.get("projectChat").is_some() {
+        if full_instruction
+            .to_ascii_lowercase()
+            .contains("write the first chapter")
+        {
+            return Ok(vec![serde_json::json!({
+                "schemaVersion":"project-assistant-output.v1",
+                "answer":"The local test model proposes a chapter-writing task. Choose its destination and approve the brief before sending it.",
+                "questions":[], "assumptions":[], "drafts":[],
+                "chapterHandoff": {"targetHandle":null,"proposedTitle":"The Cloud Bridge","instruction":"Write the first chapter at the cloud bridge.","brief":"Keep the ending hopeful. The healer is choosing whether to cross the bridge."}
+            }).to_string()]);
+        }
+        return Ok(vec![serde_json::json!({
+            "schemaVersion":"project-assistant-output.v1",
+            "answer":"I have prepared two isolated planning drafts from your idea. Open either draft to edit it, or review them together. This is a fixed local test response; no live model was called.",
+            "questions":[{"key":"central-choice","text":"What choice should put the protagonist under the most pressure? You can leave this open and continue with another idea."}],
+            "assumptions":[],
+            "drafts":[
+                {"key":"foundation","title":"Story foundation","kind":"world","changeSummary":"A starting point for the setting, pending your review.","blocks":[{"type":"paragraph","content":[{"type":"text","text":format!("Local test draft based on your request: {instruction}")}]}]},
+                {"key":"protagonist","title":"Main character","kind":"character","changeSummary":"A provisional character direction, pending your review.","blocks":[{"type":"paragraph","content":[{"type":"text","text":"The protagonist wants a quiet life, but a promise draws them into the conflict. Their motives and history are still open for discussion."}]}]}
+            ]
+        }).to_string()]);
+    }
     let focus = envelope
         .get("scope")
         .and_then(|scope| scope.get("quote"))
@@ -881,11 +1017,6 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
         .and_then(|scope| scope.get("kind"))
         .and_then(|kind| kind.as_str())
         .is_some_and(|kind| matches!(kind, "blocks" | "wholeDocument"));
-    let allowance = packet
-        .options
-        .max_output_tokens
-        .parse::<usize>()
-        .map_err(|_| invalid())?;
     if intent == FeedbackIntent::WorkshopExplore {
         let workshop = envelope.get("workshop").ok_or_else(invalid)?;
         let request: serde_json::Value =
@@ -1075,6 +1206,41 @@ fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Ve
         ));
     }
     Ok(chunks)
+}
+
+fn first_nonempty_target_block(target: &serde_json::Value) -> Option<(String, String)> {
+    let blocks = target
+        .get("body")
+        .and_then(|body| body.get("body"))
+        .and_then(|body| body.get("content"))
+        .and_then(serde_json::Value::as_array)
+        .or_else(|| {
+            target
+                .get("body")
+                .and_then(|body| body.get("content"))
+                .and_then(serde_json::Value::as_array)
+        })?;
+    blocks.iter().find_map(|block| {
+        let block_id = block
+            .get("attrs")
+            .and_then(|attrs| attrs.get("id"))
+            .and_then(serde_json::Value::as_str)?;
+        let content = block.get("content")?.as_array()?;
+        let quote = content
+            .iter()
+            .filter_map(
+                |inline| match inline.get("type").and_then(serde_json::Value::as_str) {
+                    Some("text") => inline
+                        .get("text")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                    Some("hardBreak") => Some("\n".to_owned()),
+                    _ => None,
+                },
+            )
+            .collect::<String>();
+        (!quote.trim().is_empty()).then(|| (block_id.to_owned(), quote))
+    })
 }
 
 #[cfg(test)]

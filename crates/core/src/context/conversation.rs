@@ -33,6 +33,11 @@ pub struct FrozenConversation {
     pub project_id: String,
     pub operation_namespace: String,
     pub document_id: String,
+    /// Project-chat history is rooted at a blank control anchor rather than
+    /// at one focused story document.  Legacy document discussions leave this
+    /// absent, preserving their serialized shape and validation rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_conversation_id: Option<String>,
     pub thread_id: String,
     /// Newest first for deterministic prefix selection. Delivered turns are
     /// reversed into chronological order without splitting a turn.
@@ -58,7 +63,12 @@ pub(crate) fn validate_conversation(
         );
     }
     if conversation.project_id != project_id
-        || conversation.document_id != document_id
+        || (conversation.project_conversation_id.is_none()
+            && conversation.document_id != document_id)
+        || conversation
+            .project_conversation_id
+            .as_deref()
+            .is_some_and(str::is_empty)
         || conversation.operation_namespace.is_empty()
         || conversation.thread_id.is_empty()
         || conversation.turns.len() > MAX_CONTEXT_TURNS

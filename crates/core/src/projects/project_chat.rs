@@ -1,0 +1,676 @@
+//! Project conversation projection. Text remains in discussion messages and
+//! document revisions; this module owns references, composer CAS and decisions.
+use super::discussions::{
+    DiscussionRun, DiscussionScopeInput, DiscussionStart, FeedbackIntent, RunOwner,
+};
+pub use super::project_chat_context::ProjectChatDraftRef;
+use super::project_chat_output::ChapterRangeProposal;
+use super::*;
+use crate::context::packet::{MockContextBudget, ProviderBinding};
+use crate::context::{BasisKind, SafeBriefInput};
+
+mod adoption;
+mod chapters;
+mod draft_lifecycle;
+mod history;
+mod materialize;
+mod store;
+mod transfer;
+
+pub use history::{
+    HistoricalConversation, HistoricalConversationItem, HistoricalConversationRef,
+    HistoricalConversationSummary, HistoricalDraftRevision, HistoricalSourceRevision,
+    ReadProjectChatHistory,
+};
+
+/// Validate project-chat's durable projection before a backup is accepted.
+///
+/// The general transfer validator owns the database snapshot and calls this
+/// narrow projection validator after the shared story tables have passed their
+/// checks.  Keeping the entry point here prevents backup code from reaching
+/// into project-chat's private storage layout.
+pub(crate) fn validate_storage(connection: &rusqlite::Connection) -> CoreResult<()> {
+    transfer::validate_storage(connection)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectComposer {
+    pub text: String,
+    #[serde(default)]
+    pub source_refs: Vec<Head>,
+    #[serde(default)]
+    pub task_draft_refs: Vec<ProjectChatDraftRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_document_ref: Option<Head>,
+    /// A chapter task is persisted with the same composer CAS as the
+    /// project conversation. It is consumed atomically when submitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chapter: Option<ProjectChapterComposer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectChapterComposer {
+    pub target: Head,
+    pub intent: FeedbackIntent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basis: Option<BasisKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<DiscussionScopeInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_brief: Option<SafeBriefInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectComposerSnapshot {
+    pub conversation_id: String,
+    pub version: String,
+    pub body: ProjectComposer,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConversationItem {
+    pub id: String,
+    pub sequence: String,
+    pub kind: String,
+    pub reference_id: Option<String>,
+    pub payload: Value,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssistantDraft {
+    pub document: DocumentRecord,
+    pub conversation_id: String,
+    pub origin_run_id: String,
+    pub packet_id: String,
+    pub initial_revision_id: String,
+    pub target: Option<Head>,
+    /// Prior assistant draft explicitly named by the response as its source.
+    /// This is lineage metadata only; the predecessor remains immutable and
+    /// independently reviewable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub predecessor_document_id: Option<String>,
+    pub disposition: String,
+    pub disposition_version: String,
+    pub stale: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectConversation {
+    pub id: String,
+    pub composer: ProjectComposerSnapshot,
+    pub items: Vec<ConversationItem>,
+    pub older_before: Option<String>,
+    pub active_run: Option<DiscussionRun>,
+    pub drafts: Vec<AssistantDraft>,
+    pub source_epoch: String,
+    pub policy_epoch: String,
+    pub earlier_workshop: bool,
+}
+
+/// Read-only activity owned by this project's current actor namespace.
+///
+/// The desktop picker uses this count to show project activity without
+/// opening another project, attaching a renderer, or returning any story
+/// content.  The active-work count is combined with the existing
+/// `background_work` census by the native command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectChatActivity {
+    pub pending_drafts: usize,
+}
+
+/// Read-only, source-bound feedback from an unscoped chapter discussion. The
+/// range is a suggestion for the writer; it is not a scope grant and cannot be
+/// adopted without a fresh editor-captured request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChapterDiscussionFeedback {
+    pub run_id: String,
+    pub target: Head,
+    pub answer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range_proposal: Option<ChapterRangeProposal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReadProjectConversation {
+    pub access: ProjectAccess,
+    #[serde(default)]
+    pub before: Option<String>,
+    #[serde(default = "page_size")]
+    pub limit: u32,
+}
+fn page_size() -> u32 {
+    40
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveProjectComposer {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub conversation_id: String,
+    pub expected_version: String,
+    pub body: ProjectComposer,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartProjectChat {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub conversation_id: String,
+    pub expected_composer_version: String,
+    pub composer: ProjectComposer,
+    pub budget: MockContextBudget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_binding: Option<ProviderBinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartProjectChapter {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub conversation_id: String,
+    pub expected_composer_version: String,
+    pub composer: ProjectComposer,
+    pub budget: MockContextBudget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_binding: Option<ProviderBinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveAssistantDraft {
+    pub conversation_id: String,
+    pub disposition_version: String,
+    pub snapshot: SaveSnapshot,
+}
+
+/// The bounded story surface to which a question decision applies. A missing
+/// scope on an older client means `project`; references are authenticated
+/// against the producing conversation before the event is stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChatDispositionScopeKind {
+    Project,
+    Task,
+    Chapter,
+    Document,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatDispositionScope {
+    pub kind: ChatDispositionScopeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_id: Option<String>,
+}
+
+impl ChatDispositionScope {
+    pub(crate) fn validate_shape(&self) -> CoreResult<()> {
+        match self.kind {
+            ChatDispositionScopeKind::Project => {
+                if self.reference_id.is_some() {
+                    return Err(CoreError::new(
+                        "InvalidDisposition",
+                        "A project disposition scope cannot carry a reference.",
+                    ));
+                }
+            }
+            ChatDispositionScopeKind::Task
+            | ChatDispositionScopeKind::Chapter
+            | ChatDispositionScopeKind::Document => {
+                let reference = self.reference_id.as_deref().ok_or_else(|| {
+                    CoreError::new(
+                        "InvalidDisposition",
+                        "A non-project disposition scope requires a reference.",
+                    )
+                })?;
+                check_id(reference)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Default for ChatDispositionScope {
+    fn default() -> Self {
+        Self {
+            kind: ChatDispositionScopeKind::Project,
+            reference_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChatUnknownTo {
+    Author,
+    Reader,
+    Both,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetChatDisposition {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub conversation_id: String,
+    pub reference_id: String,
+    pub expected_version: String,
+    /// draft: rejected/reconsider; question: notNow/notRelevant/keepMysterious/reconsider.
+    pub disposition: String,
+    #[serde(default)]
+    pub rationale: String,
+    /// Omitted for compatibility with older clients and interpreted as the
+    /// project-wide scope. Non-project references are bounded by the
+    /// producing conversation and document roles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<ChatDispositionScope>,
+    /// Only meaningful for a question kept mysterious. It records which
+    /// audience is intentionally denied the answer; it does not alter source
+    /// epochs or establish canon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unknown_to: Option<ChatUnknownTo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatMaterialization {
+    pub run_id: String,
+    pub item_id: String,
+    pub draft_ids: Vec<String>,
+    pub output_valid: bool,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrepareChatAdoption {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub conversation_id: String,
+    pub drafts: Vec<ProjectChatDraftRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatAdoptionTarget {
+    pub draft: ProjectChatDraftRef,
+    pub draft_revision_id: String,
+    pub document_id: String,
+    pub title: String,
+    pub kind: String,
+    pub before: Option<DocumentRecord>,
+    pub body: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatAdoptionPreview {
+    pub id: String,
+    pub version: String,
+    pub digest: String,
+    pub project_id: String,
+    pub operation_namespace: String,
+    pub conversation_id: String,
+    pub source_epoch: String,
+    pub policy_epoch: String,
+    pub workshop_version: String,
+    pub targets: Vec<ChatAdoptionTarget>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AdoptChatPreview {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub conversation_id: String,
+    pub preview_id: String,
+    pub preview_version: String,
+    pub preview_digest: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatAdoptionAck {
+    pub preview_id: String,
+    pub documents: Vec<DocumentRecord>,
+    pub decision_id: String,
+}
+
+pub(super) enum ProjectChatCommand {
+    FindRun(ProjectAccess, String, String, Reply<Option<DiscussionRun>>),
+    FindChapterRun(ProjectAccess, String, String, Reply<Option<DiscussionRun>>),
+    ReadChapterFeedback(
+        ProjectAccess,
+        String,
+        Reply<Option<ChapterDiscussionFeedback>>,
+    ),
+    IsRootRun(RunOwner, Reply<bool>),
+    Activity(Reply<ProjectChatActivity>),
+    Read(ReadProjectConversation, Reply<ProjectConversation>),
+    ListHistory(ProjectAccess, Reply<Vec<HistoricalConversationSummary>>),
+    ReadHistory(ReadProjectChatHistory, Reply<HistoricalConversation>),
+    SaveComposer(SaveProjectComposer, Reply<ProjectComposerSnapshot>),
+    Start(StartProjectChat, Reply<DiscussionStart>),
+    StartChapter(StartProjectChapter, Reply<DiscussionStart>),
+    Materialize(RunOwner, Reply<Option<ChatMaterialization>>),
+    ReadDraft(ProjectAccess, String, String, Reply<AssistantDraft>),
+    SaveDraft(SaveAssistantDraft, Reply<SaveAck>),
+    CheckpointDraft(String, CheckpointRequest, Reply<Revision>),
+    ReconcileDraft(String, ReconcileRequest, Reply<ReconciledDocument>),
+    Disposition(SetChatDisposition, Reply<ConversationItem>),
+    Preview(PrepareChatAdoption, Reply<ChatAdoptionPreview>),
+    ReadPreview(ProjectAccess, String, String, Reply<ChatAdoptionPreview>),
+    Adopt(AdoptChatPreview, Reply<ChatAdoptionAck>),
+}
+
+impl ProjectSession {
+    /// Count pending project-chat drafts through the owning actor.  The
+    /// actor's current project and operation namespace are the authority;
+    /// callers cannot supply another namespace or cause an attach.
+    pub fn project_chat_activity(&self) -> CoreResult<ProjectChatActivity> {
+        self.request(|r| Command::ProjectChat(Box::new(ProjectChatCommand::Activity(r))))
+    }
+
+    pub fn find_project_chat_request(
+        &self,
+        access: ProjectAccess,
+        conversation_id: String,
+        operation_id: String,
+    ) -> CoreResult<Option<DiscussionRun>> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::FindRun(
+                access,
+                conversation_id,
+                operation_id,
+                r,
+            )))
+        })
+    }
+    pub fn find_project_chapter_request(
+        &self,
+        access: ProjectAccess,
+        conversation_id: String,
+        operation_id: String,
+    ) -> CoreResult<Option<DiscussionRun>> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::FindChapterRun(
+                access,
+                conversation_id,
+                operation_id,
+                r,
+            )))
+        })
+    }
+    pub fn read_project_chapter_feedback(
+        &self,
+        access: ProjectAccess,
+        run_id: String,
+    ) -> CoreResult<Option<ChapterDiscussionFeedback>> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::ReadChapterFeedback(
+                access, run_id, r,
+            )))
+        })
+    }
+    pub fn is_root_project_chat_run(&self, owner: RunOwner) -> CoreResult<bool> {
+        self.request(|r| Command::ProjectChat(Box::new(ProjectChatCommand::IsRootRun(owner, r))))
+    }
+    pub fn read_project_conversation(
+        &self,
+        request: ReadProjectConversation,
+    ) -> CoreResult<ProjectConversation> {
+        self.request(|r| Command::ProjectChat(Box::new(ProjectChatCommand::Read(request, r))))
+    }
+    pub fn read_project_chat_history(
+        &self,
+        request: ReadProjectChatHistory,
+    ) -> CoreResult<HistoricalConversation> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::ReadHistory(request, r)))
+        })
+    }
+    pub fn list_project_chat_history(
+        &self,
+        access: ProjectAccess,
+    ) -> CoreResult<Vec<HistoricalConversationSummary>> {
+        self.request(|r| Command::ProjectChat(Box::new(ProjectChatCommand::ListHistory(access, r))))
+    }
+    pub fn save_project_composer(
+        &self,
+        request: SaveProjectComposer,
+    ) -> CoreResult<ProjectComposerSnapshot> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::SaveComposer(request, r)))
+        })
+    }
+    pub fn start_project_chat(&self, request: StartProjectChat) -> CoreResult<DiscussionStart> {
+        self.request(|r| Command::ProjectChat(Box::new(ProjectChatCommand::Start(request, r))))
+    }
+    pub fn start_project_chapter(
+        &self,
+        request: StartProjectChapter,
+    ) -> CoreResult<DiscussionStart> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::StartChapter(request, r)))
+        })
+    }
+    pub fn materialize_chat_result(
+        &self,
+        owner: RunOwner,
+    ) -> CoreResult<Option<ChatMaterialization>> {
+        self.request(|r| Command::ProjectChat(Box::new(ProjectChatCommand::Materialize(owner, r))))
+    }
+    pub fn read_assistant_draft(
+        &self,
+        access: ProjectAccess,
+        conversation_id: String,
+        document_id: String,
+    ) -> CoreResult<AssistantDraft> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::ReadDraft(
+                access,
+                conversation_id,
+                document_id,
+                r,
+            )))
+        })
+    }
+    pub fn save_assistant_draft(&self, request: SaveAssistantDraft) -> CoreResult<SaveAck> {
+        self.request(|r| Command::ProjectChat(Box::new(ProjectChatCommand::SaveDraft(request, r))))
+    }
+    pub fn checkpoint_assistant_draft(
+        &self,
+        conversation_id: String,
+        request: CheckpointRequest,
+    ) -> CoreResult<Revision> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::CheckpointDraft(
+                conversation_id,
+                request,
+                r,
+            )))
+        })
+    }
+    pub fn reconcile_assistant_draft(
+        &self,
+        conversation_id: String,
+        request: ReconcileRequest,
+    ) -> CoreResult<ReconciledDocument> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::ReconcileDraft(
+                conversation_id,
+                request,
+                r,
+            )))
+        })
+    }
+    pub fn set_chat_disposition(
+        &self,
+        request: SetChatDisposition,
+    ) -> CoreResult<ConversationItem> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::Disposition(request, r)))
+        })
+    }
+    pub fn prepare_chat_adoption(
+        &self,
+        request: PrepareChatAdoption,
+    ) -> CoreResult<ChatAdoptionPreview> {
+        self.request(|r| Command::ProjectChat(Box::new(ProjectChatCommand::Preview(request, r))))
+    }
+    pub fn adopt_chat_preview(&self, request: AdoptChatPreview) -> CoreResult<ChatAdoptionAck> {
+        self.request(|r| Command::ProjectChat(Box::new(ProjectChatCommand::Adopt(request, r))))
+    }
+    pub fn read_chat_adoption_preview(
+        &self,
+        access: ProjectAccess,
+        conversation_id: String,
+        preview_id: String,
+    ) -> CoreResult<ChatAdoptionPreview> {
+        self.request(|r| {
+            Command::ProjectChat(Box::new(ProjectChatCommand::ReadPreview(
+                access,
+                conversation_id,
+                preview_id,
+                r,
+            )))
+        })
+    }
+}
+
+impl OwnedProject {
+    pub(super) fn handle_project_chat(&mut self, command: ProjectChatCommand) {
+        macro_rules! reply {
+            ($r:expr, $op:expr) => {{
+                let result = $op;
+                self.fence_uncertain(&result);
+                let _ = $r.send(result);
+            }};
+        }
+        match command {
+            ProjectChatCommand::FindRun(a, c, o, r) => reply!(
+                r,
+                self.check_access(&a)
+                    .and_then(|()| store::find_run(self.db()?, &a, &c, &o))
+            ),
+            ProjectChatCommand::FindChapterRun(a, c, o, r) => reply!(
+                r,
+                self.check_access(&a).and_then(|()| store::find_chapter_run(
+                    self.db()?,
+                    &a,
+                    &c,
+                    &o
+                ))
+            ),
+            ProjectChatCommand::ReadChapterFeedback(a, run_id, r) => reply!(
+                r,
+                self.check_access(&a).and_then(|()| {
+                    self.db()
+                        .and_then(|db| store::read_chapter_feedback(db, &a, &run_id))
+                })
+            ),
+            ProjectChatCommand::IsRootRun(owner, r) => reply!(
+                r,
+                if owner.project_id != self.info.project_id
+                    || owner.operation_namespace != self.info.operation_namespace
+                {
+                    Err(CoreError::new(
+                        "DiscussionProjectMismatch",
+                        "The discussion run belongs to another project identity.",
+                    ))
+                } else {
+                    let access = ProjectAccess {
+                        project_id: owner.project_id.clone(),
+                        operation_namespace: owner.operation_namespace.clone(),
+                        session: String::new(),
+                        writer_lease: String::new(),
+                    };
+                    self.db()
+                        .and_then(|db| store::is_root_project_chat_run(db, &access, &owner.run_id))
+                }
+            ),
+            ProjectChatCommand::Activity(r) => reply!(r, self.project_chat_activity_snapshot()),
+            ProjectChatCommand::Read(q, r) => reply!(r, self.read_project_conversation(q)),
+            ProjectChatCommand::ListHistory(a, r) => reply!(
+                r,
+                self.check_access(&a)
+                    .and_then(|()| history::list(self.db()?, &a))
+            ),
+            ProjectChatCommand::ReadHistory(q, r) => reply!(
+                r,
+                self.check_access(&q.access)
+                    .and_then(|()| history::read(self.db()?, q))
+            ),
+            ProjectChatCommand::SaveComposer(q, r) => reply!(r, self.save_project_composer(q)),
+            ProjectChatCommand::Start(q, r) => reply!(r, self.start_project_chat(q)),
+            ProjectChatCommand::StartChapter(q, r) => reply!(r, self.start_project_chapter(q)),
+            ProjectChatCommand::Materialize(q, r) => reply!(r, self.materialize_chat_result(q)),
+            ProjectChatCommand::ReadDraft(a, c, d, r) => reply!(
+                r,
+                self.check_access(&a)
+                    .and_then(|()| store::read_draft(self.db()?, &a, &c, &d))
+            ),
+            ProjectChatCommand::SaveDraft(q, r) => reply!(r, self.save_assistant_draft(q)),
+            ProjectChatCommand::CheckpointDraft(c, q, r) => {
+                reply!(r, self.checkpoint_assistant_draft(c, q))
+            }
+            ProjectChatCommand::ReconcileDraft(c, q, r) => {
+                reply!(r, self.reconcile_assistant_draft(c, q))
+            }
+            ProjectChatCommand::Disposition(q, r) => reply!(r, self.set_chat_disposition(q)),
+            ProjectChatCommand::Preview(q, r) => reply!(r, adoption::prepare(self, q)),
+            ProjectChatCommand::ReadPreview(a, c, p, r) => {
+                reply!(r, adoption::read_preview(self, &a, &c, &p))
+            }
+            ProjectChatCommand::Adopt(q, r) => reply!(r, adoption::adopt(self, q)),
+        }
+    }
+}
+
+impl OwnedProject {
+    fn project_chat_activity_snapshot(&self) -> CoreResult<ProjectChatActivity> {
+        if self.needs_reopen || self.access.is_none() {
+            return Err(CoreError::new(
+                "RecoveryRequired",
+                "Project activity requires an attached current project session.",
+            ));
+        }
+        let db = self.db()?;
+        let pending_drafts: i64 = db.query_row(
+            "SELECT COUNT(*)
+               FROM assistant_drafts d
+               JOIN project_conversations c
+                 ON c.id=d.conversation_id
+                AND c.project_id=d.project_id
+                AND c.operation_namespace=d.operation_namespace
+              WHERE d.project_id=?
+                AND d.operation_namespace=?
+                AND d.disposition='pending'",
+            rusqlite::params![self.info.project_id, self.info.operation_namespace],
+            |row| row.get(0),
+        )?;
+        Ok(ProjectChatActivity {
+            pending_drafts: usize::try_from(pending_drafts).map_err(|_| {
+                CoreError::new(
+                    "InvalidProject",
+                    "The project has an invalid pending-draft count.",
+                )
+            })?,
+        })
+    }
+}

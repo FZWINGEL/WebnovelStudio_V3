@@ -1,5 +1,43 @@
 # V3 implementation status
 
+## Current status — opt-in chat-first project conversation (9 September 2026)
+
+The current development surface is an **opt-in** project conversation described
+by [ADR 0034](ADR_0034_PROJECT_CONVERSATION.md), the [chat-first
+specification](../V3_CHAT_FIRST_UX_SPEC.md), and its [implementation
+plan](../V3_CHAT_FIRST_UX_IMPLEMENTATION_PLAN.md). The detailed feature ledger
+is [V3 chat-first implementation status](V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md).
+This section supersedes older dated checkpoint summaries below when describing
+the current state.
+
+The same project conversation supports project questions and chapter feedback.
+Chapter requests retain an exact chapter and selected scope. Assistant output
+is stored as isolated task drafts, shown with exact reviewable before/after
+material, and requires explicit adoption; up to three nonchapter targets can be
+adopted atomically as one grouped operation. Scoped question/assumption
+decisions and read-only conversation history are implemented. The current draft
+review inventory is complete rather than capped at 100 items, and older
+conversation entries load through paging. A stale draft refresh is an explicit
+assistant action; a source change blocks adoption of the unchanged old preview.
+The default workspace remains unchanged while the opt-in surface is qualified.
+
+The current project reader floor is **schema 40**. Schema 39 provides document
+roles and schema 40 provides the per-project conversation, immutable items, and
+assistant-draft provenance. Existing documents and historical records retain
+their identities and bytes.
+
+The authoritative [chat-first implementation status](V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md)
+maintains current test counts, native/live evidence, and build identities. The
+current evidence covers the chat/document workflow, explicit chapter handoff,
+isolated draft review, recovery, project switching, and the responsive surface.
+A local native 200% zoom geometry check is verified. Human formative evaluation,
+screen-reader behavior, installed-package behavior, and broader provider and
+narrative qualification remain open; the default chat rollout remains opt-in
+and the full chat-first specification is not declared complete. English-only
+authoring means IME qualification is not a product requirement. The optional
+chapter-handoff recipe is covered by local/native development evidence only and
+is not live-provider qualified.
+
 ## Optional persistent Codex transport (8 September 2026)
 
 [ADR 0033](ADR_0033_CODEX_APP_SERVER.md) now describes the implemented optional

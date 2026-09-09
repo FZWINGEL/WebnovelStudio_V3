@@ -74,6 +74,22 @@ export class DocumentSession {
   }
   get body(): WnsDocument { return this.current; }
   get projectAccess(): ProjectAccess { return clone(this.access); }
+  /** A sibling editor's fenced recovery rotates the project lease, not its body. */
+  async acceptProjectAccess(access: ProjectAccess): Promise<void> {
+    if (canonicalJson(access) === canonicalJson(this.access)) return;
+    if (access.projectId !== this.access.projectId || access.operationNamespace !== this.access.operationNamespace
+      || access.session !== this.access.session || !access.writerLease) {
+      throw new SessionError('WrongProjectSession', 'The recovered access belongs to another project session.');
+    }
+    await this.withLifecycleGuard(async () => {
+      this.clearTimer();
+      if (this.flight) { try { await this.flight; } catch { /* Keep its pending capture and recovery state. */ } }
+      this.access = clone(access);
+      // Pending operations still require their own receipt reconciliation.
+      // Neither a sibling's recovery nor this lease change acknowledges a save.
+    });
+    this.schedule();
+  }
   get savedConflict(): DocumentRecord | null { return this.conflict ? clone(this.conflict.document) : null; }
   get state(): SessionState {
     return { phase: this.phase, generation: this.generation.toString(), savedGeneration: this.savedGeneration.toString(), head: clone(this.head), saving: !!this.flight,

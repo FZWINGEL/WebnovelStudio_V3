@@ -1,4 +1,8 @@
-export type WorkspaceMode = 'develop' | 'write';
+export type WorkspaceMode = 'develop' | 'write' | 'chat';
+
+// Opt-in after the source-isolation checkpoint; native evidence is recorded separately.
+// Changing the default still requires the separate formative author gate.
+export const CHAT_FIRST_TRIAL_ENABLED = true;
 
 const PREFERENCE_VERSION = 1;
 const PREFERENCE_PREFIX = 'webnovelstudio.workspace-mode.v1:';
@@ -21,7 +25,7 @@ export function workspaceModePreferenceKey(projectId: string): string {
 }
 
 function validMode(value: unknown): value is WorkspaceMode {
-  return value === 'develop' || value === 'write';
+  return value === 'develop' || value === 'write' || value === 'chat';
 }
 
 /**

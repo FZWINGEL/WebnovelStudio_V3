@@ -49,6 +49,7 @@ mod live_memory;
 mod lookup_discussion;
 mod memory_commands;
 mod memory_recovery;
+mod project_chat_commands;
 mod project_commands;
 mod provider_commands;
 mod provider_runtime;
@@ -152,6 +153,17 @@ fn main() {
                 window
             };
             let window = window.build()?;
+            // Native accessibility qualification uses the real WebView zoom,
+            // not CSS scaling or browser viewport emulation. Shipping windows
+            // keep the author's normal WebView zoom shortcuts.
+            #[cfg(debug_assertions)]
+            if let Ok(zoom) = std::env::var("WNS_V3_TRIAL_ZOOM_FACTOR") {
+                let zoom: f64 = zoom.parse()?;
+                if !zoom.is_finite() || !(0.5..=3.0).contains(&zoom) {
+                    return Err("Native trial zoom must be between 0.5 and 3.0".into());
+                }
+                window.set_zoom(zoom)?;
+            }
             #[cfg(windows)]
             reload_accelerators::install(&window)?;
             #[cfg(debug_assertions)]
@@ -159,6 +171,23 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            project_chat_commands::project_activity,
+            project_chat_commands::read_project_conversation,
+            project_chat_commands::list_project_chat_history,
+            project_chat_commands::read_project_chat_history,
+            project_chat_commands::save_project_composer,
+            project_chat_commands::start_project_chat,
+            project_chat_commands::start_project_chapter,
+            project_chat_commands::read_project_chapter_feedback,
+            project_chat_commands::retry_project_chat_save,
+            project_chat_commands::read_assistant_draft,
+            project_chat_commands::save_assistant_draft,
+            project_chat_commands::checkpoint_assistant_draft,
+            project_chat_commands::reconcile_assistant_draft,
+            project_chat_commands::set_chat_disposition,
+            project_chat_commands::prepare_chat_adoption,
+            project_chat_commands::adopt_chat_preview,
+            project_chat_commands::read_chat_adoption_preview,
             app_close_commands::begin_app_close,
             app_close_commands::app_close_status,
             app_close_commands::stop_app_jobs,

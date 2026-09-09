@@ -1127,7 +1127,7 @@ fn backup_and_recovery_preserve_historical_export_records_and_schema_nine_migrat
         .unwrap()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 38);
+    assert_eq!(version, 40);
     let table: i64 = Connection::open(source.join("project.sqlite3"))
         .unwrap()
         .query_row(
@@ -1283,5 +1283,5 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read recovered schema");
-    assert_eq!(version, 38);
+    assert_eq!(version, 40);
 }

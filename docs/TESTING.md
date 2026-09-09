@@ -28,6 +28,55 @@ Focused checks speed up iteration. Run the full check before submitting a
 change; use the relevant native flow when editor, lifecycle, or IPC behavior
 changes. These commands use mock providers and synthetic projects.
 
+## Current chat-first qualification boundary — 9 September 2026
+
+The project conversation is an **opt-in** native development surface. The
+authoritative [chat-first implementation status](V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md)
+maintains current Rust, frontend, native, live-provider, and build-identity
+evidence. The functional surface includes direct source attachment, explicit
+chapter handoff, isolated draft review, project-scoped resizing, and responsive
+documents/review navigation.
+
+A local native 200% zoom geometry check is verified. Human formative evaluation,
+installed-package behavior, screen-reader behavior, and broader provider and
+narrative qualification remain open. English-only authoring means IME
+qualification is not a product requirement; chat remains opt-in. The optional
+chapter-handoff recipe is not live-provider qualified.
+
+Run the rebuilt local smoke after `.\scripts\desktop.ps1 -Command spike` with:
+
+```powershell
+npm.cmd exec --yes --package=node@24.20.0 -- node apps/desktop/scripts/native-chat-smoke.mjs
+```
+
+The live check is separately opt-in and submits exactly two requests:
+
+```powershell
+$previous = $env:WNS_V3_ALLOW_LIVE_CHAT
+try {
+    $env:WNS_V3_ALLOW_LIVE_CHAT = '1'
+    npm.cmd exec --yes --package=node@24.20.0 -- node apps/desktop/scripts/native-chat-live.mjs
+} finally {
+    $env:WNS_V3_ALLOW_LIVE_CHAT = $previous
+}
+```
+
+These checks establish development behavior only. See [ADR
+0034](ADR_0034_PROJECT_CONVERSATION.md) and the [chat-first implementation
+status](V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md) for qualification boundaries.
+The current project reader floor is schema 40.
+
+To qualify the newer handoff and chapter-range response formats, set
+`WNS_V3_CHAT_LIVE_MODE=contracts` as well as `WNS_V3_ALLOW_LIVE_CHAT=1` for the
+same live script. This separate mode submits at most two requests: one
+project-chat v2 handoff and one unselected chapter discussion proposing an
+exact paragraph. Confirmation stages an unsent edit and must leave ordinary
+heads unchanged. It retains both packets, outputs, and provider receipts under
+`.local/native-results/chat-live-contracts`. It never retries or falls back;
+a failed or uncertain attempt requires inspection before another trial.
+Restore both environment variables after the run. This mode is not a narrative
+quality benchmark or a replacement for the author/installed-package gates.
+
 ## Bounded live Workshop check
 
 `crates/core/examples/qualify_live_workshop.rs` is a separate Windows-only,

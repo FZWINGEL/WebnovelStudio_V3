@@ -230,6 +230,7 @@ fn generic_prepare_rejects_safe_brief_before_snapshot_lookup() {
         text: "A caller supplied direction".into(),
         origin_message_id: None,
         confirmed: true,
+        project_origin: None,
     });
     let error = project
         .prepare_context(request)
@@ -570,6 +571,7 @@ fn safe_brief_receipt_tampering_is_rejected_by_read_and_backup_validation() {
                 text: "Keep the selected exchange restrained.".into(),
                 origin_message_id: None,
                 confirmed: true,
+                project_origin: None,
             }),
             budget: budget(),
             provider_binding: None,

@@ -211,7 +211,7 @@ impl OwnedProject {
         // The chooser is an author surface. It reuses identities, never grants
         // story authority or disclosure permission to the next record.
         let rows = {
-            let mut statement = tx.prepare("SELECT d.id,d.title,b.target_revision_id,b.target_body_hash FROM documents d JOIN ready_heads h ON h.document_id=d.id JOIN ready_bundles b ON b.id=h.bundle_id WHERE d.kind='chapter' AND d.trashed=0 AND h.project_id=? AND h.operation_namespace=? ORDER BY d.position,d.id")?;
+            let mut statement = tx.prepare("SELECT d.id,d.title,b.target_revision_id,b.target_body_hash FROM documents d JOIN ready_heads h ON h.document_id=d.id JOIN ready_bundles b ON b.id=h.bundle_id WHERE d.kind='chapter' AND d.trashed=0 AND d.role='ordinary' AND h.project_id=? AND h.operation_namespace=? ORDER BY d.position,d.id")?;
             statement
                 .query_map(
                     params![access.project_id, access.operation_namespace],
@@ -300,7 +300,7 @@ impl OwnedProject {
         self.check_access(access)?;
         let tx = self.db()?.unchecked_transaction()?;
         let rows = {
-            let mut statement = tx.prepare("SELECT d.id,d.title,b.target_revision_id,b.target_body_hash FROM documents d JOIN ready_heads h ON h.document_id=d.id JOIN ready_bundles b ON b.id=h.bundle_id WHERE d.kind='chapter' AND d.trashed=0 AND h.project_id=? AND h.operation_namespace=? ORDER BY d.position,d.id")?;
+            let mut statement = tx.prepare("SELECT d.id,d.title,b.target_revision_id,b.target_body_hash FROM documents d JOIN ready_heads h ON h.document_id=d.id JOIN ready_bundles b ON b.id=h.bundle_id WHERE d.kind='chapter' AND d.trashed=0 AND d.role='ordinary' AND h.project_id=? AND h.operation_namespace=? ORDER BY d.position,d.id")?;
             statement
                 .query_map(
                     params![access.project_id, access.operation_namespace],
@@ -489,7 +489,7 @@ fn current_review_rows(
     access: &ProjectAccess,
 ) -> CoreResult<Vec<(String, String, String, String)>> {
     let mut statement = db.prepare(
-        "SELECT d.id,d.title,b.target_revision_id,b.target_body_hash FROM documents d JOIN ready_heads h ON h.document_id=d.id JOIN ready_bundles b ON b.id=h.bundle_id WHERE d.kind='chapter' AND d.trashed=0 AND h.project_id=? AND h.operation_namespace=? ORDER BY d.position,d.id",
+        "SELECT d.id,d.title,b.target_revision_id,b.target_body_hash FROM documents d JOIN ready_heads h ON h.document_id=d.id JOIN ready_bundles b ON b.id=h.bundle_id WHERE d.kind='chapter' AND d.trashed=0 AND d.role='ordinary' AND h.project_id=? AND h.operation_namespace=? ORDER BY d.position,d.id",
     )?;
     Ok(statement
         .query_map(

@@ -231,7 +231,7 @@ fn validate_scope(db: &Connection, request: &SaveGuidance) -> CoreResult<()> {
             })?;
             check_id(document_id)?;
             let exists: bool = db.query_row(
-                "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0)",
+                "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND trashed=0 AND role='ordinary')",
                 [document_id],
                 |row| row.get(0),
             )?;
@@ -838,7 +838,7 @@ pub(crate) fn validate_guidance_storage(db: &Connection) -> CoreResult<()> {
         let _version = head_to_version(version)?;
         if let Some(document_id) = document_id {
             let exists: bool = db.query_row(
-                "SELECT EXISTS(SELECT 1 FROM documents WHERE id=?)",
+                "SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND role='ordinary')",
                 [document_id],
                 |row| row.get(0),
             )?;

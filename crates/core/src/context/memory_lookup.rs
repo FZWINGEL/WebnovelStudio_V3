@@ -475,6 +475,7 @@ mod tests {
                 records,
             }],
             reviewed_summaries: Vec::new(),
+            project_chat: None,
         }
     }
 

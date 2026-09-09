@@ -9,9 +9,15 @@ import { prepareContinuation } from '../editor/continuation';
 import { confirmPreparation } from '../editor/preparation';
 import { prepareStructuredReplacement, structuredRange, validateStructuredBlocks } from '../editor/structured';
 import { DocumentSession, SessionError, type PreparedEditorChange } from '../editor/session';
-import { saveViewState, type DocumentRecord, type Endpoint, type Revision, type ViewState } from '../ipc/projects';
+import { saveViewState, type DocumentRecord, type Endpoint, type Head, type Revision, type ViewState } from '../ipc/projects';
 import { captureSelection, prepareScopedReplacement, type Scope } from '../editor/selection';
-import { prepareContinuationProposal, prepareProposal, prepareStructuredProposal, type PrepareContinuation, type PrepareStructured, type PreparedProposal, type Proposal } from '../ipc/proposals';
+import { prepareContinuationProposal, prepareProposal, prepareStructuredProposal, readProposals, type PrepareContinuation, type PrepareStructured, type PreparedProposal, type Proposal } from '../ipc/proposals';
+import { captureRevisionScope } from '../editor/revisionScope';
+import { ProposalPanel } from '../assistant/ProposalPanel';
+import type { ProjectChapterComposer } from '../ipc/projectChat';
+import { readProjectChapterFeedback, type ChapterDiscussionFeedback } from '../ipc/projectChat';
+import { ChapterRangeReview, suggestedChapterRange } from '../chat/ChapterRangeReview';
+import { confirmChapterRange } from '../chat/confirmChapterRange';
 import { FeedbackPanel } from '../assistant/FeedbackPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { ReviewPanel } from './ReviewPanel';
@@ -21,7 +27,12 @@ import { DocumentAliases } from '../story/DocumentAliases';
 import type { SourceChoice } from '../ipc/sourcePins';
 
 const Manuscript = memo(({ editor }: { editor: Editor }) => <EditorContent editor={editor} />);
-export function Writer({ active, sources, onError, onRename, navigation }: { active: { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null }; sources: SourceChoice[]; onError: (message: string) => void; onRename: () => void; navigation?: { index: number; total: number; previous?: () => void; next?: () => void; disabled: boolean } }) {
+export interface WriterConversation {
+  stageChapter(task: ProjectChapterComposer): Promise<void>;
+  attachSource(head: Head): Promise<void>;
+  reviewRunId: string | null;
+}
+export function Writer({ active, sources, onError, onRename, navigation, conversation }: { active: { record: DocumentRecord; session: DocumentSession; viewState: ViewState | null }; sources: SourceChoice[]; onError: (message: string) => void; onRename: () => void; navigation?: { index: number; total: number; previous?: () => void; next?: () => void; disabled: boolean }; conversation?: WriterConversation }) {
   const { session, record } = active;
   const [state, setState] = useState(session.state);
   const [, redraw] = useState(0);
@@ -31,6 +42,13 @@ export function Writer({ active, sources, onError, onRename, navigation }: { act
   const [reviewVisible, setReviewVisible] = useState(false);
   const [memoryVisible, setMemoryVisible] = useState(false);
   const [namesVisible, setNamesVisible] = useState(false);
+  const [chatProposals, setChatProposals] = useState<Proposal[]>([]);
+  const [chapterFeedback, setChapterFeedback] = useState<ChapterDiscussionFeedback | null>(null);
+  const [rangeBusy, setRangeBusy] = useState(false);
+  const [rangeError, setRangeError] = useState('');
+  const [rangeConfirmed, setRangeConfirmed] = useState(false);
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
   const namesButton = useRef<HTMLButtonElement>(null);
   const namesGuard = useRef<(() => Promise<void>) | null>(null);
   const registerNamesGuard = useCallback((guard: (() => Promise<void>) | null) => { namesGuard.current = guard; }, []);
@@ -44,6 +62,10 @@ export function Writer({ active, sources, onError, onRename, navigation }: { act
   }, [session]);
   const [assistantAction, setAssistantAction] = useState<{ kind: 'draft' | 'develop' | 'revise' | 'discuss'; nonce: number } | undefined>();
   function startAssistant(kind: 'draft' | 'develop' | 'revise' | 'discuss') {
+    if (conversationRef.current) {
+      void stageConversationTask(kind === 'draft' ? 'continue' : kind === 'revise' ? 'proposeEdits' : 'discuss').catch(reason => onError((reason as Error).message));
+      return;
+    }
     setHistoryVisible(false); setReviewVisible(false); setMemoryVisible(false); setDiscussionVisible(true);
     setAssistantAction(previous => ({ kind, nonce: (previous?.nonce ?? 0) + 1 }));
   }
@@ -77,6 +99,55 @@ export function Writer({ active, sources, onError, onRename, navigation }: { act
       session.update(snapshotFromEditor(editor.getJSON()), transaction.getMeta('saveCause') ?? 'typing');
     },
   }));
+  async function stageConversationTask(intent: 'discuss' | 'proposeEdits' | 'continue', selected?: Scope): Promise<void> {
+    const bridge = conversationRef.current;
+    if (!bridge) return;
+    if (record.kind !== 'chapter') {
+      await session.flush();
+      await bridge.attachSource(session.state.head);
+      return;
+    }
+    const captured = snapshotFromEditor((selected?.source ?? editor.state.doc).toJSON());
+    const hash = await bodyHash(canonicalJson(captured));
+    await session.flush();
+    if (session.state.head.bodyHash !== hash) throw new SessionError('StaleSource', 'The chapter changed while its scope was being captured. Select it again.');
+    const scope = selected
+      ? { kind: 'passage' as const, start: selected.start, end: selected.end, quote: selected.quote, sourceBodyHash: hash }
+      : intent === 'proposeEdits' ? captureRevisionScope(captured, hash, 'wholeDocument') : null;
+    await bridge.stageChapter({ target: session.state.head, intent, basis: intent === 'continue' ? 'working' : null, scope });
+    setMenu(null);
+  }
+  const refreshChatProposals = useCallback(async () => {
+    const proposals = await readProposals(session.projectAccess, record.head.documentId);
+    setChatProposals(proposals);
+  }, [session, record.head.documentId]);
+  useEffect(() => {
+    setChapterFeedback(null); setRangeError(''); setRangeBusy(false); setRangeConfirmed(false);
+    if (!conversation?.reviewRunId) return;
+    let live = true;
+    void readProposals(session.projectAccess, record.head.documentId).then(proposals => { if (live) setChatProposals(proposals); }).catch(reason => { if (live) onError((reason as Error).message); });
+    void readProjectChapterFeedback(session.projectAccess, conversation.reviewRunId).then(feedback => { if (live) setChapterFeedback(feedback); }).catch(reason => { if (live) setRangeError(reason && typeof reason === 'object' && 'detail' in reason ? String(reason.detail) : (reason as Error).message); });
+    return () => { live = false; };
+  }, [conversation?.reviewRunId, record.head.documentId, session]);
+  const proposedRange = chapterFeedback ? suggestedChapterRange(chapterFeedback, session.body) : null;
+  async function confirmSuggestedRange(): Promise<void> {
+    const runId = conversationRef.current?.reviewRunId;
+    if (!proposedRange || !runId || chapterFeedback?.runId !== runId || rangeBusy) return;
+    setRangeBusy(true); setRangeError('');
+    try {
+      await confirmChapterRange(session, proposedRange, async () => {
+        const fresh = await readProjectChapterFeedback(session.projectAccess, runId);
+        if (conversationRef.current?.reviewRunId !== runId || session.state.phase === 'disposed') throw new Error('The chapter review changed. Open the response again.');
+        return fresh && fresh.runId === runId ? suggestedChapterRange(fresh, session.body) : null;
+      }, async task => {
+        if (conversationRef.current?.reviewRunId !== runId || !conversationRef.current) throw new Error('The chapter review changed. Open the response again.');
+        await conversationRef.current.stageChapter(task);
+      });
+      if (conversationRef.current?.reviewRunId === runId) setRangeConfirmed(true);
+    } catch (reason) {
+      if (conversationRef.current?.reviewRunId === runId && session.state.phase !== 'disposed') setRangeError(reason instanceof Error ? reason.message : 'The passage could not be confirmed. Select it again in the chapter.');
+    } finally { if (conversationRef.current?.reviewRunId === runId && session.state.phase !== 'disposed') setRangeBusy(false); }
+  }
   const prepare = async (proposal: Proposal, text: string, operationId: string): Promise<PreparedProposal> => {
     if (proposal.kind === 'structured') {
       let request = structuredPreviews.current.get(operationId);
@@ -163,6 +234,10 @@ export function Writer({ active, sources, onError, onRename, navigation }: { act
   discuss.current = () => {
     const scope = captureSelection(editor);
     if (!scope || !session.state.editable) return false;
+    if (conversationRef.current) {
+      void stageConversationTask('discuss', scope).catch(reason => onError((reason as Error).message));
+      return true;
+    }
     setDiscussionSelection(previous => ({ scope, nonce: (previous?.nonce ?? 0) + 1 }));
     setHistoryVisible(false); setReviewVisible(false); setMemoryVisible(false); setDiscussionVisible(true); setMenu(null); return true;
   };
@@ -265,7 +340,8 @@ export function Writer({ active, sources, onError, onRename, navigation }: { act
     <div className="document-tools" role="toolbar" aria-label="Document actions"><button className="primary-button draft-action" aria-label="Start AI draft" disabled={!state.editable} onClick={() => startAssistant(record.kind === 'chapter' ? 'draft' : 'develop')}>{draftingLabel}</button><button disabled={!state.editable} onClick={onRename}>Rename document</button><button ref={historyButton} aria-pressed={historyVisible} disabled={!state.editable} onClick={() => { if (historyVisible) setHistoryVisible(false); else void openHistory(); }}>History</button>
       {record.kind === 'chapter' && <button ref={reviewButton} aria-pressed={reviewVisible} disabled={!state.editable} onClick={() => { setHistoryVisible(false); setMemoryVisible(false); setReviewVisible(value => !value); }}>Story review</button>}
       {record.kind === 'chapter' && <button ref={memoryButton} aria-pressed={memoryVisible} disabled={!state.editable} onClick={() => { setHistoryVisible(false); setReviewVisible(false); setDiscussionVisible(false); setMemoryVisible(value => !value); }}>Story memory</button>}
-      <button aria-label="Discussion" aria-pressed={discussionVisible && !historyVisible && !reviewVisible && !memoryVisible} disabled={(historyVisible || reviewVisible || memoryVisible) && !state.editable} onClick={() => { setHistoryVisible(false); setReviewVisible(false); setMemoryVisible(false); setDiscussionVisible(value => historyVisible || reviewVisible || memoryVisible || !value); }}>Writing assistant</button></div>
+      {conversation ? <button disabled={!state.editable} onClick={() => startAssistant('discuss')}>Discuss in project chat</button> : <button aria-label="Discussion" aria-pressed={discussionVisible && !historyVisible && !reviewVisible && !memoryVisible} disabled={(historyVisible || reviewVisible || memoryVisible) && !state.editable} onClick={() => { setHistoryVisible(false); setReviewVisible(false); setMemoryVisible(false); setDiscussionVisible(value => historyVisible || reviewVisible || memoryVisible || !value); }}>Writing assistant</button>}
+      {conversation && record.kind === 'chapter' && <button disabled={!state.editable} onClick={() => startAssistant('revise')}>Suggest chapter changes</button>}</div>
     {(record.kind === 'character' || record.kind === 'world') && <div className="document-names">
       <button ref={namesButton} aria-expanded={namesVisible} disabled={!state.editable} onClick={() => setNamesVisible(true)}>Names & aliases</button>
       <DocumentAliases access={session.projectAccess} documentId={state.head.documentId} title={record.title} visible={namesVisible} disabled={!state.editable} registerGuard={registerNamesGuard} beforeSave={flushBeforeNames} onClose={() => { setNamesVisible(false); namesButton.current?.focus(); }} />
@@ -286,7 +362,12 @@ export function Writer({ active, sources, onError, onRename, navigation }: { act
     <div className="manuscript-scroll" onContextMenu={event => { if (!editor.state.selection.empty && state.editable) { event.preventDefault(); setMenu({ x: Math.min(event.clientX, window.innerWidth - 270), y: Math.min(event.clientY, window.innerHeight - 60) }); } }} onPaste={event => { if (/<(?:table|img|ul|ol|pre|video|iframe|script|blockquote|code|s|strike|del|u|sub|sup|h[4-6])\b/iu.test(event.clipboardData.getData('text/html'))) setPasteNotice('Pasted text with supported formatting. Other formatting or embedded content was omitted.'); }}><div className="manuscript-page">{empty && <div className="draft-start"><h2>{record.kind === 'chapter' ? 'What should happen in this chapter?' : 'What would you like to create?'}</h2><p>{record.kind === 'chapter' ? 'Describe the scene, the emotional turn, or the ending you have in mind. Your assistant will draft a version for you to review.' : 'Give your assistant a starting point. Develop a proposal together, then apply the version you want to keep.'}</p><button className="primary-button" disabled={!state.editable} onClick={() => startAssistant(record.kind === 'chapter' ? 'draft' : 'develop')}>{record.kind === 'chapter' ? 'Describe this chapter' : 'Describe your idea'}</button><span>Or write directly below.</span></div>}<Manuscript editor={editor} /></div></div>
     <footer className="writing-status"><span>{pasteNotice || 'Writing on this computer'}</span><span>Local manuscript</span></footer>
   </main>
-  <FeedbackPanel session={session} state={state} title={record.title} documentKind={record.kind} sources={sources} selection={discussionSelection} assistantAction={assistantAction} visible={discussionVisible && !historyVisible && !reviewVisible && !memoryVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} onPrepareProposal={prepare} onApplyProposal={apply} />
+  {!conversation && <FeedbackPanel session={session} state={state} title={record.title} documentKind={record.kind} sources={sources} selection={discussionSelection} assistantAction={assistantAction} visible={discussionVisible && !historyVisible && !reviewVisible && !memoryVisible} onClose={() => setDiscussionVisible(false)} registerSaver={registerDiscussionSaver} onPrepareProposal={prepare} onApplyProposal={apply} />}
+  {conversation?.reviewRunId && <section className="chat-chapter-proposals" aria-label="Chapter suggestions"><h2>Chapter suggestions</h2>
+    {proposedRange && !rangeConfirmed && <ChapterRangeReview range={proposedRange} busy={rangeBusy} stale={state.dirty || canonicalJson(state.head) !== canonicalJson(proposedRange.target)} error={(rangeError || chapterFeedback?.rangeError) ?? undefined} onConfirm={() => void confirmSuggestedRange()} />}
+    {rangeConfirmed && <p role="status">Passage confirmed in the composer. Describe your change and send the edit request when ready.</p>}
+    {!proposedRange && (rangeError || chapterFeedback?.rangeError) && <p role="status">{rangeError || chapterFeedback?.rangeError} The feedback remains in your conversation; select a current passage to request an edit.</p>}
+    <ProposalPanel access={session.projectAccess} proposals={chatProposals.filter(proposal => proposal.runId === conversation.reviewRunId)} disabled={!state.editable} onPrepareProposal={prepare} onApplyProposal={async (proposal, prepared) => { await apply(proposal, prepared); await refreshChatProposals(); }} onRefresh={refreshChatProposals} />{!proposedRange && !chatProposals.some(proposal => proposal.runId === conversation.reviewRunId) && <p>This response has no saved chapter edit proposals.</p>}</section>}
   <HistoryPanel access={session.projectAccess} documentId={state.head.documentId} body={session.body} visible={historyVisible} disabled={!state.editable} onClose={() => { setHistoryVisible(false); historyButton.current?.focus(); }} onRestore={restore} />
   {record.kind === 'chapter' && <ReviewPanel session={session} state={state} visible={reviewVisible && !memoryVisible} captureSelection={captureReviewSelection} onClose={() => { setReviewVisible(false); reviewButton.current?.focus(); }} />}
   {record.kind === 'chapter' && <ChapterMemory session={session} state={state} title={record.title} visible={memoryVisible} onClose={() => { setMemoryVisible(false); memoryButton.current?.focus(); }} />}

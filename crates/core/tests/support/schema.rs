@@ -84,11 +84,38 @@ pub fn remove_schema24_features(connection: &Connection) -> rusqlite::Result<()>
     Ok(())
 }
 
-/// Remove only the additive app-server records from synthetic older projects.
+/// Remove schema-38 through schema-40 additions from synthetic older projects.
+///
+/// The helper name is retained because existing fixture builders use it for
+/// the schema-38 boundary; newer fixtures also need the schema-39 roles and
+/// schema-40 project-chat projections removed before lowering `user_version`.
 pub fn remove_schema38_features(connection: &Connection) -> rusqlite::Result<()> {
+    // Schema 40 adds the project-chat projections on top of the schema-39
+    // document roles.  Older fixture builders call this helper before
+    // lowering `user_version`, so remove the schema-40 children first.  The
+    // production migrations are intentionally one-way; this is only the
+    // inverse operation needed to make a synthetic pre-40 database truthful.
+    drop_trigger_if_present(connection, "chat_receipt_generation_collision")?;
+    drop_trigger_if_present(connection, "generation_chat_receipt_collision")?;
+    drop_trigger_if_present(connection, "conversation_items_immutable_update")?;
+    drop_trigger_if_present(connection, "conversation_items_immutable_delete")?;
+    drop_trigger_if_present(connection, "assistant_draft_provenance_immutable")?;
+    drop_trigger_if_present(connection, "assistant_draft_role")?;
+    drop_trigger_if_present(connection, "conversation_anchor_role")?;
+    drop_trigger_if_present(connection, "conversation_identity_immutable")?;
+    drop_table_if_present(connection, "assistant_drafts")?;
+    drop_table_if_present(connection, "conversation_items")?;
+    drop_table_if_present(connection, "project_conversations")?;
+
     drop_table_if_present(connection, "codex_app_server_dispatches")?;
     drop_column_if_present(connection, "provider_results", "app_server_delivery_json")?;
     drop_column_if_present(connection, "memory_results", "app_server_delivery_json")?;
+    // The helper is used by fixtures that lower to any pre-current schema.
+    // Remove the schema-39 role column too so migration 39 can be exercised
+    // truthfully instead of attempting to add an already-present column.
+    drop_trigger_if_present(connection, "documents_role_immutable")?;
+    drop_index_if_present(connection, "documents_role_position_idx")?;
+    drop_column_if_present(connection, "documents", "role")?;
     Ok(())
 }
 
@@ -154,6 +181,19 @@ fn drop_trigger_if_present(connection: &Connection, trigger: &str) -> rusqlite::
     )?;
     if exists != 0 {
         let sql = format!("DROP TRIGGER {trigger}");
+        connection.execute_batch(&sql)?;
+    }
+    Ok(())
+}
+
+fn drop_index_if_present(connection: &Connection, index: &str) -> rusqlite::Result<()> {
+    let exists: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?",
+        [index],
+        |row| row.get(0),
+    )?;
+    if exists != 0 {
+        let sql = format!("DROP INDEX {index}");
         connection.execute_batch(&sql)?;
     }
     Ok(())

@@ -1,0 +1,75 @@
+/* This file is intentionally imported by ChatSplitPane after the incumbent
+   chat surface styles. The modifier specificity also keeps the split contract
+   stable if a host imports its base stylesheet later. */
+.chat-workspace.chat-split-pane {
+  --chat-split-divider-hit-area: 12px;
+  position: relative;
+  grid-template-columns: minmax(0, var(--chat-split-left)) minmax(0, calc(100% - var(--chat-split-left)));
+}
+
+.chat-workspace.chat-split-pane > :first-child {
+  grid-column: 1;
+}
+
+.chat-workspace.chat-split-pane > :last-child {
+  grid-column: 2;
+}
+
+.chat-split-separator {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  left: var(--chat-split-left);
+  width: var(--chat-split-divider-hit-area);
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.chat-split-separator::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--chat-line, #d6dfeb);
+  content: '';
+  transition: width 120ms ease, background-color 120ms ease;
+}
+
+.chat-split-separator:hover::after,
+.chat-split-separator:focus-visible::after {
+  width: 2px;
+  background: var(--chat-blue, #235ccb);
+}
+
+.chat-split-separator:focus-visible {
+  outline: 2px solid var(--chat-blue, #235ccb);
+  outline-offset: -2px;
+}
+
+@media (max-width: 800px) {
+  /* The parent owns mobile surface tabs. Keep both children mounted while the
+     parent chooses which surface is visible, and remove this control from the
+     keyboard and pointer navigation at the single-surface breakpoint. */
+  .chat-workspace.chat-split-pane {
+    display: block;
+    grid-template-columns: 1fr;
+  }
+
+  .chat-workspace.chat-split-pane > :first-child,
+  .chat-workspace.chat-split-pane > :last-child {
+    grid-column: auto;
+  }
+
+  .chat-workspace.chat-split-pane .chat-split-separator {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-split-separator::after {
+    transition: none;
+  }
+}

@@ -1,0 +1,67 @@
+.chat-transcript-shell {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.chat-transcript-shell > .chat-transcript {
+  flex: 1 1 auto;
+}
+
+.chat-transcript-new-reply {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: block;
+  margin: 0;
+  border: 1px solid var(--chat-accent, #7c5cff);
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: var(--chat-surface, #17151f);
+  color: var(--chat-accent-contrast, #fff);
+  box-shadow: 0 5px 16px rgb(0 0 0 / 18%);
+  cursor: pointer;
+}
+
+.chat-transcript-new-reply:focus-visible {
+  outline: 3px solid var(--chat-focus, #9d8bff);
+  outline-offset: 3px;
+}
+
+@media (max-height: 520px) {
+  /* The shell owns the overlay's containing block. Clipping here prevents a
+     zoomed two-line pill from extending over the composer below it. */
+  .chat-transcript-shell { overflow: hidden; }
+  .chat-transcript-new-reply {
+    top: 4px;
+    max-width: calc(100% - 12px);
+    max-height: calc(100% - 8px);
+    overflow: auto;
+    padding: 3px 8px;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+}
+
+@media (max-height: 350px) {
+  /* Keep the affordance inside the usable transcript strip. A single line
+     remains fully actionable at 200% native zoom and cannot cover the input. */
+  .chat-transcript-shell {
+    min-height: 30px;
+    overflow: hidden;
+  }
+  .chat-transcript-new-reply {
+    top: 2px;
+    max-width: calc(100% - 8px);
+    max-height: none;
+    overflow: hidden;
+    padding: 2px 6px;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}

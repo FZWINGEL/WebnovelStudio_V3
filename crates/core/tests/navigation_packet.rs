@@ -183,6 +183,7 @@ fn frozen(
         reviewed_evidence: Vec::new(),
         reviewed_promises: Vec::new(),
         reviewed_summaries: Vec::new(),
+        project_chat: None,
     }
 }
 

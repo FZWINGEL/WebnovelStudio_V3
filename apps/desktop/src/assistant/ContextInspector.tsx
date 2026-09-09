@@ -10,6 +10,7 @@ import { KnowledgeHistoryView } from './KnowledgeHistoryView';
 import { permittedPromiseRows, PromiseContextRows } from './PromiseContextRows';
 import { permittedKnowledgeRows, KnowledgeContextRows } from './KnowledgeContextRows';
 import { LookupContextView, type LookupDeliveryState } from './LookupContextView';
+import { SourceVersionComparison } from './SourceVersionComparison';
 
 function message(reason: unknown): string {
   if (reason && typeof reason === 'object' && 'detail' in reason) return String(reason.detail);
@@ -21,13 +22,14 @@ function sameSource(left: SourceRef, right: SourceRef): boolean {
 }
 
 /** Reads the immutable receipt; never reconstructs a past request from current prose. */
-export function ContextInspector({ access, packetId, delivered, appServerDelivery, lookupDelivery, refreshKey, onPin, onKeepSource, pinDisabled = false }: {
+export function ContextInspector({ access, packetId, delivered, appServerDelivery, lookupDelivery, refreshKey, onPin, onKeepSource, pinDisabled = false, showVersionLinks = false }: {
   access: ProjectAccess; packetId: string; delivered: boolean; refreshKey: string;
   appServerDelivery?: AppServerDelivery;
   lookupDelivery?: LookupDeliveryState;
   onPin?: (documentId: string, title: string) => void;
   onKeepSource?: (documentId: string) => void;
   pinDisabled?: boolean;
+  showVersionLinks?: boolean;
 }) {
   const [state, setState] = useState<{ packet: CompiledPacket; frozen: FrozenContext; current: boolean } | null>(null);
   const [source, setSource] = useState<SourceRead | null>(null);
@@ -281,6 +283,7 @@ export function ContextInspector({ access, packetId, delivered, appServerDeliver
     const coverage = state?.packet.receipt.coverage.find(entry => entry.handle === item.handle);
     return <li key={item.handle}>
       <button className="text-button" onClick={() => void read(item)}>{item.displayName}</button>
+      {showVersionLinks && state && <SourceVersionComparison key={`${identity}/${refreshKey}/${reload}/${item.handle}`} access={access} snapshotId={state.frozen.snapshot.snapshotId} source={item} />}
       {state?.frozen.snapshot.basis === 'reviewed' && <span className="context-detail">{item.kind === 'reviewedAuthority' ? 'Author-reviewed chapter' : 'Working chapter'}</span>}
       {coverage && <span className="context-detail">{coverage.label === 'fullText' ? 'Full text' : coverage.label === 'wholeBlocks' ? 'Selected passages' : coverage.detail === 'digest' ? 'Summary' : 'Source reference'}</span>}
       {state?.packet.receipt.mandatorySourceHandles?.includes(item.handle) && <span className="context-detail">Required source</span>}

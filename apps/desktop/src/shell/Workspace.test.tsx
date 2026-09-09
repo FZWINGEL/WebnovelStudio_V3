@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, forwardRef, useImperativeHandle } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentRecord, OpenedProject, ProjectAccess } from '../ipc/projects';
@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
   const readDocument = vi.fn();
   const runCreateIntent = vi.fn();
   const runtimeInfo = vi.fn();
+  const readProjectActivity = vi.fn();
   const createDocument = vi.fn();
   const reconcileProject = vi.fn();
   const projectTransport = { validate: vi.fn(), save: vi.fn(), checkpoint: vi.fn(), reconcile: vi.fn() };
@@ -31,9 +32,21 @@ const mocks = vi.hoisted(() => {
     const session: any = {
       projectAccess: access,
       record,
+      subscribe: vi.fn(() => () => {}),
+      acceptProjectAccess: vi.fn(async (next: ProjectAccess) => { session.projectAccess = next; }),
       state: { phase: 'editing', editable: true, dirty: false, saving: false, error: null, generation: '0', savedGeneration: '0', head: record.head },
       flush: vi.fn(async () => { events.push(`flush:${record.head.documentId}`); }),
-      reconcile: vi.fn(async () => { events.push(`reconcile:${record.head.documentId}`); }),
+      reconcile: vi.fn(async () => {
+        events.push(`reconcile:${record.head.documentId}`);
+        const restored = await projectTransport.reconcile({
+          projectId: session.projectAccess.projectId,
+          operationNamespace: session.projectAccess.operationNamespace,
+          session: session.projectAccess.session,
+          documentId: record.head.documentId,
+          pendingOperationIds: [],
+        });
+        if (restored?.access) session.projectAccess = restored.access;
+      }),
       detach: vi.fn(async () => { events.push(`detach:${record.head.documentId}`); }),
       withLifecycleGuard: vi.fn(async (work: () => Promise<unknown>) => work()),
     };
@@ -49,7 +62,7 @@ const mocks = vi.hoisted(() => {
     return session;
   }
   const DocumentSession = vi.fn(mockDocumentSession);
-  return { events, sessions, librarySnapshot, libraryOpen, readDocument, runCreateIntent, runtimeInfo, createDocument, reconcileProject, projectTransport, DocumentSession, tauri, close };
+  return { events, sessions, librarySnapshot, libraryOpen, readDocument, runCreateIntent, runtimeInfo, readProjectActivity, createDocument, reconcileProject, projectTransport, DocumentSession, tauri, close };
 });
 
 vi.mock('../editor/session', () => ({ DocumentSession: mocks.DocumentSession }));
@@ -79,12 +92,33 @@ vi.mock('../ipc/createIntent', () => ({
 }));
 vi.mock('../ipc/exports', () => ({ prepareDraftExport: vi.fn(), prepareReviewedDraftExport: vi.fn(), exportPreparedDraft: vi.fn() }));
 vi.mock('../ipc/native', () => ({ runtimeInfo: mocks.runtimeInfo }));
+vi.mock('../ipc/projectActivity', () => ({ readProjectActivity: mocks.readProjectActivity }));
 vi.mock('../ipc/appClose', () => ({ beginAppClose: mocks.close.begin, appCloseStatus: mocks.close.status, stopAppJobs: mocks.close.stop, finishAppClose: mocks.close.finish, cancelAppClose: mocks.close.cancel }));
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => mocks.tauri.active }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => mocks.close.currentWindow }));
 vi.mock('./App', () => ({ App: () => null }));
 vi.mock('./ExportDialog', () => ({ ExportDialog: () => null }));
 vi.mock('./V2ImportDialog', () => ({ V2ImportDialog: () => null }));
+vi.mock('../chat/ProjectConversation', () => ({
+  ProjectConversation: forwardRef(function MockProjectConversation({ project, documentEditor, onBeforeAdoption, onAdoptionFailure, onDocumentsChanged, onCreateNote }: any, ref) {
+    useImperativeHandle(ref, () => ({ flush: async () => {}, stageChapter: async () => {}, attachSource: async () => {} }), []);
+    const document = project.documents[0];
+    const target = document ? {
+      draft: { head: document.head, dispositionVersion: '0' },
+      draftRevisionId: 'draft-revision', documentId: document.head.documentId, title: document.title,
+      kind: document.kind, before: document, body: document.body,
+    } : null;
+    return <section data-testid="project-conversation">
+      {documentEditor}
+      {onCreateNote && <button type="button" onClick={() => void onCreateNote()}>Bring a note</button>}
+      {target && <>
+        <button type="button" onClick={() => void onBeforeAdoption?.([target])}>Prepare adoption</button>
+        <button type="button" onClick={() => void onDocumentsChanged([document])}>Complete adoption</button>
+        <button type="button" onClick={() => void onAdoptionFailure?.(new Error('Adoption was not confirmed.'))}>Fail adoption</button>
+      </>}
+    </section>;
+  }),
+}));
 vi.mock('./Workshop', () => ({ Workshop: ({ project }: any) => <section data-testid="workshop" data-lease={project.access.writerLease}><strong>{project.project.title}</strong></section> }));
 vi.mock('./StoryBible', () => ({ StoryBible: () => <section data-testid="story-bible" /> }));
 vi.mock('./AppCloseDialog', () => ({ AppCloseDialog: ({ phase, message, onStop, onStayOpen }: any) => <div data-testid="app-close-dialog"><p>{message}</p>{phase === 'waiting' && <button onClick={onStop}>Stop replies and close</button>}<button onClick={onStayOpen}>Stay open</button></div> }));
@@ -142,6 +176,11 @@ async function clickTab(label: string): Promise<void> {
   await act(async () => tab(label).click());
 }
 
+async function openChat(): Promise<void> {
+  await act(async () => button('Project chat · trial').click());
+  await waitFor(() => expect(host.querySelector('[data-testid="project-conversation"]')).not.toBeNull());
+}
+
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   localStorage.clear();
@@ -166,6 +205,7 @@ beforeEach(() => {
     return found;
   });
   mocks.runtimeInfo.mockResolvedValue({ editorTrial: false });
+  mocks.readProjectActivity.mockResolvedValue([]);
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -178,6 +218,19 @@ afterEach(async () => {
 });
 
 describe('Workspace project tabs', () => {
+  it('orders the project switcher by explicit last-opened recency', async () => {
+    currentProject = opened('project', []);
+    mocks.librarySnapshot.mockResolvedValue({ entries: [
+      { projectId: 'older', title: 'Older story', path: 'older', archived: false, lastOpened: '2026-09-01T00:00:00Z', missing: false },
+      { projectId: 'newer', title: 'Newer story', path: 'newer', archived: false, lastOpened: '2026-09-08T00:00:00Z', missing: false },
+    ], pending: [] });
+    await renderWorkspace();
+    const picker = host.querySelector<HTMLDetailsElement>('.recent-project-picker')!;
+    picker.open = true;
+    await act(async () => { picker.dispatchEvent(new Event('toggle', { bubbles: true })); });
+    expect([...host.querySelectorAll<HTMLButtonElement>('.project-picker-item')].map(item => item.textContent?.trim().split(/\s+/)[0])).toEqual(['Newer', 'Older']);
+  });
+
   it('offers a local Develop or Write choice for a fresh blank project', async () => {
     currentProject = opened('project', []);
     await renderWorkspace();
@@ -297,6 +350,100 @@ describe('Workspace project tabs', () => {
     await act(async () => button('Next chapter').click());
     await waitFor(() => expect(host.textContent).toContain('Second'));
     expect(mocks.readDocument).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'project' }), 'chapter-2');
+  });
+});
+
+describe('Workspace chat lifecycle fencing', () => {
+  it('shows already-open project activity from the library without opening a project', async () => {
+    mocks.readProjectActivity.mockResolvedValue([{ projectId: 'project', operationNamespace: 'namespace', activeWorkCount: 1, pendingDrafts: 2 }]);
+    await renderWorkspace();
+    const picker = host.querySelector<HTMLDetailsElement>('.recent-project-picker')!;
+    picker.open = true;
+    await act(async () => { picker.dispatchEvent(new Event('toggle', { bubbles: true })); });
+    await waitFor(() => expect(host.querySelector('.project-picker-item')?.textContent).toContain('2 drafts to review'));
+    expect(mocks.libraryOpen).not.toHaveBeenCalled();
+  });
+
+  it('shows current activity only for the exact open project namespace while the picker is visible', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    currentProject = opened('project', [chapter]);
+    mocks.librarySnapshot.mockResolvedValue({ entries: [
+      { projectId: 'project', title: 'project', path: 'project', archived: false, lastOpened: '2026-09-06T00:00:00Z', missing: false },
+      { projectId: 'other', title: 'Other story', path: 'other', archived: false, lastOpened: '2026-09-05T00:00:00Z', missing: false },
+    ], pending: [] });
+    mocks.readProjectActivity.mockResolvedValue([
+      { projectId: 'project', operationNamespace: 'stale-namespace', activeWorkCount: 9, pendingDrafts: 9 },
+      { projectId: 'project', operationNamespace: 'namespace', activeWorkCount: 2, pendingDrafts: 3 },
+      { projectId: 'other', operationNamespace: 'other-namespace', activeWorkCount: 1, pendingDrafts: 1 },
+    ]);
+    await renderWorkspace(); await openCurrentProject();
+    const picker = host.querySelector<HTMLDetailsElement>('.recent-project-picker')!;
+    picker.open = true;
+    await act(async () => { picker.dispatchEvent(new Event('toggle', { bubbles: true })); });
+    await waitFor(() => expect(host.querySelector('[aria-label="Current project"]')?.textContent).toContain('3 drafts to review'));
+    expect(host.querySelector('[aria-label="Current project"]')?.textContent).toContain('2 active tasks');
+    expect(host.querySelector('[aria-label="Current project"]')?.textContent).not.toContain('9 drafts');
+    expect(host.querySelector('nav[aria-label="Recent projects"]')?.textContent).toContain('1 draft to review');
+    expect(mocks.readProjectActivity).toHaveBeenCalled();
+    picker.open = false;
+    await act(async () => { picker.dispatchEvent(new Event('toggle', { bubbles: true })); });
+  });
+
+  it('creates and opens an ordinary blank note from an empty project without a provider request', async () => {
+    const note = record('note-1', 'note', 'Untitled note');
+    currentProject = opened('project', []);
+    mocks.runCreateIntent.mockResolvedValue({ record: note, access, snapshot: currentProject });
+    await renderWorkspace();
+    await act(async () => (host.querySelector<HTMLButtonElement>('.project-open')!).click());
+    await waitFor(() => expect(host.textContent).toContain('Start a conversation · trial'));
+    await act(async () => button('Start a conversation · trial').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="project-conversation"]')).not.toBeNull());
+    await act(async () => button('Bring a note').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="writer"]')?.textContent).toContain('Untitled note'));
+    expect(mocks.runCreateIntent).toHaveBeenCalledOnce();
+  });
+
+  it('restores a fenced editor through reconciliation after adoption failure', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    currentProject = opened('project', [chapter]);
+    await renderWorkspace(); await openCurrentProject(); await openChat();
+    await act(async () => button('Prepare adoption').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="writer"]')).toBeNull());
+
+    mocks.projectTransport.reconcile.mockResolvedValueOnce({
+      access: { ...currentProject.access, writerLease: 'lease-after-reconcile' },
+      document: chapter,
+      receipts: [],
+    });
+    await act(async () => button('Fail adoption').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="writer"]')).not.toBeNull());
+    expect(mocks.sessions.at(-1).projectAccess.writerLease).toBe('lease-after-reconcile');
+    expect(mocks.events).toContain('reconcile:chapter-1');
+    expect(mocks.projectTransport.reconcile).toHaveBeenCalledWith(expect.objectContaining({ documentId: 'chapter-1', pendingOperationIds: [] }));
+  });
+
+  it('ignores a late adoption result after activating another project', async () => {
+    const first = record('chapter-1', 'chapter', 'First project chapter');
+    const second = record('chapter-2', 'chapter', 'Second project chapter');
+    currentProject = opened('project-a', [first], 'First project');
+    await renderWorkspace(); await openCurrentProject(); await openChat();
+    await act(async () => button('Prepare adoption').click());
+    await waitFor(() => expect(host.querySelector('[data-testid="writer"]')).toBeNull());
+
+    let resolveRead!: (document: DocumentRecord) => void;
+    mocks.readDocument.mockImplementationOnce(() => new Promise<DocumentRecord>(resolve => { resolveRead = resolve; }));
+    await act(async () => button('Complete adoption').click());
+
+    currentProject = opened('project-b', [second], 'Second project');
+    await act(async () => button('All projects').click());
+    await waitFor(() => expect(host.textContent).toContain('Your stories'));
+    await openCurrentProject();
+    await waitFor(() => expect(host.querySelector('[data-testid="writer"]')?.textContent).toContain('Second project chapter'));
+
+    resolveRead(first);
+    await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
+    expect(host.querySelector('[data-testid="writer"]')?.textContent).toContain('Second project chapter');
+    expect(host.querySelector('[data-testid="writer"]')?.textContent).not.toContain('First project chapter');
   });
 });
 

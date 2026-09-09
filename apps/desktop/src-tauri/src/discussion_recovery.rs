@@ -15,6 +15,7 @@ pub struct DiscussionRecovery(Arc<Mutex<HashMap<OwnerKey, PendingSave>>>);
 
 #[derive(Clone)]
 pub(super) enum SaveOutcome {
+    Materialize,
     Lookup(Box<LookupInvocationReport>),
     LookupHalt(String),
     Provider(Box<ProviderTerminalReport>),
@@ -59,6 +60,16 @@ fn active(run: &DiscussionRun) -> bool {
     )
 }
 
+fn materialize_root_chat_if_needed(
+    project: &ProjectSession,
+    run: &DiscussionRun,
+) -> CoreResult<()> {
+    if project.is_root_project_chat_run(run.owner.clone())? {
+        project.materialize_chat_result(run.owner.clone())?;
+    }
+    Ok(())
+}
+
 /// Repeating a rejected report cannot repair its immutable input or identity.
 /// Storage/commit uncertainty is handled separately through explicit local retry.
 pub(super) fn invalid_lookup_report(error: &CoreError) -> bool {
@@ -84,6 +95,7 @@ impl PendingSave {
         current: &DiscussionRun,
     ) -> CoreResult<()> {
         if !active(current) {
+            materialize_root_chat_if_needed(project, current)?;
             return Ok(());
         }
         if let SaveOutcome::Lookup(report) = &self.outcome {
@@ -124,6 +136,7 @@ impl PendingSave {
             let mut report = report.as_ref().clone();
             report.expected_sequence = current.sequence.clone();
             project.settle_provider_discussion(report)?;
+            materialize_root_chat_if_needed(project, current)?;
             return Ok(());
         }
         if current.status == DiscussionRunStatus::Stopping {
@@ -143,6 +156,7 @@ impl PendingSave {
                 reason: "The local test response could not finish. Its saved partial output is retained.".into(),
             })?;
         }
+        materialize_root_chat_if_needed(project, current)?;
         Ok(())
     }
 }
@@ -201,13 +215,11 @@ impl DiscussionRecovery {
     }
 
     pub(super) fn view(&self, view: DiscussionView) -> DesktopDiscussionView {
-        let mut pending = self.pending();
+        let pending = self.pending();
         let mut worker_issues = Vec::new();
         for run in &view.runs {
             let owner_key = key(&run.owner);
-            if !active(run) {
-                pending.remove(&owner_key);
-            } else if pending.contains_key(&owner_key) {
+            if pending.contains_key(&owner_key) {
                 worker_issues.push(WorkerIssue {
                     run_id: run.id.clone(),
                     detail: "The response could not be started or fully saved. Retry saving it locally; this will not send another model request.",
@@ -218,6 +230,71 @@ impl DiscussionRecovery {
             view,
             worker_issues,
         }
+    }
+
+    pub(super) fn project_chat_issues(&self, runs: &[DiscussionRun]) -> Vec<WorkerIssue> {
+        let pending = self.pending();
+        runs.iter().filter(|run| pending.contains_key(&key(&run.owner))).map(|run| WorkerIssue {
+            run_id: run.id.clone(), detail: "This reply still needs a local save. Retry saving; no model request will be sent.",
+        }).collect()
+    }
+
+    pub(super) fn clear_completed_chat(&self, run: &DiscussionRun) {
+        if !active(run) {
+            self.pending().remove(&key(&run.owner));
+        }
+    }
+
+    pub(super) fn retry_project_chat(
+        &self,
+        project: &ProjectSession,
+        access: ProjectAccess,
+        conversation_id: String,
+        run_id: String,
+    ) -> CoreResult<()> {
+        let run = project.read_discussion_run(RunOwner {
+            project_id: access.project_id.clone(),
+            operation_namespace: access.operation_namespace.clone(),
+            run_id,
+        })?;
+        let saved = project.find_project_chat_request(
+            access.clone(),
+            conversation_id.clone(),
+            run.operation_id.clone(),
+        )?;
+        let chapter = if saved.is_none() {
+            project.find_project_chapter_request(
+                access,
+                conversation_id,
+                run.operation_id.clone(),
+            )?
+        } else {
+            None
+        };
+        if saved
+            .as_ref()
+            .or(chapter.as_ref())
+            .is_none_or(|saved| saved.id != run.id)
+        {
+            return Err(CoreError::new(
+                "RunNotFound",
+                "This reply belongs to another conversation.",
+            ));
+        }
+        let mut pending = self.pending();
+        let owner_key = key(&run.owner);
+        if let Some(saved) = pending.get(&owner_key) {
+            saved.attempt(project, &run)?;
+            pending.remove(&owner_key);
+        } else if active(&run) {
+            return Err(CoreError::new(
+                "ResponseStillRunning",
+                "This reply is still running. Stop it before retrying a local save.",
+            ));
+        } else {
+            materialize_root_chat_if_needed(project, &run)?;
+        }
+        Ok(())
     }
 
     pub(super) fn retry(
