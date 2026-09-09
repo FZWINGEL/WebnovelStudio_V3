@@ -34,9 +34,10 @@ A local native 200% zoom geometry check is verified. Human formative evaluation,
 screen-reader behavior, installed-package behavior, and broader provider and
 narrative qualification remain open; the default chat rollout remains opt-in
 and the full chat-first specification is not declared complete. English-only
-authoring means IME qualification is not a product requirement. The optional
-chapter-handoff recipe is covered by local/native development evidence only and
-is not live-provider qualified.
+authoring means IME qualification is not a product requirement. The current
+Codex Exec trial qualifies the handoff and chapter-range response contracts
+through two explicit synthetic requests, with no automatic follow-up or prose
+changes. It does not establish other adapters or narrative quality.
 
 ## Optional persistent Codex transport (8 September 2026)
 

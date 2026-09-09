@@ -40,8 +40,9 @@ documents/review navigation.
 A local native 200% zoom geometry check is verified. Human formative evaluation,
 installed-package behavior, screen-reader behavior, and broader provider and
 narrative qualification remain open. English-only authoring means IME
-qualification is not a product requirement; chat remains opt-in. The optional
-chapter-handoff recipe is not live-provider qualified.
+qualification is not a product requirement; chat remains opt-in. A bounded
+Codex Exec trial now covers the handoff and chapter-range response contracts;
+other adapters and narrative quality require separate qualification.
 
 Run the rebuilt local smoke after `.\scripts\desktop.ps1 -Command spike` with:
 
