@@ -164,18 +164,23 @@ export function Workspace() {
     if (!active) return;
     let previous = active.session.projectAccess.writerLease;
     let previousHead = canonicalJson(active.session.state.head);
+    let previousEditable = active.session.state.editable;
     return active.session.subscribe(() => {
       const access = active.session.projectAccess;
       const head = canonicalJson(active.session.state.head);
-      if (head !== previousHead) {
+      const editable = active.session.state.editable;
+      if (head !== previousHead || (!previousEditable && editable)) {
         previousHead = head;
         if (projectRef.current && sameAccessIdentity(access, projectIdentity(projectRef.current))) {
           // A successful ordinary save can invalidate a reply immediately,
           // including after it finished. Refresh counts/context locally;
-          // this does not dispatch or replace the mounted editor.
+          // this does not dispatch or replace the mounted editor. Refresh
+          // again when a lifecycle guard settles so the return recap can
+          // resolve a checkpoint written after the save acknowledgment.
           void projectChatRef.current?.refresh?.().catch(() => {});
         }
       }
+      previousEditable = editable;
       if (access.writerLease === previous) return;
       previous = access.writerLease;
       setProject(value => value && value.access.projectId === access.projectId && value.access.session === access.session

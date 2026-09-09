@@ -5,6 +5,7 @@ use super::discussions::{
 };
 pub use super::project_chat_context::ProjectChatDraftRef;
 use super::project_chat_output::ChapterRangeProposal;
+pub use super::project_chat_output::ChatGroupEffectsOutput;
 use super::*;
 use crate::context::packet::{MockContextBudget, ProviderBinding};
 use crate::context::{BasisKind, SafeBriefInput};
@@ -14,6 +15,7 @@ mod chapters;
 mod draft_lifecycle;
 mod history;
 mod materialize;
+mod save_recap;
 mod store;
 mod transfer;
 
@@ -22,6 +24,7 @@ pub use history::{
     HistoricalConversationSummary, HistoricalDraftRevision, HistoricalSourceRevision,
     ReadProjectChatHistory,
 };
+pub use save_recap::ChatDocumentSave;
 
 /// Validate project-chat's durable projection before a backup is accepted.
 ///
@@ -112,6 +115,7 @@ pub struct ProjectConversation {
     pub source_epoch: String,
     pub policy_epoch: String,
     pub earlier_workshop: bool,
+    pub document_saves: Vec<ChatDocumentSave>,
 }
 
 /// Read-only activity owned by this project's current actor namespace.
@@ -294,6 +298,8 @@ pub struct ChatMaterialization {
     pub draft_ids: Vec<String>,
     pub output_valid: bool,
     pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_effects: Option<ChatGroupEffectsOutput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,6 +309,94 @@ pub struct PrepareChatAdoption {
     pub operation_id: String,
     pub conversation_id: String,
     pub drafts: Vec<ProjectChatDraftRef>,
+    /// Optional effects copied from the exact retained materialization.  A
+    /// missing value means body-only adoption; it never authorizes inferred
+    /// relationship or placement changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_effects: Option<ChatGroupEffectsOutput>,
+}
+
+pub const CHAT_ADOPTION_EFFECTS_VERSION: &str = "chat-adoption-effects.v1";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatRelationshipDependency {
+    pub relationship_id: String,
+    pub from_document_id: String,
+    pub to_document_id: String,
+    pub relationship_type: String,
+    pub from_head: Head,
+    pub to_head: Head,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatAdoptionRelationship {
+    pub key: String,
+    pub relationship_id: String,
+    pub from_document_id: String,
+    pub to_document_id: String,
+    #[serde(rename = "type")]
+    pub relationship_type: String,
+    pub description: String,
+    pub uncertainty: String,
+    pub from_head: Head,
+    pub to_head: Head,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatAdoptionImpact {
+    pub target_document_id: String,
+    pub kind: String,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatAdoptionSupersession {
+    pub target_document_id: String,
+    pub superseded_document_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatAdoptionPlacement {
+    pub target_document_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_document_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_document_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatProtectedContent {
+    pub target_document_id: String,
+    pub source_head: Head,
+    pub text: String,
+    pub text_hash: String,
+}
+
+/// Complete immutable grouped-adoption manifest. Relationship dependencies
+/// are read-only drift fences; proposed effects are explicit author-review
+/// material and are never inferred from document prose.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatAdoptionEffects {
+    pub version: String,
+    pub source_output_hash: String,
+    pub relationship_dependencies: Vec<ChatRelationshipDependency>,
+    pub protected_content: Vec<ChatProtectedContent>,
+    pub proposed_relationships: Vec<ChatAdoptionRelationship>,
+    pub impacts: Vec<ChatAdoptionImpact>,
+    pub supersessions: Vec<ChatAdoptionSupersession>,
+    pub placements: Vec<ChatAdoptionPlacement>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -330,6 +424,7 @@ pub struct ChatAdoptionPreview {
     pub policy_epoch: String,
     pub workshop_version: String,
     pub targets: Vec<ChatAdoptionTarget>,
+    pub effects: Option<ChatAdoptionEffects>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -184,6 +184,13 @@ $script:result = [ordered]@{
         forcedProcessStop = $false
         screenshot = $null
     }
+    projectChat = [ordered]@{
+        composerEntered = $false
+        normalReopenRetained = $false
+        sameVersionReinstallRetained = $false
+        sendActionInvoked = $false
+        providerRunCount = $null # UI-only package trial does not inspect provider runs.
+    }
     claims = [ordered]@{
         sameVersionReinstallOnly = $true
         upgradeQualification = $false
@@ -583,6 +590,27 @@ function Invoke-Uia {
     param([Parameter(Mandatory = $true)]$Element)
     $pattern = $Element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
     $pattern.Invoke()
+}
+
+function Select-OwnedWorkspaceTab {
+    param([Parameter(Mandatory = $true)][int]$ProcessId, [Parameter(Mandatory = $true)][string]$Name)
+    $tab = Wait-Until {
+        $currentWindow = Find-AppWindow $ProcessId
+        if ($null -ne $currentWindow) { Find-UiaByName $currentWindow $Name }
+    } 20 ("workspace tab {0}" -f $Name)
+    try { Invoke-Uia $tab } catch {
+        $selection = $tab.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+        $selection.Select()
+    }
+}
+
+function Read-OwnedChatComposer {
+    param([Parameter(Mandatory = $true)][int]$ProcessId)
+    Select-OwnedWorkspaceTab $ProcessId 'Project chat · trial'
+    return (Wait-Until {
+        $currentWindow = Find-AppWindow $ProcessId
+        if ($null -ne $currentWindow) { Find-UiaByName $currentWindow 'Message the project assistant' ([System.Windows.Automation.ControlType]::Edit) }
+    } 30 'project chat composer')
 }
 
 function Set-UiaValue {
@@ -1069,6 +1097,24 @@ try {
             $script:result.firstLaunch.textReadback = $null -ne $reopenedText -and $reopenedText.Contains($englishText)
         }
         Write-Event 'first-launch' ("Closed the editor to Library and reopened the synthetic project; text readback after reopen: {0}." -f $script:result.firstLaunch.textReadback)
+        # The installed chat check is local only. No Send action is invoked.
+        # Normal close must flush the unsent composer through the same native
+        # lifecycle as the manuscript before any reinstall is attempted.
+        $window = Find-AppWindow $app.Id
+        $unsentChat = 'Next time, help me develop the keeper of the red lantern.'
+        $chatComposer = Read-OwnedChatComposer $app.Id
+        if ($null -eq (Set-UiaText $chatComposer $unsentChat)) { throw 'The installed chat composer did not accept synthetic text.' }
+        $script:result.projectChat.composerEntered = $true
+        Close-QualifiedApp $app
+        $app = Start-QualifiedApp -Path $installed.FullName
+        $window = Wait-Until { Find-AppWindow $app.Id } 60 'installed app after normal chat close'
+        Invoke-Uia (Wait-Until { Find-ProjectOpener $window $projectTitle } 30 'project after normal chat close')
+        $chatComposer = Read-OwnedChatComposer $app.Id
+        $retainedChat = Get-UiaText $chatComposer
+        $script:result.projectChat.normalReopenRetained = $null -ne $retainedChat -and $retainedChat.Contains($unsentChat)
+        if (-not $script:result.projectChat.normalReopenRetained) { throw 'The unsent chat composer was not retained through normal close and reopen.' }
+        Select-OwnedWorkspaceTab $app.Id 'Write'
+        Write-Event 'project-chat' 'Installed chat retained its unsent composer after normal close/reopen; this harness did not invoke Send.'
         Close-QualifiedApp $app
 
         $uninstallerPath = Join-Path $InstallRoot 'uninstall.exe'
@@ -1103,6 +1149,12 @@ try {
         if ($null -ne $retained) {
             try {
                 Invoke-Uia $retained
+                $window = Find-AppWindow $app.Id
+                $chatComposer = Read-OwnedChatComposer $app.Id
+                $retainedChat = Get-UiaText $chatComposer
+                $script:result.projectChat.sameVersionReinstallRetained = $null -ne $retainedChat -and $retainedChat.Contains($unsentChat)
+                if (-not $script:result.projectChat.sameVersionReinstallRetained) { throw 'The unsent chat composer was not retained through same-version reinstall.' }
+                Select-OwnedWorkspaceTab $app.Id 'Write'
                 $reinstalledEditor = Wait-Until {
                     $currentWindow = Find-AppWindow $app.Id
                     if ($null -ne $currentWindow) { Find-UiaByName $currentWindow 'Manuscript' }
@@ -1122,7 +1174,7 @@ try {
         if (Capture-OwnedWindow $window $shotPath) { $script:result.sameVersionReinstall.screenshot = 'same-version-reinstall.png' }
         Close-QualifiedApp $app
 
-        if ($script:result.firstLaunch.libraryVisible -and $script:result.firstLaunch.projectCreated -and $script:result.firstLaunch.documentCreated -and $script:result.firstLaunch.reopened -and $script:result.sameVersionReinstall.projectRetained -and $script:result.sameVersionReinstall.documentRetained -and $script:result.sameVersionReinstall.textRetained -and $script:result.sameVersionReinstall.normalCloseSucceeded -and -not $script:result.sameVersionReinstall.forcedProcessStop) {
+        if ($script:result.firstLaunch.libraryVisible -and $script:result.firstLaunch.projectCreated -and $script:result.firstLaunch.documentCreated -and $script:result.firstLaunch.reopened -and $script:result.sameVersionReinstall.projectRetained -and $script:result.sameVersionReinstall.documentRetained -and $script:result.sameVersionReinstall.textRetained -and $script:result.sameVersionReinstall.normalCloseSucceeded -and -not $script:result.sameVersionReinstall.forcedProcessStop -and $script:result.projectChat.normalReopenRetained -and $script:result.projectChat.sameVersionReinstallRetained) {
             if ($script:result.firstLaunch.textReadback) {
                 $script:result.status = 'passed'
             } else {

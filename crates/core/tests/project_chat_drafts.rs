@@ -859,6 +859,7 @@ fn stale_task_draft_can_seed_a_fresh_request_but_cannot_be_adopted() {
             operation_id: "stale-draft-adoption".into(),
             conversation_id,
             drafts: vec![draft_ref],
+            group_effects: None,
         })
         .expect_err("a stale draft cannot enter an adoption preview");
     assert_eq!(error.code, "ContextChanged");

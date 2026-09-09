@@ -8,6 +8,9 @@ WebnovelStudio V3 is a native Windows desktop writing workspace for English web 
 
 ### Added
 
+- Opt-in **Project chat · trial** for developing story documents through a persistent conversation, with editable isolated drafts, scoped chapter feedback, and explicit single or grouped adoption. Grouped review includes proposed relationships, complete before/after text, and protected source material.
+- Exact saved-document recaps, editable assumption corrections, scoped question decisions, source-version inspection, and project-specific conversation/document layout and history.
+
 - Optional persistent Rust-to-Codex app-server transport in Settings, with fresh per-request conversations, preserved model/effort/tier choices, and separate durable delivery receipts. Exec stays the default; bounded lookup remains on Exec.
 
 - Candidate-level **Give alternatives** under **Explore another angle**, preserving exact candidate and comparison-dimension context without selecting or adopting the candidate.
@@ -26,6 +29,8 @@ WebnovelStudio V3 is a native Windows desktop writing workspace for English web 
 - Optional Unicode names, aliases, and transliterations in the existing `document_aliases` metadata (no schema change) for character/world documents, exposed in the World/People saved-material picker and Writer **Names & aliases** surface. Saving is explicit, source-epoch CAS checked, reconciled by read after uncertainty, and guarded against dirty navigation/close; it leaves title/body unchanged and keeps aliases out of restricted context.
 
 ### Current verification
+
+- Current chat-first development checks, native and live Codex evidence, executable identities, and remaining author/accessibility/installed gates are maintained in the [chat-first implementation ledger](docs/V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md). Chat remains opt-in pending those rollout gates.
 
 - The 8 September optional-transport checkout passes 839 Rust tests, 600 frontend tests, 25 tooling checks, formatting, strict Clippy, TypeScript, and production build. Isolated native Settings (4) and mock Workshop (31) checks pass. One live app-server Workshop request and a three-case Astra/low transport comparison pass, with preserved earlier failed trials and broader live/release gates still open. See [app-server qualification](docs/APP_SERVER_QUALIFICATION.md).
 

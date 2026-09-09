@@ -74,6 +74,79 @@ describe('ProposalPanel review boundary', () => {
     await waitFor(() => expect(proposalIpc.rejectProposal).toHaveBeenCalledWith(access, 'proposal-1', expect.any(String)));
   });
 
+  it('shows the frozen source version and marked prefix and suffix around a passage', async () => {
+    const markedSource: WnsDocument = { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'marked' }, content: [
+      { type: 'text', text: 'Before ', marks: [{ type: 'italic' }] },
+      { type: 'text', text: 'selected', marks: [{ type: 'bold' }] },
+      { type: 'text', text: ' after', marks: [{ type: 'italic' }] },
+    ] }] } };
+    const markedScope: ScopeGrant = { kind: 'passage', start: { blockId: 'marked', utf16Offset: 7 }, end: { blockId: 'marked', utf16Offset: 15 }, quote: 'selected', sourceHash: head.bodyHash, quoteHash: 'c'.repeat(64), prefix: 'Before ', suffix: ' after' };
+    await render([proposal({ sourceBody: markedSource, scope: markedScope, current: false })]);
+    const context = host.querySelector('.proposal-source-context')!;
+    expect(context.textContent).toContain('Source version 2');
+    expect(context.textContent).toContain('Scope: Selected passage');
+    expect(context.textContent).toContain('Before');
+    expect(context.textContent).toContain('selected');
+    expect(context.textContent).toContain('after');
+    expect(context.querySelector('strong')?.textContent).toBe('selected');
+    expect(Array.from(context.querySelectorAll('em')).map(item => item.textContent)).toEqual(['Before ', ' after']);
+  });
+
+  it('shows frozen blocks before and after a structured selection', async () => {
+    await render([structuredProposal({ current: false })]);
+    const context = host.querySelector('.proposal-source-context')!;
+    expect(context.textContent).toContain('Source version 2');
+    expect(context.textContent).toContain('Scope: Selected paragraphs');
+    expect(context.textContent).toContain('Frozen source before selected paragraphs');
+    expect(context.textContent).toContain('Before.');
+    expect(context.textContent).toContain('Frozen source after selected paragraphs');
+    expect(context.textContent).toContain('After.');
+  });
+
+  it('includes other protected paragraphs around a passage and accepts an ending scene break for continuation', async () => {
+    const expandedSource = structuredClone(source);
+    expandedSource.body.content.unshift({ type: 'paragraph', attrs: { id: 'earlier' }, content: [{ type: 'text', text: 'Protected earlier paragraph.' }] });
+    expandedSource.body.content.push({ type: 'sceneBreak', attrs: { id: 'ending' } });
+    await render([proposal({ sourceBody: expandedSource })]);
+    expect(host.querySelector('.proposal-source-context')?.textContent).toContain('Protected earlier paragraph.');
+    await render([continuationProposal({ sourceBody: expandedSource, scope: { kind: 'append', start: null, end: { blockId: 'ending', utf16Offset: 0 }, sourceHash: head.bodyHash, quoteHash: 'c'.repeat(64), quote: '', prefix: null, suffix: null } })]);
+    expect(host.querySelector('.proposal-source-context')?.textContent).toContain('Protected earlier paragraph.');
+    expect(host.querySelector('.proposal-source-context')?.textContent).not.toContain('unavailable');
+  });
+
+  it('refuses to describe an interior paragraph as the continuation ending', async () => {
+    const value = continuationProposal();
+    value.sourceBody = structuredClone(value.sourceBody);
+    value.sourceBody.body.content.push({ type: 'paragraph', attrs: { id: 'actual-ending' }, content: [{ type: 'text', text: 'Later prose.' }] });
+    await render([value]);
+    expect(host.querySelector('.proposal-source-context')?.textContent).toContain('continuation anchor does not match');
+  });
+
+  it('states that a whole-document proposal has no outside prose to protect', async () => {
+    const wholeScope: ScopeGrant = { kind: 'wholeDocument', start: null, end: null, quote: 'Before.\n\nSelected paragraphs.\n\nAfter.', sourceHash: head.bodyHash, quoteHash: 'd'.repeat(64), prefix: null, suffix: null };
+    await render([structuredProposal({ scope: wholeScope, current: false })]);
+    const context = host.querySelector('.proposal-source-context')!;
+    expect(context.textContent).toContain('Scope: Whole document');
+    expect(context.textContent).toContain('No outside prose is protected');
+    expect(context.textContent).toContain('Before.');
+    expect(context.textContent).toContain('After.');
+  });
+
+  it('shows the exact historical source for a stale continuation', async () => {
+    await render([continuationProposal({ current: false })]);
+    const context = host.querySelector('.proposal-source-context')!;
+    expect(context.textContent).toContain('Source version 2');
+    expect(context.textContent).toContain('Scope: Continuation after chapter ending');
+    expect(context.textContent).toContain('Frozen source before continuation');
+    expect(context.textContent).toContain('The original passage.');
+    expect(host.textContent).toContain('Needs refresh');
+  });
+
+  it('refuses to invent protected context for a malformed historical scope', async () => {
+    await render([proposal({ current: false, scope: { ...scope, quote: 'not the captured text' } })]);
+    expect(host.querySelector('.proposal-source-context-unavailable')?.textContent).toContain('Protected source context unavailable');
+  });
+
   it('only applies the exact wording that was previewed', async () => {
     const prepare = vi.fn(async (_proposal: proposalIpc.Proposal, text: string) => prepared(text));
     const apply = vi.fn(async () => {});
@@ -270,7 +343,7 @@ describe('ProposalPanel review boundary', () => {
     const apply = vi.fn(async () => {});
     await render([structuredProposal({ prepared: { ...structuredPrepared(), blocks: undefined } })], { onApplyProposal: apply });
     const applyButton = Array.from(host.querySelectorAll('button')).find(item => item.textContent === 'Apply') as HTMLButtonElement;
-    expect(host.querySelector('.structured-prose')).toBeNull();
+    expect(host.querySelector('.proposal-preview .structured-prose')).toBeNull();
     expect(applyButton.disabled).toBe(true);
     await act(async () => applyButton.click());
     expect(apply).not.toHaveBeenCalled();

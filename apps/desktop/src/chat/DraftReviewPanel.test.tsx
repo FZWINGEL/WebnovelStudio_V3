@@ -103,6 +103,29 @@ describe('DraftReviewPanel editor lifecycle', () => {
     expect(Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Adopt World sketch draft v7')).not.toBeNull();
   });
 
+  it('shows the immutable effects manifest and sends that exact preview to Apply', async () => {
+    const preview = {
+      id: 'preview-effects', version: '1', digest: 'z'.repeat(64), projectId: access.projectId,
+      operationNamespace: access.operationNamespace, conversationId: 'conversation-1', sourceEpoch: '1', policyEpoch: '1', workshopVersion: '1',
+      effects: {
+        version: 'chat-adoption-effects.v1', sourceOutputHash: 'output-hash', relationshipDependencies: [],
+        protectedContent: [{ targetDocumentId: 'target-1', sourceHead: { ...head, documentId: 'target-1', version: '3' }, text: 'Preserve this metadata.', textHash: 'protected-hash' }],
+        proposedRelationships: [], impacts: [{ targetDocumentId: 'target-1', kind: 'possibleTension', reason: 'Review this consequence.', relationshipKey: null }], supersessions: [], placements: [],
+      },
+      targets: [{ draft: { head: { ...head, version: '7' }, dispositionVersion: '1' }, draftRevisionId: 'revision-7', documentId: 'target-1', title: 'World sketch', kind: 'world', before: null, body }],
+    } as ChatAdoptionPreview;
+    const apply = vi.fn();
+    await act(async () => root.render(<DraftReviewPanel project={project} drafts={[draft]} preview={preview} onPrepareAdoption={() => {}} onApplyPreview={apply} onReject={() => {}} />));
+    expect(host.textContent).toContain('Complete effects manifest');
+    expect(host.textContent).toContain('Manifest versionchat-adoption-effects.v1');
+    expect(host.textContent).toContain('Preserve this metadata.');
+    expect(host.textContent).toContain('Editable scope: Whole document');
+    expect(host.textContent).toContain('New target: no existing metadata/order to replace.');
+    const button = Array.from(host.querySelectorAll('button')).find(candidate => candidate.textContent === 'Adopt World sketch draft v7') as HTMLButtonElement;
+    await act(async () => button.click());
+    expect(apply).toHaveBeenCalledExactlyOnceWith(preview);
+  });
+
   it('shows an exact immutable preview diff and preserves the originating request when current inputs change', async () => {
     const preview = {
       id: 'preview-diff', version: '1', digest: 'e'.repeat(64), projectId: access.projectId,
@@ -114,7 +137,8 @@ describe('DraftReviewPanel editor lifecycle', () => {
     await act(async () => root.render(renderPanel('first current composer text')));
     expect(host.textContent).toContain('Build a quiet harbor mystery.');
     expect(host.textContent).toContain('Keep the existing narrator voice.');
-    expect(host.textContent).toContain('Origin run run-1');
+    expect(host.querySelector('.chat-draft-provenance dd')?.textContent).toBe('preview-diff');
+    expect([...host.querySelectorAll('.chat-draft-provenance dd')].some(element => element.textContent === 'run-1')).toBe(true);
     expect(host.textContent).toContain('1 paragraph/block changed');
     expect(host.querySelector('del')?.textContent).toContain('before');
     expect(host.querySelector('ins')?.textContent).toContain('revised');
@@ -157,7 +181,7 @@ describe('DraftReviewPanel editor lifecycle', () => {
     await act(async () => reprepare.click());
     expect(prepare).toHaveBeenCalledExactlyOnceWith([draft], expect.objectContaining({ previewId: 'preview-stale' }));
     expect(host.textContent).toContain('World draft');
-    expect(host.textContent).toContain('Preview preview-');
+    expect(host.querySelector('.chat-adoption-preview .chat-draft-provenance dd')?.textContent).toBe('preview-stale');
     await act(async () => root.render(<DraftReviewPanel project={project} drafts={[{ ...draft, stale: true }]} preview={preview} previewError="The preview is stale: the source changed." onPrepareAdoption={prepare} onApplyPreview={() => {}} onReject={() => {}} onCompareStalePreview={compare} onPrepareAgainstCurrent={prepare} />));
     expect(Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Prepare against current versions')).toBeUndefined();
   });

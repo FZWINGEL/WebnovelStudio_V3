@@ -30,6 +30,7 @@ suites! {
     document_roles,
     project_chat,
     project_chat_adoption,
+    project_chat_effects,
     project_chat_drafts,
     project_chat_chapters,
     project_chat_history,

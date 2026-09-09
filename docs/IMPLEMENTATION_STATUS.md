@@ -14,8 +14,12 @@ The same project conversation supports project questions and chapter feedback.
 Chapter requests retain an exact chapter and selected scope. Assistant output
 is stored as isolated task drafts, shown with exact reviewable before/after
 material, and requires explicit adoption; up to three nonchapter targets can be
-adopted atomically as one grouped operation. Scoped question/assumption
-decisions and read-only conversation history are implemented. The current draft
+adopted atomically as one grouped operation, including explicitly proposed
+relationships with exact ordinary endpoints. Review shows relationship
+dependencies and protected content; unsupported organization effects are
+refused. Direct assumption corrections stage unsent text, while scoped
+question/assumption decisions retain their historical values. Read-only
+conversation history and exact saved-document recaps are implemented. The current draft
 review inventory is complete rather than capped at 100 items, and older
 conversation entries load through paging. A stale draft refresh is an explicit
 assistant action; a source change blocks adoption of the unchanged old preview.
@@ -35,9 +39,9 @@ screen-reader behavior, installed-package behavior, and broader provider and
 narrative qualification remain open; the default chat rollout remains opt-in
 and the full chat-first specification is not declared complete. English-only
 authoring means IME qualification is not a product requirement. The current
-Codex Exec trial qualifies the handoff and chapter-range response contracts
-through two explicit synthetic requests, with no automatic follow-up or prose
-changes. It does not establish other adapters or narrative quality.
+Codex Exec trials cover handoff and chapter-range response contracts and a
+separate one-request grouped relationship adoption/reopen. They do not
+establish other adapters or narrative quality.
 
 ## Optional persistent Codex transport (8 September 2026)
 

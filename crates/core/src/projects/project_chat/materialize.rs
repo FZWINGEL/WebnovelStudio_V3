@@ -9,7 +9,7 @@
 use super::*;
 use crate::projects::context_packets;
 use crate::projects::project_chat_output::{
-    ChatDraftOutput, materialize_draft_body,
+    ChatDraftOutput, ChatGroupEffectsOutput, materialize_draft_body,
     parse_project_assistant_output_with_predecessors_and_chapters,
 };
 use crate::projects::story_context;
@@ -52,6 +52,8 @@ struct MaterializationEvent {
     #[serde(default)]
     draft_refs: Vec<MaterializationDraftRef>,
     detail: Option<String>,
+    #[serde(default)]
+    group_effects: Option<ChatGroupEffectsOutput>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -116,6 +118,7 @@ fn replay_materialization(
             .collect(),
         output_valid: event.output_valid,
         detail: event.detail,
+        group_effects: event.group_effects,
     }))
 }
 
@@ -473,6 +476,7 @@ impl OwnedProject {
         let mut output_valid = false;
         let mut detail = None;
         let mut draft_ids = Vec::new();
+        let mut group_effects = None;
         let parsed = if raw.status != "completed" {
             detail = Some(format!("terminal_status_{}", raw.status));
             None
@@ -489,6 +493,7 @@ impl OwnedProject {
                         &chapter_handles,
                     ) {
                         Ok(output) => {
+                            group_effects = output.group_effects.clone();
                             if let Some(chat) = frozen.project_chat.as_ref() {
                                 if chat.conversation_id != conversation_id
                                     || chat.operation_namespace != owner.operation_namespace
@@ -556,6 +561,7 @@ impl OwnedProject {
                 "documentId": document_id,
             })).collect::<Vec<_>>(),
             "detail": detail.clone(),
+            "groupEffects": group_effects.clone(),
         });
         let item = store::append_item(
             &tx,
@@ -572,6 +578,7 @@ impl OwnedProject {
             draft_ids,
             output_valid,
             detail,
+            group_effects,
         };
         // Keep the event payload to references and the output fingerprint.
         // The assistant answer and draft bodies remain in their authoritative

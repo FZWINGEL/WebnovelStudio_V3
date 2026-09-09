@@ -13,6 +13,7 @@ use crate::documents::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 /// Versioned response contract used by project-level conversations.
@@ -30,6 +31,10 @@ pub const CHAPTER_TARGET_HEAD_MARKER: &str =
 pub const MAX_PROJECT_CHAT_QUESTIONS: usize = 2;
 pub const MAX_PROJECT_CHAT_ASSUMPTIONS: usize = 3;
 pub const MAX_PROJECT_CHAT_DRAFTS: usize = 3;
+pub const MAX_PROJECT_CHAT_RELATIONSHIPS: usize = 8;
+pub const MAX_PROJECT_CHAT_IMPACTS: usize = 16;
+pub const MAX_PROJECT_CHAT_SUPERSESSIONS: usize = 8;
+pub const MAX_PROJECT_CHAT_PLACEMENTS: usize = 8;
 pub const MAX_PROJECT_CHAT_RESPONSE_BYTES: usize = 64 * 1024;
 pub const MAX_PROJECT_CHAT_KEY_BYTES: usize = 128;
 pub const MAX_PROJECT_CHAT_TEXT_BYTES: usize = 8 * 1024;
@@ -47,6 +52,10 @@ pub const MAX_CHAPTER_RANGE_QUOTE_BYTES: usize = 32 * 1024;
 /// remains v1; this version only selects the system guidance that the packet
 /// compiler freezes alongside the story context.
 pub const PROJECT_CHAT_PROMPT_RECIPE_V2: &str = "project-chat-prompt.v2";
+/// Grouped maintenance adds an optional, reference-only effects section to
+/// the v1 response envelope.  Historical v1/v2 packets continue to resolve
+/// to their original instruction bytes.
+pub const PROJECT_CHAT_PROMPT_RECIPE_V3: &str = "project-chat-prompt.v3";
 
 /// The exact project-chat guidance used before chapter handoff support. Keep
 /// this immutable so packets whose frozen chat metadata predates prompt recipe
@@ -74,6 +83,7 @@ pub fn project_chat_response_instruction(
     match prompt_recipe_version {
         None => Ok(PROJECT_CHAT_RESPONSE_INSTRUCTION_LEGACY),
         Some(PROJECT_CHAT_PROMPT_RECIPE_V2) => Ok(PROJECT_CHAT_RESPONSE_INSTRUCTION),
+        Some(PROJECT_CHAT_PROMPT_RECIPE_V3) => Ok(project_chat_response_instruction_grouped()),
         Some(version) => Err(format!(
             "unknown project-chat prompt recipe version {version:?}"
         )),
@@ -100,6 +110,31 @@ Draft kinds are note, world, character, theme, hook, or scene. Chapters use a se
 When the author asks to start writing a chapter, you may optionally include chapterHandoff with exactly {"targetHandle":null,"proposedTitle":"Chapter title","instruction":"What the author wants written.","brief":"Optional author-room guidance to review before dispatch."}. Use null targetHandle for a proposed blank chapter, or copy an exact ordinary chapter handle from the frozen request. This is a proposal only: the application must show the boundary and obtain author confirmation before creating or dispatching a chapter task. It does not create canon, grant edit authority, trigger a second invocation, or contain provider IDs or editor steps. Omit chapterHandoff when the request is not about beginning chapter writing.
 
 Blocks use only paragraph, heading with attrs.level from 1 to 3, or sceneBreak. Inline content uses nonempty text nodes, optional bold/italic/link marks with absolute http/https/mailto URLs, and hardBreak. Supply no document IDs, editor block IDs, editor steps, HTML, Markdown fences, or canon decisions. The application allocates identities, validates the response against its frozen sources, retains isolated drafts, and waits for the author to review and adopt them."#;
+
+/// Additional guidance for grouped nonchapter maintenance.  The response
+/// envelope remains `project-assistant-output.v1`; the recipe version makes
+/// the optional effects vocabulary explicit without changing old packets.
+const PROJECT_CHAT_RESPONSE_INSTRUCTION_GROUPED_SUFFIX: &str = r#"
+
+For a response that intentionally maintains related nonchapter material, you may include the optional groupEffects object. It is a proposal for review, never an automatic write. Use exact frozen ordinary nonchapter source handles or the exact key of a draft in this same response as endpoint references; never use database IDs, chapter handles, assistant-draft handles, or invented references. The shape is:
+{"groupEffects":{"relationships":[{"key":"edge-1","fromRef":"source-handle-or-draft-key","toRef":"source-handle-or-draft-key","type":"knows","description":"...","uncertainty":"..."}],"impacts":[],"supersessions":[],"placements":[]}}
+An omitted groupEffects object means no proposed effects. Only relationships are supported for adoption in this recipe; impacts, supersessions, and placements must remain empty arrays. Describe any suggested organization or broader consequences in the answer for the author to consider. Do not silently infer a relationship, move, rename, delete, impact, or supersession from prose. The application never performs a move, rename, or deletion as a side effect.
+"#;
+
+/// Build the new grouped recipe without changing the frozen bytes of the
+/// legacy or v2 recipes. A process-wide immutable string is sufficient here:
+/// packet compilation only needs a stable `&'static str` after initialization.
+pub fn project_chat_response_instruction_grouped() -> &'static str {
+    static GROUPED: OnceLock<String> = OnceLock::new();
+    GROUPED
+        .get_or_init(|| {
+            format!(
+                "{}{}",
+                PROJECT_CHAT_RESPONSE_INSTRUCTION, PROJECT_CHAT_RESPONSE_INSTRUCTION_GROUPED_SUFFIX
+            )
+        })
+        .as_str()
+}
 
 /// Provider guidance for a chapter Discuss request with no preselected scope.
 /// The optional range is a review hint only. It must never be treated as an
@@ -365,6 +400,10 @@ pub struct ProjectAssistantOutput {
     pub questions: Vec<ChatQuestion>,
     pub assumptions: Vec<ChatAssumption>,
     pub drafts: Vec<ChatDraftOutput>,
+    /// Optional grouped-maintenance proposals.  Missing means an explicit
+    /// body-only response with no non-body effects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_effects: Option<ChatGroupEffectsOutput>,
     /// Optional author-room proposal for crossing into a chapter-writing task.
     /// This is never a chapter request or a write authority by itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -412,6 +451,62 @@ pub struct ChatDraftOutput {
     pub predecessor_handle: Option<String>,
     pub change_summary: String,
     pub blocks: Vec<TypedReplacementBlock>,
+}
+
+/// Provider-owned grouped-maintenance proposals. References are opaque
+/// frozen handles or response-local draft keys; Rust resolves them only after
+/// validating the complete response against the frozen request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatGroupEffectsOutput {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationships: Vec<ChatRelationshipProposal>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub impacts: Vec<ChatImpactProposal>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supersessions: Vec<ChatSupersessionProposal>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placements: Vec<ChatPlacementProposal>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatRelationshipProposal {
+    pub key: String,
+    pub from_ref: String,
+    pub to_ref: String,
+    #[serde(rename = "type")]
+    pub relationship_type: String,
+    pub description: String,
+    pub uncertainty: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatImpactProposal {
+    pub target_ref: String,
+    pub kind: String,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatSupersessionProposal {
+    pub target_ref: String,
+    pub superseded_ref: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatPlacementProposal {
+    pub target_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_ref: Option<String>,
 }
 
 /// Parse and validate one complete provider response.
@@ -638,6 +733,137 @@ fn validate_output(
         }
         validate_typed_replacement_blocks(&draft.blocks).map_err(output_error)?;
     }
+    if let Some(effects) = &output.group_effects {
+        let draft_keys = output
+            .drafts
+            .iter()
+            .map(|draft| draft.key.clone())
+            .collect::<BTreeSet<_>>();
+        validate_group_effects(effects, &draft_keys, allowed_target_handles)?;
+    }
+    Ok(())
+}
+
+fn validate_group_effects(
+    effects: &ChatGroupEffectsOutput,
+    draft_keys: &BTreeSet<String>,
+    allowed_target_handles: &BTreeSet<String>,
+) -> CoreResult<()> {
+    if effects.relationships.len() > MAX_PROJECT_CHAT_RELATIONSHIPS
+        || effects.impacts.len() > MAX_PROJECT_CHAT_IMPACTS
+        || effects.supersessions.len() > MAX_PROJECT_CHAT_SUPERSESSIONS
+        || effects.placements.len() > MAX_PROJECT_CHAT_PLACEMENTS
+    {
+        return Err(output_error(
+            "groupEffects exceeds one of its bounded proposal limits".to_owned(),
+        ));
+    }
+
+    let reference_allowed = |reference: &str, label: &str| -> CoreResult<()> {
+        validate_key(reference, label)?;
+        if !draft_keys.contains(reference) && !allowed_target_handles.contains(reference) {
+            return Err(output_error(format!(
+                "{label} references {:?} outside the frozen sources or response drafts",
+                reference
+            )));
+        }
+        Ok(())
+    };
+
+    let mut relationship_keys = BTreeSet::new();
+    for relationship in &effects.relationships {
+        validate_key(&relationship.key, "relationship key")?;
+        if !relationship_keys.insert(relationship.key.clone()) {
+            return Err(output_error(format!(
+                "relationship key {:?} is duplicated",
+                relationship.key
+            )));
+        }
+        reference_allowed(&relationship.from_ref, "relationship fromRef")?;
+        reference_allowed(&relationship.to_ref, "relationship toRef")?;
+        if relationship.from_ref == relationship.to_ref {
+            return Err(output_error(
+                "a relationship cannot connect a reference to itself".to_owned(),
+            ));
+        }
+        validate_text(
+            &relationship.relationship_type,
+            MAX_PROJECT_CHAT_TEXT_BYTES,
+            "relationship type",
+        )?;
+        validate_text(
+            &relationship.description,
+            MAX_PROJECT_CHAT_CHANGE_SUMMARY_BYTES,
+            "relationship description",
+        )?;
+        validate_text(
+            &relationship.uncertainty,
+            MAX_PROJECT_CHAT_CHANGE_SUMMARY_BYTES,
+            "relationship uncertainty",
+        )?;
+    }
+
+    for impact in &effects.impacts {
+        reference_allowed(&impact.target_ref, "impact targetRef")?;
+        validate_text(&impact.kind, MAX_PROJECT_CHAT_TEXT_BYTES, "impact kind")?;
+        if !matches!(
+            impact.kind.as_str(),
+            "contradiction" | "possibleTension" | "dependentAssumption" | "styleSuggestion"
+        ) {
+            return Err(output_error(format!(
+                "impact kind {:?} is unsupported",
+                impact.kind
+            )));
+        }
+        validate_text(
+            &impact.reason,
+            MAX_PROJECT_CHAT_CHANGE_SUMMARY_BYTES,
+            "impact reason",
+        )?;
+        if let Some(key) = &impact.relationship_key {
+            validate_key(key, "impact relationshipKey")?;
+            if !relationship_keys.contains(key) {
+                return Err(output_error(format!(
+                    "impact relationshipKey {:?} is not a proposed relationship",
+                    key
+                )));
+            }
+        }
+    }
+
+    for supersession in &effects.supersessions {
+        reference_allowed(&supersession.target_ref, "supersession targetRef")?;
+        reference_allowed(&supersession.superseded_ref, "supersession supersededRef")?;
+        if supersession.target_ref == supersession.superseded_ref {
+            return Err(output_error(
+                "a supersession cannot point to the same reference".to_owned(),
+            ));
+        }
+        validate_text(
+            &supersession.reason,
+            MAX_PROJECT_CHAT_CHANGE_SUMMARY_BYTES,
+            "supersession reason",
+        )?;
+    }
+
+    for placement in &effects.placements {
+        reference_allowed(&placement.target_ref, "placement targetRef")?;
+        let before = placement.before_ref.as_deref();
+        let after = placement.after_ref.as_deref();
+        if before.is_some() == after.is_some() {
+            return Err(output_error(
+                "a placement must specify exactly one beforeRef or afterRef".to_owned(),
+            ));
+        }
+        if let Some(reference) = before.or(after) {
+            reference_allowed(reference, "placement anchorRef")?;
+            if reference == placement.target_ref {
+                return Err(output_error(
+                    "a placement cannot anchor a reference to itself".to_owned(),
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -733,6 +959,10 @@ mod tests {
                 .expect("current recipe"),
             PROJECT_CHAT_RESPONSE_INSTRUCTION
         );
+        let grouped = project_chat_response_instruction(Some(PROJECT_CHAT_PROMPT_RECIPE_V3))
+            .expect("grouped recipe");
+        assert!(grouped.starts_with(PROJECT_CHAT_RESPONSE_INSTRUCTION));
+        assert!(grouped.contains("groupEffects"));
         assert!(project_chat_response_instruction(Some("project-chat-prompt.v999")).is_err());
     }
 

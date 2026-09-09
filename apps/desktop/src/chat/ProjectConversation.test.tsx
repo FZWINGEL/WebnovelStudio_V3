@@ -9,10 +9,11 @@ import type { DocumentRecord, OpenedProject, ProjectAccess } from '../ipc/projec
 const readProjectConversation = vi.hoisted(() => vi.fn());
 const saveProjectComposer = vi.hoisted(() => vi.fn());
 const startProjectChapter = vi.hoisted(() => vi.fn());
+const setChatDisposition = vi.hoisted(() => vi.fn());
 
 vi.mock('../ipc/projectChat', async () => {
   const actual = await vi.importActual<typeof import('../ipc/projectChat')>('../ipc/projectChat');
-  return { ...actual, readProjectConversation, saveProjectComposer, startProjectChapter };
+  return { ...actual, readProjectConversation, saveProjectComposer, startProjectChapter, setChatDisposition };
 });
 
 vi.mock('../assistant/ContextInspector', () => ({
@@ -70,6 +71,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   localStorage.clear();
   saveProjectComposer.mockImplementation(async request => ({ conversationId: request.conversationId, version: String(BigInt(request.expectedVersion) + 1n), body: request.body }));
+  setChatDisposition.mockResolvedValue({ id: 'decision-new', sequence: '3', kind: 'chatDisposition', referenceId: 'run-1:q1', payload: { referenceId: 'run-1:q1', version: '5', disposition: 'reconsider' }, createdAt: '2026-09-09T00:02:00.000Z' });
   readProjectConversation.mockResolvedValue({
     id: 'conversation-1', composer: { conversationId: 'conversation-1', version: '0', body: emptyProjectComposer() },
     items: [{ id: 'item-1', sequence: '1', kind: 'request', referenceId: 'run-1', createdAt: '2026-09-09T00:00:00.000Z', payload: { instruction: 'Explain this scene.', userMessageId: 'user-message-1', assistantMessageId: 'assistant-message-1', run: completedRun() } }],
@@ -182,5 +184,108 @@ describe('ProjectConversation context inspection', () => {
   it('passes the immutable run packet id to the existing ContextInspector', async () => {
     await act(async () => root.render(<ProjectConversation project={project} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
     expect(host.querySelector('[data-testid="context-inspector"]')?.textContent).toBe('packet-exact');
+  });
+
+  it('stages a direct assumption correction in the unsent composer without sending', async () => {
+    const view = await readProjectConversation();
+    const run = completedRun();
+    run.outputText = JSON.stringify({ schemaVersion: 'project-assistant-output.v1', answer: 'A readable answer.', questions: [], assumptions: [{ key: 'voice', text: 'Use a restrained voice.' }] });
+    view.items[0].payload.run = run;
+    view.composer.body.text = 'Keep my existing direction.';
+    readProjectConversation.mockResolvedValue(view);
+    const ref = createRef<ProjectConversationHandle>();
+    await act(async () => root.render(<ProjectConversation ref={ref} project={project} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Edit assumption')!.click());
+    const editor = host.querySelector<HTMLTextAreaElement>('[aria-label="Correct proposed assumption"]')!;
+    expect(editor.value).toBe('Use a restrained voice.');
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(editor), 'value')!.set!.call(editor, 'Use a warm, direct voice.');
+    await act(async () => editor.dispatchEvent(new Event('input', { bubbles: true })));
+    await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Use correction for next draft')!.click());
+    await act(async () => ref.current!.flush());
+    const saved = saveProjectComposer.mock.calls.at(-1)![0].body.text as string;
+    expect(saved).toContain('Keep my existing direction.');
+    expect(saved).toContain('Correction for the next draft.');
+    expect(saved).toContain('Original assumption: “Use a restrained voice.”');
+    expect(saved).toContain('Author correction: Use a warm, direct voice.');
+    expect(setChatDisposition).not.toHaveBeenCalled();
+  });
+
+  it('cancels an assumption edit without changing the composer', async () => {
+    const view = await readProjectConversation();
+    const run = completedRun();
+    run.outputText = JSON.stringify({ schemaVersion: 'project-assistant-output.v1', answer: 'A readable answer.', questions: [], assumptions: [{ key: 'voice', text: 'Use a restrained voice.' }] });
+    view.items[0].payload.run = run;
+    view.composer.body.text = 'Keep this exact text.';
+    readProjectConversation.mockResolvedValue(view);
+    const ref = createRef<ProjectConversationHandle>();
+    await act(async () => root.render(<ProjectConversation ref={ref} project={project} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Edit assumption')!.click());
+    const editor = host.querySelector<HTMLTextAreaElement>('[aria-label="Correct proposed assumption"]')!;
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(editor), 'value')!.set!.call(editor, 'This should be discarded.');
+    await act(async () => editor.dispatchEvent(new Event('input', { bubbles: true })));
+    await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Cancel')!.click());
+    await act(async () => ref.current!.flush());
+    expect(saveProjectComposer).not.toHaveBeenCalled();
+    expect(setChatDisposition).not.toHaveBeenCalled();
+  });
+
+  it('refuses to stage an author-room correction while a chapter task is active', async () => {
+    const view = await readProjectConversation();
+    const run = completedRun();
+    run.outputText = JSON.stringify({ schemaVersion: 'project-assistant-output.v1', answer: 'A readable answer.', questions: [], assumptions: [{ key: 'voice', text: 'Use a restrained voice.' }] });
+    view.items[0].payload.run = run;
+    view.composer.body.text = 'Keep the chapter task request.';
+    view.composer.body.chapter = { target: head, intent: 'discuss', basis: 'working', scope: null, safeBrief: null };
+    readProjectConversation.mockResolvedValue(view);
+    const ref = createRef<ProjectConversationHandle>();
+    await act(async () => root.render(<ProjectConversation ref={ref} project={project} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Edit assumption')!.click());
+    const editor = host.querySelector<HTMLTextAreaElement>('[aria-label="Correct proposed assumption"]')!;
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(editor), 'value')!.set!.call(editor, 'Do not change the chapter task.');
+    await act(async () => editor.dispatchEvent(new Event('input', { bubbles: true })));
+    await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Use correction for next draft')!.click());
+    await act(async () => ref.current!.flush());
+    expect(saveProjectComposer).not.toHaveBeenCalled();
+    expect(setChatDisposition).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Return to the project conversation');
+    expect(host.textContent).toContain('Keep the chapter task request.');
+  });
+
+  it('projects persisted decision scope, unknown audience, rationale, and reconsiders with the same scope/version', async () => {
+    const view = await readProjectConversation();
+    const run = completedRun();
+    run.outputText = JSON.stringify({ schemaVersion: 'project-assistant-output.v1', answer: 'A readable answer.', questions: [{ key: 'q1', text: 'Should the hidden motive remain unrevealed?' }], assumptions: [] });
+    view.items[0].payload.run = run;
+    view.items.push({ id: 'decision-1', sequence: '2', kind: 'chatDisposition', referenceId: 'run-1:q1', payload: { referenceId: 'run-1:q1', version: '4', disposition: 'keepMysterious', rationale: 'Preserve uncertainty until the reveal.', scope: { kind: 'task', referenceId: 'run-1' }, unknownTo: 'both' }, createdAt: '2026-09-09T00:01:00.000Z' });
+    readProjectConversation.mockResolvedValue(view);
+    await act(async () => root.render(<ProjectConversation project={project} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    const question = host.querySelector('.chat-question')!;
+    expect(question.querySelector('select')?.value).toBe('task');
+    expect(host.textContent).toContain('Response kept mysterious.');
+    expect(host.textContent).toContain('Response version 4');
+    expect(host.textContent).toContain('Scope: This request · run-1');
+    expect(host.textContent).toContain('Unknown to: Author and reader');
+    expect(host.textContent).toContain('Rationale: Preserve uncertainty until the reveal.');
+    await act(async () => { [...host.querySelectorAll('button')].find(button => button.textContent === 'Reconsider this response')!.click(); await Promise.resolve(); });
+    expect(setChatDisposition).toHaveBeenCalledWith(access, 'conversation-1', 'run-1:q1', '4', 'reconsider', '', expect.any(String), { scope: { kind: 'task', referenceId: 'run-1' } });
+  });
+
+  it('keeps each historical disposition tied to its own recorded scope and version', async () => {
+    const view = await readProjectConversation();
+    view.items.push(
+      { id: 'decision-old', sequence: '2', kind: 'chatDisposition', referenceId: 'run-1:q1', payload: { version: '1', disposition: 'notRelevant', scope: { kind: 'project' }, rationale: 'Earlier project decision.' }, createdAt: '' },
+      { id: 'decision-new', sequence: '3', kind: 'chatDisposition', referenceId: 'run-1:q1', payload: { version: '2', disposition: 'notNow', scope: { kind: 'task', referenceId: 'run-1' }, rationale: 'Later task decision.' }, createdAt: '' },
+    );
+    readProjectConversation.mockResolvedValue(view);
+    await act(async () => root.render(<ProjectConversation project={project} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    const old = host.querySelector('[data-conversation-item-id="decision-old"]')!;
+    const current = host.querySelector('[data-conversation-item-id="decision-new"]')!;
+    expect(old.textContent).toContain('Response version 1');
+    expect(old.textContent).toContain('Scope: Project');
+    expect(old.textContent).not.toContain('Later task decision');
+    expect(old.querySelector('button')).toBeNull();
+    expect(current.textContent).toContain('Response version 2');
+    expect(current.textContent).toContain('Scope: This request');
+    expect(current.querySelector('button')?.textContent).toBe('Reconsider this response');
   });
 });

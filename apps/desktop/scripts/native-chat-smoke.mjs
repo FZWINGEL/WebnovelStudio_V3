@@ -131,6 +131,9 @@ try {
   assert.equal(epoch(), startingEpoch + 1);
   assert.equal(count("SELECT COUNT(*) AS n FROM assistant_drafts WHERE disposition='adopted'"), 2);
   assert.equal(count("SELECT COUNT(*) AS n FROM command_receipts WHERE operation_kind='adoptChatPreview'"), 1);
+  const firstProjectOrdinary = ordinary();
+  const firstProjectRuns = count('SELECT COUNT(*) AS n FROM discussion_runs');
+  const firstProjectDrafts = count('SELECT COUNT(*) AS n FROM assistant_drafts');
   recordCheck(checks, 'native-chat-smoke:03', 'Author draft edits save independently; exact before/after preview precedes grouped adoption and one source-epoch advance');
 
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
@@ -171,7 +174,54 @@ try {
     await until(async () => (await versions.textContent()).includes('The courier now keeps a gold letter'), 'current source version independently read');
     assert(!(await versions.textContent()).includes('A courier keeps a silver letter'));
     assert.equal(Number(secondDatabase.prepare('SELECT COUNT(*) AS n FROM discussion_runs').get().n), 1);
+    const recap = page.locator('.chat-document-save-recap');
+    await recap.locator(':scope > summary').click();
+    const savedVersion = String(secondDatabase.prepare('SELECT working_version FROM documents WHERE id=?').get(originalNote.id).working_version);
+    await recap.getByRole('button', { name: `Inspect saved version ${savedVersion}`, exact: true }).click();
+    await until(async () => (await recap.getByRole('region', { name: 'Saved document event', exact: true }).textContent()).includes('The courier now keeps a gold letter'), 'return recap reads the exact retained author checkpoint');
+    assert(!(await recap.getByRole('region', { name: 'Saved document event', exact: true }).textContent()).includes('A courier keeps a silver letter'));
+    assert.equal(Number(secondDatabase.prepare('SELECT COUNT(*) AS n FROM discussion_runs').get().n), 1);
+    await recap.getByRole('button', { name: 'Close saved version', exact: true }).click();
+    await recap.locator(':scope > summary').click();
     recordCheck(checks, 'native-chat-smoke:12', 'Blank-project note entry saves ordinary author text; organization preserves it, and discussed/current versions resolve independently without dispatch');
+
+    const noteBeforeDecision = secondDatabase.prepare('SELECT id,working_version,body_hash FROM documents WHERE id=?').get(originalNote.id);
+    const secondRunsBeforeDecision = Number(secondDatabase.prepare('SELECT COUNT(*) AS n FROM discussion_runs').get().n);
+    const draftsBeforeDecision = Number(secondDatabase.prepare('SELECT COUNT(*) AS n FROM assistant_drafts').get().n);
+    await page.getByRole('button', { name: /^Review drafts/ }).click();
+    await page.getByRole('heading', { name: 'Drafts to review', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Reject', exact: true }).first().click();
+    await until(() => Number(secondDatabase.prepare("SELECT COUNT(*) AS n FROM assistant_drafts WHERE disposition='rejected'").get().n) === 1, 'one retained draft rejected');
+    assert.deepEqual(secondDatabase.prepare('SELECT id,working_version,body_hash FROM documents WHERE id=?').get(originalNote.id), noteBeforeDecision);
+    assert.equal(Number(secondDatabase.prepare('SELECT COUNT(*) AS n FROM discussion_runs').get().n), secondRunsBeforeDecision);
+
+    // The back button is only rendered for the narrow/mobile review surface.
+    // Native qualification runs the desktop split view, where the right-mode
+    // tabs are the canonical way to leave review mode.
+    await page.locator('.chat-right-mode-tabs').getByRole('button', { name: 'Document', exact: true }).click();
+    const question = page.locator('.chat-question').first();
+    await question.waitFor();
+    const notNowBefore = Number(secondDatabase.prepare("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='chatDisposition' AND json_extract(payload_json,'$.disposition')='notNow'").get().n);
+    await question.getByLabel('Scope').selectOption('task');
+    await question.getByRole('button', { name: 'Not now', exact: true }).click();
+    await until(() => Number(secondDatabase.prepare("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='chatDisposition' AND json_extract(payload_json,'$.disposition')='notNow'").get().n) === notNowBefore + 1, 'scoped question disposition saved');
+    const disposition = JSON.parse(secondDatabase.prepare("SELECT payload_json FROM conversation_items WHERE kind='chatDisposition' AND json_extract(payload_json,'$.disposition')='notNow' ORDER BY sequence DESC LIMIT 1").get().payload_json);
+    assert.equal(disposition.disposition, 'notNow');
+    assert.equal(disposition.scope.kind, 'task');
+    assert.equal(Number(secondDatabase.prepare('SELECT COUNT(*) AS n FROM discussion_runs').get().n), secondRunsBeforeDecision);
+
+    assert.equal(await composer.inputValue(), '');
+    await composer.fill('A fresh idea unrelated to the harbor note.');
+    assert.equal(Number(secondDatabase.prepare('SELECT COUNT(*) AS n FROM discussion_runs').get().n), secondRunsBeforeDecision);
+    await composer.press('Control+Enter');
+    await until(() => Number(secondDatabase.prepare("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'").get().n) === secondRunsBeforeDecision + 1, 'explicit fresh request completed');
+    await until(() => Number(secondDatabase.prepare('SELECT COUNT(*) AS n FROM assistant_drafts').get().n) > draftsBeforeDecision, 'fresh request creates additional drafts');
+    assert.deepEqual(secondDatabase.prepare('SELECT id,working_version,body_hash FROM documents WHERE id=?').get(originalNote.id), noteBeforeDecision);
+    assert(Number(secondDatabase.prepare("SELECT COUNT(*) AS n FROM assistant_drafts WHERE disposition='pending'").get().n) > 0);
+    assert.deepEqual(ordinary(), firstProjectOrdinary);
+    assert.equal(count('SELECT COUNT(*) AS n FROM discussion_runs'), firstProjectRuns);
+    assert.equal(count('SELECT COUNT(*) AS n FROM assistant_drafts'), firstProjectDrafts);
+    recordCheck(checks, 'native-chat-smoke:14', 'Draft rejection and request-scoped Not now persist without changing the ordinary note; an unrelated idea sends only after explicit author action and creates fresh isolated drafts while the other project stays unchanged');
   } finally { secondDatabase.close(); }
   await composer.fill('An independent project with an independent composer.');
   await page.locator('.recent-project-picker > summary').click();

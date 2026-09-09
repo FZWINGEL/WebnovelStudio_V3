@@ -1,9 +1,11 @@
 // Opt-in live Codex Exec qualification for the native chat-first surface.
 //
-// This is deliberately outside the native CI consumer. It uses exactly two
-// explicitly submitted requests, never retries or falls back, and keeps the
-// packet/result evidence required to audit the run. It is a single synthetic
-// contract trial, not a prose-quality benchmark.
+// This is deliberately outside the native CI consumer. The default and
+// contracts modes use two explicitly submitted requests; grouped mode uses
+// one explicitly submitted request that returns two review drafts. None of
+// the modes retries or falls back, and each keeps packet/result evidence
+// required to audit the run. These are synthetic contract trials, not prose-
+// quality benchmarks.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -19,8 +21,11 @@ import { chromium } from 'playwright-core';
 import { spawnOwned, stopOwned, markOwnedReady } from './owned-process.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+const groupedMode = process.env.WNS_V3_CHAT_LIVE_MODE === 'grouped';
 const contractMode = process.env.WNS_V3_CHAT_LIVE_MODE === 'contracts';
-const output = resolve(root, contractMode ? '.local/native-results/chat-live-contracts' : '.local/native-results/chat-live');
+const output = resolve(root, groupedMode
+  ? '.local/native-results/chat-live-grouped'
+  : contractMode ? '.local/native-results/chat-live-contracts' : '.local/native-results/chat-live');
 const executable = resolve(process.env.WNS_V3_NATIVE_EXE ?? resolve(root, 'target/debug/webnovel-desktop.exe'));
 const execFileAsync = promisify(execFile);
 const requestedSelection = {
@@ -30,7 +35,7 @@ const requestedSelection = {
   serviceTier: 'priority',
 };
 const limitations = [
-  'One synthetic two-request trial only; this is not a prose-quality or latency benchmark.',
+  'One synthetic live qualification trial only; this is not a prose-quality or latency benchmark.',
   'The trial qualifies the Codex Exec adapter and native persistence contract only; it does not qualify app-server parity.',
   'The trial does not qualify author usability, screen readers, IME behavior, installed packaging, provider billing limits, or long-form literary quality.',
 ];
@@ -39,7 +44,7 @@ await mkdir(output, { recursive: true });
 const report = {
   status: 'disabled',
   enabled: process.env.WNS_V3_ALLOW_LIVE_CHAT === '1',
-  mode: contractMode ? 'contracts' : 'default',
+  mode: groupedMode ? 'grouped' : contractMode ? 'contracts' : 'default',
   executable,
   checks: [],
   limitations,
@@ -49,7 +54,8 @@ const saveReport = () => writeFile(resolve(output, 'report.json'), JSON.stringif
 if (!report.enabled) {
   report.checks.push({ description: 'Live Codex chat qualification is disabled by default.', passed: true });
   await saveReport();
-  console.log(JSON.stringify({ status: report.status, output, hint: 'Set WNS_V3_ALLOW_LIVE_CHAT=1 to explicitly authorize the two live requests.' }, null, 2));
+  const requestHint = groupedMode ? 'one grouped live request' : 'the two live requests';
+  console.log(JSON.stringify({ status: report.status, output, hint: `Set WNS_V3_ALLOW_LIVE_CHAT=1 to explicitly authorize ${requestHint}.` }, null, 2));
   process.exit(0);
 }
 
@@ -90,10 +96,15 @@ const identity = await sourceIdentity();
 report.identity = { ...identity, isolatedDataDirectory: data };
 await writeFile(resolve(output, 'source-identity.json'), JSON.stringify(report.identity, null, 2));
 
-const server = createServer();
-await new Promise(done => server.listen(0, '127.0.0.1', done));
-const port = server.address().port;
-await new Promise(done => server.close(done));
+async function reservePort() {
+  const server = createServer();
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  const port = server.address().port;
+  await new Promise(done => server.close(done));
+  return port;
+}
+
+let port = await reservePort();
 
 let app;
 let browser;
@@ -140,6 +151,12 @@ function rows(sql, ...params) {
 }
 function ordinary() {
   return rows("SELECT id,body_hash,working_version FROM documents WHERE role='ordinary' AND trashed=0 ORDER BY id");
+}
+function workshopState() {
+  const row = rows('SELECT version,state_json FROM workshop_state WHERE singleton=1')[0];
+  assert(row, 'The grouped adoption must persist a Workshop state row for its relationship.');
+  const state = JSON.parse(row.state_json);
+  return { version: String(row.version), state };
 }
 function check(description, passed, details = undefined) {
   report.checks.push({ description, passed, ...(details === undefined ? {} : { details }) });
@@ -378,7 +395,7 @@ async function verifyContractProjectRun(runId, ordinal, expectedContract) {
     packet.packet_json.includes(expectedContract),
     { packetId: packet.id, packetHash: packet.packet_hash, inputHash: packet.input_hash, expectedContract });
   if (expectedContract === 'project-assistant-output.v1') {
-    check(`Contract request ${ordinal} retains the new project-chat prompt recipe.`, packet.packet_json.includes('project-chat-prompt.v2'));
+    check(`Contract request ${ordinal} retains the new project-chat prompt recipe.`, packet.packet_json.includes('project-chat-prompt.v3'));
     check(`Contract request ${ordinal} is parsed as a project-assistant response with a chapter handoff.`,
       parsed.schemaVersion === expectedContract
         && parsed.chapterHandoff
@@ -404,6 +421,250 @@ async function verifyContractProjectRun(runId, ordinal, expectedContract) {
       && reloadedPacket.packet_hash === packet.packet_hash
       && reloadedPacket.input_hash === packet.input_hash);
   return captured;
+}
+
+function draftText(draft) {
+  return (draft.blocks ?? []).flatMap(block => block.content ?? [])
+    .filter(inline => inline.type === 'text')
+    .map(inline => inline.text)
+    .join(' ');
+}
+
+async function verifyGroupedRun(runId, ordinal, sharedDetail) {
+  await until(() => count('SELECT COUNT(*) AS n FROM discussion_runs WHERE id=? AND status=\'completed\' AND dispatch_state=\'delivered\'', runId) === 1,
+    `Codex grouped request ${ordinal} terminal completion`);
+  const run = rows('SELECT * FROM discussion_runs WHERE id=?', runId)[0];
+  assert(run, `Grouped run ${runId} must remain durable.`);
+  const packet = rows('SELECT * FROM context_packets WHERE id=?', run.packet_id)[0];
+  const providerResult = providerRows(runId)[0];
+  assert(packet && providerResult, `Grouped request ${ordinal} must retain packet and provider evidence.`);
+  check('The grouped live request retains the grouped project-chat prompt recipe.', packet.packet_json.includes('project-chat-prompt.v3'));
+  const binding = JSON.parse(providerResult.binding_json);
+  const providerEvidence = {
+    reportedModel: providerResult.reported_model ?? null,
+    effectiveIdentity: providerResult.effective_identity ?? null,
+    usage: providerResult.usage_json ? JSON.parse(providerResult.usage_json) : null,
+    execDelivery: providerResult.delivery_json ? JSON.parse(providerResult.delivery_json) : null,
+    appServerDelivery: providerResult.app_server_delivery_json ? JSON.parse(providerResult.app_server_delivery_json) : null,
+  };
+  check('The grouped live request retains requested model traits separately from provider-reported evidence.',
+    binding.providerId === requestedSelection.providerId
+      && binding.modelId === requestedSelection.modelId
+      && binding.reasoning === requestedSelection.reasoning
+      && binding.serviceTier === requestedSelection.serviceTier,
+    { requested: requestedSelection, binding, providerEvidence });
+  check('The grouped live request records provider identity, usage, and delivery evidence without inferring effective tier.',
+    Object.hasOwn(providerResult, 'reported_model')
+      && Object.hasOwn(providerResult, 'effective_identity')
+      && Object.hasOwn(providerResult, 'usage_json')
+      && Object.hasOwn(providerResult, 'delivery_json')
+      && Object.hasOwn(providerResult, 'app_server_delivery_json'),
+    { requestedBinding: binding, provider: providerEvidence });
+
+  const parsed = JSON.parse(run.output_text);
+  const drafts = Array.isArray(parsed.drafts) ? parsed.drafts : [];
+  const kinds = new Set(drafts.map(draft => draft.kind));
+  check('The grouped live response uses the project-assistant contract with exactly one character and one world draft.',
+    parsed.schemaVersion === 'project-assistant-output.v1'
+      && drafts.length === 2
+      && kinds.size === 2
+      && kinds.has('character')
+      && kinds.has('world'),
+    { schemaVersion: parsed.schemaVersion, draftCount: drafts.length, kinds: [...kinds] });
+  check('The grouped live drafts are short, new targets, and share the requested connecting detail.',
+    drafts.length === 2
+      && drafts.every(draft => draft.targetHandle == null && Array.isArray(draft.blocks) && draft.blocks.length > 0 && draft.blocks.length <= 6 && draftText(draft).includes(sharedDetail)),
+    { sharedDetail, drafts: drafts.map(draft => ({ key: draft.key, kind: draft.kind, title: draft.title, text: draftText(draft) })) });
+
+  const groupEffects = parsed.groupEffects && typeof parsed.groupEffects === 'object' ? parsed.groupEffects : null;
+  const relationships = Array.isArray(groupEffects?.relationships) ? groupEffects.relationships : [];
+  check('The grouped live response includes exactly one nonempty relationship proposal for the two response-local drafts.',
+    relationships.length === 1
+      && Array.isArray(groupEffects?.impacts) && groupEffects.impacts.length === 0
+      && Array.isArray(groupEffects?.supersessions) && groupEffects.supersessions.length === 0
+      && Array.isArray(groupEffects?.placements) && groupEffects.placements.length === 0,
+    { groupEffects });
+  const draftKeys = new Set(drafts.map(draft => draft.key));
+  const relationship = relationships[0];
+  check('The grouped relationship maps fromRef and toRef to distinct response draft keys and retains its explanation fields.',
+    !!relationship
+      && draftKeys.has(relationship.fromRef)
+      && draftKeys.has(relationship.toRef)
+      && relationship.fromRef !== relationship.toRef
+      && typeof relationship.key === 'string' && relationship.key.trim().length > 0
+      && typeof relationship.type === 'string' && relationship.type.trim().length > 0
+      && typeof relationship.description === 'string' && relationship.description.trim().length > 0
+      && typeof relationship.uncertainty === 'string' && relationship.uncertainty.trim().length > 0,
+    { relationship, draftKeys: [...draftKeys] });
+  report.groupedRelationship = { present: true, count: relationships.length, relationship };
+
+  await until(() => count('SELECT COUNT(*) AS n FROM assistant_drafts WHERE origin_run_id=?', runId) === 2
+    && count("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='materializeChatResult' AND reference_id=?", runId) === 1,
+  `Codex grouped request ${ordinal} draft materialization`);
+  check('The grouped live request materializes exactly two isolated review drafts.', count('SELECT COUNT(*) AS n FROM assistant_drafts WHERE origin_run_id=?', runId) === 2);
+  check('The grouped live request records one materialization event.', count("SELECT COUNT(*) AS n FROM conversation_items WHERE kind='materializeChatResult' AND reference_id=?", runId) === 1);
+
+  await retainJson(`grouped-request-${ordinal}-packet.json`, packet);
+  await retainJson(`grouped-request-${ordinal}-provider-result.json`, providerResult);
+  await retainJson(`grouped-request-${ordinal}-identity.json`, {
+    runId: run.id,
+    operationId: run.operation_id,
+    packetId: packet.id,
+    packetHash: packet.packet_hash,
+    inputHash: packet.input_hash,
+    status: run.status,
+    dispatchState: run.dispatch_state,
+    requested: requestedSelection,
+    requestedBinding: binding,
+    providerEvidence,
+  });
+  await retainText(`grouped-request-${ordinal}-output.txt`, run.output_text);
+  return { run, packet, providerResult, parsed, drafts };
+}
+
+async function runGroupedTrial() {
+  await connectApp();
+  const provider = await chooseCodexLuna();
+  await createProject('Live Codex grouped chat trial');
+  const library = await invoke('library_snapshot');
+  const entry = library.entries.find(item => item.title === 'Live Codex grouped chat trial');
+  assert(entry, 'The grouped live project must be present in the native library.');
+  const projectId = entry.projectId;
+  const projectPath = await realpath(entry.path);
+  const child = relative(toNamespacedPath(data), toNamespacedPath(projectPath));
+  assert(child && !isAbsolute(child) && child !== '..' && !child.startsWith(`..${sep}`), 'The grouped project must stay inside the isolated data directory.');
+  database = new DatabaseSync(resolve(projectPath, 'project.sqlite3'), { readOnly: true });
+  check('The grouped trial uses an isolated synthetic project database.', count('SELECT COUNT(*) AS n FROM project') === 1);
+  const composer = page.getByRole('textbox', { name: 'Message the project assistant', exact: true });
+  const sharedDetail = 'Lantern Archive';
+  const instruction = `Create exactly two short connected drafts for my review about Mara Vey, a courier who carries memories through the ${sharedDetail}. Return one character draft for Mara Vey and one world draft for the ${sharedDetail}; use the exact shared detail in both drafts so their connection is clear. Keep both drafts new and concise. Return exactly one nonempty groupEffects.relationships proposal connecting the response-local character and world draft keys, with a type, description, and uncertainty; return empty impacts, supersessions, and placements arrays. Do not create a chapter, adopt anything, or make another model call.`;
+  await composer.fill(instruction);
+  await composer.press('Control+Enter');
+  await until(() => count('SELECT COUNT(*) AS n FROM discussion_runs') === 1, 'one durable grouped live request');
+  const run = rows('SELECT * FROM discussion_runs ORDER BY created_at, id')[0];
+  const captured = await verifyGroupedRun(run.id, 1, sharedDetail);
+  check('The grouped trial has exactly one explicit provider run with no fallback or hidden retry.', count('SELECT COUNT(*) AS n FROM discussion_runs') === 1, { runId: run.id });
+
+  const cards = page.locator('.chat-draft-card');
+  await page.getByRole('button', { name: /^Review drafts/ }).click();
+  await cards.first().waitFor({ timeout: 30_000 });
+  let selected = 0;
+  for (const card of await cards.all()) {
+    const checkbox = card.getByRole('checkbox', { name: 'Include in this adoption', exact: true });
+    if (!(await checkbox.count())) continue;
+    if (!(await checkbox.isChecked())) await checkbox.check();
+    selected += 1;
+  }
+  assert.equal(selected, 2, 'The grouped live response must expose exactly two selectable drafts.');
+  await page.getByRole('button', { name: 'Prepare grouped preview', exact: true }).click();
+  const previewRegion = page.getByRole('region', { name: 'Exact adoption preview', exact: true });
+  await previewRegion.waitFor({ timeout: 30_000 });
+  const relationshipSection = previewRegion.getByRole('region', { name: 'Proposed relationships', exact: true });
+  await relationshipSection.waitFor({ timeout: 30_000 });
+  const relationshipDescription = captured.parsed.groupEffects.relationships[0].description;
+  check('The exact grouped preview exposes the proposed relationship before the author adopts either document.',
+    (await relationshipSection.textContent())?.includes(relationshipDescription) === true,
+    { relationshipDescription });
+  const adoptionButton = previewRegion.getByRole('button', { name: /^Adopt all 2 documents:/ });
+  await adoptionButton.waitFor({ timeout: 30_000 });
+  const ordinaryBefore = ordinary();
+  const epochBefore = Number(database.prepare('SELECT context_source_epoch AS n FROM project').get().n);
+  const receiptsBefore = count("SELECT COUNT(*) AS n FROM command_receipts WHERE operation_kind='adoptChatPreview'");
+  const runsBefore = count('SELECT COUNT(*) AS n FROM discussion_runs');
+  await adoptionButton.click();
+  await previewRegion.waitFor({ state: 'detached', timeout: 60_000 });
+  await until(() => ordinary().length === ordinaryBefore.length + 2, 'two grouped ordinary documents committed');
+  const ordinaryAfter = ordinary();
+  check('Grouped adoption commits both documents atomically and advances one source epoch.',
+    ordinaryAfter.length === ordinaryBefore.length + 2
+      && Number(database.prepare('SELECT context_source_epoch AS n FROM project').get().n) === epochBefore + 1
+      && count("SELECT COUNT(*) AS n FROM command_receipts WHERE operation_kind='adoptChatPreview'") === receiptsBefore + 1,
+    { ordinaryBefore, ordinaryAfter, epochBefore, epochAfter: Number(database.prepare('SELECT context_source_epoch AS n FROM project').get().n) });
+  check('Grouped adoption does not create another provider run.', count('SELECT COUNT(*) AS n FROM discussion_runs') === runsBefore);
+  const committedWorkshop = workshopState();
+  const committedRelationships = Array.isArray(committedWorkshop.state.relationships) ? committedWorkshop.state.relationships : [];
+  const expectedRelationship = captured.parsed.groupEffects.relationships[0];
+  const adoptedIds = new Set(ordinaryAfter.map(document => document.id));
+  const committedRelationship = committedRelationships.find(relationship =>
+    relationship && adoptedIds.has(relationship.fromDocumentId) && adoptedIds.has(relationship.toDocumentId));
+  check('Grouped adoption persists exactly one relationship with ordinary adopted endpoints and no assistant/control endpoint IDs.',
+    committedRelationships.length === 1
+      && !!committedRelationship
+      && committedRelationship.fromDocumentId !== committedRelationship.toDocumentId
+      && committedRelationship.sourceHeads?.length === 2
+      && committedRelationship.sourceHeads[0].documentId === committedRelationship.fromDocumentId
+      && committedRelationship.sourceHeads[1].documentId === committedRelationship.toDocumentId
+      && committedRelationship.sourceHeads.every(head => adoptedIds.has(head.documentId))
+      && committedRelationship.status === 'chosen',
+    { committedRelationships, adoptedIds: [...adoptedIds] });
+  const adoptedById = new Map(ordinaryAfter.map(document => [document.id, document]));
+  check('The committed relationship source heads match the final adopted ordinary document heads and the exact reviewed relationship fields.',
+    !!committedRelationship
+      && committedRelationship.type === expectedRelationship.type
+      && committedRelationship.description === expectedRelationship.description
+      && committedRelationship.uncertainty === expectedRelationship.uncertainty
+      && committedRelationship.sourceHeads.every(head => {
+        const document = adoptedById.get(head.documentId);
+        return document && head.version === String(document.working_version) && head.bodyHash === document.body_hash;
+      }),
+    { committedRelationship, expectedRelationship });
+  const adoptedDocuments = rows("SELECT id,title,kind,working_version,body_hash,body_json FROM documents WHERE role='ordinary' AND trashed=0 ORDER BY id");
+  await retainJson('grouped-adoption.json', {
+    runId: captured.run.id,
+    ordinaryBefore,
+    ordinaryAfter: adoptedDocuments,
+    sourceEpochBefore: epochBefore,
+    sourceEpochAfter: Number(database.prepare('SELECT context_source_epoch AS n FROM project').get().n),
+    adoptionReceipts: rows("SELECT operation_id,payload_hash FROM command_receipts WHERE operation_kind='adoptChatPreview' ORDER BY rowid"),
+    workshopRelationship: committedRelationship,
+    workshopVersion: committedWorkshop.version,
+  });
+
+  database.close(); database = undefined;
+  await browser.close(); browser = undefined;
+  await stopOwned(app);
+  appLog = ''; spawnError = undefined;
+  const previousPort = port;
+  do { port = await reservePort(); } while (port === previousPort);
+  app = launch();
+  await connectApp();
+  const reopenedButton = page.getByRole('button', { name: /^Live Codex grouped chat trial Last opened/ });
+  await reopenedButton.waitFor({ timeout: 30_000 });
+  await reopenedButton.click();
+  await page.getByRole('textbox', { name: 'Message the project assistant', exact: true }).waitFor({ timeout: 30_000 });
+  database = new DatabaseSync(resolve(projectPath, 'project.sqlite3'), { readOnly: true });
+  const retained = rows("SELECT id,title,kind,working_version,body_hash,body_json FROM documents WHERE role='ordinary' AND trashed=0 ORDER BY id");
+  const retainedWorkshop = workshopState();
+  const retainedRelationships = Array.isArray(retainedWorkshop.state.relationships) ? retainedWorkshop.state.relationships : [];
+  check('After native restart, both grouped documents and the adoption receipt remain durable.',
+    retained.length === adoptedDocuments.length
+      && JSON.stringify(retained) === JSON.stringify(adoptedDocuments)
+      && count('SELECT COUNT(*) AS n FROM discussion_runs') === 1
+      && Number(database.prepare('SELECT context_source_epoch AS n FROM project').get().n) === epochBefore + 1
+      && count("SELECT COUNT(*) AS n FROM command_receipts WHERE operation_kind='adoptChatPreview'") === receiptsBefore + 1,
+    { retainedDocuments: retained, expectedDocuments: adoptedDocuments, runCount: count('SELECT COUNT(*) AS n FROM discussion_runs') });
+  check('After native restart, the grouped relationship and its committed source heads remain unchanged.',
+    retainedWorkshop.version === committedWorkshop.version
+      && retainedRelationships.length === 1
+      && JSON.stringify(retainedRelationships[0]) === JSON.stringify(committedRelationship),
+    { retainedWorkshop, expectedRelationship: committedRelationship });
+  await page.getByRole('tab', { name: 'All documents', exact: true }).click();
+  for (const document of retained) await page.getByText(document.title, { exact: true }).first().waitFor({ timeout: 30_000 });
+  check('The reopened native workspace exposes both adopted document titles.', retained.every(document => document.title && document.title.length > 0), { titles: retained.map(document => document.title) });
+  report.runtime = await invoke('runtime_info');
+  report.provider = provider;
+  report.project = { id: projectId, path: projectPath };
+  report.requestCount = count('SELECT COUNT(*) AS n FROM discussion_runs');
+  report.grouped = {
+    sharedDetail,
+    draftKinds: captured.drafts.map(draft => draft.kind),
+    adoptedDocumentCount: retained.length,
+    relationshipPersisted: retainedRelationships.length === 1,
+    restarted: true,
+  };
+  report.status = 'passed';
+  await saveReport();
+  console.log(JSON.stringify({ status: report.status, mode: report.mode, output, requestCount: report.requestCount }, null, 2));
 }
 
 async function runContractTrial() {
@@ -511,7 +772,9 @@ async function runContractTrial() {
 }
 
 try {
-  if (contractMode) {
+  if (groupedMode) {
+    await runGroupedTrial();
+  } else if (contractMode) {
     await runContractTrial();
   } else {
   await connectApp();

@@ -72,9 +72,11 @@ Story Memory maintenance remains Astra/low and does not inherit the author
 picker. No automatic memory summary or provider-native tool loop is added.
 
 New project-chat packets record the frozen prompt recipe
-`project-chat-prompt.v2` in their accepted metadata. A missing recipe version
-selects the exact legacy prompt bytes so historical packets remain reproducible;
-the known v2 value selects the current recipe; any unknown explicit version
+`project-chat-prompt.v3` in their accepted metadata. The grouped recipe adds
+the optional retained-output effects vocabulary while preserving the exact
+bytes selected by legacy v1 and v2 packets. A missing recipe version selects
+the exact legacy v1 prompt bytes so historical packets remain reproducible; an
+explicit v2 value selects its original recipe; any unknown explicit version
 fails closed. This is a packet-selection rule only. It does not rewrite
 historical packet bytes or change the response envelope version.
 
@@ -93,6 +95,15 @@ attached draft is labeled unadopted task material; a model revision creates a
 new candidate with predecessor provenance and leaves the edited predecessor
 intact.
 
+An assumption correction is an author-room convenience: **Edit assumption**
+stages an explicit correction, including the original and revised text, in the
+current unsent composer. It never mutates the immutable response or draft and
+never dispatches by itself; the author must press **Send**. A chapter task or
+approved restricted brief refuses this author-room staging until the author
+returns to project conversation. Disposition history keeps each event's own
+scope, unknown-to audience, rationale, and payload version; later decisions do
+not rewrite the values shown for an earlier event.
+
 ## Review and adoption
 
 Preparing a review checkpoints the latest saved draft and target heads and
@@ -108,6 +119,27 @@ one source-epoch advance commit together. A failure on a later target rolls
 back every earlier target. Targets governed by Workshop protection retain
 those checks. Chapter writes cannot enter this endpoint.
 
+The v3 grouped recipe permits at most three related nonchapter drafts from the
+same response. Group effects come only from that response's retained,
+validated materialization; the renderer cannot invent or edit an effects
+manifest. Endpoint references are exact frozen ordinary source handles or
+exact keys for drafts in that response. Preparation resolves them to ordinary
+document IDs and heads, records relationship dependencies and protected
+content, and retains complete target before/after bodies and metadata. A
+successful grouped adoption commits all selected documents and revisions,
+supported relationships, the scoped decision, one source-epoch advance, and
+the command receipt in the same transaction. The receipt is the authority for
+replay and later recap.
+
+Only relationships are currently supported for grouped adoption. Nonempty
+impacts, supersessions, or placements are refused during preparation and
+cannot trigger organization, moves, renames, deletions, or other automatic
+side effects. Their presence in retained provider output remains inspectable
+materialization evidence, but it does not create an adoptable preview. This
+explicit refusal is preferable to silently dropping an effect or applying a
+partial group. Adding another effect type requires its own complete preview,
+validation, and atomic commit contract.
+
 Lost acknowledgments retain the same operation identity and preview. Receipt
 replay returns the original accepted result. Recovery must read current
 Working heads before displaying documents so replay cannot replace later prose
@@ -119,6 +151,12 @@ document read does not settle an unknown mutation. Project/session checks
 prevent late results from reactivating another project's editor. Draft
 reconnection preserves local text and pending saves while access changes are
 propagated.
+
+The saved-document recap is a read-only projection of durable document-save
+events and adoption receipts. It does not call an LLM, create a new transcript
+message, or generate prose. It links the saved revision and its source event
+so returning to the conversation cannot fabricate a summary or change story
+authority.
 
 When a preview is stale, **Apply** is disabled while the immutable preview is
 retained. **Compare sources/current heads** loads the saved target documents
@@ -216,6 +254,12 @@ available. Automated core, renderer, and native checks are separate evidence;
 human formative review, physical input/accessibility, live provider behavior,
 and installed packaging are separate qualification gates. Making chat the
 default requires the specified author evaluation, not only passing mocks.
+
+The current implementation checkpoint includes six focused grouped-effects
+checks, including post-write SQL rollback and local retry, alongside the
+701-test frontend suite. These are implementation evidence only; native/live,
+human, accessibility, and installed-package gates remain separate and are
+tracked in the implementation ledger.
 
 Current implementation anchors for these contracts are
 `crates/core/src/projects/project_chat_output.rs`,

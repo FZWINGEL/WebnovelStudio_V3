@@ -10,6 +10,7 @@
 
 use super::ProjectComposer;
 use super::{ChatDispositionScope, ChatDispositionScopeKind, ChatUnknownTo};
+use crate::projects::project_chat_output::ChatGroupEffectsOutput;
 use crate::projects::{CoreError, CoreResult, DocumentRole, read_document_with_role};
 use crate::validate_snapshot_json;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -48,6 +49,8 @@ struct MaterializationEvent {
     draft_refs: Vec<MaterializationDraftRef>,
     #[serde(default)]
     detail: Option<String>,
+    #[serde(default)]
+    group_effects: Option<ChatGroupEffectsOutput>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -744,6 +747,26 @@ fn validate_materialization(
         return Err(invalid(
             "Only a delivered completed run can materialize a draft.",
         ));
+    }
+    if let Some(expected_effects) = &event.group_effects {
+        let output_json: Value = serde_json::from_str(&output)
+            .map_err(|_| invalid("A grouped materialization has non-JSON run output."))?;
+        let actual_effects = output_json
+            .get("groupEffects")
+            .filter(|value| !value.is_null())
+            .cloned()
+            .ok_or_else(|| invalid("A grouped materialization has no matching output effects."))?;
+        let actual_effects: ChatGroupEffectsOutput = serde_json::from_value(actual_effects)
+            .map_err(|error| {
+                invalid(format!(
+                    "A grouped materialization has invalid effects: {error}"
+                ))
+            })?;
+        if &actual_effects != expected_effects {
+            return Err(invalid(
+                "A materialization effect projection does not match its run output.",
+            ));
+        }
     }
     let mut ordinals = HashSet::new();
     let mut refs = HashSet::new();

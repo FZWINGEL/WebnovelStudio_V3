@@ -536,6 +536,7 @@ impl OwnedProject {
                 r.get(0)
             })?;
         let composer = read_composer(&tx, &id)?;
+        let document_saves = super::save_recap::read_document_saves(&tx, &request.access, &id)?;
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(ProjectConversation {
             id,
@@ -547,6 +548,7 @@ impl OwnedProject {
             source_epoch,
             policy_epoch,
             earlier_workshop,
+            document_saves,
         })
     }
 
@@ -683,7 +685,7 @@ impl OwnedProject {
             source_refs: sources.clone(),
             task_draft_refs: request.composer.task_draft_refs.clone(),
             prompt_recipe_version: Some(
-                crate::projects::project_chat_output::PROJECT_CHAT_PROMPT_RECIPE_V2.to_owned(),
+                crate::projects::project_chat_output::PROJECT_CHAT_PROMPT_RECIPE_V3.to_owned(),
             ),
         };
         let discussion = StartDiscussion {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { rejectProposal, type PreparedProposal, type Proposal, type StructuredBlock } from '../ipc/proposals';
 import type { ProjectAccess } from '../ipc/projects';
 import { canonicalJson } from '../editor/document';
+import { deriveProposalSourceContext, type ProposalSourceContext } from './proposalSourceContext';
 import { StructuredProse, StructuredSuggestionEditor } from './StructuredSuggestionEditor';
 
 export interface ProposalPanelProps {
@@ -68,6 +69,21 @@ function paragraphs(text: string): string[] {
   // Keep empty entries. Rust must reject blank paragraphs instead of the UI
   // silently repairing the author's edited candidate.
   return text.split('\n\n');
+}
+
+function ProposalSourceContext({ context }: { context: ProposalSourceContext }) {
+  return <section className="proposal-source-context" aria-label="Frozen source context">
+    <div className="proposal-source-context-meta"><span>Source version {context.sourceVersion}</span><span>Scope: {context.scopeLabel}</span></div>
+    {context.unavailable
+      ? <p className="proposal-source-context-unavailable" role="alert">{context.unavailable}</p>
+      : <>
+        {context.parts.map((part, index) => <div className="proposal-source-context-part" key={`${part.label}-${index}`}>
+          <span className="preview-label">{part.label}</span>
+          {part.blocks ? <StructuredProse blocks={part.blocks} /> : <blockquote>{part.text}</blockquote>}
+        </div>)}
+        {context.note && <p className="small-copy">{context.note}</p>}
+      </>}
+  </section>;
 }
 
 export function ProposalPanel({ access, proposals, disabled = false, onPrepareProposal, onApplyProposal, onRefresh }: ProposalPanelProps) {
@@ -273,8 +289,10 @@ export function ProposalPanel({ access, proposals, disabled = false, onPreparePr
         const notice = notices.get(proposal.id);
         const replacementId = `proposal-replacement-${proposal.id}`;
         const previewParagraphs = value && continuation && value.paragraphs ? value.paragraphs : [];
+        const sourceContext = deriveProposalSourceContext(proposal.source, proposal.sourceBody, proposal.scope);
         return <article className={`proposal-card proposal-${status.kind} ${continuation ? 'proposal-continuation' : ''}`} key={proposal.id} data-testid={`proposal-${proposal.id}`}>
           <div className="proposal-card-heading"><div><h4>{proposal.candidate.title}</h4><span className="proposal-status">{status.label}</span></div>{status.kind === 'stale' && <span className="proposal-warning">Review only</span>}</div>
+          <ProposalSourceContext context={sourceContext} />
           <span className="preview-label">{continuation ? 'Append after chapter ending' : structured ? proposal.scope.kind === 'wholeDocument' ? 'Before · whole chapter' : 'Before · selected paragraphs' : 'Before'}</span><blockquote className="proposal-before">{proposal.scope.quote}</blockquote>
           <p className="proposal-explanation">{proposal.candidate.explanation}</p>
           {structured ? <><span className="suggestion-edit-label">Replacement prose</span><StructuredSuggestionEditor label={`Replacement prose: ${proposal.candidate.title}`} blocks={JSON.parse(text) as StructuredBlock[]} disabled={!canMutate || isPreparing || isApplying || isRejecting} onChange={blocks => { setReplacement(previous => new Map(previous).set(proposal.id, canonicalJson(blocks))); clearError(proposal.id); setNotice(proposal.id, ''); }} />{proposal.scope.kind === 'blocks' && <button type="button" className="text-button remove-suggested-paragraphs" disabled={!canMutate || isPreparing || isApplying || isRejecting} onClick={() => { setReplacement(previous => new Map(previous).set(proposal.id, '[]')); clearError(proposal.id); setNotice(proposal.id, 'Preview this removal before applying it.'); }}>Remove selected paragraphs</button>}</> : <><label htmlFor={replacementId}>{continuation ? 'Continuation paragraphs' : 'Replacement wording'}</label><textarea id={replacementId} value={text} disabled={!canMutate || isPreparing || isApplying || isRejecting} onChange={event => { setReplacement(previous => new Map(previous).set(proposal.id, event.target.value)); clearError(proposal.id); setNotice(proposal.id, ''); }} /></>}

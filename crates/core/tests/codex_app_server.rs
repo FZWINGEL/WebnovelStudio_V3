@@ -31,7 +31,7 @@ fn fixture_guard() -> MutexGuard<'static, ()> {
     FIXTURE_TEST_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .expect("app-server fixture test lock")
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn invocation(mode: &str) -> CliInvocation {
@@ -90,7 +90,9 @@ fn thread_config() -> ThreadStartConfig {
 }
 
 fn start_request(connection: &AppServerConnection, stop: StopSignal) -> AppServerStream {
-    let reservation = connection.try_reserve().expect("reserve app-server slot");
+    let reservation = connection
+        .try_reserve()
+        .expect("reserve app-server slot after start");
     reservation
         .start(
             binding(),
@@ -240,7 +242,9 @@ fn stop_before_pre_turn_claim_does_not_kill_connection_or_retain_dispatch() {
     let stop = StopSignal::new();
     let callback_count = Arc::new(AtomicUsize::new(0));
     let callback_count_for_worker = Arc::clone(&callback_count);
-    let reservation = connection.try_reserve().expect("reserve app-server slot");
+    let reservation = connection
+        .try_reserve()
+        .expect("reserve app-server slot after start");
     let mut stream = reservation
         .start(
             binding(),
@@ -437,7 +441,9 @@ fn before_turn_rejection_is_not_sent_and_leaves_a_valid_not_sent_receipt() {
     .expect("start app-server fixture");
     let callback_count = Arc::new(AtomicUsize::new(0));
     let callback_count_for_worker = Arc::clone(&callback_count);
-    let reservation = connection.try_reserve().expect("reserve app-server slot");
+    let reservation = connection
+        .try_reserve()
+        .expect("reserve app-server slot after start");
     let mut stream = reservation
         .start(
             binding(),
@@ -478,7 +484,9 @@ fn delayed_turn_persistence_fences_terminal_and_preserves_known_failure_receipt(
         .expect("start delayed persistence fixture");
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
     let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
-    let reservation = connection.try_reserve().expect("reserve delayed request");
+    let reservation = connection
+        .try_reserve()
+        .expect("reserve app-server slot after start");
     let mut stream = reservation
         .start(
             binding(),
@@ -536,7 +544,9 @@ fn delayed_turn_persistence_fences_terminal_and_preserves_known_failure_receipt(
         .expect("start failed persistence fixture");
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
     let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
-    let reservation = connection.try_reserve().expect("reserve failed request");
+    let reservation = connection
+        .try_reserve()
+        .expect("reserve app-server slot after start");
     let mut stream = reservation
         .start(
             binding(),

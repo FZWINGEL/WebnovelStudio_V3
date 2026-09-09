@@ -10,6 +10,42 @@ impl Drop for Temp {fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
 fn setup()->(Temp,ProjectSession,ProjectAccess) {
     let temp=Temp::new();let project=ProjectSession::create(temp.0.join("project"),"Chat fixture").unwrap();let access=project.attach("chat-test".into()).unwrap();(temp,project,access)
 }
+
+#[test]
+fn manual_save_recap_uses_receipts_survives_reopen_and_does_not_create_chat_events() {
+    use webnovel_core::projects::{CheckpointReason, CheckpointRequest, CreateDocument, SaveCause, SaveSnapshot};
+    let (temp, project, access) = setup();
+    let initial = read(&project, &access);
+    let body = |text: &str| serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":text}]}]}});
+    let document = project.create_document(CreateDocument {
+        access: access.clone(), operation_id: "recap-create".into(), document_id: "recap-note".into(),
+        title: "Author note".into(), kind: "note".into(), body: body("First wording"),
+    }).unwrap();
+    let request = SaveSnapshot { access: access.clone(), operation_id: "recap-save".into(), expected: document.head, local_generation: "1".into(), body: body("Author revised wording"), cause: SaveCause::Typing };
+    let ack = project.save(request.clone()).unwrap();
+    project.save(request).unwrap();
+    let checkpoint = project.checkpoint(CheckpointRequest { access: access.clone(), expected: ack.head.clone(), reason: CheckpointReason::Manual }).unwrap();
+    let epoch = project.context_source_epoch().unwrap();
+    let view = read(&project, &access);
+    assert_eq!(view.document_saves.len(), 1);
+    assert_eq!(view.document_saves[0].head, ack.head);
+    assert_eq!(view.document_saves[0].revision_id.as_deref(), Some(checkpoint.id.as_str()));
+    assert_eq!(view.document_saves[0].operation_id, "recap-save");
+    assert_eq!(view.items.len(), initial.items.len());
+    assert_eq!(view.composer.version, initial.composer.version);
+    assert_eq!(project.context_source_epoch().unwrap(), epoch);
+    let mut wrong = access.clone(); wrong.operation_namespace = "wrong-namespace".into();
+    assert!(project.read_project_conversation(ReadProjectConversation { access: wrong, before: None, limit: 40 }).is_err());
+    let (_other_temp, other, other_access) = setup();
+    assert!(read(&other, &other_access).document_saves.is_empty());
+    drop(project);
+    let reopened = ProjectSession::open(temp.0.join("project")).unwrap();
+    let reopened_access = reopened.attach("recap-reopen".into()).unwrap();
+    let retained = read(&reopened, &reopened_access);
+    assert_eq!(retained.document_saves.len(), 1);
+    assert_eq!(retained.document_saves[0].head, ack.head);
+    assert!(retained.items.is_empty());
+}
 fn read(project:&ProjectSession,access:&ProjectAccess)->ProjectConversation {
     project.read_project_conversation(ReadProjectConversation{access:access.clone(),before:None,limit:40}).unwrap()
 }

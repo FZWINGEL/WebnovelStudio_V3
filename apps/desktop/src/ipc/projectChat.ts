@@ -25,7 +25,9 @@ export interface ProjectConversationView {
   id: string; composer: ProjectComposerSnapshot; items: ConversationItem[]; olderBefore: string | null;
   activeRun: DiscussionRun | null; drafts: AssistantDraft[]; sourceEpoch: string; policyEpoch: string; earlierWorkshop: boolean;
   workerIssues: { runId: string; detail: string }[];
+  documentSaves?: ChatDocumentSave[];
 }
+export interface ChatDocumentSave { operationId: string; head: Head; title: string; createdAt: string; revisionId: string | null }
 export interface SaveProjectComposer { access: ProjectAccess; operationId: string; conversationId: string; expectedVersion: string; body: ProjectComposer }
 export interface StartProjectChat { access: ProjectAccess; operationId: string; conversationId: string; expectedComposerVersion: string; composer: ProjectComposer; budget: MockContextBudget }
 export interface StartProjectChapter extends StartProjectChat {}
@@ -42,10 +44,29 @@ export interface ChapterDiscussionFeedback {
   rangeProposal?: ChapterRangeProposal | null;
   rangeError?: string | null;
 }
+export interface ChatRelationshipDependency { relationshipId: string; fromDocumentId: string; toDocumentId: string; relationshipType: string; fromHead: Head; toHead: Head }
+export interface ChatAdoptionRelationship { key: string; relationshipId: string; fromDocumentId: string; toDocumentId: string; type: string; description: string; uncertainty: string; fromHead: Head; toHead: Head }
+export interface ChatAdoptionImpact { targetDocumentId: string; kind: string; reason: string; relationshipId?: string | null; relationshipKey?: string | null }
+export interface ChatAdoptionSupersession { targetDocumentId: string; supersededDocumentId: string; reason: string }
+export interface ChatAdoptionPlacement { targetDocumentId: string; beforeDocumentId?: string | null; afterDocumentId?: string | null }
+export interface ChatProtectedContent { targetDocumentId: string; sourceHead: Head; text: string; textHash: string }
+/** Read-only proof attached to an immutable adoption preview. */
+export interface ChatAdoptionEffects {
+  version: string;
+  sourceOutputHash: string;
+  relationshipDependencies: ChatRelationshipDependency[];
+  protectedContent: ChatProtectedContent[];
+  proposedRelationships: ChatAdoptionRelationship[];
+  impacts: ChatAdoptionImpact[];
+  supersessions: ChatAdoptionSupersession[];
+  placements: ChatAdoptionPlacement[];
+}
 export interface ChatAdoptionTarget { draft: ProjectChatDraftRef; draftRevisionId: string; documentId: string; title: string; kind: string; before: DocumentRecord | null; body: WnsDocument }
 export interface ChatAdoptionPreview {
   id: string; version: string; digest: string; projectId: string; operationNamespace: string; conversationId: string;
   sourceEpoch: string; policyEpoch: string; workshopVersion: string; targets: ChatAdoptionTarget[];
+  /** Current previews carry this complete manifest; absent means legacy preview data. */
+  effects?: ChatAdoptionEffects | null;
 }
 export interface ChatAdoptionAck { previewId: string; documents: DocumentRecord[]; decisionId: string }
 export type ChatDispositionScopeKind = 'project' | 'task' | 'chapter' | 'document';

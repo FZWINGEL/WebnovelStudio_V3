@@ -7,7 +7,9 @@ surface. It supports project questions and chapter feedback in one conversation
 while preserving the exact chapter and selected scope for chapter requests.
 Assistant output remains isolated as editable task drafts. The author reviews
 exact before/after material and explicitly adopts one draft or a grouped set of
-up to three nonchapter drafts; scoped question/assumption decisions and
+up to three nonchapter drafts, including supported proposed relationships.
+Assumption corrections stage a new unsent message, and an exact saved-document
+recap supports returning to work. Scoped question/assumption decisions and
 read-only conversation history remain separate from story truth. The existing
 workspace stays the default while native and formative qualification continues.
 

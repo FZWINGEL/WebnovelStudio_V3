@@ -241,6 +241,7 @@ fn prepare(
             operation_id: operation_id.into(),
             conversation_id,
             drafts,
+            group_effects: None,
         })
         .expect("prepare adoption")
 }
@@ -320,6 +321,7 @@ fn explicit_chat_adoption_is_atomic_and_preview_payload_is_ref_only() {
             operation_id: "prepare-adoption".into(),
             conversation_id: conversation_id.clone(),
             drafts: vec![reference],
+            group_effects: None,
         })
         .expect("prepare adoption");
     let ack = project
@@ -669,6 +671,7 @@ fn duplicate_draft_or_chapter_target_is_rejected_before_preview_write() {
             operation_id: "duplicate-prepare".into(),
             conversation_id: conversation_id.clone(),
             drafts: vec![refs[0].clone(), refs[0].clone()],
+            group_effects: None,
         })
         .expect_err("duplicate draft must be rejected");
     assert_eq!(duplicate_error.code, "InvalidRequest");
@@ -686,6 +689,7 @@ fn duplicate_draft_or_chapter_target_is_rejected_before_preview_write() {
             operation_id: "chapter-mixed-prepare".into(),
             conversation_id,
             drafts: refs,
+            group_effects: None,
         })
         .expect_err("chapter/mixed adoption must be rejected");
     assert_eq!(chapter_error.code, "InvalidDocument");
@@ -723,6 +727,7 @@ fn duplicate_target_handles_are_rejected_before_preview_write() {
             operation_id: "duplicate-target-prepare".into(),
             conversation_id,
             drafts: draft_refs(&project, &adoption_access),
+            group_effects: None,
         })
         .expect_err("duplicate target handles must be rejected");
     assert_eq!(error.code, "InvalidRequest");

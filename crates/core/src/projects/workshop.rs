@@ -1997,6 +1997,150 @@ pub(super) fn validate_chat_material_targets(
     Ok(())
 }
 
+/// Return the relationship records whose endpoints are among a chat
+/// adoption's affected documents. The returned endpoint heads are immutable
+/// drift fences; chat adoption does not silently rewrite existing edges.
+pub(crate) fn chat_relationship_dependencies(
+    connection: &Connection,
+    document_ids: &HashSet<String>,
+) -> CoreResult<Vec<WorkshopRelationship>> {
+    let (_, state) = read_state(connection)?;
+    Ok(state
+        .relationships
+        .into_iter()
+        .filter(|relationship| {
+            document_ids.contains(&relationship.from_document_id)
+                || document_ids.contains(&relationship.to_document_id)
+        })
+        .collect())
+}
+
+/// Read the fixed text which a chat-origin body proposal must preserve. This
+/// is deliberately a projection only; the caller owns the preview digest and
+/// the transaction that rechecks it.
+pub(crate) fn chat_protected_text(
+    connection: &Connection,
+    document_id: &str,
+) -> CoreResult<Vec<String>> {
+    let (_, state) = read_state(connection)?;
+    let current = read_document(connection, document_id)?;
+    let mut protected = Vec::new();
+    if let Some(session_id) = state.current_session_id.as_deref() {
+        let session = state
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .ok_or_else(|| {
+                CoreError::new("InvalidProject", "The active Workshop session is missing.")
+            })?;
+        protected.extend(
+            session
+                .selected_details
+                .iter()
+                .filter(|detail| {
+                    detail.fixed
+                        && !detail.text.is_empty()
+                        && body_text(&current.body).contains(&detail.text)
+                })
+                .map(|detail| detail.text.clone()),
+        );
+    }
+    for decision in state
+        .decisions
+        .iter()
+        .filter(|decision| decision.fixed && decision.document_id == document_id)
+    {
+        if decision.protected_text.is_empty() {
+            protected.push(body_text(
+                &read_revision(connection, &decision.revision_id)?.body,
+            ));
+        } else {
+            protected.extend(decision.protected_text.iter().cloned());
+        }
+    }
+    protected.sort();
+    protected.dedup();
+    Ok(protected)
+}
+
+/// Commit newly proposed chat relationships in the caller's transaction.
+/// This uses the existing Workshop state/snapshot authority while keeping chat
+/// drafts out of the Workshop candidate/session adoption state machine.
+pub(crate) fn append_chat_relationships(
+    connection: &Connection,
+    project_id: &str,
+    namespace: &str,
+    operation_id: &str,
+    payload_hash: &str,
+    expected_version: i64,
+    relationships: &[WorkshopRelationship],
+) -> CoreResult<String> {
+    let (current_version, mut state) = read_state(connection)?;
+    if current_version != expected_version {
+        return Err(CoreError::new(
+            "WorkshopChanged",
+            "Workshop relationships changed after this chat preview.",
+        ));
+    }
+    if relationships.is_empty() {
+        return parse_stored_version(current_version);
+    }
+    let mut existing = state
+        .relationships
+        .iter()
+        .map(|relationship| relationship.id.clone())
+        .collect::<HashSet<_>>();
+    for relationship in relationships {
+        if !existing.insert(relationship.id.clone()) {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A chat relationship ID is already in use.",
+            ));
+        }
+        if relationship.source_heads.len() != 2
+            || relationship.source_heads[0].document_id != relationship.from_document_id
+            || relationship.source_heads[1].document_id != relationship.to_document_id
+        {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A chat relationship has invalid endpoint provenance.",
+            ));
+        }
+        for (document_id, head) in [
+            (
+                &relationship.from_document_id,
+                &relationship.source_heads[0],
+            ),
+            (&relationship.to_document_id, &relationship.source_heads[1]),
+        ] {
+            let document = read_document(connection, document_id)?;
+            if !["character", "world"].contains(&document.kind.as_str()) || document.head != *head {
+                return Err(CoreError::new(
+                    "VersionConflict",
+                    "A chat relationship endpoint changed before adoption.",
+                ));
+            }
+        }
+        state.relationships.push(relationship.clone());
+    }
+    let next_version = current_version
+        .checked_add(1)
+        .ok_or_else(|| CoreError::new("VersionLimit", "The workshop version limit was reached."))?;
+    let extra = HashSet::new();
+    validate_state_references(connection, &state, None, &extra)?;
+    store_state(connection, next_version, &state)?;
+    insert_snapshot(
+        connection,
+        project_id,
+        namespace,
+        operation_id,
+        next_version,
+        payload_hash,
+        &state,
+    )?;
+    parse_stored_version(next_version)
+}
+
 fn validate_adoption_targets(
     connection: &Connection,
     state: &WorkshopState,

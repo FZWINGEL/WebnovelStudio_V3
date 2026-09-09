@@ -12,6 +12,7 @@ import type { ChatAdoptionPreview, ProjectChatDraftRef } from '../ipc/projectCha
 import { ContextInspector } from '../assistant/ContextInspector';
 import { chatViewPreferenceKey, readChatViewPreferences, writeChatViewPreferences } from './viewPreferences';
 import { DraftReviewDiff } from './DraftReviewDiff';
+import { ChatAdoptionEffects } from './ChatAdoptionEffects';
 import type { DraftReviewContext } from './useDraftReviewContext';
 export type { DraftReviewContext } from './useDraftReviewContext';
 
@@ -212,7 +213,9 @@ function AffectedDocuments({ target, draft }: { target?: ChatAdoptionPreview['ta
     <h4>Affected documents</h4>
     <ul>
       <li><strong>{title}</strong> · {kind} · {source ? `target v${source.head.version}` : 'new target'}</li>
-      {draftHead && <li>Assistant draft v{draftHead.version} · {draftHead.bodyHash.slice(0, 12)}…</li>}
+      <li>Editable scope: Whole document</li>
+      {source ? <li>Protected existing metadata/order · metadata v{source.metadataVersion} · role {source.role}</li> : <li>New target: no existing metadata/order to replace.</li>}
+      {draftHead && <li>Assistant draft version {draftHead.version}</li>}
     </ul>
   </section>;
 }
@@ -317,13 +320,13 @@ export const DraftReviewPanel = forwardRef<DraftReviewPanelHandle, DraftReviewPa
   };
   return <section className="chat-draft-review" aria-labelledby="chat-draft-review-title">
     <div className="chat-panel-heading"><div><h2 id="chat-draft-review-title">Drafts to review</h2><p>Editing a draft keeps it isolated until you explicitly adopt it.</p></div><span>{reviewable.length} pending</span></div>
-    {preview && <section className="chat-adoption-preview" aria-label="Exact adoption preview"><div className="chat-panel-heading"><div><h3>Exact adoption preview</h3><p>Preview {preview.id.slice(0, 8)} · digest {preview.digest.slice(0, 12)} · {preview.targets.length} target{preview.targets.length === 1 ? '' : 's'}</p></div><button type="button" aria-label={previewIsStale ? 'Preview is stale; compare current sources before preparing again' : adoptionAccessibleLabel} disabled={!previewVerified || previewIsStale} onClick={() => void onApplyPreview(preview)}>{previewIsStale ? 'Preview stale — compare sources' : previewVerified ? adoptionLabel : 'Rechecking preview…'}</button></div>{preview.targets.map(target => {
+    {preview && <section className="chat-adoption-preview" aria-label="Exact adoption preview"><div className="chat-panel-heading"><div><h3>Exact adoption preview</h3><p>{preview.targets.length} document{preview.targets.length === 1 ? '' : 's'} ready for your review</p></div><button type="button" aria-label={previewIsStale ? 'Preview is stale; compare current sources before preparing again' : adoptionAccessibleLabel} disabled={!previewVerified || previewIsStale} onClick={() => void onApplyPreview(preview)}>{previewIsStale ? 'Preview stale — compare sources' : previewVerified ? adoptionLabel : 'Rechecking preview…'}</button></div><details className="chat-draft-provenance"><summary>Preview version details</summary><dl><div><dt>Preview</dt><dd>{preview.id}</dd></div><div><dt>Digest</dt><dd>{preview.digest}</dd></div></dl></details><ChatAdoptionEffects effects={preview.effects} targets={preview.targets} />{preview.targets.map(target => {
       // The preview target is the ordinary destination document. The draft
       // identity lives in the immutable draft reference, so never resolve it
       // from target.documentId (which is intentionally a different ID).
       const targetDraft = drafts.find(draft => draft.document.head.documentId === target.draft.head.documentId);
       const context = targetDraft ? reviewContext?.[targetDraft.originRunId] : undefined;
-      return <article key={target.documentId}><h4>{target.title}</h4>{targetDraft && <p className="chat-muted">Origin run {targetDraft.originRunId} · immutable preview source</p>}<DraftReviewDiff before={target.before} after={target.body} title={target.title} mode="summary" /><ReviewContext context={context} /><AffectedDocuments target={target} /><BeforeAfter before={target.before} after={null} afterBody={target.body} title={target.title} /><DraftReviewDiff before={target.before} after={target.body} title={target.title} mode="details" /></article>;
+      return <article key={target.documentId}><h4>{target.title}</h4><DraftReviewDiff before={target.before} after={target.body} title={target.title} mode="summary" /><ReviewContext context={context} /><AffectedDocuments target={target} /><BeforeAfter before={target.before} after={null} afterBody={target.body} title={target.title} /><DraftReviewDiff before={target.before} after={target.body} title={target.title} mode="details" /></article>;
     })}{previewIsStale && <section className="chat-stale-preview-actions" aria-label="Stale preview recovery"><h4>Source changed since this preview</h4><p className="chat-prose">The immutable preview remains available. Compare current saved heads before preparing a new preview.</p>{onCompareStalePreview && <button type="button" disabled={comparisonBusy} onClick={() => void compareStalePreview()}>{comparisonBusy ? 'Loading current heads…' : 'Compare sources/current heads'}</button>}{!onCompareStalePreview && !comparison && <p className="chat-draft-warning">Current heads are not loaded. Ask the project surface to compare them before preparing again.</p>}{comparison && <StalePreviewSources preview={preview} comparison={comparison} drafts={drafts} onPrepareAgainstCurrent={onPrepareAgainstCurrent ? (draft) => prepareAgainstCurrent(draft) : undefined} />}{comparison && comparison.sourceEpoch && comparison.currentSourceEpoch && comparison.sourceEpoch !== comparison.currentSourceEpoch && <p className="chat-draft-warning">The story source epoch changed ({comparison.sourceEpoch} → {comparison.currentSourceEpoch}); a draft marked stale must be refreshed with the assistant.</p>}{comparison && comparison.policyEpoch && comparison.currentPolicyEpoch && comparison.policyEpoch !== comparison.currentPolicyEpoch && <p className="chat-draft-warning">The project policy changed ({comparison.policyEpoch} → {comparison.currentPolicyEpoch}); review the retained preview before preparing again.</p>}{comparisonError && <p className="chat-draft-warning" role="alert">{comparisonError}</p>}</section>}{previewError && <p className="chat-draft-warning" role="alert">{previewError} The old preview remains available; compare current sources and prepare a fresh preview explicitly.</p>}</section>}
     <div className="chat-draft-list" ref={draftList}>
       {drafts.map(draft => {

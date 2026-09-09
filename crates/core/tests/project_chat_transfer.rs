@@ -159,6 +159,7 @@ fn materialize_and_adopt(project: &ProjectSession, access: &webnovel_core::proje
                 head: draft.document.head.clone(),
                 disposition_version: draft.disposition_version.clone(),
             }],
+            group_effects: None,
         })
         .expect("prepare live adoption");
     project

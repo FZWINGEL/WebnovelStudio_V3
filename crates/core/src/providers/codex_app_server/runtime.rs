@@ -931,26 +931,14 @@ impl Driver {
                             .map_err(protocol_error)?,
                     );
                 } else {
-                    self.ready_sent = true;
-                    if let Some(ready) = self.ready.take() {
-                        let _ = ready.send(Ok(()));
-                    }
-                    if let Ok(mut state) = self.state.lock() {
-                        state.health = AppServerHealth::Ready;
-                    }
+                    self.publish_ready()?;
                 }
             }
             PendingRpc::Authenticate => {
                 if !result.is_object() {
                     return Err(protocol_error(ProtocolError::InvalidEnvelope));
                 }
-                self.ready_sent = true;
-                if let Some(ready) = self.ready.take() {
-                    let _ = ready.send(Ok(()));
-                }
-                if let Ok(mut state) = self.state.lock() {
-                    state.health = AppServerHealth::Ready;
-                }
+                self.publish_ready()?;
             }
             PendingRpc::ThreadStart(request_id) => {
                 let requested = self
@@ -1059,6 +1047,20 @@ impl Driver {
             }
         }
         Ok(())
+    }
+
+    /// Publish the observable Ready state before waking the `start` caller.
+    ///
+    /// Callers may reserve a request immediately after `start` returns, so
+    /// the readiness acknowledgement and the shared health state must be one
+    /// ordered publication. A poisoned state cannot safely report success.
+    fn publish_ready(&mut self) -> CoreResult<()> {
+        let ready = &mut self.ready;
+        publish_ready_state(&self.state, &mut self.ready_sent, || {
+            if let Some(ready) = ready.take() {
+                let _ = ready.send(Ok(()));
+            }
+        })
     }
 
     fn accept_notification(
@@ -1602,6 +1604,22 @@ fn unavailable(detail: &str) -> CoreError {
     CoreError::new("CodexAppServerUnavailable", detail)
 }
 
+fn publish_ready_state(
+    state: &Arc<Mutex<ConnectionState>>,
+    ready_sent: &mut bool,
+    acknowledge: impl FnOnce(),
+) -> CoreResult<()> {
+    {
+        let mut state = state
+            .lock()
+            .map_err(|_| unavailable("connection state poisoned"))?;
+        state.health = AppServerHealth::Ready;
+    }
+    *ready_sent = true;
+    acknowledge();
+    Ok(())
+}
+
 fn require_cleanup_settled(state: &Arc<Mutex<ConnectionState>>) -> CoreResult<()> {
     let cleanup_settled = state
         .lock()
@@ -1631,6 +1649,31 @@ mod tests {
 
         state.lock().expect("state lock").cleanup_settled = true;
         require_cleanup_settled(&state).expect("settled cleanup should be accepted");
+    }
+
+    #[test]
+    fn readiness_acknowledges_only_after_ready_state_is_published() {
+        let state = Arc::new(Mutex::new(ConnectionState {
+            health: AppServerHealth::Starting,
+            active: 0,
+            cleanup_settled: false,
+        }));
+        let mut ready_sent = false;
+        let state_for_ack = Arc::clone(&state);
+
+        publish_ready_state(&state, &mut ready_sent, move || {
+            assert_eq!(
+                state_for_ack.lock().expect("state lock").health,
+                AppServerHealth::Ready
+            );
+        })
+        .expect("ready state should publish");
+
+        assert!(ready_sent);
+        assert_eq!(
+            state.lock().expect("state lock").health,
+            AppServerHealth::Ready
+        );
     }
 
     #[test]

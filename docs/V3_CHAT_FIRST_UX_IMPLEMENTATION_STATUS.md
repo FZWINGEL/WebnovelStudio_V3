@@ -9,6 +9,100 @@ needs qualification.
 
 ## Current state — 9 September 2026
 
+### Completion audit follow-up
+
+The second requirement audit found remaining review details beyond the earlier
+checkpoint. Assumption corrections can now be edited directly and staged in
+the unsent project composer. A separate Send remains necessary, and staging
+refuses an active restricted chapter task. Saved response decisions display
+their recorded scope, audience, rationale and version; historical events retain
+their own values, with reversal offered only for the latest disposition.
+
+Chapter suggestion review now displays the frozen source version, editable
+scope, and protected surrounding prose with its formatting. A deterministic
+return recap projects recent ordinary save receipts and can inspect an exact
+retained checkpoint. It creates no transcript messages or model requests.
+The complete frontend suite passes **701 tests across 74 files**
+(`.local/chat-audit-frontend.log`). The receipt recap's Rust reopen/isolation
+regression also passes. The integrated native build and current qualification
+are recorded below.
+
+The final complete local gate passes **920 Rust tests** (122 core, 710 grouped
+integration, 88 desktop; one additional test intentionally ignored), **701
+frontend tests across 74 files**, and **25 tooling checks**, plus formatting,
+strict Clippy, TypeScript, and the production build. Log:
+`.local/chat-audit-final-check.log`. The only build warning is the existing
+large frontend chunk warning. The first full run exposed an optional
+app-server readiness race: the driver acknowledged startup before publishing
+its Ready state. Both handshake paths now publish Ready first, with a
+deterministic ordering regression. The final concurrent suite passes; the
+failed run is retained at `.local/chat-audit-readiness-failure.log`.
+
+Grouped review now includes a versioned effects manifest with exact ordinary
+endpoint heads, relationship dependencies, and protected content. Rust derives
+the proposed relationships from the retained provider response; the renderer
+cannot substitute a different group. Up to three drafts from that response,
+their new or updated ordinary documents, supported relationships, decisions,
+and one source-epoch advance commit in the same transaction. Six focused tests
+cover exact heads, excluded endpoints, stale dependencies, replay, unsupported
+effects, and an injected SQL failure after document writes followed by a local
+retry. New requests use `project-chat-prompt.v3`; legacy and v2 packet bytes
+remain unchanged. Nonempty impacts, supersessions, and placements are refused
+before preview. Automatic organization and inferred semantic synchronization
+are outside this slice.
+
+The rebuilt native harness passed **17 checks in 19.647 seconds**, including
+the exact saved-document recap, explicit draft rejection, and request-scoped
+**Not now** followed by a fresh explicit request. The Writer suite passed
+**52 checks in 92.933 seconds**. The grouped live Codex Exec trial passed
+**24 assertions across one request in 25.030 seconds**, including visible
+relationship review, atomic two-document adoption, and retained relationships
+and exact committed heads after native restart. Its preceding one-request
+attempt completed generation and adoption but exposed a harness assertion
+using `relationshipType` instead of the persisted `type`; that test error is
+corrected and its original evidence retained.
+
+These three runs used the 3.0.0 development executable, **54,642,688 bytes**,
+SHA-256 **`2838910af9ffe81fb27a9e4ace2c37ffe300695734184604301fae95de9fdc2d`**,
+and WebView2 **152.0.4191.66**. Build log: `.local/chat-audit-native-build.log`.
+The live request selected Luna/xhigh/priority, recorded installed Codex
+**0.153.4**, and left effective model/tier unreported. It qualifies this bounded
+Exec contract, not narrative quality or the other transports. Launcher records:
+
+- Chat: `.local/isolated-native-launch/20260909-023916103-41520/launch.json`.
+- Writer: `.local/isolated-native-launch/20260909-024159707-33496/launch.json`.
+- Grouped live: `.local/isolated-native-launch/20260909-024100776-8124/launch.json`.
+
+Each launcher confirmed cleanup of its owned isolated processes. Actual native
+200% zoom geometry and the saved-document recap were also inspected on this
+build. All projects were synthetic; the author's running workspace was not
+used for qualification.
+
+The final rebuilt executable includes the app-server readiness correction:
+`target/debug/webnovel-desktop.exe`, **54,644,224 bytes**, SHA-256
+**`79e5232b90f532b505fb109045d5fbf666f9db3dd10f3e459919ff506256f0f4`**.
+Build log: `.local/chat-audit-final-build.log`. The Writer and live-grouped
+reports above retain their earlier executable identity; the only subsequent
+production change is readiness publication in the optional app-server runtime.
+The Exec adapter, request recipe, editor, and adoption code are unchanged
+between those builds.
+
+On the final executable, native chat again passes **17 checks in 20.173
+seconds** with confirmed owned-process cleanup. Report:
+`.local/native-results/chat/report.json`; launcher:
+`.local/isolated-native-launch/20260909-024821575-41792/launch.json`.
+
+The installed-package harness now includes unsent chat composer retention
+through normal close/reopen and same-version reinstall. Its PowerShell syntax
+check passes; these new installed steps have **not been executed**. Existing
+fail-closed runner and author-data checks remain intact. Same-version retention
+does not qualify an upgrade. The latest inspected hosted CI attempt,
+`34274285964` at `6ab1505`, never started its runner jobs because GitHub reported
+an account payment/spending-limit admission failure. That historical attempt
+does not establish the current billing state or qualify this working tree.
+
+### Previous integrated checkpoint
+
 The chat-first project conversation is implemented as an **opt-in native
 development surface**. The default workspace remains unchanged while native
 and formative evidence is collected. A project conversation can handle normal
@@ -81,7 +175,11 @@ their identities and bytes.
 | CF5 chapter feedback and brief provenance | Implemented for same-conversation chapter requests, selected scope, confirmed assistant-suggested paragraphs, and the full proposed handoff → explicit target → approved brief → separate Send → chapter proposal path. Private project chat stays excluded. |
 | CF6 qualification and rollout | In progress. Default-on rollout, human formative evaluation, accessibility, broader live-provider support, and installed-release gates remain open. |
 
-## Verified evidence
+## Earlier checkpoint evidence
+
+The following evidence predates the audit follow-up above. It remains useful
+for the recorded contracts and executable identities, but is not a substitute
+for qualification of later source changes.
 
 - The complete local gate exited 0 with **25 tooling checks, 121 core Rust tests, 703 integration Rust tests, 88 native-unit tests, and 683 frontend tests** across 72 frontend files, together with formatting, strict Clippy, TypeScript, and the production build. This is **912 passing Rust tests**, with one additional test ignored. Log: `.local/chat-completion-final-check.log`. The full frontend suite also passed after the initial layout repair (`.local/chat-layout-frontend.log`); subsequent CSS-only compact-layout corrections were verified by the rebuilt native smoke. The final spike build passes (`.local/chat-layout-final-build.log`).
 - The rebuilt native chat smoke passes **16 checks in 18.816 seconds** with the deterministic local provider and confirmed isolated-process cleanup. It covers lost start acknowledgment, failed local materialization recovery, lost two-document adoption acknowledgment with one receipt and epoch advance, selected scope, recent-project switching and badges, provider-free note entry, original/current source inspection, actual 800×600 resizing, guarded WM_CLOSE/restart with unsent typing, keyboard panel resizing, exact source attachment, confirmed paragraph-range staging, and the complete approved chapter handoff without private-chat leakage or automatic prose changes. Report: `.local/native-results/chat/report.json`; launcher: `.local/isolated-native-launch/20260909-015019984-42768/launch.json`.

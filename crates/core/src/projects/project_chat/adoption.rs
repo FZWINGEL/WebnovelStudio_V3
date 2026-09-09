@@ -9,15 +9,26 @@
 
 use super::*;
 use crate::projects::material_adoption::{self, MaterialTarget};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use crate::projects::project_chat_output::{
+    ChatGroupEffectsOutput, parse_project_assistant_output_with_predecessors_and_chapters,
+};
+use crate::projects::{context_packets, story_context, workshop};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const PREVIEW_KIND: &str = "adoptionPreview";
 const DECISION_KIND: &str = "adoptionDecision";
 const RECEIPT_KIND: &str = "adoptChatPreview";
 const MAX_TARGETS: usize = 3;
+
+struct GroupOrigin {
+    output_hash: String,
+    effects: Option<ChatGroupEffectsOutput>,
+    handles: HashMap<String, (Head, String)>,
+    draft_keys: HashMap<String, (String, Head, String)>,
+}
 
 pub(super) fn read_preview(
     project: &OwnedProject,
@@ -65,6 +76,8 @@ struct StoredPreviewMetadata {
     policy_epoch: String,
     workshop_version: String,
     targets: Vec<StoredPreviewTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    effects: Option<ChatAdoptionEffects>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -282,6 +295,18 @@ pub(super) fn prepare(
         .collect::<Vec<_>>();
     workshop::validate_chat_material_targets(&tx, &material_targets)?;
 
+    let draft_document_ids = targets
+        .iter()
+        .map(|(_, fields, _, _, _, _, _, _, _)| fields.document_id.clone())
+        .collect::<Vec<_>>();
+    let origin = read_group_origin(
+        &tx,
+        &request.access,
+        &request.conversation_id,
+        &draft_document_ids,
+    )?;
+    let effects = build_adoption_effects(&tx, &targets, &origin, request.group_effects.as_ref())?;
+
     let preview_id = new_id();
     let mut expanded_targets = Vec::with_capacity(targets.len());
     let mut stored_targets = Vec::with_capacity(targets.len());
@@ -319,6 +344,7 @@ pub(super) fn prepare(
         policy_epoch,
         workshop_version,
         targets: expanded_targets,
+        effects: Some(effects.clone()),
     };
     let digest = preview_digest(&metadata_without_digest)?;
     let mut preview = metadata_without_digest;
@@ -336,6 +362,7 @@ pub(super) fn prepare(
             policy_epoch: preview.policy_epoch.clone(),
             workshop_version: preview.workshop_version.clone(),
             targets: stored_targets,
+            effects: Some(effects),
         },
         request_hash: payload_hash,
     };
@@ -437,6 +464,22 @@ pub(super) fn adopt(
             [],
         )?;
     }
+    let committed_relationships = preview
+        .effects
+        .as_ref()
+        .map(|effects| materialize_chat_relationships(effects, &documents))
+        .transpose()?
+        .unwrap_or_default();
+    let workshop_payload_hash = logical_hash(&(&request, &preview.effects))?;
+    workshop::append_chat_relationships(
+        &tx,
+        &request.access.project_id,
+        &request.access.operation_namespace,
+        &request.operation_id,
+        &workshop_payload_hash,
+        parse_version(&preview.workshop_version)?,
+        &committed_relationships,
+    )?;
     let decision_id = new_id();
     for target in &preview.targets {
         let changed = tx.execute(
@@ -461,6 +504,7 @@ pub(super) fn adopt(
         "previewDigest": preview.digest,
         "documentIds": documents.iter().map(|document| document.head.document_id.clone()).collect::<Vec<_>>(),
         "decisionId": decision_id,
+        "effects": preview.effects,
     });
     store::append_item(
         &tx,
@@ -504,6 +548,18 @@ struct DraftRefFields {
     head: Head,
     disposition_version: String,
 }
+
+type PreparedChatTarget<'a> = (
+    &'a ProjectChatDraftRef,
+    DraftRefFields,
+    AssistantDraft,
+    String,
+    String,
+    String,
+    String,
+    Option<DocumentRecord>,
+    usize,
+);
 
 fn draft_ref_fields(reference: &impl Serialize) -> CoreResult<DraftRefFields> {
     let value = serde_json::to_value(reference)?;
@@ -557,6 +613,387 @@ fn require_exact_draft_ref(fields: &DraftRefFields, draft: &AssistantDraft) -> C
         ));
     }
     Ok(())
+}
+
+fn read_group_origin(
+    connection: &Transaction<'_>,
+    access: &ProjectAccess,
+    conversation_id: &str,
+    draft_document_ids: &[String],
+) -> CoreResult<GroupOrigin> {
+    let mut run_id = None;
+    for document_id in draft_document_ids {
+        let row: (String, String, String, String) = connection.query_row(
+            "SELECT origin_run_id,packet_id,project_id,operation_namespace FROM assistant_drafts
+             WHERE document_id=? AND conversation_id=?",
+            params![document_id, conversation_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+        if row.2 != access.project_id || row.3 != access.operation_namespace {
+            return Err(CoreError::new(
+                "WrongProjectSession",
+                "A chat adoption draft belongs to another project identity.",
+            ));
+        }
+        if let Some(existing) = run_id.as_deref()
+            && existing != row.0
+        {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "Grouped chat adoption drafts must come from one assistant response.",
+            ));
+        }
+        run_id = Some(row.0);
+    }
+    let run_id = run_id.ok_or_else(|| {
+        CoreError::new(
+            "InvalidRequest",
+            "Grouped chat adoption requires at least one originating run.",
+        )
+    })?;
+    let (output_text, packet_id): (String, String) = connection.query_row(
+        "SELECT output_text,packet_id FROM discussion_runs WHERE id=? AND project_id=? AND operation_namespace=?",
+        params![&run_id, access.project_id, access.operation_namespace],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let output_hash = sha256_hex(output_text.as_bytes());
+    let packet = context_packets::validated_packet_record(connection, &packet_id)?;
+    let (frozen, _) =
+        story_context::validated_snapshot_record(connection, &packet.receipt.snapshot_id)?;
+    let handles = super::materialize::allowed_target_handles(connection, &frozen)?;
+    let chapter_handles = super::materialize::allowed_chapter_target_handles(connection, &frozen)?;
+    let predecessor_handles = super::materialize::allowed_predecessor_handles(connection, &frozen)?;
+    let output = parse_project_assistant_output_with_predecessors_and_chapters(
+        &output_text,
+        &handles,
+        &predecessor_handles,
+        &chapter_handles,
+    )?;
+    let materialization_json: Option<String> = connection
+        .query_row(
+            "SELECT payload_json FROM conversation_items
+         WHERE conversation_id=? AND project_id=? AND operation_namespace=?
+           AND kind='materializeChatResult' AND reference_id=?
+         ORDER BY sequence DESC LIMIT 1",
+            params![
+                conversation_id,
+                access.project_id,
+                access.operation_namespace,
+                &run_id
+            ],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(materialization_json) = materialization_json {
+        let materialization: Value = serde_json::from_str(&materialization_json)?;
+        let persisted_effects = materialization
+            .get("groupEffects")
+            .filter(|value| !value.is_null())
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()?;
+        if persisted_effects != output.group_effects {
+            return Err(CoreError::new(
+                "InvalidProjectChat",
+                "The retained group effects do not match the assistant response.",
+            ));
+        }
+    } else if output.group_effects.is_some() {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "Grouped effects have no retained materialization record.",
+        ));
+    }
+
+    let mut handle_heads = HashMap::new();
+    for source in &frozen.snapshot.sources {
+        let revision = read_revision(connection, &source.source.revision_id)?;
+        if revision.head.document_id != source.source.document_id
+            || revision.head.body_hash != source.source.body_hash
+        {
+            return Err(CoreError::new(
+                "ContextChanged",
+                "A grouped chat source revision changed before adoption.",
+            ));
+        }
+        let kind: String = connection.query_row(
+            "SELECT kind FROM documents WHERE id=? AND trashed=0",
+            [&source.source.document_id],
+            |row| row.get(0),
+        )?;
+        handle_heads.insert(source.handle.clone(), (revision.head, kind));
+    }
+    let mut draft_keys = HashMap::new();
+    for (ordinal, draft) in output.drafts.iter().enumerate() {
+        if let Some(document_id) = connection
+            .query_row(
+                "SELECT document_id FROM assistant_drafts
+                 WHERE origin_run_id=? AND output_ordinal=? AND conversation_id=?",
+                params![&run_id, ordinal as i64, conversation_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        {
+            let document =
+                read_document_with_role(connection, &document_id, DocumentRole::AssistantDraft)?;
+            let kind = document.kind.clone();
+            let head = document.head;
+            draft_keys.insert(draft.key.clone(), (document_id, head, kind));
+        }
+    }
+    Ok(GroupOrigin {
+        output_hash,
+        effects: output.group_effects,
+        handles: handle_heads,
+        draft_keys,
+    })
+}
+
+fn resolve_effect_ref(
+    origin: &GroupOrigin,
+    target_ids: &HashSet<String>,
+    draft_targets: &HashMap<String, (String, Head, String)>,
+    reference: &str,
+) -> CoreResult<(String, Head, String)> {
+    if origin.draft_keys.contains_key(reference) {
+        let Some((draft_document_id, draft_head, kind)) = draft_targets.get(reference) else {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A grouped effect references a draft the author did not include.",
+            ));
+        };
+        if !target_ids.contains(draft_document_id) {
+            return Err(CoreError::new(
+                "InvalidRequest",
+                "A grouped effect references a draft the author did not include.",
+            ));
+        }
+        return Ok((draft_document_id.clone(), draft_head.clone(), kind.clone()));
+    }
+    let Some((head, kind)) = origin.handles.get(reference) else {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "A grouped effect references a source outside the frozen request.",
+        ));
+    };
+    Ok((head.document_id.clone(), head.clone(), kind.clone()))
+}
+
+fn build_adoption_effects(
+    connection: &Connection,
+    targets: &[PreparedChatTarget<'_>],
+    origin: &GroupOrigin,
+    requested: Option<&ChatGroupEffectsOutput>,
+) -> CoreResult<ChatAdoptionEffects> {
+    let retained = &origin.effects;
+    if let Some(requested) = requested
+        && retained.as_ref() != Some(requested)
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The submitted grouped effects do not match the retained assistant response.",
+        ));
+    }
+    if retained.as_ref().is_some_and(|effects| {
+        !effects.impacts.is_empty()
+            || !effects.supersessions.is_empty()
+            || !effects.placements.is_empty()
+    }) {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "Grouped impacts, supersessions, and placements are review-only until their atomic Workshop materialization is available.",
+        ));
+    }
+    let target_ids = targets
+        .iter()
+        .map(|(_, _, _, _, document_id, _, _, _, _)| document_id.clone())
+        .collect::<HashSet<_>>();
+    let mut draft_targets = HashMap::new();
+    for (_, fields, draft, _, document_id, _, kind, before, _) in targets {
+        for (key, (assistant_document_id, _, _)) in &origin.draft_keys {
+            if assistant_document_id == &fields.document_id {
+                let head = before
+                    .as_ref()
+                    .map(|record| record.head.clone())
+                    .unwrap_or_else(|| Head {
+                        document_id: document_id.clone(),
+                        version: "0".into(),
+                        body_hash: draft.document.head.body_hash.clone(),
+                    });
+                draft_targets.insert(key.clone(), (document_id.clone(), head, kind.clone()));
+            }
+        }
+    }
+    let relationship_dependencies =
+        workshop::chat_relationship_dependencies(connection, &target_ids)?
+            .into_iter()
+            .map(|relationship| ChatRelationshipDependency {
+                relationship_id: relationship.id,
+                from_document_id: relationship.from_document_id,
+                to_document_id: relationship.to_document_id,
+                relationship_type: relationship.relationship_type,
+                from_head: relationship.source_heads[0].clone(),
+                to_head: relationship.source_heads[1].clone(),
+            })
+            .collect::<Vec<_>>();
+    let mut protected_content = Vec::new();
+    for (_, _, _, _, document_id, _, _, before, _) in targets {
+        let Some(before) = before else { continue };
+        for text in workshop::chat_protected_text(connection, document_id)? {
+            protected_content.push(ChatProtectedContent {
+                target_document_id: document_id.clone(),
+                source_head: before.head.clone(),
+                text_hash: sha256_hex(text.as_bytes()),
+                text,
+            });
+        }
+    }
+    let mut proposed_relationships = Vec::new();
+    let mut relationship_ids = HashMap::new();
+    if let Some(effects) = retained {
+        for relationship in &effects.relationships {
+            let (from_document_id, from_head, from_kind) =
+                resolve_effect_ref(origin, &target_ids, &draft_targets, &relationship.from_ref)?;
+            let (to_document_id, to_head, to_kind) =
+                resolve_effect_ref(origin, &target_ids, &draft_targets, &relationship.to_ref)?;
+            if !["character", "world"].contains(&from_kind.as_str())
+                || !["character", "world"].contains(&to_kind.as_str())
+            {
+                return Err(CoreError::new(
+                    "InvalidRequest",
+                    "Chat relationships may only connect character or world material.",
+                ));
+            }
+            let relationship_id = new_id();
+            relationship_ids.insert(relationship.key.clone(), relationship_id.clone());
+            proposed_relationships.push(ChatAdoptionRelationship {
+                key: relationship.key.clone(),
+                relationship_id,
+                from_document_id,
+                to_document_id,
+                relationship_type: relationship.relationship_type.clone(),
+                description: relationship.description.clone(),
+                uncertainty: relationship.uncertainty.clone(),
+                from_head,
+                to_head,
+            });
+        }
+        let resolve_target =
+            |reference: &str| resolve_effect_ref(origin, &target_ids, &draft_targets, reference);
+        let mut impacts = Vec::new();
+        for impact in &effects.impacts {
+            let (target_document_id, _, _) = resolve_target(&impact.target_ref)?;
+            let relationship_id = impact
+                .relationship_key
+                .as_ref()
+                .map(|key| {
+                    relationship_ids.get(key).cloned().ok_or_else(|| {
+                        CoreError::new(
+                            "InvalidRequest",
+                            "An impact references an unknown proposed relationship.",
+                        )
+                    })
+                })
+                .transpose()?;
+            impacts.push(ChatAdoptionImpact {
+                target_document_id,
+                kind: impact.kind.clone(),
+                reason: impact.reason.clone(),
+                relationship_id,
+                relationship_key: impact.relationship_key.clone(),
+            });
+        }
+        let supersessions = effects
+            .supersessions
+            .iter()
+            .map(|supersession| {
+                let (target_document_id, _, _) = resolve_target(&supersession.target_ref)?;
+                let (superseded_document_id, _, _) = resolve_target(&supersession.superseded_ref)?;
+                Ok(ChatAdoptionSupersession {
+                    target_document_id,
+                    superseded_document_id,
+                    reason: supersession.reason.clone(),
+                })
+            })
+            .collect::<CoreResult<Vec<_>>>()?;
+        let placements = effects
+            .placements
+            .iter()
+            .map(|placement| {
+                let (target_document_id, _, _) = resolve_target(&placement.target_ref)?;
+                let before_document_id = placement
+                    .before_ref
+                    .as_deref()
+                    .map(|reference| resolve_target(reference).map(|(id, _, _)| id))
+                    .transpose()?;
+                let after_document_id = placement
+                    .after_ref
+                    .as_deref()
+                    .map(|reference| resolve_target(reference).map(|(id, _, _)| id))
+                    .transpose()?;
+                Ok(ChatAdoptionPlacement {
+                    target_document_id,
+                    before_document_id,
+                    after_document_id,
+                })
+            })
+            .collect::<CoreResult<Vec<_>>>()?;
+        Ok(ChatAdoptionEffects {
+            version: CHAT_ADOPTION_EFFECTS_VERSION.into(),
+            source_output_hash: origin.output_hash.clone(),
+            relationship_dependencies,
+            protected_content,
+            proposed_relationships,
+            impacts,
+            supersessions,
+            placements,
+        })
+    } else {
+        Ok(ChatAdoptionEffects {
+            version: CHAT_ADOPTION_EFFECTS_VERSION.into(),
+            source_output_hash: origin.output_hash.clone(),
+            relationship_dependencies,
+            protected_content,
+            proposed_relationships,
+            impacts: Vec::new(),
+            supersessions: Vec::new(),
+            placements: Vec::new(),
+        })
+    }
+}
+
+fn materialize_chat_relationships(
+    effects: &ChatAdoptionEffects,
+    documents: &[DocumentRecord],
+) -> CoreResult<Vec<crate::projects::workshop::WorkshopRelationship>> {
+    let heads = documents
+        .iter()
+        .map(|document| (document.head.document_id.clone(), document.head.clone()))
+        .collect::<HashMap<_, _>>();
+    effects
+        .proposed_relationships
+        .iter()
+        .map(|relationship| {
+            let from_head = heads
+                .get(&relationship.from_document_id)
+                .cloned()
+                .unwrap_or_else(|| relationship.from_head.clone());
+            let to_head = heads
+                .get(&relationship.to_document_id)
+                .cloned()
+                .unwrap_or_else(|| relationship.to_head.clone());
+            Ok(crate::projects::workshop::WorkshopRelationship {
+                id: relationship.relationship_id.clone(),
+                from_document_id: relationship.from_document_id.clone(),
+                to_document_id: relationship.to_document_id.clone(),
+                relationship_type: relationship.relationship_type.clone(),
+                description: relationship.description.clone(),
+                uncertainty: relationship.uncertainty.clone(),
+                status: crate::projects::workshop::WorkshopRelationshipStatus::Chosen,
+                source_heads: vec![from_head, to_head],
+            })
+        })
+        .collect()
 }
 
 fn stored_document_ref(document: DocumentRecord) -> StoredDocumentRef {
@@ -670,6 +1107,7 @@ fn expand_preview(
         policy_epoch: metadata.policy_epoch,
         workshop_version: metadata.workshop_version,
         targets,
+        effects: metadata.effects,
     };
     let expected = preview_digest(&ChatAdoptionPreview {
         digest: String::new(),
@@ -881,6 +1319,7 @@ pub(super) fn validate_backup_preview(
         policy_epoch: stored.preview.policy_epoch,
         workshop_version: stored.preview.workshop_version,
         targets,
+        effects: stored.preview.effects,
     };
     let expected = preview_digest(&ChatAdoptionPreview {
         digest: String::new(),
@@ -892,6 +1331,7 @@ pub(super) fn validate_backup_preview(
             "The adoption preview digest does not match its immutable references.",
         ));
     }
+    validate_effects_shape(connection, &preview)?;
     Ok(())
 }
 
@@ -899,6 +1339,126 @@ fn preview_digest(preview: &ChatAdoptionPreview) -> CoreResult<String> {
     let mut value = serde_json::to_value(preview)?;
     value["digest"] = Value::String(String::new());
     logical_hash(&value)
+}
+
+/// Validate the immutable shape of a grouped manifest while reading a
+/// backup. This intentionally does not apply current-head drift rules: a
+/// historical preview remains readable after later author edits, but malformed
+/// or silently unbound effect references must never enter the recovered view.
+pub(super) fn validate_effects_shape(
+    connection: &Connection,
+    preview: &ChatAdoptionPreview,
+) -> CoreResult<()> {
+    let Some(effects) = preview.effects.as_ref() else {
+        return Ok(());
+    };
+    if effects.version != CHAT_ADOPTION_EFFECTS_VERSION
+        || !valid_hash(&effects.source_output_hash)
+        || !effects.impacts.is_empty()
+        || !effects.supersessions.is_empty()
+        || !effects.placements.is_empty()
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chat adoption effect manifest has an unsupported or incomplete effect set.",
+        ));
+    }
+    let target_ids = preview
+        .targets
+        .iter()
+        .map(|target| target.document_id.as_str())
+        .collect::<HashSet<_>>();
+    let mut relationship_ids = HashSet::new();
+    for dependency in &effects.relationship_dependencies {
+        check_id(&dependency.relationship_id)?;
+        check_id(&dependency.from_document_id)?;
+        check_id(&dependency.to_document_id)?;
+        if dependency.from_document_id == dependency.to_document_id
+            || dependency.from_head.document_id != dependency.from_document_id
+            || dependency.to_head.document_id != dependency.to_document_id
+            || !valid_hash(&dependency.from_head.body_hash)
+            || !valid_hash(&dependency.to_head.body_hash)
+        {
+            return Err(CoreError::new(
+                "InvalidProjectChat",
+                "A relationship dependency has invalid endpoint provenance.",
+            ));
+        }
+        parse_version(&dependency.from_head.version)?;
+        parse_version(&dependency.to_head.version)?;
+    }
+    for protected in &effects.protected_content {
+        if !target_ids.contains(protected.target_document_id.as_str())
+            || protected.source_head.document_id != protected.target_document_id
+            || !valid_hash(&protected.source_head.body_hash)
+            || sha256_hex(protected.text.as_bytes()) != protected.text_hash
+        {
+            return Err(CoreError::new(
+                "InvalidProjectChat",
+                "Protected chat content is not bound to an adoption target.",
+            ));
+        }
+        parse_version(&protected.source_head.version)?;
+    }
+    for relationship in &effects.proposed_relationships {
+        check_id(&relationship.relationship_id)?;
+        if !relationship_ids.insert(relationship.relationship_id.as_str())
+            || relationship.from_document_id == relationship.to_document_id
+            || relationship.from_head.document_id != relationship.from_document_id
+            || relationship.to_head.document_id != relationship.to_document_id
+            || !valid_hash(&relationship.from_head.body_hash)
+            || !valid_hash(&relationship.to_head.body_hash)
+        {
+            return Err(CoreError::new(
+                "InvalidProjectChat",
+                "A proposed relationship has invalid identity or provenance.",
+            ));
+        }
+        parse_version(&relationship.from_head.version)?;
+        parse_version(&relationship.to_head.version)?;
+        for (document_id, head) in [
+            (&relationship.from_document_id, &relationship.from_head),
+            (&relationship.to_document_id, &relationship.to_head),
+        ] {
+            if target_ids.contains(document_id.as_str()) {
+                continue;
+            }
+            let document = read_document(connection, document_id)?;
+            if document.role != DocumentRole::Ordinary
+                || !["character", "world"].contains(&document.kind.as_str())
+                || document.head != *head
+            {
+                return Err(CoreError::new(
+                    "InvalidProjectChat",
+                    "A proposed relationship endpoint is outside the frozen ordinary material.",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn body_text(value: &Value) -> String {
+    value["body"]["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|block| {
+            block["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|node| {
+                    if node["type"] == "hardBreak" {
+                        "\n"
+                    } else {
+                        node["text"].as_str().unwrap_or_default()
+                    }
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn validate_preview_current(
@@ -973,6 +1533,106 @@ fn validate_preview_current(
         let fields = draft_ref_fields(&target.draft)?;
         require_exact_draft_ref(&fields, &draft)?;
     }
+    validate_effects_current(connection, preview)?;
+    Ok(())
+}
+
+fn validate_effects_current(
+    connection: &Connection,
+    preview: &ChatAdoptionPreview,
+) -> CoreResult<()> {
+    let Some(effects) = preview.effects.as_ref() else {
+        // Historical previews predate the grouped manifest. Their original
+        // digest and body-only adoption semantics remain unchanged.
+        return Ok(());
+    };
+    if effects.version != CHAT_ADOPTION_EFFECTS_VERSION || !valid_hash(&effects.source_output_hash)
+    {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The chat adoption effect manifest has invalid version or provenance.",
+        ));
+    }
+    let target_ids = preview
+        .targets
+        .iter()
+        .map(|target| target.document_id.clone())
+        .collect::<HashSet<_>>();
+    let dependencies = workshop::chat_relationship_dependencies(connection, &target_ids)?;
+    for expected in &effects.relationship_dependencies {
+        let Some(actual) = dependencies
+            .iter()
+            .find(|relationship| relationship.id == expected.relationship_id)
+        else {
+            return Err(CoreError::new(
+                "WorkshopChanged",
+                "A relationship in this chat preview no longer exists.",
+            ));
+        };
+        if actual.from_document_id != expected.from_document_id
+            || actual.to_document_id != expected.to_document_id
+            || actual.relationship_type != expected.relationship_type
+            || actual.source_heads.first() != Some(&expected.from_head)
+            || actual.source_heads.get(1) != Some(&expected.to_head)
+        {
+            return Err(CoreError::new(
+                "WorkshopChanged",
+                "A relationship dependency changed after this chat preview.",
+            ));
+        }
+        for head in [&expected.from_head, &expected.to_head] {
+            let current = read_document(connection, &head.document_id)?;
+            let target_is_changed = target_ids.contains(&head.document_id);
+            if !target_is_changed && current.head != *head {
+                return Err(CoreError::new(
+                    "VersionConflict",
+                    "A relationship endpoint changed after this chat preview.",
+                ));
+            }
+        }
+    }
+    for protected in &effects.protected_content {
+        let current = read_document(connection, &protected.target_document_id)?;
+        if current.head != protected.source_head
+            || sha256_hex(protected.text.as_bytes()) != protected.text_hash
+            || !workshop::chat_protected_text(connection, &protected.target_document_id)?
+                .contains(&protected.text)
+        {
+            return Err(CoreError::new(
+                "ProtectedContentChanged",
+                "Protected chat content changed after this preview.",
+            ));
+        }
+        if !body_text(&current.body).contains(&protected.text) {
+            return Err(CoreError::new(
+                "ProtectedContentChanged",
+                "The adoption result removed protected chat content.",
+            ));
+        }
+    }
+    for relationship in &effects.proposed_relationships {
+        for head in [&relationship.from_head, &relationship.to_head] {
+            if target_ids.contains(&head.document_id) {
+                let target = preview
+                    .targets
+                    .iter()
+                    .find(|target| target.document_id == head.document_id)
+                    .and_then(|target| target.before.as_ref())
+                    .map(|before| &before.head);
+                if target.is_some_and(|current| current != head) {
+                    return Err(CoreError::new(
+                        "DraftChanged",
+                        "A proposed relationship target changed after preview preparation.",
+                    ));
+                }
+            } else if read_document(connection, &head.document_id)?.head != *head {
+                return Err(CoreError::new(
+                    "VersionConflict",
+                    "A proposed relationship endpoint changed after preview preparation.",
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -986,6 +1646,7 @@ fn existing_receipt(
     operation_id: &str,
     payload_hash: &str,
 ) -> CoreResult<Option<String>> {
+    let mut conflicting_receipt = false;
     for (table, kind_column) in [
         ("workshop_receipts", "operation_kind"),
         ("proposal_receipts", "kind"),
@@ -998,10 +1659,7 @@ fn existing_receipt(
             )
             .optional()?;
         if found.is_some() {
-            return Err(CoreError::new(
-                "OperationIdReusedWithDifferentPayload",
-                "This operation ID was already used for another command.",
-            ));
+            conflicting_receipt = true;
         }
     }
     let found: Option<(String, String)> = connection
@@ -1012,6 +1670,12 @@ fn existing_receipt(
         )
         .optional()?;
     let Some((kind, hash)) = found else {
+        if conflicting_receipt {
+            return Err(CoreError::new(
+                "OperationIdReusedWithDifferentPayload",
+                "This operation ID was already used for another command.",
+            ));
+        }
         return Ok(None);
     };
     if kind != RECEIPT_KIND || hash != payload_hash {
@@ -1061,6 +1725,7 @@ mod tests {
             policy_epoch: "0".into(),
             workshop_version: "0".into(),
             targets: vec![],
+            effects: None,
         };
         let digest = preview_digest(&preview).expect("digest");
         let mut with_digest = preview.clone();
