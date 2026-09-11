@@ -633,6 +633,14 @@ is a suite containing at least one test that can fail for reasons unrelated to
 the change under test. A green run is evidence; a red run of *this* test, on a
 change that does not touch the app-server transport, is not.
 
+**Fixed.** The assertion was racing the recycle rather than waiting for it, so
+it now polls `active_count` against a deadline using the same
+`Instant::now() + Duration` pattern `collect` already uses in that file, and
+falls through to the plain assertions for `health()` and the reservation
+refusal once the recycle has actually happened. Documenting a flake is not the
+same as fixing it, and a known-flaky gate is worse than either: it trains
+whoever reads the next red run to explain it away.
+
 **The one real instance of what was being looked for is documentation, not tests.**
 `ADR_0022:78` states "The current reader floor is schema 34" while `LATEST_SCHEMA_VERSION` is
 40 — and it does not mention the schema 36, 37, 39 or 40 floors at all. That is genuine drift,

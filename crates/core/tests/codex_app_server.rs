@@ -420,7 +420,21 @@ fn completed_thread_threshold_recycles_idle_connection() {
         let finished = collect(&mut stream);
         assert_eq!(finished.result.status, CodexRunStatus::Completed);
     }
-    assert_eq!(connection.active_count(), 0);
+    // The last request's teardown is asynchronous: the fixture closes the
+    // completed thread from its own side, so `active_count` can still read 1 at
+    // the moment the final stream finishes. Wait for the recycle instead of
+    // racing it — asserting immediately made this test fail roughly one run in
+    // twenty under full-suite parallelism, with `left: 1, right: 0`.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while connection.active_count() != 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the completed thread was not recycled within the deadline"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // Reaching zero is the recycle. `health()` and the reservation refusal are
+    // then immediate, so they stay as plain assertions.
     assert_eq!(connection.health(), AppServerHealth::Closed);
     assert!(connection.try_reserve().is_err());
     connection.shutdown().expect("idle recycle cleanup settles");
