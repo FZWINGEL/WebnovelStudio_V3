@@ -7,10 +7,14 @@ pub use wns_context::frozen::{
     FrozenContext, SearchHit, SearchMode, SearchResult, SearchStory, SourcePassage, SourceRead,
     search_saved_passages,
 };
+// The decoder and the eligibility check moved down to `wns-context::frozen` with
+// the type they construct and the receipt they return. `decode_snapshot` is
+// re-exported at its historical path for the eight call sites in `discussions`,
+// `memory`, `project_chat/*` and `project_chat_context`.
+pub(crate) use wns_context::frozen::decode_snapshot;
+use wns_context::frozen::{eligibility, eligibility_error};
 use super::project_chat_context::ProjectChatFreeze;
 use super::*;
-use crate::context::conversation::validate_conversation;
-use crate::context::guidance::validate_frozen_guidance;
 use crate::context::navigation::{
     FrozenNavigationView, MAX_FROZEN_NAVIGATION_VIEWS, NavigationViewRef, navigation_content_hash,
     validate_frozen_navigation_views, validate_navigation_view_payload,
@@ -33,7 +37,7 @@ use crate::context::reviewed_summaries::{
 use crate::context::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
     ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind, SourceRef,
-    StorySnapshot, evaluate_sources,
+    StorySnapshot,
 };
 use std::collections::{BTreeMap, HashSet};
 
@@ -1501,18 +1505,6 @@ fn read_aliases(db: &Connection, id: &str) -> CoreResult<Vec<String>> {
         .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn eligibility_error(error: crate::context::EligibilityError) -> CoreError {
-    CoreError::new("ContextSourceDisallowed", &error.to_string())
-}
-
-fn eligibility(
-    snapshot: &StorySnapshot,
-    policy: &InformationPolicy,
-    purpose: ContextPurpose,
-    handles: &[String],
-) -> Result<crate::context::EligibilityReceipt, crate::context::EligibilityError> {
-    evaluate_sources(snapshot, policy, purpose, handles)
-}
 
 pub(super) fn load_snapshot(
     db: &Connection,
@@ -1564,132 +1556,6 @@ pub(super) fn validated_snapshot_record(
     }
     validate_pins(db, &frozen, &namespace)?;
     Ok((frozen, namespace))
-}
-
-pub(super) fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
-    if sha256_hex(json.as_bytes()) != hash {
-        return Err(CoreError::new(
-            "InvalidContext",
-            "The context manifest failed its fingerprint check.",
-        ));
-    }
-    let frozen: FrozenContext =
-        serde_json::from_str(json).map_err(|e| CoreError::new("InvalidContext", &e.to_string()))?;
-    if let Some(chat) = &frozen.project_chat
-        && (frozen.snapshot.basis != BasisKind::Working
-            || frozen.purpose != ContextPurpose::Discuss
-            || frozen.policy.audience != Audience::AuthorRoom
-            || chat.conversation_id.is_empty()
-            || chat.anchor_document_id.is_empty()
-            || chat.operation_namespace.is_empty())
-    {
-        return Err(CoreError::new(
-            "InvalidProjectChatContext",
-            "Project-chat metadata is only valid for a Working author-room discussion.",
-        ));
-    }
-    let control_sources: Vec<_> = frozen
-        .snapshot
-        .sources
-        .iter()
-        .filter(|source| source.kind == SourceKind::ConversationControl)
-        .collect();
-    if !control_sources.is_empty()
-        && (frozen.project_chat.is_none()
-            || control_sources.len() != 1
-            || control_sources[0].source != frozen.snapshot.target)
-    {
-        return Err(CoreError::new(
-            "InvalidProjectChatContext",
-            "A conversation control anchor may appear only as the project-chat target.",
-        ));
-    }
-    if frozen.project_chat.is_none()
-        && frozen
-            .snapshot
-            .sources
-            .iter()
-            .any(|source| source.kind == SourceKind::AssistantDraft)
-    {
-        return Err(CoreError::new(
-            "InvalidProjectChatContext",
-            "An assistant draft source requires explicit project-chat metadata.",
-        ));
-    }
-    if frozen.purpose == ContextPurpose::MemoryAnalysis
-        && (!frozen.aliases.is_empty()
-            || !frozen.guidance.is_empty()
-            || frozen.conversation.is_some())
-    {
-        return Err(CoreError::new(
-            "InvalidContext",
-            "Chapter memory cannot include aliases, guidance, or discussion.",
-        ));
-    }
-    validate_conversation(
-        frozen.conversation.as_ref(),
-        &frozen.snapshot.project_id,
-        &frozen.snapshot.target.document_id,
-        &frozen.policy.version,
-        frozen.policy.audience,
-        frozen.purpose,
-    )
-    .map_err(|message| CoreError::new("InvalidConversationContext", &message))?;
-    if frozen.snapshot.ordering_epoch != frozen.snapshot.context_source_epoch
-        || frozen.snapshot.disclosure_policy_version != frozen.policy.version
-    {
-        return Err(CoreError::new(
-            "InvalidContext",
-            "The frozen ordering or disclosure epoch is inconsistent.",
-        ));
-    }
-    if frozen.policy.audience == Audience::RestrictedWriting && !frozen.aliases.is_empty() {
-        return Err(CoreError::new(
-            "InvalidContext",
-            "Unclassified aliases cannot enter restricted writing context.",
-        ));
-    }
-    validate_frozen_navigation_views(
-        &frozen.navigation_views,
-        &frozen.snapshot,
-        &frozen.policy,
-        frozen.purpose,
-    )?;
-    for promises in &frozen.reviewed_promises {
-        validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
-    }
-    for knowledge in &frozen.reviewed_knowledge {
-        validate_frozen_knowledge_set(knowledge, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
-    }
-    for summary in &frozen.reviewed_summaries {
-        validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
-    }
-    validate_frozen_guidance(
-        &frozen.guidance,
-        &frozen.snapshot.project_id,
-        &frozen.snapshot.target.document_id,
-        frozen.policy.audience,
-    )
-    .map_err(|message| CoreError::new("InvalidContext", &message))?;
-    let selected: Vec<_> = frozen
-        .snapshot
-        .sources
-        .iter()
-        .map(|source| source.handle.clone())
-        .collect();
-    eligibility(&frozen.snapshot, &frozen.policy, frozen.purpose, &selected)
-        .map_err(eligibility_error)?;
-    if frozen
-        .aliases
-        .keys()
-        .any(|handle| !selected.contains(handle))
-    {
-        return Err(CoreError::new(
-            "InvalidContext",
-            "An alias refers to a source outside the manifest.",
-        ));
-    }
-    Ok(frozen)
 }
 
 fn validate_pins(

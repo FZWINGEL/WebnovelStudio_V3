@@ -19,11 +19,21 @@ use crate::reviewed_evidence::ReviewedEvidenceSet;
 use crate::reviewed_knowledge::ReviewedKnowledgeSet;
 use crate::reviewed_promises::ReviewedPromiseSet;
 use crate::reviewed_summaries::ReviewedSummarySet;
-use crate::{ContextPurpose, InformationPolicy, SourceDescriptor, SourceRef, StorySnapshot};
+use crate::contracts::{BasisKind, SourceKind};
+use crate::conversation::validate_conversation;
+use crate::eligibility::{EligibilityError, EligibilityReceipt, evaluate_sources};
+use crate::guidance::validate_frozen_guidance;
+use crate::navigation::validate_frozen_navigation_views;
+use crate::reviewed_knowledge::validate_frozen_knowledge_set;
+use crate::reviewed_promises::validate_frozen_promise_set;
+use crate::reviewed_summaries::validate_frozen_set as validate_frozen_summary;
+use crate::{
+    Audience, ContextPurpose, InformationPolicy, SourceDescriptor, SourceRef, StorySnapshot,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use wns_kernel::{CoreError, CoreResult, ProjectAccess};
+use wns_kernel::{CoreError, CoreResult, ProjectAccess, sha256_hex};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -204,4 +214,157 @@ fn literal_spans(text: &str, query: &str) -> Vec<(u32, u32)> {
         .match_indices(query)
         .map(|(at, matched)| (starts[at], ends[at + matched.len() - 1]))
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Decoding and eligibility.
+//
+// Moved down from `projects/story_context.rs`. `decode_snapshot` is the only
+// constructor of a [`FrozenContext`] from stored bytes, and every invariant the
+// frozen context must satisfy is enforced inside it — so it belongs beside the
+// type rather than beside the module that writes the row.
+//
+// It had to move for the same reason the vocabulary did. `conversation_context`
+// rebuilds a turn by decoding a manifest, and `story_context` freezes a
+// conversation by selecting one, so whichever crate held the decoder sat above
+// the other. At L3 it sits below both.
+// ---------------------------------------------------------------------------
+
+pub fn eligibility_error(error: EligibilityError) -> CoreError {
+    CoreError::new("ContextSourceDisallowed", &error.to_string())
+}
+
+pub fn eligibility(
+    snapshot: &StorySnapshot,
+    policy: &InformationPolicy,
+    purpose: ContextPurpose,
+    handles: &[String],
+) -> Result<EligibilityReceipt, EligibilityError> {
+    evaluate_sources(snapshot, policy, purpose, handles)
+}
+
+pub fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
+    if sha256_hex(json.as_bytes()) != hash {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The context manifest failed its fingerprint check.",
+        ));
+    }
+    let frozen: FrozenContext =
+        serde_json::from_str(json).map_err(|e| CoreError::new("InvalidContext", &e.to_string()))?;
+    if let Some(chat) = &frozen.project_chat
+        && (frozen.snapshot.basis != BasisKind::Working
+            || frozen.purpose != ContextPurpose::Discuss
+            || frozen.policy.audience != Audience::AuthorRoom
+            || chat.conversation_id.is_empty()
+            || chat.anchor_document_id.is_empty()
+            || chat.operation_namespace.is_empty())
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChatContext",
+            "Project-chat metadata is only valid for a Working author-room discussion.",
+        ));
+    }
+    let control_sources: Vec<_> = frozen
+        .snapshot
+        .sources
+        .iter()
+        .filter(|source| source.kind == SourceKind::ConversationControl)
+        .collect();
+    if !control_sources.is_empty()
+        && (frozen.project_chat.is_none()
+            || control_sources.len() != 1
+            || control_sources[0].source != frozen.snapshot.target)
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChatContext",
+            "A conversation control anchor may appear only as the project-chat target.",
+        ));
+    }
+    if frozen.project_chat.is_none()
+        && frozen
+            .snapshot
+            .sources
+            .iter()
+            .any(|source| source.kind == SourceKind::AssistantDraft)
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChatContext",
+            "An assistant draft source requires explicit project-chat metadata.",
+        ));
+    }
+    if frozen.purpose == ContextPurpose::MemoryAnalysis
+        && (!frozen.aliases.is_empty()
+            || !frozen.guidance.is_empty()
+            || frozen.conversation.is_some())
+    {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "Chapter memory cannot include aliases, guidance, or discussion.",
+        ));
+    }
+    validate_conversation(
+        frozen.conversation.as_ref(),
+        &frozen.snapshot.project_id,
+        &frozen.snapshot.target.document_id,
+        &frozen.policy.version,
+        frozen.policy.audience,
+        frozen.purpose,
+    )
+    .map_err(|message| CoreError::new("InvalidConversationContext", &message))?;
+    if frozen.snapshot.ordering_epoch != frozen.snapshot.context_source_epoch
+        || frozen.snapshot.disclosure_policy_version != frozen.policy.version
+    {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "The frozen ordering or disclosure epoch is inconsistent.",
+        ));
+    }
+    if frozen.policy.audience == Audience::RestrictedWriting && !frozen.aliases.is_empty() {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "Unclassified aliases cannot enter restricted writing context.",
+        ));
+    }
+    validate_frozen_navigation_views(
+        &frozen.navigation_views,
+        &frozen.snapshot,
+        &frozen.policy,
+        frozen.purpose,
+    )?;
+    for promises in &frozen.reviewed_promises {
+        validate_frozen_promise_set(promises, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
+    for knowledge in &frozen.reviewed_knowledge {
+        validate_frozen_knowledge_set(knowledge, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
+    for summary in &frozen.reviewed_summaries {
+        validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
+    }
+    validate_frozen_guidance(
+        &frozen.guidance,
+        &frozen.snapshot.project_id,
+        &frozen.snapshot.target.document_id,
+        frozen.policy.audience,
+    )
+    .map_err(|message| CoreError::new("InvalidContext", &message))?;
+    let selected: Vec<_> = frozen
+        .snapshot
+        .sources
+        .iter()
+        .map(|source| source.handle.clone())
+        .collect();
+    eligibility(&frozen.snapshot, &frozen.policy, frozen.purpose, &selected)
+        .map_err(eligibility_error)?;
+    if frozen
+        .aliases
+        .keys()
+        .any(|handle| !selected.contains(handle))
+    {
+        return Err(CoreError::new(
+            "InvalidContext",
+            "An alias refers to a source outside the manifest.",
+        ));
+    }
+    Ok(frozen)
 }

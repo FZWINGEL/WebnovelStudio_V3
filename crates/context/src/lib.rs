@@ -72,7 +72,7 @@ pub use evidence_history::{
 };
 pub use frozen::{
     FrozenContext, SearchHit, SearchMode, SearchResult, SearchStory, SourcePassage, SourceRead,
-    search_saved_passages,
+    decode_snapshot, eligibility, eligibility_error, search_saved_passages,
 };
 pub use promise_history::{
     PromiseHistory, PromiseHistoryObservation, PromiseHistoryUncertainty, query_promise_history,
