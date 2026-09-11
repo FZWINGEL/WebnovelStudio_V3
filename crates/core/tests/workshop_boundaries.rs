@@ -101,7 +101,7 @@ fn save_state(
     state: WorkshopState,
 ) -> webnovel_core::projects::workshop::WorkshopSnapshot {
     project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: operation_id.into(),
             expected_version: expected_version.into(),
@@ -117,7 +117,7 @@ fn context_request(
     action: &str,
     window: &str,
 ) -> StartWorkshop {
-    let saved = project.read_workshop(access.clone()).unwrap();
+    let saved = project.workshop().read(access.clone()).unwrap();
     let session = saved.state.sessions.iter().find(|session| {
         Some(&session.id) == saved.state.current_session_id.as_ref()
     }).expect("current workshop session");
@@ -194,7 +194,7 @@ fn corrected_brief_reaches_new_requests_without_rewriting_prose_or_historical_pa
             text: "Editable passage.".into(),
         },
     );
-    let first = project.start_workshop(first_request.clone()).unwrap();
+    let first = project.workshop().start(first_request.clone()).unwrap();
     let first_packet = serde_json::to_value(&first.packet).unwrap();
     let first_instruction = first.packet.messages.last().unwrap().content.clone();
     let first_envelope: Value = serde_json::from_str(&first_instruction).unwrap();
@@ -202,26 +202,26 @@ fn corrected_brief_reaches_new_requests_without_rewriting_prose_or_historical_pa
     assert_eq!(first_envelope["currentElement"], "Before. Editable passage. After.");
     complete_context_fixture(&project, &first, context_candidates("refinement", &["A revised passage."]));
 
-    let mut view = project.read_workshop(access.clone()).unwrap();
+    let mut view = project.workshop().read(access.clone()).unwrap();
     view.state.sessions[0].brief = "Corrected author attraction, independent of the prose.".into();
     view.state.sessions[0].direction = "Shared skills rather than a chosen savior.".into();
     view.state.sessions[0].still_open = "Who pays the cost remains open.".into();
     save_state(&project, &access, "interpretation-correction", &view.version, view.state);
-    let replay = project.start_workshop(first_request.clone()).unwrap();
+    let replay = project.workshop().start(first_request.clone()).unwrap();
     assert_eq!(serde_json::to_value(&replay.packet).unwrap(), first_packet);
 
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
     let access = reopened.attach("interpretation-reopened".into()).unwrap();
-    let view = reopened.read_workshop(access.clone()).unwrap();
+    let view = reopened.workshop().read(access.clone()).unwrap();
     assert_eq!(view.state.sessions[0].working_text, "Before. Editable passage. After.");
     assert_eq!(view.state.sessions[0].working_generation, "0");
     assert_eq!(view.state.sessions[0].original_notes, "Original notes stay as evidence.");
     assert!(view.results[0].output.is_some());
     first_request.access = access.clone();
-    assert_eq!(serde_json::to_value(&reopened.start_workshop(first_request).unwrap().packet).unwrap(), first_packet);
+    assert_eq!(serde_json::to_value(&reopened.workshop().start(first_request).unwrap().packet).unwrap(), first_packet);
 
-    let corrected = reopened.start_workshop(context_request(&reopened, &access, "interpretation-corrected", "concrete", "100000")).unwrap();
+    let corrected = reopened.workshop().start(context_request(&reopened, &access, "interpretation-corrected", "concrete", "100000")).unwrap();
     let corrected_envelope: Value = serde_json::from_str(&corrected.packet.messages.last().unwrap().content).unwrap();
     assert_eq!(corrected_envelope["authorBrief"], "Corrected author attraction, independent of the prose.");
     assert_eq!(corrected_envelope["direction"], "Shared skills rather than a chosen savior.");
@@ -229,10 +229,10 @@ fn corrected_brief_reaches_new_requests_without_rewriting_prose_or_historical_pa
     assert_eq!(corrected_envelope["currentElement"], first_envelope["currentElement"]);
     complete_context_fixture(&reopened, &corrected, context_candidates("refinement", &["Another possibility."]));
 
-    let mut view = reopened.read_workshop(access.clone()).unwrap();
+    let mut view = reopened.workshop().read(access.clone()).unwrap();
     view.state.sessions[0].brief.clear();
     save_state(&reopened, &access, "interpretation-clear", &view.version, view.state);
-    let cleared = reopened.start_workshop(context_request(&reopened, &access, "interpretation-cleared", "concrete", "100000")).unwrap();
+    let cleared = reopened.workshop().start(context_request(&reopened, &access, "interpretation-cleared", "concrete", "100000")).unwrap();
     let cleared_envelope: Value = serde_json::from_str(&cleared.packet.messages.last().unwrap().content).unwrap();
     assert_eq!(cleared_envelope["authorBrief"], "");
     assert_eq!(cleared_envelope["currentElement"], first_envelope["currentElement"]);
@@ -282,7 +282,7 @@ fn notes_organization_preserves_originals_and_parent_work_through_review_adoptio
     let mut request = context_request(&project, &access, "organize-notes", "directions", "100000");
     request.exploration.selected_scope = "Original notes organization".into();
     request.exploration.instruction = "Propose three organizations of originalNotes; retain ambiguity and create no story facts or settings.".into();
-    let started = project.start_workshop(request.clone()).unwrap();
+    let started = project.workshop().start(request.clone()).unwrap();
     let final_message = started.packet.messages.last().unwrap().content.clone();
     let metadata = metadata_from_instruction(&final_message).unwrap();
     assert_eq!(metadata.current_element, organization_brief);
@@ -299,7 +299,7 @@ fn notes_organization_preserves_originals_and_parent_work_through_review_adoptio
     }
     let organized = "Archive\nThe archive accepts memories.\n\nUnresolved\nMaybe it returns them?\nKeep the ending undecided.\n\nDialogue fragment\nA line: ‘I remember the rain.’".to_owned();
     complete_context_fixture(&project, &started, context_candidates("directions", &[&organized, original, "Questions first: Maybe it returns them? The other notes remain available for review."]));
-    let view = project.read_workshop(access.clone()).unwrap();
+    let view = project.workshop().read(access.clone()).unwrap();
     assert_eq!(view.state.sessions[0], parent);
     assert_eq!(view.state.sessions[1].original_notes, original);
     assert!(view.state.sessions[1].working_text.is_empty());
@@ -312,7 +312,7 @@ fn notes_organization_preserves_originals_and_parent_work_through_review_adoptio
     edited_state.sessions[1].working_generation = "1".into();
     let reviewed = edited_state.sessions[1].working_text.clone();
     let saved = save_state(&project, &access, "edit-organization-proposal", &view.version, edited_state);
-    let preview = project.preview_workshop_adoption(PreviewWorkshopAdoption {
+    let preview = project.workshop().preview_adoption(PreviewWorkshopAdoption {
         access: access.clone(), session_id: "notes-organization".into(), expected_version: saved.version,
         candidate_ids: vec![chosen.id], targets: vec![WorkshopAdoptionTarget {
             document_id: "organized-notes".into(), expected: None, title: "Organized notes".into(),
@@ -320,12 +320,12 @@ fn notes_organization_preserves_originals_and_parent_work_through_review_adoptio
         }], rationale: "Group the notes; keep uncertain questions open.".into(), protected_text: vec![],
         relationships: vec![], impact_drafts: vec![],
     }).unwrap();
-    let ack = project.adopt_workshop(access.clone(), "adopt-notes-organization".into(), preview.id).unwrap();
+    let ack = project.workshop().adopt(access.clone(), "adopt-notes-organization".into(), preview.id).unwrap();
     assert_eq!(ack.decision_ids.len(), 1);
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
     let access = reopened.attach("notes-reopened".into()).unwrap();
-    let view = reopened.read_workshop(access.clone()).unwrap();
+    let view = reopened.workshop().read(access.clone()).unwrap();
     assert_eq!(view.state.sessions[0], parent);
     assert_eq!(view.state.sessions[1].original_notes, original);
     assert_eq!(view.state.sessions[1].working_text, reviewed);
@@ -341,7 +341,7 @@ fn notes_organization_preserves_originals_and_parent_work_through_review_adoptio
     }
     assert_eq!(reopened.document(access.clone(), "organized-notes".into()).unwrap().body, body("organized", &reviewed));
     request.access = access;
-    assert_eq!(reopened.start_workshop(request).unwrap().packet.messages.last().unwrap().content, final_message);
+    assert_eq!(reopened.workshop().start(request).unwrap().packet.messages.last().unwrap().content, final_message);
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn one_candidate_moment_is_retained_as_invalid_raw_output() {
     save_state(&project, &access, "moment-state", "0", state);
 
     let started = project
-        .start_workshop(context_request(
+        .workshop().start(context_request(
             &project,
             &access,
             "moment-one",
@@ -380,7 +380,7 @@ fn one_candidate_moment_is_retained_as_invalid_raw_output() {
         context_candidates("refinement", &["ONE_MOMENT_TREATMENT"]),
     );
 
-    let view = project.read_workshop(access).unwrap();
+    let view = project.workshop().read(access).unwrap();
     let result = view
         .results
         .iter()
@@ -446,7 +446,7 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
         .unwrap();
     complete_context_fixture(&project, &chat, "UNRELATED_CHAT_ANSWER".into());
     let directions = project
-        .start_workshop(context_request(
+        .workshop().start(context_request(
             &project,
             &access,
             "directions",
@@ -467,7 +467,7 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
         ),
     );
     let moment = project
-        .start_workshop(context_request(
+        .workshop().start(context_request(
             &project, &access, "moment", "moment", "100000",
         ))
         .unwrap();
@@ -482,7 +482,7 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
             ],
         ),
     );
-    let view = project.read_workshop(access.clone()).unwrap();
+    let view = project.workshop().read(access.clone()).unwrap();
     let candidates = &view
         .results
         .iter()
@@ -515,7 +515,7 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
     ];
     save_state(&project, &access, "choose-context", &view.version, state);
     let next = project
-        .start_workshop(context_request(
+        .workshop().start(context_request(
             &project,
             &access,
             "filtered-context",
@@ -553,7 +553,7 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
             .contains("Avoid solving this problem through inherited privilege")
     );
     assert!(serialized.contains("excluded from workshop context by default"));
-    let retained = project.read_workshop(access.clone()).unwrap();
+    let retained = project.workshop().read(access.clone()).unwrap();
     assert!(
         retained
             .results
@@ -604,7 +604,7 @@ fn outside_direction_keeps_hard_exclusions_and_refuses_budget_without_truncating
     }];
     let saved = save_state(&project, &access, "save-outside", "0", state);
     let error = project
-        .start_workshop(context_request(
+        .workshop().start(context_request(
             &project,
             &access,
             "small-context",
@@ -618,7 +618,7 @@ fn outside_direction_keeps_hard_exclusions_and_refuses_budget_without_truncating
             .detail
             .contains("do not fit the reserved input budget")
     );
-    let after = project.read_workshop(access.clone()).unwrap();
+    let after = project.workshop().read(access.clone()).unwrap();
     assert!(
         after.results.is_empty(),
         "budget refusal must not create a provider run"
@@ -628,7 +628,7 @@ fn outside_direction_keeps_hard_exclusions_and_refuses_budget_without_truncating
         "budget refusal must preserve manual work and preferences"
     );
     let started = project
-        .start_workshop(context_request(
+        .workshop().start(context_request(
             &project,
             &access,
             "ample-context",
@@ -653,7 +653,7 @@ fn outside_direction_keeps_hard_exclusions_and_refuses_budget_without_truncating
     assert!(metadata.hard_constraints[0].contains("avoid Inherited power"));
     assert!(metadata.hard_constraints[0].contains("strength=hard"));
     assert!(metadata.hard_constraints[0].contains("Throughout this project"));
-    assert_eq!(project.read_workshop(access).unwrap().state, saved.state);
+    assert_eq!(project.workshop().read(access).unwrap().state, saved.state);
 }
 
 fn target(
@@ -704,7 +704,7 @@ fn fixed_literals_preserve_paragraph_and_hard_break_boundaries() {
     let saved = save_state(&project, &access, "save-workshop", "0", state);
     assert_eq!(
         project
-            .read_workshop(access.clone())
+            .workshop().read(access.clone())
             .unwrap()
             .state
             .sessions[0]
@@ -728,9 +728,9 @@ fn fixed_literals_preserve_paragraph_and_hard_break_boundaries() {
         }],
     );
     request.protected_text = vec![literal.into()];
-    let preview = project.preview_workshop_adoption(request).unwrap();
+    let preview = project.workshop().preview_adoption(request).unwrap();
     let adopted = project
-        .adopt_workshop(access.clone(), "adopt-lines".into(), preview.id)
+        .workshop().adopt(access.clone(), "adopt-lines".into(), preview.id)
         .unwrap();
     let replacement = preview_request(
         &access,
@@ -747,7 +747,7 @@ fn fixed_literals_preserve_paragraph_and_hard_break_boundaries() {
     );
     assert_eq!(
         project
-            .preview_workshop_adoption(replacement)
+            .workshop().preview_adoption(replacement)
             .unwrap_err()
             .code,
         "ProtectedContentChanged"
@@ -773,7 +773,7 @@ fn stale_existing_target_refuses_all_multi_target_adoption_before_writing() {
     let saved = save_state(&project, &access, "save-workshop", "0", state);
 
     let preview = project
-        .preview_workshop_adoption(preview_request(
+        .workshop().preview_adoption(preview_request(
             &access,
             "session-one",
             &saved.version,
@@ -813,7 +813,7 @@ fn stale_existing_target_refuses_all_multi_target_adoption_before_writing() {
         .unwrap();
 
     let error = project
-        .adopt_workshop(
+        .workshop().adopt(
             access.clone(),
             "adopt-stale-multi-target".into(),
             preview.id,
@@ -847,10 +847,10 @@ fn stale_existing_target_refuses_all_multi_target_adoption_before_writing() {
     );
     assert_eq!(project.documents(access.clone()).unwrap().len(), 1);
     assert_eq!(
-        project.read_workshop(access.clone()).unwrap().version,
+        project.workshop().read(access.clone()).unwrap().version,
         saved.version
     );
-    assert_eq!(project.workshop_history(access).unwrap().len(), 1);
+    assert_eq!(project.workshop().history(access).unwrap().len(), 1);
 }
 
 #[test]
@@ -889,7 +889,7 @@ fn successful_multi_target_adoption_records_exact_history_and_leaves_chapters_un
     let saved = save_state(&project, &access, "save-workshop", "0", state);
     let character_body = body("existing-character-paragraph", "The adopted character.");
     let preview = project
-        .preview_workshop_adoption(preview_request(
+        .workshop().preview_adoption(preview_request(
             &access,
             "session-one",
             &saved.version,
@@ -916,7 +916,7 @@ fn successful_multi_target_adoption_records_exact_history_and_leaves_chapters_un
     assert_eq!(preview.before.len(), 1);
     assert_eq!(preview.before[0].head, character.head);
     let adopted = project
-        .adopt_workshop(
+        .workshop().adopt(
             access.clone(),
             "adopt-successful-multi-target".into(),
             preview.id,
@@ -928,7 +928,7 @@ fn successful_multi_target_adoption_records_exact_history_and_leaves_chapters_un
     assert_eq!(adopted.documents[1].head.document_id, "existing-character");
     assert_eq!(adopted.documents[1].body, character_body);
     assert_eq!(adopted.decision_ids.len(), 2);
-    let view = project.read_workshop(access.clone()).unwrap();
+    let view = project.workshop().read(access.clone()).unwrap();
     assert_eq!(view.state.decisions.len(), 2);
     assert!(view.state.decisions.iter().all(|decision| decision.status
         == webnovel_core::projects::workshop::WorkshopDecisionStatus::Chosen
@@ -984,7 +984,7 @@ fn chosen_author_secret_stays_out_of_restricted_writing_context() {
     let (state, _) = state_with_session("session-one");
     let saved = save_state(&project, &access, "save-workshop", "0", state);
     let preview = project
-        .preview_workshop_adoption(preview_request(
+        .workshop().preview_adoption(preview_request(
             &access,
             "session-one",
             &saved.version,
@@ -999,10 +999,10 @@ fn chosen_author_secret_stays_out_of_restricted_writing_context() {
         ))
         .unwrap();
     let adopted = project
-        .adopt_workshop(access.clone(), "adopt-author-secret".into(), preview.id)
+        .workshop().adopt(access.clone(), "adopt-author-secret".into(), preview.id)
         .unwrap();
     let decision = project
-        .read_workshop(access.clone())
+        .workshop().read(access.clone())
         .unwrap()
         .state
         .decisions
@@ -1085,7 +1085,7 @@ fn hard_project_conflict_is_reported_and_neutral_local_preference_is_not_an_avoi
         },
     ];
     let conflict = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "save-conflicting-preferences".into(),
             expected_version: "0".into(),
@@ -1093,7 +1093,7 @@ fn hard_project_conflict_is_reported_and_neutral_local_preference_is_not_an_avoi
         })
         .expect_err("opposing local preference must surface a Rust conflict");
     assert_eq!(conflict.code, "PreferenceConflict");
-    assert_eq!(project.read_workshop(access.clone()).unwrap().version, "0");
+    assert_eq!(project.workshop().read(access.clone()).unwrap().version, "0");
 
     state.preferences[1].polarity = PreferencePolarity::Neutral;
     let saved = save_state(
@@ -1208,9 +1208,9 @@ fn story_possibilities_save_reopen_and_project_only_open_nonempty_context() {
         expected_version: "0".into(),
         state: state.clone(),
     };
-    let saved = project.save_workshop(request.clone()).unwrap();
-    assert_eq!(project.save_workshop(request).unwrap(), saved);
-    let stored = project.read_workshop(access.clone()).unwrap();
+    let saved = project.workshop().save(request.clone()).unwrap();
+    assert_eq!(project.workshop().save(request).unwrap(), saved);
+    let stored = project.workshop().read(access.clone()).unwrap();
     assert_eq!(stored.state.sessions[0].story_possibilities.len(), 3);
     assert_eq!(stored.state.sessions[0].story_possibilities[2].text, "");
 
@@ -1225,7 +1225,7 @@ fn story_possibilities_save_reopen_and_project_only_open_nonempty_context() {
         })
         .unwrap();
     let started = project
-        .start_workshop(StartWorkshop {
+        .workshop().start(StartWorkshop {
             access: access.clone(),
             operation_id: "story-possibilities-start".into(),
             exploration: WorkshopExploration {
@@ -1262,7 +1262,7 @@ fn story_possibilities_save_reopen_and_project_only_open_nonempty_context() {
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
     let reopened_access = reopened.attach("story-possibilities-reopened".into()).unwrap();
-    let reopened_state = reopened.read_workshop(reopened_access).unwrap().state;
+    let reopened_state = reopened.workshop().read(reopened_access).unwrap().state;
     assert_eq!(reopened_state.sessions[0].story_possibilities, workshop_session.story_possibilities);
 }
 
@@ -1280,7 +1280,7 @@ fn story_possibilities_reject_duplicate_ids_and_oversized_text_but_allow_clear_r
     };
     state.sessions[0].story_possibilities = vec![base.clone(), base];
     let duplicate = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "story-possibilities-duplicate".into(),
             expected_version: "0".into(),
@@ -1296,7 +1296,7 @@ fn story_possibilities_reject_duplicate_ids_and_oversized_text_but_allow_clear_r
         status: StoryPossibilityStatus::Open,
     }];
     let oversized = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "story-possibilities-oversized".into(),
             expected_version: "0".into(),
@@ -1312,7 +1312,7 @@ fn story_possibilities_reject_duplicate_ids_and_oversized_text_but_allow_clear_r
         status: StoryPossibilityStatus::Open,
     }];
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access,
             operation_id: "story-possibilities-clearable".into(),
             expected_version: "0".into(),
@@ -1330,7 +1330,7 @@ fn workshop_history_rejects_snapshot_when_save_receipt_result_drifts() {
     let (state, _) = state_with_session("history-receipt-session");
     let saved = save_state(&project, &access, "history-receipt-save", "0", state);
 
-    let history = project.workshop_history(access.clone()).unwrap();
+    let history = project.workshop().history(access.clone()).unwrap();
     assert_eq!(history, vec![saved]);
     drop(project);
 
@@ -1365,7 +1365,7 @@ fn workshop_history_rejects_snapshot_when_save_receipt_result_drifts() {
         .attach("workshop-history-receipt-reopen".into())
         .unwrap();
     let error = reopened
-        .workshop_history(reopened_access)
+        .workshop().history(reopened_access)
         .expect_err("history must reject a snapshot with a mismatched receipt result");
     assert_eq!(error.code, "InvalidProject");
     assert!(

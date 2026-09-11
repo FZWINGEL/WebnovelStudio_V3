@@ -448,6 +448,33 @@ large, it is the channel every other module writes through. Widening three visib
 split one file is the measurement of D2, and it is why step 5 — replacing that façade with
 per-concern ones — has to come before the middle layers can move.
 
+**Step 5 begun — per-concern facades.** The Workshop concern is delivered
+(`projects/workshop_api.rs`): six methods instead of 28, holding the **same** `Arc<Handle>` and
+issuing its own command variants. `ProjectSession::workshop()` returns it. Nothing about the
+actor, the 64-slot channel, the reply semantics or the ordering guarantees changed — it is an
+interface change, which is exactly why the existing suite is the whole contract.
+
+The first count of this was wrong, and the way it was wrong is the useful part. Grepping
+`crates/core/src` and `apps/desktop/src-tauri` put the Workshop at **13 call sites** and made it
+look like the smallest coherent concern. The migration then failed to compile with 205 errors:
+the real number, counting `crates/core/tests/` and `crates/core/examples/`, was **~200**. The
+grep enumerated the callers of the *thing* and forgot that the test tree is a caller — the exact
+omission the call-site sweep exists to prevent, made while performing one.
+
+Accurate counts, all targets included:
+
+| Concern | Methods | Call sites |
+|---|---|---|
+| Documents (attach, attach_snapshot, open, create_document, document(s), save, checkpoint, history, reconcile, view state) | 11 | **~824** |
+| Workshop | 6 | ~200 ✅ migrated |
+| Project lifecycle (create, metadata, rename) | 3 | ~82 |
+| Context (source epoch) | 1 | 66 |
+| Background work (start/stop/interrupt) | 3 | 29 |
+| Storage info | 1 | 3 |
+
+Widening `Handle`, its `queue` field, `Command` and `Reply` to `pub(crate)` is what a facade
+costs. That is the honest price of D2 and it does not shrink until the last group moves.
+
 **Enforcement.** `crates/architecture` asserts, in CI-able tests: every layered crate exists
 with a manifest; every layered crate is a workspace member; no crate depends on a sibling or a
 higher layer; and no layered crate depends on `webnovel-core`. It ships a deliberately

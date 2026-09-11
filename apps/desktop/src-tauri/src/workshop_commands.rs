@@ -61,7 +61,7 @@ pub async fn read_workshop(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<WorkshopView> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.read_workshop(access)).await
+    execute(move || project.workshop().read(access)).await
 }
 
 #[tauri::command]
@@ -70,7 +70,7 @@ pub async fn save_workshop(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<WorkshopSnapshot> {
     let project = state.project(&request.access.project_id)?;
-    execute(move || project.save_workshop(request)).await
+    execute(move || project.workshop().save(request)).await
 }
 
 #[tauri::command]
@@ -79,7 +79,7 @@ pub async fn workshop_history(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<Vec<WorkshopSnapshot>> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.workshop_history(access)).await
+    execute(move || project.workshop().history(access)).await
 }
 
 #[tauri::command]
@@ -88,7 +88,7 @@ pub async fn preview_workshop_adoption(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<WorkshopAdoptionPreview> {
     let project = state.project(&request.access.project_id)?;
-    execute(move || project.preview_workshop_adoption(request)).await
+    execute(move || project.workshop().preview_adoption(request)).await
 }
 
 #[tauri::command]
@@ -99,7 +99,7 @@ pub async fn adopt_workshop(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<WorkshopAdoptionAck> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.adopt_workshop(access, operation_id, preview_id)).await
+    execute(move || project.workshop().adopt(access, operation_id, preview_id)).await
 }
 
 /// Save one validated preset as a native JSON file. This is an export only;

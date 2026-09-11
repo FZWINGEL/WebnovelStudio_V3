@@ -162,7 +162,7 @@ fn schema35_to38_preserves_workshop_state_and_context_packet_bytes() {
         PreparationResult::Prepared { packet, .. } => *packet,
         PreparationResult::BudgetRejected { .. } => panic!("retained packet fits"),
     };
-    let mut state = project.read_workshop(access.clone()).unwrap().state;
+    let mut state = project.workshop().read(access.clone()).unwrap().state;
     state.preferences.push(WorkshopPreference {
         id: "legacy-relationship-preference".into(),
         label: "Relationship context".into(),
@@ -177,7 +177,7 @@ fn schema35_to38_preserves_workshop_state_and_context_packet_bytes() {
         confirmed: false,
     });
     project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "schema36-retained-workshop".into(),
             expected_version: "0".into(),
@@ -212,7 +212,7 @@ fn schema35_to38_preserves_workshop_state_and_context_packet_bytes() {
     let reopened = ProjectSession::open(&path).expect("upgrade schema35 project");
     assert_eq!(schema_version(&database_path), 40);
     let reopened_access = reopened.attach("schema36-reader".into()).unwrap();
-    let view = reopened.read_workshop(reopened_access.clone()).unwrap();
+    let view = reopened.workshop().read(reopened_access.clone()).unwrap();
     assert_eq!(view.state.preferences.len(), 1);
     let restored = reopened
         .prepared_context(reopened_access, packet_id.clone())

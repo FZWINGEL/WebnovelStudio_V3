@@ -42,8 +42,10 @@ pub mod workshop_generation;
 // them could move until they were separated.
 mod records;
 mod session;
+mod workshop_api;
 pub use records::*;
 pub use session::*;
+pub use workshop_api::*;
 
 // Moved to wns-kernel (L0) so that wns-storage can be extracted without
 // depending on this module — `storage` importing `CoreError` from here is what

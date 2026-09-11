@@ -140,7 +140,7 @@ fn start_request(
     access: &webnovel_core::projects::ProjectAccess,
     operation_id: &str,
 ) -> StartWorkshop {
-    let saved = project.read_workshop(access.clone()).unwrap();
+    let saved = project.workshop().read(access.clone()).unwrap();
     let session = saved
         .state
         .sessions
@@ -183,7 +183,7 @@ fn archiving_keeps_fixed_protection_until_explicit_unfix() {
         })
         .unwrap();
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "save-fixed-world".into(),
             expected_version: "0".into(),
@@ -192,7 +192,7 @@ fn archiving_keeps_fixed_protection_until_explicit_unfix() {
         .unwrap();
 
     let fixed_preview = project
-        .preview_workshop_adoption(protected_request(
+        .workshop().preview_adoption(protected_request(
             &access,
             saved.version,
             document.head.clone(),
@@ -201,16 +201,16 @@ fn archiving_keeps_fixed_protection_until_explicit_unfix() {
         ))
         .unwrap();
     let fixed_ack = project
-        .adopt_workshop(access.clone(), "adopt-fixed-world".into(), fixed_preview.id)
+        .workshop().adopt(access.clone(), "adopt-fixed-world".into(), fixed_preview.id)
         .unwrap();
-    let fixed_snapshot = project.read_workshop(access.clone()).unwrap();
+    let fixed_snapshot = project.workshop().read(access.clone()).unwrap();
     assert_eq!(fixed_snapshot.state.decisions.len(), 1);
     assert!(fixed_snapshot.state.decisions[0].fixed);
 
     let mut archived = fixed_snapshot.state.clone();
     archived.decisions[0].status = WorkshopDecisionStatus::Archived;
     let archived_snapshot = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "archive-fixed-world".into(),
             expected_version: fixed_snapshot.version,
@@ -221,7 +221,7 @@ fn archiving_keeps_fixed_protection_until_explicit_unfix() {
     assert!(archived_snapshot.state.decisions[0].fixed);
 
     let error = project
-        .preview_workshop_adoption(request(
+        .workshop().preview_adoption(request(
             &access,
             archived_snapshot.version.clone(),
             fixed_ack.documents[0].head.clone(),
@@ -230,14 +230,14 @@ fn archiving_keeps_fixed_protection_until_explicit_unfix() {
         .unwrap_err();
     assert_eq!(error.code, "ProtectedContentChanged");
 
-    let after_refusal = project.read_workshop(access.clone()).unwrap();
+    let after_refusal = project.workshop().read(access.clone()).unwrap();
     assert_eq!(after_refusal.version, archived_snapshot.version);
     assert_eq!(after_refusal.state, archived_snapshot.state);
 
     let mut unfixed = archived_snapshot.state.clone();
     unfixed.decisions[0].fixed = false;
     let unfixed_snapshot = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "unfix-fixed-world".into(),
             expected_version: archived_snapshot.version,
@@ -250,7 +250,7 @@ fn archiving_keeps_fixed_protection_until_explicit_unfix() {
     );
     assert!(!unfixed_snapshot.state.decisions[0].fixed);
     let preview = project
-        .preview_workshop_adoption(request(
+        .workshop().preview_adoption(request(
             &access,
             unfixed_snapshot.version,
             fixed_ack.documents[0].head.clone(),
@@ -278,7 +278,7 @@ fn adoption_supersession_cannot_release_a_fixed_previous_revision() {
         })
         .unwrap();
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "save-fixed-world".into(),
             expected_version: "0".into(),
@@ -287,7 +287,7 @@ fn adoption_supersession_cannot_release_a_fixed_previous_revision() {
         .unwrap();
 
     let fixed_preview = project
-        .preview_workshop_adoption(protected_request(
+        .workshop().preview_adoption(protected_request(
             &access,
             saved.version,
             document.head.clone(),
@@ -296,9 +296,9 @@ fn adoption_supersession_cannot_release_a_fixed_previous_revision() {
         ))
         .unwrap();
     let fixed_ack = project
-        .adopt_workshop(access.clone(), "adopt-fixed-world".into(), fixed_preview.id)
+        .workshop().adopt(access.clone(), "adopt-fixed-world".into(), fixed_preview.id)
         .unwrap();
-    let fixed_view = project.read_workshop(access.clone()).unwrap();
+    let fixed_view = project.workshop().read(access.clone()).unwrap();
     let previous = fixed_view
         .state
         .decisions
@@ -307,7 +307,7 @@ fn adoption_supersession_cannot_release_a_fixed_previous_revision() {
         .unwrap();
     assert!(previous.fixed);
     let unchanged_preview = project
-        .preview_workshop_adoption(request(
+        .workshop().preview_adoption(request(
             &access,
             fixed_view.version,
             fixed_ack.documents[0].head.clone(),
@@ -315,9 +315,9 @@ fn adoption_supersession_cannot_release_a_fixed_previous_revision() {
         ))
         .unwrap();
     let ack = project
-        .adopt_workshop(access.clone(), "adopt-unchanged-fixed-again".into(), unchanged_preview.id)
+        .workshop().adopt(access.clone(), "adopt-unchanged-fixed-again".into(), unchanged_preview.id)
         .unwrap();
-    let view = project.read_workshop(access.clone()).unwrap();
+    let view = project.workshop().read(access.clone()).unwrap();
     let previous = view
         .state
         .decisions
@@ -329,7 +329,7 @@ fn adoption_supersession_cannot_release_a_fixed_previous_revision() {
 
     let current_head = ack.documents[0].head.clone();
     let error = project
-        .preview_workshop_adoption(request(
+        .workshop().preview_adoption(request(
             &access,
             view.version,
             current_head,
@@ -364,7 +364,7 @@ fn actor_omits_unrelated_fixed_source_from_request_packet() {
     older.focus_document_id = None;
     older.included_document_ids.clear();
     let initial = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "save-packet-sessions".into(),
             expected_version: "0".into(),
@@ -386,12 +386,12 @@ fn actor_omits_unrelated_fixed_source_from_request_packet() {
     unrelated_request.targets[0].document_id = "unrelated-world".into();
     unrelated_request.targets[0].title = "Unrelated world".into();
     let preview = project
-        .preview_workshop_adoption(unrelated_request)
+        .workshop().preview_adoption(unrelated_request)
         .unwrap();
     project
-        .adopt_workshop(access.clone(), "adopt-unrelated-world".into(), preview.id)
+        .workshop().adopt(access.clone(), "adopt-unrelated-world".into(), preview.id)
         .unwrap();
-    let adopted = project.read_workshop(access.clone()).unwrap();
+    let adopted = project.workshop().read(access.clone()).unwrap();
     let mut protected = adopted.state.clone();
     protected.current_session_id = Some("current-session".into());
     let decision = protected
@@ -402,7 +402,7 @@ fn actor_omits_unrelated_fixed_source_from_request_packet() {
     decision.fixed = true;
     assert!(decision.protected_text.is_empty());
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "protect-unrelated-world".into(),
             expected_version: adopted.version,
@@ -412,7 +412,7 @@ fn actor_omits_unrelated_fixed_source_from_request_packet() {
     assert_eq!(saved.state.current_session_id.as_deref(), Some("current-session"));
 
     let started = project
-        .start_workshop(start_request(
+        .workshop().start(start_request(
             &project,
             &access,
             "start-current-packet",

@@ -406,7 +406,7 @@ fn draft_only_effects_resolve_to_ordinary_targets_and_replay_once() {
         .map(|document| (document.head.document_id.clone(), document))
         .collect::<HashMap<_, _>>();
     let workshop = project
-        .read_workshop(access.clone())
+        .workshop().read(access.clone())
         .expect("read workshop");
     assert_eq!(workshop.version, "1");
     assert_eq!(workshop.state.relationships.len(), 1);
@@ -448,7 +448,7 @@ fn draft_only_effects_resolve_to_ordinary_targets_and_replay_once() {
     );
     assert_eq!(
         project
-            .read_workshop(access)
+            .workshop().read(access)
             .expect("read workshop")
             .state
             .relationships
@@ -602,7 +602,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
         assert_eq!(error.code, "DraftChanged");
         assert_no_material_targets(&project, &access);
         assert!(project
-            .read_workshop(access)
+            .workshop().read(access)
             .expect("read workshop")
             .state
             .relationships
@@ -665,7 +665,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
             0
         );
         assert!(project
-            .read_workshop(access)
+            .workshop().read(access)
             .expect("read workshop")
             .state
             .relationships
@@ -697,7 +697,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
             None,
         );
         let mut workshop = project
-            .read_workshop(access.clone())
+            .workshop().read(access.clone())
             .expect("read workshop");
         workshop.state.preferences.push(WorkshopPreference {
             id: "effects-preference".into(),
@@ -713,7 +713,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
             confirmed: true,
         });
         project
-            .save_workshop(SaveWorkshop {
+            .workshop().save(SaveWorkshop {
                 access: access.clone(),
                 operation_id: "effects-workshop-change".into(),
                 expected_version: workshop.version,
@@ -734,7 +734,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
         assert_no_material_targets(&project, &access);
         assert_eq!(
             project
-                .read_workshop(access)
+                .workshop().read(access)
                 .expect("read workshop")
                 .state
                 .relationships
@@ -855,7 +855,7 @@ fn relationship_write_failure_rolls_back_materialization_and_allows_same_operati
     assert_eq!(ack.documents.len(), 2);
     assert_eq!(
         project
-            .read_workshop(access)
+            .workshop().read(access)
             .expect("read committed Workshop")
             .state
             .relationships
@@ -953,7 +953,7 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
         .expect("checkpoint relationship endpoint source");
 
     let mut workshop = project
-        .read_workshop(access.clone())
+        .workshop().read(access.clone())
         .expect("read initial workshop");
     let existing_relationship = WorkshopRelationship {
         id: "keeper-remembers-witness".into(),
@@ -970,7 +970,7 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
         .relationships
         .push(existing_relationship.clone());
     project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-save-existing".into(),
             expected_version: workshop.version,
@@ -1025,7 +1025,7 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
         .expect("change unselected relationship endpoint");
     let epoch_after_drift = project.context_source_epoch().expect("read drift epoch");
     let workshop_after_drift = project
-        .read_workshop(access.clone())
+        .workshop().read(access.clone())
         .expect("read workshop after endpoint drift");
     let character_before_adoption = project
         .document(access.clone(), character.head.document_id.clone())
@@ -1068,7 +1068,7 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
     );
     assert_eq!(
         project
-            .read_workshop(access.clone())
+            .workshop().read(access.clone())
             .expect("read workshop after rejected adoption")
             .state
             .relationships,
@@ -1136,7 +1136,7 @@ fn rejected_selected_group_member_refuses_without_partial_adoption() {
         .expect("reject selected grouped member");
     let epoch_before_adoption = project.context_source_epoch().expect("read epoch");
     let workshop_before_adoption = project
-        .read_workshop(access.clone())
+        .workshop().read(access.clone())
         .expect("read workshop");
     let error = project
         .adopt_chat_preview(AdoptChatPreview {
@@ -1158,7 +1158,7 @@ fn rejected_selected_group_member_refuses_without_partial_adoption() {
     );
     assert_eq!(
         project
-            .read_workshop(access.clone())
+            .workshop().read(access.clone())
             .expect("read workshop after rejection")
             .state,
         workshop_before_adoption.state

@@ -245,7 +245,7 @@ mod windows {
         };
         let expected_state = state.clone();
         let saved = project
-            .save_workshop(SaveWorkshop {
+            .workshop().save(SaveWorkshop {
                 access: access.clone(),
                 operation_id: format!("workshop-state-{run_key}"),
                 expected_version: "0".into(),
@@ -263,7 +263,7 @@ mod windows {
 
         let operation_id = format!("workshop-live-{run_key}");
         let started = project
-            .start_workshop(StartWorkshop {
+            .workshop().start(StartWorkshop {
                 access: access.clone(),
                 operation_id: operation_id.clone(),
                 exploration: WorkshopExploration {
@@ -666,7 +666,7 @@ mod windows {
         }
 
         let view = project
-            .read_workshop(access.clone())
+            .workshop().read(access.clone())
             .map_err(display_error)?;
         let result = view
             .results

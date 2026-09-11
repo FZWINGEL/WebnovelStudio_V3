@@ -90,17 +90,17 @@ fn workshop_state_reopens_and_save_is_cas_idempotent() {
         expected_version: "0".into(),
         state: state.clone(),
     };
-    let saved = project.save_workshop(request.clone()).unwrap();
+    let saved = project.workshop().save(request.clone()).unwrap();
     assert_eq!(saved.version, "1");
-    assert_eq!(project.save_workshop(request).unwrap(), saved);
-    let view = project.read_workshop(access.clone()).unwrap();
+    assert_eq!(project.workshop().save(request).unwrap(), saved);
+    let view = project.workshop().read(access.clone()).unwrap();
     assert_eq!(view.version, saved.version);
     assert_eq!(view.state, saved.state);
-    assert_eq!(project.workshop_history(access.clone()).unwrap().len(), 1);
+    assert_eq!(project.workshop().history(access.clone()).unwrap().len(), 1);
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
     let access = reopened.attach("workshop-renderer-2".into()).unwrap();
-    let view = reopened.read_workshop(access).unwrap();
+    let view = reopened.workshop().read(access).unwrap();
     assert_eq!(view.version, saved.version);
     assert_eq!(view.state, saved.state);
 }
@@ -116,7 +116,7 @@ fn workshop_branch_graph_rejects_invalid_shapes_atomically() {
     };
     state.sessions.push(session("working-root"));
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "branch-root".into(),
             expected_version: "0".into(),
@@ -126,7 +126,7 @@ fn workshop_branch_graph_rejects_invalid_shapes_atomically() {
 
     let reject = |operation_id: &str, candidate: WorkshopState, detail: &str| {
         let error = project
-            .save_workshop(SaveWorkshop {
+            .workshop().save(SaveWorkshop {
                 access: access.clone(),
                 operation_id: operation_id.into(),
                 expected_version: saved.version.clone(),
@@ -135,7 +135,7 @@ fn workshop_branch_graph_rejects_invalid_shapes_atomically() {
             .unwrap_err();
         assert_eq!(error.code, "InvalidRequest");
         assert!(error.detail.contains(detail), "{}", error.detail);
-        let current = project.read_workshop(access.clone()).unwrap();
+        let current = project.workshop().read(access.clone()).unwrap();
         assert_eq!(current.version, saved.version);
         assert_eq!(current.state, saved.state);
     };
@@ -215,7 +215,7 @@ fn nested_what_if_branches_persist_and_parent_edits_do_not_rewrite_ancestors() {
         .sessions
         .push(what_if_session("fork-three", "fork-two"));
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "nested-branches-save".into(),
             expected_version: "0".into(),
@@ -226,7 +226,7 @@ fn nested_what_if_branches_persist_and_parent_edits_do_not_rewrite_ancestors() {
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
     let reopened_access = reopened.attach("workshop-nested-reopened".into()).unwrap();
-    let reopened_view = reopened.read_workshop(reopened_access.clone()).unwrap();
+    let reopened_view = reopened.workshop().read(reopened_access.clone()).unwrap();
     assert_eq!(reopened_view.version, saved.version);
     for (id, parent) in [
         ("working-root", None),
@@ -259,7 +259,7 @@ fn nested_what_if_branches_persist_and_parent_edits_do_not_rewrite_ancestors() {
         .unwrap()
         .direction = "Only the deepest branch changes".into();
     let edited_snapshot = reopened
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: reopened_access.clone(),
             operation_id: "nested-branches-edit".into(),
             expected_version: reopened_view.version,
@@ -298,7 +298,7 @@ fn existing_branch_identity_cannot_be_reparented_or_flipped_but_navigation_is_al
         .sessions
         .push(what_if_session("fork-child", "working-root"));
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "branch-identity-save".into(),
             expected_version: "0".into(),
@@ -317,7 +317,7 @@ fn existing_branch_identity_cannot_be_reparented_or_flipped_but_navigation_is_al
         .unwrap()
         .parent_session_id = Some("fork-sibling".into());
     let reparent_error = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "branch-identity-reparent".into(),
             expected_version: saved.version.clone(),
@@ -340,7 +340,7 @@ fn existing_branch_identity_cannot_be_reparented_or_flipped_but_navigation_is_al
     child.parent_session_id = None;
     child.branch_kind = WorkshopBranchKind::Working;
     let flip_error = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "branch-identity-flip".into(),
             expected_version: saved.version.clone(),
@@ -353,7 +353,7 @@ fn existing_branch_identity_cannot_be_reparented_or_flipped_but_navigation_is_al
     let mut navigated = saved.state.clone();
     navigated.current_session_id = Some("fork-child".into());
     let navigation = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "branch-identity-navigation".into(),
             expected_version: saved.version,
@@ -365,7 +365,7 @@ fn existing_branch_identity_cannot_be_reparented_or_flipped_but_navigation_is_al
         navigation.state.current_session_id.as_deref(),
         Some("fork-child")
     );
-    let after = project.read_workshop(access).unwrap();
+    let after = project.workshop().read(access).unwrap();
     assert_eq!(
         after.state.sessions[1].parent_session_id.as_deref(),
         Some("working-root")
@@ -407,7 +407,7 @@ fn fixed_selected_details_are_scoped_to_the_adoption_session() {
         });
     state.sessions.push(child);
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "fixed-branch-state".into(),
             expected_version: "0".into(),
@@ -416,7 +416,7 @@ fn fixed_selected_details_are_scoped_to_the_adoption_session() {
         .unwrap();
 
     let parent_preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "working-root".into(),
             expected_version: saved.version.clone(),
@@ -438,7 +438,7 @@ fn fixed_selected_details_are_scoped_to_the_adoption_session() {
     assert_eq!(parent_preview.targets[0].document_id, "fixed-target");
 
     let child_error = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "fork-child".into(),
             expected_version: saved.version,
@@ -459,7 +459,7 @@ fn fixed_selected_details_are_scoped_to_the_adoption_session() {
         .unwrap_err();
     assert_eq!(child_error.code, "ProtectedContentChanged");
     let adopted = project
-        .adopt_workshop(
+        .workshop().adopt(
             access.clone(),
             "fixed-parent-adopt".into(),
             parent_preview.id,
@@ -473,7 +473,7 @@ fn fixed_selected_details_are_scoped_to_the_adoption_session() {
         changed.body["body"]["content"][0]["content"][0]["text"],
         "Changed by parent"
     );
-    let after = project.read_workshop(access).unwrap();
+    let after = project.workshop().read(access).unwrap();
     let child_after = after
         .state
         .sessions
@@ -521,7 +521,7 @@ fn child_generation_includes_chosen_ancestor_material_but_excludes_siblings() {
         .sessions
         .push(what_if_session("fork-sibling", "working-root"));
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "branch-context-state".into(),
             expected_version: "0".into(),
@@ -529,7 +529,7 @@ fn child_generation_includes_chosen_ancestor_material_but_excludes_siblings() {
         })
         .unwrap();
     let parent_preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "working-root".into(),
             expected_version: saved.version,
@@ -549,15 +549,15 @@ fn child_generation_includes_chosen_ancestor_material_but_excludes_siblings() {
         })
         .unwrap();
     project
-        .adopt_workshop(
+        .workshop().adopt(
             access.clone(),
             "branch-context-parent-adopt".into(),
             parent_preview.id,
         )
         .unwrap();
-    let after_parent = project.read_workshop(access.clone()).unwrap();
+    let after_parent = project.workshop().read(access.clone()).unwrap();
     let sibling_preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "fork-sibling".into(),
             expected_version: after_parent.version,
@@ -577,15 +577,15 @@ fn child_generation_includes_chosen_ancestor_material_but_excludes_siblings() {
         })
         .unwrap();
     project
-        .adopt_workshop(
+        .workshop().adopt(
             access.clone(),
             "branch-context-sibling-adopt".into(),
             sibling_preview.id,
         )
         .unwrap();
-    let after_sibling = project.read_workshop(access.clone()).unwrap();
+    let after_sibling = project.workshop().read(access.clone()).unwrap();
     let started = project
-        .start_workshop(StartWorkshop {
+        .workshop().start(StartWorkshop {
             access,
             operation_id: "branch-context-start".into(),
             exploration: WorkshopExploration {
@@ -630,7 +630,7 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
     workshop_session.anchor_document_id = Some("workshop-session-one".into());
     state.sessions.push(workshop_session);
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-start-state".into(),
             expected_version: "0".into(),
@@ -653,7 +653,7 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
         budget: MockContextBudget::new("100000", "100", "100"),
         provider_binding: None,
     };
-    let started = project.start_workshop(request.clone()).unwrap();
+    let started = project.workshop().start(request.clone()).unwrap();
     assert_eq!(started.run.target.document_id, "workshop-session-one");
     let legacy_user: Value = serde_json::from_str(
         &started
@@ -671,7 +671,7 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
     assert_eq!(anchor.kind, "note");
     assert_eq!(anchor.head.version, "0");
 
-    let view = project.read_workshop(access.clone()).unwrap();
+    let view = project.workshop().read(access.clone()).unwrap();
     assert_eq!(view.results.len(), 1);
     assert_eq!(view.results[0].run.id, started.run.id);
     assert!(view.results[0].output.is_none());
@@ -680,14 +680,14 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
     let mut changed_budget = request.clone();
     changed_budget.budget = MockContextBudget::new("100000", "101", "100");
     assert_eq!(
-        project.start_workshop(changed_budget).unwrap_err().code,
+        project.workshop().start(changed_budget).unwrap_err().code,
         "OperationIdReusedWithDifferentPayload"
     );
 
     let mut changed = view.state.clone();
     changed.sessions[0].direction = "Keep the first direction".into();
     let changed = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-start-state-two".into(),
             expected_version: view.version,
@@ -695,17 +695,17 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
         })
         .unwrap();
     assert_ne!(changed.version, request.exploration.expected_version);
-    let replay = project.start_workshop(request.clone()).unwrap();
+    let replay = project.workshop().start(request.clone()).unwrap();
     assert_eq!(replay.run.id, started.run.id);
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
     let reopened_access = reopened.attach("workshop-reopened".into()).unwrap();
-    let reopened_view = reopened.read_workshop(reopened_access.clone()).unwrap();
+    let reopened_view = reopened.workshop().read(reopened_access.clone()).unwrap();
     assert_eq!(reopened_view.results.len(), 1);
     assert_eq!(reopened_view.results[0].run.id, started.run.id);
     let mut replay_request = request;
     replay_request.access = reopened_access;
-    let replay_after_reopen = reopened.start_workshop(replay_request).unwrap();
+    let replay_after_reopen = reopened.workshop().start(replay_request).unwrap();
     assert_eq!(replay_after_reopen.run.id, started.run.id);
 }
 
@@ -820,7 +820,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         },
     ];
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-generation-state".into(),
             expected_version: "0".into(),
@@ -843,7 +843,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         budget: MockContextBudget::new("100000", "100", "100"),
         provider_binding: None,
     };
-    let started = project.start_workshop(request).unwrap();
+    let started = project.workshop().start(request).unwrap();
     let metadata = webnovel_core::projects::workshop_generation::metadata_from_instruction(
         &started.packet.messages.last().unwrap().content,
     )
@@ -926,7 +926,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         completed.status,
         webnovel_core::projects::discussions::DiscussionRunStatus::Completed
     );
-    let first_view = project.read_workshop(access.clone()).unwrap();
+    let first_view = project.workshop().read(access.clone()).unwrap();
     let relationship_result = first_view
         .results
         .iter()
@@ -942,7 +942,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
     assert!(!relationship_result.stale);
 
     let normal_started = project
-        .start_workshop(StartWorkshop {
+        .workshop().start(StartWorkshop {
             access: access.clone(),
             operation_id: "normal-focus-generation-start".into(),
             exploration: WorkshopExploration {
@@ -975,14 +975,14 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
     let mut cleared = first_view.state.clone();
     cleared.sessions[0].relationship_id = None;
     let cleared_saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-clear-scope".into(),
             expected_version: first_view.version,
             state: cleared,
         })
         .unwrap();
-    let cleared_view = project.read_workshop(access.clone()).unwrap();
+    let cleared_view = project.workshop().read(access.clone()).unwrap();
     assert_eq!(cleared_view.version, cleared_saved.version);
     let cleared_relationship = cleared_view
         .results
@@ -994,14 +994,14 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
     let mut restored = cleared_view.state.clone();
     restored.sessions[0].relationship_id = Some("relationship-one".into());
     let restored_saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-restore-scope".into(),
             expected_version: cleared_view.version,
             state: restored,
         })
         .unwrap();
-    let restored_view = project.read_workshop(access.clone()).unwrap();
+    let restored_view = project.workshop().read(access.clone()).unwrap();
     assert_eq!(restored_view.version, restored_saved.version);
     let restored_relationship = restored_view
         .results
@@ -1022,14 +1022,14 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         source_heads: vec![from.head.clone(), to.head.clone()],
     });
     let unrelated_saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-unrelated-edit".into(),
             expected_version: restored_view.version,
             state: unrelated,
         })
         .unwrap();
-    let unrelated_view = project.read_workshop(access.clone()).unwrap();
+    let unrelated_view = project.workshop().read(access.clone()).unwrap();
     assert_eq!(unrelated_view.version, unrelated_saved.version);
     let unrelated_relationship = unrelated_view
         .results
@@ -1042,14 +1042,14 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
     changed.relationships[0].description =
         "The debt is now understood as a public obligation.".into();
     let changed = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-target-edit".into(),
             expected_version: unrelated_view.version,
             state: changed,
         })
         .unwrap();
-    let stale_view = project.read_workshop(access.clone()).unwrap();
+    let stale_view = project.workshop().read(access.clone()).unwrap();
     assert_eq!(stale_view.version, changed.version);
     let stale_relationship = stale_view
         .results
@@ -1059,7 +1059,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
     assert!(stale_relationship.stale);
 
     let preview_error = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "relationship-session".into(),
             expected_version: stale_view.version,
@@ -1097,7 +1097,7 @@ fn unknown_relationship_reference_is_rejected_and_legacy_bytes_omit_optional_id(
     workshop_session.relationship_id = Some("relationship-one".into());
     state.sessions.push(workshop_session.clone());
     let error = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-reopen-state".into(),
             expected_version: "0".into(),
@@ -1113,7 +1113,7 @@ fn unknown_relationship_reference_is_rejected_and_legacy_bytes_omit_optional_id(
         ..WorkshopState::default()
     };
     project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-reopen-baseline".into(),
             expected_version: "0".into(),
@@ -1183,7 +1183,7 @@ fn unknown_relationship_reference_is_rejected_and_legacy_bytes_omit_optional_id(
 
     let reopened = ProjectSession::open(&temp.0).unwrap();
     let reopened_access = reopened.attach("workshop-relationship-reopened".into()).unwrap();
-    let error = reopened.read_workshop(reopened_access).unwrap_err();
+    let error = reopened.workshop().read(reopened_access).unwrap_err();
     assert_eq!(error.code, "InvalidRequest");
     assert!(error.detail.contains("unknown relationship"));
 }
@@ -1211,7 +1211,7 @@ fn adoption_refuses_independently_mutated_frozen_request_json() {
         .sessions
         .push(session("workshop-preview-integrity-session"));
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-preview-integrity-state".into(),
             expected_version: "0".into(),
@@ -1219,7 +1219,7 @@ fn adoption_refuses_independently_mutated_frozen_request_json() {
         })
         .unwrap();
     let preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "workshop-preview-integrity-session".into(),
             expected_version: saved.version,
@@ -1262,7 +1262,7 @@ fn adoption_refuses_independently_mutated_frozen_request_json() {
     drop(database);
 
     let error = project
-        .adopt_workshop(
+        .workshop().adopt(
             access.clone(),
             "workshop-preview-integrity-adopt".into(),
             preview.id,
@@ -1306,7 +1306,7 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
         .unwrap();
 
     let start = |project: &ProjectSession, access: webnovel_core::projects::ProjectAccess, version: &str, operation_id: &str| {
-        project.start_workshop(StartWorkshop {
+        project.workshop().start(StartWorkshop {
             access,
             operation_id: operation_id.into(),
             exploration: WorkshopExploration {
@@ -1352,7 +1352,7 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
                 source_heads: vec![from_head, to_head],
             });
         }
-        project.save_workshop(SaveWorkshop {
+        project.workshop().save(SaveWorkshop {
             access,
             operation_id: operation_id.into(),
             expected_version: expected_version.into(),
@@ -1435,7 +1435,7 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
     assert!(project
         .document(access.clone(), "workshop-refusal-session".into())
         .is_err());
-    assert!(project.read_workshop(access).unwrap().results.is_empty());
+    assert!(project.workshop().read(access).unwrap().results.is_empty());
 }
 
 #[test]
@@ -1451,7 +1451,7 @@ fn recovered_workshop_keeps_historical_results_and_selected_candidates_reviewabl
     workshop_session.anchor_document_id = Some("workshop-session-one".into());
     state.sessions.push(workshop_session);
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-recovery-state".into(),
             expected_version: "0".into(),
@@ -1459,7 +1459,7 @@ fn recovered_workshop_keeps_historical_results_and_selected_candidates_reviewabl
         })
         .unwrap();
     let started = project
-        .start_workshop(StartWorkshop {
+        .workshop().start(StartWorkshop {
             access: access.clone(),
             operation_id: "workshop-recovery-start".into(),
             exploration: WorkshopExploration {
@@ -1508,7 +1508,7 @@ fn recovered_workshop_keeps_historical_results_and_selected_candidates_reviewabl
         completed.status,
         webnovel_core::projects::discussions::DiscussionRunStatus::Completed
     );
-    let result_view = project.read_workshop(access.clone()).unwrap();
+    let result_view = project.workshop().read(access.clone()).unwrap();
     let candidate_id = result_view.results[0].output.as_ref().unwrap().candidates[0]
         .id
         .clone();
@@ -1522,7 +1522,7 @@ fn recovered_workshop_keeps_historical_results_and_selected_candidates_reviewabl
             include_in_context: true,
         });
     let selected = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-recovery-selection".into(),
             expected_version: result_view.version,
@@ -1542,7 +1542,7 @@ fn recovered_workshop_keeps_historical_results_and_selected_candidates_reviewabl
         .join(format!("wns-workshop-recovered-{}", Uuid::new_v4()));
     let recovered = recover_backup(&backup, &recovered_path, "Recovered workshop").unwrap();
     let recovered_access = recovered.attach("workshop-recovered".into()).unwrap();
-    let recovered_view = recovered.read_workshop(recovered_access.clone()).unwrap();
+    let recovered_view = recovered.workshop().read(recovered_access.clone()).unwrap();
     assert_eq!(recovered_view.results.len(), 1);
     assert!(recovered_view.results[0].stale);
     assert_eq!(recovered_view.results[0].run.id, completed.id);
@@ -1553,7 +1553,7 @@ fn recovered_workshop_keeps_historical_results_and_selected_candidates_reviewabl
     let mut edited = recovered_view.state.clone();
     edited.sessions[0].direction = "Review the historical option".into();
     let edited = recovered
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: recovered_access,
             operation_id: "workshop-recovery-edit".into(),
             expected_version: selected.version,
@@ -1588,7 +1588,7 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
     workshop_session.focus_document_id = Some("world-one".into());
     state.sessions.push(workshop_session);
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-save".into(),
             expected_version: "0".into(),
@@ -1596,7 +1596,7 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
         })
         .unwrap();
     let forged = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "session-one".into(),
             expected_version: saved.version.clone(),
@@ -1617,7 +1617,7 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
         .unwrap_err();
     assert_eq!(forged.code, "InvalidWorkshopCandidate");
     let preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "session-one".into(),
             expected_version: saved.version,
@@ -1637,19 +1637,19 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
         })
         .unwrap();
     let first = project
-        .adopt_workshop(access.clone(), "workshop-adopt".into(), preview.id.clone())
+        .workshop().adopt(access.clone(), "workshop-adopt".into(), preview.id.clone())
         .unwrap();
     assert_eq!(first.documents.len(), 1);
     assert_eq!(first.decision_ids.len(), 1);
     let replay = project
-        .adopt_workshop(access.clone(), "workshop-adopt".into(), preview.id)
+        .workshop().adopt(access.clone(), "workshop-adopt".into(), preview.id)
         .unwrap();
     assert_eq!(replay.snapshot, first.snapshot);
     assert_eq!(replay.decision_ids, first.decision_ids);
     assert_eq!(replay.documents[0].head, first.documents[0].head);
-    let after_first = project.read_workshop(access.clone()).unwrap();
+    let after_first = project.workshop().read(access.clone()).unwrap();
     let second_preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "session-one".into(),
             expected_version: after_first.version,
@@ -1669,13 +1669,13 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
         })
         .unwrap();
     let second = project
-        .adopt_workshop(
+        .workshop().adopt(
             access.clone(),
             "workshop-adopt-two".into(),
             second_preview.id,
         )
         .unwrap();
-    let final_view = project.read_workshop(access.clone()).unwrap();
+    let final_view = project.workshop().read(access.clone()).unwrap();
     let decisions = &final_view.state.decisions;
     assert_eq!(
         decisions
@@ -1713,7 +1713,7 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
         .expect("previous decision")
         .status = WorkshopDecisionStatus::Archived;
     let archived_snapshot = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-archive-previous".into(),
             expected_version: final_view.version.clone(),
@@ -1738,7 +1738,7 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
         .expect("archived previous decision")
         .status = WorkshopDecisionStatus::Chosen;
     let error = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-repromote-previous".into(),
             expected_version: archived_snapshot.version.clone(),
@@ -1747,7 +1747,7 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
         .unwrap_err();
     assert_eq!(error.code, "InvalidRequest");
     assert!(error.detail.contains("more than one chosen"));
-    let after_rejection = project.read_workshop(access.clone()).unwrap();
+    let after_rejection = project.workshop().read(access.clone()).unwrap();
     assert_eq!(after_rejection.version, archived_snapshot.version);
     assert_eq!(after_rejection.state, archived_snapshot.state);
 }
@@ -1792,7 +1792,7 @@ fn hard_preference_conflicts_normalize_confirmed_labels_and_ignore_neutral_polar
     };
     state.preferences = vec![project_preference, local_preference];
     let conflict = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-preference-conflict".into(),
             expected_version: "0".into(),
@@ -1803,7 +1803,7 @@ fn hard_preference_conflicts_normalize_confirmed_labels_and_ignore_neutral_polar
 
     state.preferences[1].confirmed = false;
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-preference-unconfirmed".into(),
             expected_version: "0".into(),
@@ -1828,7 +1828,7 @@ fn hard_preference_conflicts_normalize_confirmed_labels_and_ignore_neutral_polar
         confirmed: true,
     });
     let second_project_conflict = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "workshop-second-project-conflict".into(),
             expected_version: saved.version.clone(),
@@ -1840,7 +1840,7 @@ fn hard_preference_conflicts_normalize_confirmed_labels_and_ignore_neutral_polar
     state.preferences[1].polarity = PreferencePolarity::Neutral;
     state.preferences[2].polarity = PreferencePolarity::Neutral;
     let neutral = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access,
             operation_id: "workshop-preference-neutral".into(),
             expected_version: saved.version,
@@ -1871,7 +1871,7 @@ fn adoption_creates_new_linked_endpoints_with_exact_committed_heads() {
     };
     state.sessions.push(session("session-one"));
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-state".into(),
             expected_version: "0".into(),
@@ -1879,7 +1879,7 @@ fn adoption_creates_new_linked_endpoints_with_exact_committed_heads() {
         })
         .unwrap();
     let preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "session-one".into(),
             expected_version: saved.version,
@@ -1917,14 +1917,14 @@ fn adoption_creates_new_linked_endpoints_with_exact_committed_heads() {
     assert_eq!(preview.endpoint_sources.len(), 1);
     assert_eq!(preview.endpoint_sources[0].head, existing.head);
     let adopted = project
-        .adopt_workshop(access.clone(), "adopt-linked-world".into(), preview.id)
+        .workshop().adopt(access.clone(), "adopt-linked-world".into(), preview.id)
         .unwrap();
     let new_world = project
         .document(access.clone(), "new-world".into())
         .unwrap();
     assert_eq!(adopted.documents.len(), 1);
     assert_eq!(new_world.head.version, "0");
-    let view = project.read_workshop(access).unwrap();
+    let view = project.workshop().read(access).unwrap();
     let relationship = view
         .state
         .relationships
@@ -1959,7 +1959,7 @@ fn relationship_drafts_require_descriptions_and_null_heads_for_new_endpoints() {
     };
     state.sessions.push(session("session-one"));
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-validation-state".into(),
             expected_version: "0".into(),
@@ -1997,7 +1997,7 @@ fn relationship_drafts_require_descriptions_and_null_heads_for_new_endpoints() {
     blank_description.relationships[0].description = "  ".into();
     assert_eq!(
         project
-            .preview_workshop_adoption(blank_description)
+            .workshop().preview_adoption(blank_description)
             .unwrap_err()
             .code,
         "InvalidRequest"
@@ -2010,7 +2010,7 @@ fn relationship_drafts_require_descriptions_and_null_heads_for_new_endpoints() {
     });
     assert_eq!(
         project
-            .preview_workshop_adoption(forged_new_head)
+            .workshop().preview_adoption(forged_new_head)
             .unwrap_err()
             .code,
         "InvalidRequest"
@@ -2050,7 +2050,7 @@ fn stale_relationship_endpoint_rolls_back_all_adoption_targets() {
     };
     state.sessions.push(session("session-one"));
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "stale-relationship-state".into(),
             expected_version: "0".into(),
@@ -2058,7 +2058,7 @@ fn stale_relationship_endpoint_rolls_back_all_adoption_targets() {
         })
         .unwrap();
     let preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "session-one".into(),
             expected_version: saved.version,
@@ -2097,10 +2097,10 @@ fn stale_relationship_endpoint_rolls_back_all_adoption_targets() {
         })
         .unwrap();
     let error = project
-        .adopt_workshop(access.clone(), "stale-edge-adopt".into(), preview.id)
+        .workshop().adopt(access.clone(), "stale-edge-adopt".into(), preview.id)
         .unwrap_err();
     assert_eq!(error.code, "VersionConflict");
-    assert_eq!(project.read_workshop(access.clone()).unwrap().version, "1");
+    assert_eq!(project.workshop().read(access.clone()).unwrap().version, "1");
     assert_eq!(
         project
             .document(access, "should-not-appear".into())
@@ -2153,7 +2153,7 @@ fn relationship_impacts_follow_the_changed_endpoint_decision() {
         source_heads: vec![from.head.clone(), to.head.clone()],
     });
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "relationship-impact-state".into(),
             expected_version: "0".into(),
@@ -2161,7 +2161,7 @@ fn relationship_impacts_follow_the_changed_endpoint_decision() {
         })
         .unwrap();
     let preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "session-one".into(),
             expected_version: saved.version,
@@ -2181,7 +2181,7 @@ fn relationship_impacts_follow_the_changed_endpoint_decision() {
         })
         .unwrap();
     let adopted = project
-        .adopt_workshop(
+        .workshop().adopt(
             access.clone(),
             "relationship-impact-adopt".into(),
             preview.id,
@@ -2232,7 +2232,7 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
     workshop_session.anchor_document_id = Some("workshop-impact-session".into());
     state.sessions.push(workshop_session);
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "impact-state".into(),
             expected_version: "0".into(),
@@ -2240,7 +2240,7 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
         })
         .unwrap();
     let started = project
-        .start_workshop(StartWorkshop {
+        .workshop().start(StartWorkshop {
             access: access.clone(),
             operation_id: "impact-start".into(),
             exploration: WorkshopExploration {
@@ -2285,7 +2285,7 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
             assistant_text: serde_json::to_string(&output).unwrap(),
         })
         .unwrap();
-    let result = project.read_workshop(access.clone()).unwrap();
+    let result = project.workshop().read(access.clone()).unwrap();
     let packet_id = result.results[0].run.packet_id.clone();
     let candidate_id = result.results[0].output.as_ref().unwrap().candidates[0]
         .id
@@ -2300,7 +2300,7 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
             include_in_context: false,
         });
     let selected = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "impact-selection".into(),
             expected_version: result.version,
@@ -2308,7 +2308,7 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
         })
         .unwrap();
     let preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access: access.clone(),
             session_id: "session-one".into(),
             expected_version: selected.version,
@@ -2354,7 +2354,7 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
     assert_eq!(explicit_impact.kind, WorkshopImpactKind::Contradiction);
     assert_eq!(explicit_impact.status, WorkshopImpactStatus::NeedsReview);
     let adopted = project
-        .adopt_workshop(access.clone(), "impact-adopt".into(), preview.id)
+        .workshop().adopt(access.clone(), "impact-adopt".into(), preview.id)
         .unwrap();
     assert_eq!(adopted.documents.len(), 1);
     let unchanged = project
@@ -2369,7 +2369,7 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
         .unwrap();
     assert_eq!(anchor.kind, "note");
     assert_eq!(anchor.head.version, "0");
-    let view = project.read_workshop(access).unwrap();
+    let view = project.workshop().read(access).unwrap();
     assert!(view.state.impacts.iter().any(|impact| {
         impact.document_id == "impact-world"
             && impact.kind == WorkshopImpactKind::PossibleTension
@@ -2421,7 +2421,7 @@ fn chapter_targets_are_rejected_before_preview() {
     };
     state.sessions.push(session("session-one"));
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "save-state".into(),
             expected_version: "0".into(),
@@ -2429,7 +2429,7 @@ fn chapter_targets_are_rejected_before_preview() {
         })
         .unwrap();
     let error = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access,
             session_id: "session-one".into(),
             expected_version: saved.version,
@@ -2492,7 +2492,7 @@ fn stale_unrelated_relationship_remains_reviewable_without_blocking_other_work()
         source_heads: vec![first.head.clone(), second.head.clone()],
     });
     let saved = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "save-related-state".into(),
             expected_version: "0".into(),
@@ -2513,7 +2513,7 @@ fn stale_unrelated_relationship_remains_reviewable_without_blocking_other_work()
 
     state.sessions[0].direction = "Keep developing another area".into();
     let saved_again = project
-        .save_workshop(SaveWorkshop {
+        .workshop().save(SaveWorkshop {
             access: access.clone(),
             operation_id: "save-unrelated-state".into(),
             expected_version: saved.version,
@@ -2523,7 +2523,7 @@ fn stale_unrelated_relationship_remains_reviewable_without_blocking_other_work()
     assert_eq!(saved_again.version, "2");
 
     let preview = project
-        .preview_workshop_adoption(PreviewWorkshopAdoption {
+        .workshop().preview_adoption(PreviewWorkshopAdoption {
             access,
             session_id: "session-one".into(),
             expected_version: saved_again.version,

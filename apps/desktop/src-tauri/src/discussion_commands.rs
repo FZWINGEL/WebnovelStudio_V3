@@ -464,7 +464,7 @@ impl AuthorStart {
     }
     pub(crate) fn accept(self, project: &ProjectSession) -> CoreResult<DiscussionStart> {
         match self {
-            Self::Workshop(r) => project.start_workshop(r),
+            Self::Workshop(r) => project.workshop().start(r),
             Self::ProjectChat(r) => project.start_project_chat(r),
             Self::ProjectChapter(r) => project.start_project_chapter(r),
         }
@@ -1542,7 +1542,7 @@ mod tests {
                 document.body["body"]["content"][0]["content"][0]["text"],
                 "The current story element."
             );
-            let workshop = project.read_workshop(access.clone()).unwrap();
+            let workshop = project.workshop().read(access.clone()).unwrap();
             assert!(workshop.state.decisions.is_empty());
             assert!(workshop.state.relationships.is_empty());
             clean_project(project);

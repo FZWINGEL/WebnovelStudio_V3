@@ -83,8 +83,8 @@ pub(crate) enum Command {
     StorageInfo(Reply<StorageInfo>),
     Shutdown,
 }
-struct Handle {
-    queue: mpsc::SyncSender<Command>,
+pub(crate) struct Handle {
+    pub(crate) queue: mpsc::SyncSender<Command>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 impl Drop for Handle {
@@ -423,40 +423,12 @@ impl ProjectSession {
     pub fn storage_info(&self) -> CoreResult<StorageInfo> {
         self.request(Command::StorageInfo)
     }
-    pub fn start_workshop(
-        &self,
-        request: workshop_generation::StartWorkshop,
-    ) -> CoreResult<discussions::DiscussionStart> {
-        self.request(|reply| Command::WorkshopStart(Box::new(request), reply))
-    }
-    pub fn read_workshop(&self, access: ProjectAccess) -> CoreResult<workshop::WorkshopView> {
-        self.request(|reply| Command::WorkshopRead(access, reply))
-    }
-    pub fn save_workshop(
-        &self,
-        request: workshop::SaveWorkshop,
-    ) -> CoreResult<workshop::WorkshopSnapshot> {
-        self.request(|reply| Command::WorkshopSave(request, reply))
-    }
-    pub fn workshop_history(
-        &self,
-        access: ProjectAccess,
-    ) -> CoreResult<Vec<workshop::WorkshopSnapshot>> {
-        self.request(|reply| Command::WorkshopHistory(access, reply))
-    }
-    pub fn preview_workshop_adoption(
-        &self,
-        request: workshop::PreviewWorkshopAdoption,
-    ) -> CoreResult<workshop::WorkshopAdoptionPreview> {
-        self.request(|reply| Command::WorkshopPreview(request, reply))
-    }
-    pub fn adopt_workshop(
-        &self,
-        access: ProjectAccess,
-        operation_id: String,
-        preview_id: String,
-    ) -> CoreResult<workshop::WorkshopAdoptionAck> {
-        self.request(|reply| Command::WorkshopAdopt(access, operation_id, preview_id, reply))
+    /// Narrow interface to the Workshop concern: six methods instead of 28.
+    ///
+    /// The returned handle shares this session's actor and command channel, so
+    /// there is no second connection and no ordering change. See [`WorkshopApi`].
+    pub fn workshop(&self) -> WorkshopApi {
+        WorkshopApi::new(Arc::clone(&self.handle))
     }
     /// Inspect active discussion and memory work owned by this project's
     /// current operation namespace. The actor's current renderer access is

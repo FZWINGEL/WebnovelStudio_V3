@@ -936,7 +936,7 @@ fn grouped_effects_backup_recovery_preserves_historical_material_and_blocks_old_
         documents
     };
     let source_relationships = project
-        .read_workshop(access.clone())
+        .workshop().read(access.clone())
         .expect("read source workshop")
         .state
         .relationships;
@@ -964,7 +964,7 @@ fn grouped_effects_backup_recovery_preserves_historical_material_and_blocks_old_
         .collect::<Vec<_>>();
     source_documents.sort_by(|left, right| left.head.document_id.cmp(&right.head.document_id));
     let historical_workshop = project
-        .workshop_history(access.clone())
+        .workshop().history(access.clone())
         .expect("read historical workshop after endpoint edit");
     assert_eq!(historical_workshop.len(), 1);
     assert_eq!(
@@ -1072,7 +1072,7 @@ fn grouped_effects_backup_recovery_preserves_historical_material_and_blocks_old_
         serde_json::to_value(source_documents).expect("serialize source documents")
     );
     let recovered_relationships = recovered
-        .read_workshop(recovered_access.clone())
+        .workshop().read(recovered_access.clone())
         .expect("read recovered workshop")
         .state
         .relationships;
@@ -1163,7 +1163,7 @@ fn legacy_grouped_snapshot_tuple_hash_remains_recoverable_without_new_marker() {
         .expect("attach recovered legacy project");
     assert_eq!(
         recovered
-            .workshop_history(recovered_access.clone())
+            .workshop().history(recovered_access.clone())
             .expect("read recovered legacy workshop history")
             .len(),
         1
