@@ -46,7 +46,7 @@ fn create_v1_project(path: &Path, with_document: bool) -> ProjectInfo {
     fs::create_dir(path).expect("create v1 project folder");
     let connection = Connection::open(path.join("project.sqlite3")).expect("create v1 database");
     connection
-        .execute_batch(include_str!("../src/storage/001_projects.sql"))
+        .execute_batch(wns_storage::SCHEMA_001_PROJECTS_SQL)
         .expect("create v1 schema");
     let info = ProjectInfo {
         project_id: format!("v1-project-{}", Uuid::new_v4()),

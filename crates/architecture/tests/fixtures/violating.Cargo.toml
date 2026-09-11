@@ -1,0 +1,19 @@
+# Fixture for `the_rule_can_actually_fail`. Not a workspace member.
+#
+# This manifest violates two rules on purpose: a higher-layer dependency
+# (wns-story at L3 from a notional L2 crate) and a backward edge into the crate
+# under decomposition. The parser must surface both, or the layering test is
+# decorative.
+
+[package]
+name = "wns-context"
+version.workspace = true
+edition = "2024"
+
+[dependencies]
+wns-kernel = { path = "../kernel" }
+wns-story = { path = "../story" }
+webnovel-core = { path = "../core" }
+
+[dev-dependencies]
+wns-workshop = { path = "../workshop" }

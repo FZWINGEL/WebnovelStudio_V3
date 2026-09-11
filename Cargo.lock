@@ -4695,6 +4695,8 @@ dependencies = [
  "url",
  "uuid",
  "windows-sys 0.61.2",
+ "wns-kernel",
+ "wns-storage",
  "zip",
 ]
 
@@ -5168,6 +5170,126 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+
+[[package]]
+name = "wns-architecture"
+version = "3.0.0"
+
+[[package]]
+name = "wns-context"
+version = "3.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wns-documents",
+ "wns-kernel",
+ "wns-providers",
+ "wns-storage",
+]
+
+[[package]]
+name = "wns-conversation"
+version = "3.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wns-context",
+ "wns-documents",
+ "wns-kernel",
+ "wns-providers",
+ "wns-storage",
+ "wns-story",
+]
+
+[[package]]
+name = "wns-documents"
+version = "3.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+ "wns-kernel",
+]
+
+[[package]]
+name = "wns-kernel"
+version = "3.0.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "url",
+]
+
+[[package]]
+name = "wns-library"
+version = "3.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wns-kernel",
+ "wns-storage",
+]
+
+[[package]]
+name = "wns-providers"
+version = "3.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wns-kernel",
+]
+
+[[package]]
+name = "wns-storage"
+version = "3.0.0"
+dependencies = [
+ "rusqlite",
+ "uuid",
+ "wns-kernel",
+]
+
+[[package]]
+name = "wns-story"
+version = "3.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wns-context",
+ "wns-documents",
+ "wns-kernel",
+ "wns-providers",
+ "wns-storage",
+]
+
+[[package]]
+name = "wns-transfer"
+version = "3.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wns-context",
+ "wns-documents",
+ "wns-kernel",
+ "wns-storage",
+ "wns-story",
+ "zip",
+]
+
+[[package]]
+name = "wns-workshop"
+version = "3.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wns-context",
+ "wns-documents",
+ "wns-kernel",
+ "wns-providers",
+ "wns-storage",
+ "wns-story",
+]
 
 [[package]]
 name = "writeable"

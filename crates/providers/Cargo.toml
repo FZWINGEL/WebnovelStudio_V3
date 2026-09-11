@@ -1,0 +1,10 @@
+[package]
+name = "wns-providers"
+version.workspace = true
+edition = "2024"
+description = "L1: the provider port and its codex-exec, app-server, claude, http and mock adapters."
+
+[dependencies]
+wns-kernel = { path = "../kernel" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"

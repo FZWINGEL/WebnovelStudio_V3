@@ -1,0 +1,10 @@
+[package]
+name = "wns-storage"
+version.workspace = true
+edition = "2024"
+description = "L1: SQLite open, durability configuration and the linear migration chain."
+
+[dependencies]
+wns-kernel = { path = "../kernel" }
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+uuid = { version = "=1.26.0", features = ["v4"] }

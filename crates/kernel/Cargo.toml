@@ -1,0 +1,17 @@
+[package]
+name = "wns-kernel"
+version.workspace = true
+edition = "2024"
+description = "L0: the shared error type, canonicalization and the W0 snapshot validator."
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.11.0"
+url = "=2.5.8"
+# CoreError implements From<rusqlite::Error> and From<std::io::Error>. An error
+# type that must convert from every layer's error is inherently coupled to those
+# layers; keeping the conversions here is what lets wns-storage own migrations
+# without also owning the error type. The orphan rule is why they cannot live in
+# the layers that produce them.
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }

@@ -1,0 +1,7 @@
+[package]
+name = "wns-architecture"
+version.workspace = true
+edition = "2024"
+description = "Enforces the target layering. Not part of the layer graph; depends on nothing."
+
+[dependencies]

@@ -36,58 +36,13 @@ pub mod story_records;
 pub mod workshop;
 pub mod workshop_generation;
 
-pub type CoreResult<T> = Result<T, CoreError>;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CoreError {
-    pub code: String,
-    pub detail: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_head: Option<Head>,
-}
-impl CoreError {
-    pub fn new(code: &str, detail: &str) -> Self {
-        Self {
-            code: code.into(),
-            detail: detail.into(),
-            current_head: None,
-        }
-    }
-    pub(crate) fn uncertain(error: rusqlite::Error) -> Self {
-        Self::new(
-            "UncertainOutcome",
-            &format!("The commit outcome must be reconciled: {error}"),
-        )
-    }
-    fn disconnected() -> Self {
-        Self::new(
-            "UncertainOutcome",
-            "The project connection stopped. Keep your text and reopen the project to reconcile.",
-        )
-    }
-}
-impl std::fmt::Display for CoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.code, self.detail)
-    }
-}
-impl std::error::Error for CoreError {}
-impl From<rusqlite::Error> for CoreError {
-    fn from(error: rusqlite::Error) -> Self {
-        Self::new("PersistenceUnavailable", &error.to_string())
-    }
-}
-impl From<std::io::Error> for CoreError {
-    fn from(error: std::io::Error) -> Self {
-        Self::new("PersistenceUnavailable", &error.to_string())
-    }
-}
-impl From<serde_json::Error> for CoreError {
-    fn from(error: serde_json::Error) -> Self {
-        Self::new("InvalidDocument", &error.to_string())
-    }
-}
+// Moved to wns-kernel (L0) so that wns-storage can be extracted without
+// depending on this module — `storage` importing `CoreError` from here is what
+// makes today's storage↔projects cycle. Re-exported at this path so every
+// existing `webnovel_core::projects::{CoreError, CoreResult, Head}` import,
+// including the `use super::*` globs in this crate's own submodules, keeps
+// resolving unchanged.
+pub use wns_kernel::{CoreError, CoreResult, Head};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -96,13 +51,6 @@ pub struct ProjectAccess {
     pub session: String,
     pub writer_lease: String,
     pub operation_namespace: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Head {
-    pub document_id: String,
-    pub version: String,
-    pub body_hash: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

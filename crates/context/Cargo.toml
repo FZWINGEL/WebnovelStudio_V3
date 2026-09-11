@@ -1,0 +1,13 @@
+[package]
+name = "wns-context"
+version.workspace = true
+edition = "2024"
+description = "L2: deterministic packet compilation, eligibility, lookup and receipts."
+
+[dependencies]
+wns-kernel = { path = "../kernel" }
+wns-storage = { path = "../storage" }
+wns-documents = { path = "../documents" }
+wns-providers = { path = "../providers" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"

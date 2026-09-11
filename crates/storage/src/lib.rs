@@ -1,13 +1,35 @@
-use crate::projects::{CoreError, CoreResult};
+//! L1 — SQLite open, durability configuration and the migration chain.
+//!
+//! Extracted from `webnovel-core`, where importing `CoreError` back out of the
+//! module that owns the document model formed the storage↔projects cycle. This
+//! crate now depends only on `wns-kernel`, which is what lets the cycle stay
+//! broken: nothing here can reach the document model, by construction.
+//!
+//! The migration chain is **move-only**. Schema 40 stays 40; the SQL files and
+//! their `if version < N` ordering were relocated verbatim, because the
+//! byte-compatibility of historical packet bytes and hashes depends on
+//! migrations never being rewritten.
+
 use rusqlite::{Connection, OpenFlags, backup::Backup};
 use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
+use wns_kernel::{CoreError, CoreResult};
 
-pub(crate) const LATEST_SCHEMA_VERSION: i64 = 40;
+pub const LATEST_SCHEMA_VERSION: i64 = 40;
 
-pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
+/// The schema-1 creation script.
+///
+/// Exposed so that a fixture can build a legacy v1 project without reaching
+/// into this crate's source tree by filesystem path — which is what the
+/// metadata suite did before this crate existed, and what made the extraction
+/// break it. Migrations are append-only history: this constant is byte-identical
+/// to what [`migrate`] runs at `if version < 1` and must never change.
+#[doc(hidden)]
+pub const SCHEMA_001_PROJECTS_SQL: &str = include_str!("001_projects.sql");
+
+pub fn configure(connection: &Connection) -> CoreResult<()> {
     connection.busy_timeout(std::time::Duration::from_secs(3))?;
     connection.execute_batch(
         "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;",
@@ -24,7 +46,7 @@ pub(crate) fn configure(connection: &Connection) -> CoreResult<()> {
     Ok(())
 }
 
-pub(crate) fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()> {
+pub fn migrate(connection: &mut Connection, root: &Path) -> CoreResult<()> {
     let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if version > LATEST_SCHEMA_VERSION {
         return Err(CoreError::new(
