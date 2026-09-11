@@ -20,9 +20,9 @@ impl Fixture {
         let root = std::env::temp_dir().join(format!("wns-proposal-{}", Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let project = ProjectSession::create(root.join("project"), "Proposal tests").unwrap();
-        let access = project.attach("renderer".into()).unwrap();
+        let access = project.documents().attach("renderer".into()).unwrap();
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -129,7 +129,7 @@ impl Fixture {
     }
     fn current(&self) -> DocumentRecord {
         self.project()
-            .document(self.access.clone(), "chapter".into())
+            .documents().read(self.access.clone(), "chapter".into())
             .unwrap()
     }
 }
@@ -212,7 +212,7 @@ fn prepare_edit_apply_one_and_reject_others_keeps_decision_and_freshness_separat
     assert_eq!(f.current().head, applied.document.head);
     let history = f
         .project()
-        .history(f.access.clone(), "chapter".into())
+        .documents().history(f.access.clone(), "chapter".into())
         .unwrap();
     assert_eq!(history.len(), 2);
     assert_eq!(history[0].body, body("author wording"));
@@ -270,7 +270,7 @@ fn unseen_source_edits_and_policy_revocation_stale_apply_without_erasing_review_
         match change {
             "other-document" => {
                 f.project()
-                    .create_document(CreateDocument {
+                    .documents().create(CreateDocument {
                         access: f.access.clone(),
                         operation_id: "new-source".into(),
                         document_id: "new-note".into(),
@@ -282,7 +282,7 @@ fn unseen_source_edits_and_policy_revocation_stale_apply_without_erasing_review_
             }
             "target" => {
                 f.project()
-                    .save(SaveSnapshot {
+                    .documents().save(SaveSnapshot {
                         access: f.access.clone(),
                         operation_id: "manual".into(),
                         expected: f.document.head.clone(),
@@ -326,7 +326,7 @@ fn lost_ack_reconciliation_returns_latest_body_and_old_decision_without_replayin
     let committed = f.project().apply_proposal(request.clone()).unwrap(); // Simulate lost transport ACK.
     let saved = f
         .project()
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: f.access.clone(),
             operation_id: "later-manual".into(),
             expected: committed.document.head,
@@ -339,7 +339,7 @@ fn lost_ack_reconciliation_returns_latest_body_and_old_decision_without_replayin
     f.project = Some(ProjectSession::open(f.root.join("project")).unwrap());
     let reconciled = f
         .project()
-        .reconcile(ReconcileRequest {
+        .documents().reconcile(ReconcileRequest {
             project_id: f.access.project_id.clone(),
             operation_namespace: f.access.operation_namespace.clone(),
             session: "recovered-renderer".into(),
@@ -396,7 +396,7 @@ fn injected_write_failures_roll_back_body_epoch_history_decision_and_receipt_tog
         assert!(f.list()[0].decision.is_none(), "{point}");
         assert_eq!(
             f.project()
-                .history(f.access.clone(), "chapter".into())
+                .documents().history(f.access.clone(), "chapter".into())
                 .unwrap()
                 .len(),
             1,
@@ -468,7 +468,7 @@ fn recovery_retains_read_only_suggestions_and_never_transfers_apply_authority() 
     create_backup(f.project(), &archive).unwrap();
     let recovered_path = f.root.join("recovered");
     let recovered = recover_backup(&archive, &recovered_path, "Recovered test").unwrap();
-    let access = recovered.attach("recovered".into()).unwrap();
+    let access = recovered.documents().attach("recovered".into()).unwrap();
     let copied = recovered
         .proposals(access.clone(), "chapter".into())
         .unwrap();

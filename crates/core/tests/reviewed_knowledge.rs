@@ -148,9 +148,9 @@ fn knowledge_validation_is_exact_and_canonical() {
 fn stage_knowledge_supports_inherit_and_explicit_clear() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Reviewed knowledge").unwrap();
-    let access = project.attach("knowledge-test".into()).unwrap();
+    let access = project.documents().attach("knowledge-test".into()).unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-1".into(),
@@ -223,10 +223,10 @@ fn stage_knowledge_supports_inherit_and_explicit_clear() {
 fn inherited_knowledge_with_stale_source_is_rejected_before_persistence() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Stale knowledge").unwrap();
-    let access = project.attach("knowledge-stale".into()).unwrap();
+    let access = project.documents().attach("knowledge-stale".into()).unwrap();
     let text = "Mei knows the key opens the eastern gate.";
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-1".into(),
@@ -258,7 +258,7 @@ fn inherited_knowledge_with_stale_source_is_rejected_before_persistence() {
         })
         .unwrap();
     let edited = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-source".into(),
             expected: document.head,
@@ -285,9 +285,9 @@ fn inherited_knowledge_with_stale_source_is_rejected_before_persistence() {
 fn schema_33_migrates_legacy_rows_and_keeps_knowledge_absent_bytes_compatible() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Legacy knowledge").unwrap();
-    let access = project.attach("knowledge-legacy".into()).unwrap();
+    let access = project.documents().attach("knowledge-legacy".into()).unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-1".into(),
@@ -425,10 +425,10 @@ fn reviewed_knowledge_rejects_an_operation_namespace_mismatch() {
 fn recovered_copy_keeps_knowledge_history_but_clears_active_authority() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Recovered knowledge").unwrap();
-    let access = project.attach("knowledge-recovery".into()).unwrap();
+    let access = project.documents().attach("knowledge-recovery".into()).unwrap();
     let first_text = "Mei knows the key opens the eastern gate.";
     let first = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-recovery-first".into(),
             document_id: "chapter-1".into(),
@@ -460,7 +460,7 @@ fn recovered_copy_keeps_knowledge_history_but_clears_active_authority() {
         })
         .unwrap();
     let second = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-recovery-second".into(),
             document_id: "chapter-2".into(),
@@ -507,7 +507,7 @@ fn recovered_copy_keeps_knowledge_history_but_clears_active_authority() {
 
     let recovered =
         recover_backup(&archive, &temp.child("recovered"), "Recovered knowledge").unwrap();
-    let recovered_access = recovered.attach("recovered-reader".into()).unwrap();
+    let recovered_access = recovered.documents().attach("recovered-reader".into()).unwrap();
     assert!(
         recovered
             .read_reviewed_record_set(recovered_access.clone(), "chapter-1".into())
@@ -543,10 +543,10 @@ fn recovered_copy_keeps_knowledge_history_but_clears_active_authority() {
 fn ready_knowledge_transaction_rolls_back_bundle_head_and_epoch_on_insert_failure() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Rollback knowledge").unwrap();
-    let access = project.attach("knowledge-rollback".into()).unwrap();
+    let access = project.documents().attach("knowledge-rollback".into()).unwrap();
     let text = "Mei knows the key opens the eastern gate.";
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-rollback-chapter".into(),
             document_id: "chapter-1".into(),
@@ -622,9 +622,9 @@ fn ready_knowledge_transaction_rolls_back_bundle_head_and_epoch_on_insert_failur
 fn character_catalog_reuses_existing_possession_holders_before_knowledge() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Knowledge catalog").unwrap();
-    let access = project.attach("knowledge-catalog".into()).unwrap();
+    let access = project.documents().attach("knowledge-catalog".into()).unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-1".into(),

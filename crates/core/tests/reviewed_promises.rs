@@ -104,9 +104,9 @@ fn setup() -> (
 ) {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Reviewed promises").unwrap();
-    let access = project.attach("promise-test".into()).unwrap();
+    let access = project.documents().attach("promise-test".into()).unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-1".into(),
@@ -187,7 +187,7 @@ fn promise_sets_validate_and_support_inheritance_and_explicit_clear() {
 fn promise_only_replacement_advances_epoch_and_fences_pending_later_review() {
     let (_temp, project, access, first) = setup();
     let second = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter-2".into(),
             document_id: "chapter-2".into(),
@@ -255,7 +255,7 @@ fn promise_only_replacement_advances_epoch_and_fences_pending_later_review() {
     assert_eq!(
         first.head.body_hash,
         project
-            .document(access.clone(), "chapter-1".into())
+            .documents().read(access.clone(), "chapter-1".into())
             .unwrap()
             .head
             .body_hash
@@ -297,7 +297,7 @@ fn restricted_policy(
 fn historical_promise_snapshot_survives_edit_and_restricted_history_filters_private_rows() {
     let (temp, project, access, first) = setup();
     let second = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-history-target".into(),
             document_id: "chapter-2".into(),
@@ -360,7 +360,7 @@ fn historical_promise_snapshot_survives_edit_and_restricted_history_filters_priv
     )));
 
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-history-source".into(),
             expected: first.head,
@@ -386,7 +386,7 @@ fn historical_promise_snapshot_survives_edit_and_restricted_history_filters_priv
 fn tampered_promise_columns_fail_backup_and_recovered_namespace_cannot_read_snapshot() {
     let (temp, project, access, first) = setup();
     let second = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-tamper-target".into(),
             document_id: "chapter-2".into(),
@@ -449,7 +449,7 @@ fn tampered_promise_columns_fail_backup_and_recovered_namespace_cannot_read_snap
     drop(corrupted);
 
     let recovered = recover_backup(&archive, &temp.child("copy"), "Recovered copy").unwrap();
-    let recovered_access = recovered.attach("copy-reader".into()).unwrap();
+    let recovered_access = recovered.documents().attach("copy-reader".into()).unwrap();
     let error = recovered
         .reviewed_promise_history(recovered_access, snapshot_id, "promise-bell".into())
         .unwrap_err();

@@ -41,12 +41,14 @@ pub mod workshop_generation;
 // actor, the session façade and the persistence helpers together, and none of
 // them could move until they were separated.
 mod context_api;
+mod document_api;
 mod project_api;
 mod records;
 mod session;
 mod work_api;
 mod workshop_api;
 pub use context_api::*;
+pub use document_api::*;
 pub use project_api::*;
 pub use records::*;
 pub use session::*;
@@ -1466,7 +1468,7 @@ mod tests {
     fn crash_child() {
         let root = PathBuf::from(std::env::var_os("WNS_UNIT_CRASH_ROOT").unwrap());
         let project = ProjectSession::open(root.join("project")).unwrap();
-        let access = project.attach("crash-child".into()).unwrap();
+        let access = project.documents().attach("crash-child".into()).unwrap();
         let json = std::fs::read(root.join("request.json")).unwrap();
         let value: Value = serde_json::from_slice(&json).unwrap();
         if value.get("preparedId").is_some() {
@@ -1485,7 +1487,7 @@ mod tests {
         } else {
             let mut request: SaveSnapshot = serde_json::from_slice(&json).unwrap();
             request.access = access;
-            project.save(request).unwrap();
+            project.documents().save(request).unwrap();
         }
         panic!("The deterministic after-commit barrier did not hold");
     }
@@ -1496,9 +1498,9 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let project =
             ProjectSession::create(root.join("project"), "Crash recovery fixture").unwrap();
-        let access = project.attach("parent".into()).unwrap();
+        let access = project.documents().attach("parent".into()).unwrap();
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -1550,7 +1552,7 @@ mod tests {
         assert!(committed, "Child did not reach the commit barrier");
         let recovered = ProjectSession::open(root.join("project")).unwrap();
         let snapshot = recovered
-            .reconcile(ReconcileRequest {
+            .documents().reconcile(ReconcileRequest {
                 project_id: recovered.info.project_id.clone(),
                 operation_namespace: recovered.info.operation_namespace.clone(),
                 session: "new-renderer".into(),
@@ -1562,7 +1564,7 @@ mod tests {
         assert_eq!(snapshot.document.body, request.body);
         assert_eq!(snapshot.receipts.len(), 1);
         request.access = snapshot.access.clone();
-        let replay = recovered.save(request).unwrap();
+        let replay = recovered.documents().save(request).unwrap();
         assert_eq!(replay.head, snapshot.document.head);
         assert_eq!(replay.saved_generation, "9");
         assert_eq!(replay.session, "new-renderer");
@@ -1582,9 +1584,9 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let project =
             ProjectSession::create(root.join("project"), "Context crash fixture").unwrap();
-        let access = project.attach("parent".into()).unwrap();
+        let access = project.documents().attach("parent".into()).unwrap();
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -1660,7 +1662,7 @@ mod tests {
 
         let recovered = ProjectSession::open(root.join("project")).unwrap();
         let reconciled = recovered
-            .reconcile(ReconcileRequest {
+            .documents().reconcile(ReconcileRequest {
                 project_id: recovered.info.project_id.clone(),
                 operation_namespace: recovered.info.operation_namespace.clone(),
                 session: "new-renderer".into(),
@@ -1748,10 +1750,10 @@ mod tests {
         let root = std::env::temp_dir().join(format!("wns-apply-crash-{}", new_id()));
         std::fs::create_dir(&root).unwrap();
         let project = ProjectSession::create(root.join("project"), "Apply crash fixture").unwrap();
-        let access = project.attach("parent".into()).unwrap();
+        let access = project.documents().attach("parent".into()).unwrap();
         let body = |text: &str| json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p"},"content":[{"type":"text","text":text}]}]}});
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -1867,7 +1869,7 @@ mod tests {
         assert!(committed, "Child did not reach the Apply commit barrier");
         let recovered = ProjectSession::open(root.join("project")).unwrap();
         let snapshot = recovered
-            .reconcile(ReconcileRequest {
+            .documents().reconcile(ReconcileRequest {
                 project_id: recovered.info.project_id.clone(),
                 operation_namespace: recovered.info.operation_namespace.clone(),
                 session: "new-renderer".into(),
@@ -1885,7 +1887,7 @@ mod tests {
         assert_eq!(repeated.document.head, snapshot.document.head);
         assert_eq!(
             recovered
-                .history(snapshot.access.clone(), "chapter".into())
+                .documents().history(snapshot.access.clone(), "chapter".into())
                 .unwrap()
                 .len(),
             2
@@ -1911,10 +1913,10 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let project =
             ProjectSession::create(root.join("project"), "Restore crash fixture").unwrap();
-        let access = project.attach("parent".into()).unwrap();
+        let access = project.documents().attach("parent".into()).unwrap();
         let initial_body = blank_document();
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -1924,14 +1926,14 @@ mod tests {
             })
             .unwrap();
         let source = project
-            .checkpoint(CheckpointRequest {
+            .documents().checkpoint(CheckpointRequest {
                 access: access.clone(),
                 expected: document.head.clone(),
                 reason: CheckpointReason::Manual,
             })
             .unwrap();
         let current = project
-            .save(SaveSnapshot {
+            .documents().save(SaveSnapshot {
                 access: access.clone(),
                 operation_id: "restore-current".into(),
                 expected: document.head,
@@ -1987,7 +1989,7 @@ mod tests {
         assert!(committed, "Child did not reach the Restore commit barrier");
         let recovered = ProjectSession::open(root.join("project")).unwrap();
         let snapshot = recovered
-            .reconcile(ReconcileRequest {
+            .documents().reconcile(ReconcileRequest {
                 project_id: recovered.info.project_id.clone(),
                 operation_namespace: recovered.info.operation_namespace.clone(),
                 session: "new-renderer".into(),

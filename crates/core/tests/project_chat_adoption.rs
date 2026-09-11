@@ -272,7 +272,7 @@ fn create_source(
     title: &str,
 ) -> webnovel_core::projects::DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: format!("create-{id}"),
             document_id: id.into(),
@@ -287,9 +287,9 @@ fn create_source(
 fn explicit_chat_adoption_is_atomic_and_preview_payload_is_ref_only() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.project_path(), "Chat adoption").expect("create");
-    let access = project.attach("chat-adoption-test".into()).expect("attach");
+    let access = project.documents().attach("chat-adoption-test".into()).expect("attach");
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-world".into(),
             document_id: "world".into(),
@@ -338,7 +338,7 @@ fn explicit_chat_adoption_is_atomic_and_preview_payload_is_ref_only() {
     assert_eq!(ack.documents[0].kind, "world");
 
     let adopted = project
-        .document(access.clone(), ack.documents[0].head.document_id.clone())
+        .documents().read(access.clone(), ack.documents[0].head.document_id.clone())
         .expect("read adopted ordinary document");
     assert_eq!(
         adopted.role,
@@ -379,7 +379,7 @@ fn explicit_chat_adoption_is_atomic_and_preview_payload_is_ref_only() {
 fn grouped_adoption_is_one_epoch_and_replay_returns_the_same_result() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.project_path(), "Grouped adoption").expect("create");
-    let access = project.attach("grouped-adoption-test".into()).expect("attach");
+    let access = project.documents().attach("grouped-adoption-test".into()).expect("attach");
     let (conversation_id, _) = start_chat_with(
         &project,
         &access,
@@ -443,7 +443,7 @@ fn grouped_adoption_is_one_epoch_and_replay_returns_the_same_result() {
     );
     assert_eq!(
         project
-            .documents(access)
+            .documents().list(access)
             .expect("list ordinary documents")
             .iter()
             .filter(|document| ["World One", "Character One", "Theme One"].contains(&document.title.as_str()))
@@ -456,7 +456,7 @@ fn grouped_adoption_is_one_epoch_and_replay_returns_the_same_result() {
 fn grouped_adoption_rolls_back_when_the_second_material_write_fails() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.project_path(), "Grouped rollback").expect("create");
-    let access = project.attach("grouped-rollback-test".into()).expect("attach");
+    let access = project.documents().attach("grouped-rollback-test".into()).expect("attach");
     let (conversation_id, _) = start_chat_with(
         &project,
         &access,
@@ -537,7 +537,7 @@ fn grouped_adoption_rolls_back_when_the_second_material_write_fails() {
 fn changed_draft_invalidates_preview_without_partial_adoption() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.project_path(), "Changed draft").expect("create");
-    let access = project.attach("changed-draft-test".into()).expect("attach");
+    let access = project.documents().attach("changed-draft-test".into()).expect("attach");
     let (conversation_id, _) = start_chat(&project, &access);
     let draft = conversation(&project, &access).drafts.into_iter().next().expect("draft");
     let preview = prepare(
@@ -580,7 +580,7 @@ fn changed_draft_invalidates_preview_without_partial_adoption() {
         .expect_err("changed draft must invalidate preview");
     assert!(matches!(error.code.as_str(), "DraftChanged" | "ContextChanged"));
     assert!(project
-        .documents(access)
+        .documents().list(access)
         .expect("list ordinary documents")
         .iter()
         .all(|document| document.title != "River Gate"));
@@ -590,10 +590,10 @@ fn changed_draft_invalidates_preview_without_partial_adoption() {
 fn source_metadata_change_invalidates_target_preview() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.project_path(), "Metadata change").expect("create");
-    let access = project.attach("metadata-change-test".into()).expect("attach");
+    let access = project.documents().attach("metadata-change-test".into()).expect("attach");
     let source = create_source(&project, &access, "source", "Original Source");
     let checkpoint = project
-        .checkpoint(CheckpointRequest {
+        .documents().checkpoint(CheckpointRequest {
             access: access.clone(),
             expected: source.head.clone(),
             reason: CheckpointReason::Source,
@@ -643,7 +643,7 @@ fn source_metadata_change_invalidates_target_preview() {
     assert_eq!(error.code, "ContextChanged");
     assert_eq!(
         project
-            .documents(access)
+            .documents().list(access)
             .expect("list ordinary documents")
             .iter()
             .filter(|document| document.title == "Target One" || document.title == "Target Two")
@@ -656,7 +656,7 @@ fn source_metadata_change_invalidates_target_preview() {
 fn duplicate_draft_or_chapter_target_is_rejected_before_preview_write() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.project_path(), "Structural adoption").expect("create");
-    let access = project.attach("structural-adoption-test".into()).expect("attach");
+    let access = project.documents().attach("structural-adoption-test".into()).expect("attach");
     let (conversation_id, _) = start_chat_with(
         &project,
         &access,
@@ -699,10 +699,10 @@ fn duplicate_draft_or_chapter_target_is_rejected_before_preview_write() {
 fn duplicate_target_handles_are_rejected_before_preview_write() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.project_path(), "Duplicate target").expect("create");
-    let access = project.attach("duplicate-target-test".into()).expect("attach");
+    let access = project.documents().attach("duplicate-target-test".into()).expect("attach");
     let source = create_source(&project, &access, "target", "Target Source");
     let checkpoint = project
-        .checkpoint(CheckpointRequest {
+        .documents().checkpoint(CheckpointRequest {
             access: access.clone(),
             expected: source.head.clone(),
             reason: CheckpointReason::Source,

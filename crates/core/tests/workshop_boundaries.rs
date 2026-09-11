@@ -177,7 +177,7 @@ fn context_candidates(kind: &str, contents: &[&str]) -> String {
 fn corrected_brief_reaches_new_requests_without_rewriting_prose_or_historical_packets() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("interpretation".into()).unwrap();
+    let access = project.documents().attach("interpretation".into()).unwrap();
     let (mut state, _) = state_with_session("interpretation-session");
     state.sessions[0].anchor_document_id = Some("workshop-interpretation".into());
     state.sessions[0].brief = "First author brief".into();
@@ -212,7 +212,7 @@ fn corrected_brief_reaches_new_requests_without_rewriting_prose_or_historical_pa
 
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
-    let access = reopened.attach("interpretation-reopened".into()).unwrap();
+    let access = reopened.documents().attach("interpretation-reopened".into()).unwrap();
     let view = reopened.workshop().read(access.clone()).unwrap();
     assert_eq!(view.state.sessions[0].working_text, "Before. Editable passage. After.");
     assert_eq!(view.state.sessions[0].working_generation, "0");
@@ -243,14 +243,14 @@ fn corrected_brief_reaches_new_requests_without_rewriting_prose_or_historical_pa
 fn notes_organization_preserves_originals_and_parent_work_through_review_adoption_and_reopen() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("notes-organization".into()).unwrap();
+    let access = project.documents().attach("notes-organization".into()).unwrap();
     let original = "The archive accepts memories.\nMaybe it returns them?\nA line: ‘I remember the rain.’\nKeep the ending undecided.";
-    let source = project.create_document(CreateDocument {
+    let source = project.documents().create(CreateDocument {
         access: access.clone(), operation_id: "original-note".into(),
         document_id: "original-note".into(), title: "Raw archive notes".into(),
         kind: "note".into(), body: body("original", original),
     }).unwrap();
-    let manuscript = project.create_document(CreateDocument {
+    let manuscript = project.documents().create(CreateDocument {
         access: access.clone(), operation_id: "notes-unrelated-chapter".into(),
         document_id: "chapter-other".into(), title: "An unrelated chapter".into(),
         kind: "chapter".into(), body: body("chapter", "UNRELATED_MANUSCRIPT_PROSE"),
@@ -324,13 +324,13 @@ fn notes_organization_preserves_originals_and_parent_work_through_review_adoptio
     assert_eq!(ack.decision_ids.len(), 1);
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
-    let access = reopened.attach("notes-reopened".into()).unwrap();
+    let access = reopened.documents().attach("notes-reopened".into()).unwrap();
     let view = reopened.workshop().read(access.clone()).unwrap();
     assert_eq!(view.state.sessions[0], parent);
     assert_eq!(view.state.sessions[1].original_notes, original);
     assert_eq!(view.state.sessions[1].working_text, reviewed);
     for before in [source, manuscript] {
-        let after = reopened.document(access.clone(), before.head.document_id.clone()).unwrap();
+        let after = reopened.documents().read(access.clone(), before.head.document_id.clone()).unwrap();
         // Freezing a story snapshot may create an immutable checkpoint, but
         // organization/adoption must not change any author-owned source field.
         assert_eq!(after.head, before.head);
@@ -339,7 +339,7 @@ fn notes_organization_preserves_originals_and_parent_work_through_review_adoptio
         assert_eq!(after.kind, before.kind);
         assert_eq!(after.metadata_version, before.metadata_version);
     }
-    assert_eq!(reopened.document(access.clone(), "organized-notes".into()).unwrap().body, body("organized", &reviewed));
+    assert_eq!(reopened.documents().read(access.clone(), "organized-notes".into()).unwrap().body, body("organized", &reviewed));
     request.access = access;
     assert_eq!(reopened.workshop().start(request).unwrap().packet.messages.last().unwrap().content, final_message);
 }
@@ -348,9 +348,9 @@ fn notes_organization_preserves_originals_and_parent_work_through_review_adoptio
 fn one_candidate_moment_is_retained_as_invalid_raw_output() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("moment-cardinality".into()).unwrap();
+    let access = project.documents().attach("moment-cardinality".into()).unwrap();
     let anchor = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "moment-anchor".into(),
             document_id: "workshop-moment".into(),
@@ -401,9 +401,9 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
 {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("context-boundaries".into()).unwrap();
+    let access = project.documents().attach("context-boundaries".into()).unwrap();
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "unrelated-note".into(),
             document_id: "unrelated-note".into(),
@@ -413,7 +413,7 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
         })
         .unwrap();
     let anchor = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "context-anchor".into(),
             document_id: "workshop-context".into(),
@@ -564,7 +564,7 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
     let exact_packet = next.packet;
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
-    let access = reopened.attach("context-reopen".into()).unwrap();
+    let access = reopened.documents().attach("context-reopen".into()).unwrap();
     assert_eq!(
         reopened.prepared_context(access, packet_id).unwrap(),
         exact_packet
@@ -575,7 +575,7 @@ fn exploration_packet_excludes_rejected_archived_noncanon_and_chat_but_keeps_opt
 fn outside_direction_keeps_hard_exclusions_and_refuses_budget_without_truncating_author_context() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("outside-context".into()).unwrap();
+    let access = project.documents().attach("outside-context".into()).unwrap();
     let (mut state, _) = state_with_session("outside-session");
     let session = &mut state.sessions[0];
     session.anchor_document_id = Some("workshop-outside".into());
@@ -697,7 +697,7 @@ fn preview_request(
 fn fixed_literals_preserve_paragraph_and_hard_break_boundaries() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-boundary-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-boundary-renderer".into()).unwrap();
     let literal = "First line\nSecond line\n\nThird line";
     let (mut state, _) = state_with_session("session-one");
     state.sessions[0].working_text = literal.into();
@@ -758,9 +758,9 @@ fn fixed_literals_preserve_paragraph_and_hard_break_boundaries() {
 fn stale_existing_target_refuses_all_multi_target_adoption_before_writing() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-boundary-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-boundary-renderer".into()).unwrap();
     let character = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-character".into(),
             document_id: "existing-character".into(),
@@ -799,7 +799,7 @@ fn stale_existing_target_refuses_all_multi_target_adoption_before_writing() {
         .unwrap();
 
     let changed = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-character-before-adoption".into(),
             expected: character.head.clone(),
@@ -823,14 +823,14 @@ fn stale_existing_target_refuses_all_multi_target_adoption_before_writing() {
     assert_eq!(error.current_head, Some(changed.head.clone()));
     assert_eq!(
         project
-            .document(access.clone(), "existing-character".into())
+            .documents().read(access.clone(), "existing-character".into())
             .unwrap()
             .head,
         changed.head
     );
     assert_eq!(
         project
-            .document(access.clone(), "existing-character".into())
+            .documents().read(access.clone(), "existing-character".into())
             .unwrap()
             .body,
         body(
@@ -840,12 +840,12 @@ fn stale_existing_target_refuses_all_multi_target_adoption_before_writing() {
     );
     assert_eq!(
         project
-            .document(access.clone(), "new-world".into())
+            .documents().read(access.clone(), "new-world".into())
             .unwrap_err()
             .code,
         "DocumentNotFound"
     );
-    assert_eq!(project.documents(access.clone()).unwrap().len(), 1);
+    assert_eq!(project.documents().list(access.clone()).unwrap().len(), 1);
     assert_eq!(
         project.workshop().read(access.clone()).unwrap().version,
         saved.version
@@ -857,9 +857,9 @@ fn stale_existing_target_refuses_all_multi_target_adoption_before_writing() {
 fn successful_multi_target_adoption_records_exact_history_and_leaves_chapters_untouched() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-boundary-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-boundary-renderer".into()).unwrap();
     let chapter = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),
@@ -869,7 +869,7 @@ fn successful_multi_target_adoption_records_exact_history_and_leaves_chapters_un
         })
         .unwrap();
     let character = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-character".into(),
             document_id: "existing-character".into(),
@@ -880,10 +880,10 @@ fn successful_multi_target_adoption_records_exact_history_and_leaves_chapters_un
         .unwrap();
     let chapter_before = chapter;
     let chapter_history_before = project
-        .history(access.clone(), "chapter-one".into())
+        .documents().history(access.clone(), "chapter-one".into())
         .unwrap();
     let character_history_before = project
-        .history(access.clone(), "existing-character".into())
+        .documents().history(access.clone(), "existing-character".into())
         .unwrap();
     let (state, _) = state_with_session("session-one");
     let saved = save_state(&project, &access, "save-workshop", "0", state);
@@ -935,25 +935,25 @@ fn successful_multi_target_adoption_records_exact_history_and_leaves_chapters_un
         && decision.access == "authorRoom"));
 
     let character_history = project
-        .history(access.clone(), "existing-character".into())
+        .documents().history(access.clone(), "existing-character".into())
         .unwrap();
     assert_eq!(character_history.len(), character_history_before.len() + 2);
     assert_eq!(character_history[0].head, adopted.documents[1].head);
     assert_eq!(character_history[0].body, character_body);
     assert_eq!(character_history[1].head, character.head);
     assert_eq!(character_history[1].body, character.body);
-    let world_history = project.history(access.clone(), "new-world".into()).unwrap();
+    let world_history = project.documents().history(access.clone(), "new-world".into()).unwrap();
     assert_eq!(world_history.len(), 1);
     assert_eq!(world_history[0].head, adopted.documents[0].head);
     assert_eq!(world_history[0].body, adopted.documents[0].body);
 
     let chapter_after = project
-        .document(access.clone(), "chapter-one".into())
+        .documents().read(access.clone(), "chapter-one".into())
         .unwrap();
     assert_eq!(chapter_after.head, chapter_before.head);
     assert_eq!(chapter_after.body, chapter_before.body);
     let chapter_history_after = project
-        .history(access.clone(), "chapter-one".into())
+        .documents().history(access.clone(), "chapter-one".into())
         .unwrap();
     assert_eq!(chapter_history_after.len(), chapter_history_before.len());
     for (after, before) in chapter_history_after.iter().zip(&chapter_history_before) {
@@ -963,16 +963,16 @@ fn successful_multi_target_adoption_records_exact_history_and_leaves_chapters_un
         assert_eq!(after.reason, before.reason);
         assert_eq!(after.parent_id, before.parent_id);
     }
-    assert_eq!(project.documents(access).unwrap().len(), 3);
+    assert_eq!(project.documents().list(access).unwrap().len(), 3);
 }
 
 #[test]
 fn chosen_author_secret_stays_out_of_restricted_writing_context() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-boundary-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-boundary-renderer".into()).unwrap();
     let chapter = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),
@@ -1054,7 +1054,7 @@ fn chosen_author_secret_stays_out_of_restricted_writing_context() {
 fn hard_project_conflict_is_reported_and_neutral_local_preference_is_not_an_avoid() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-boundary-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-boundary-renderer".into()).unwrap();
     let (mut state, workshop_session) = state_with_session("session-one");
     state.preferences = vec![
         WorkshopPreference {
@@ -1177,7 +1177,7 @@ fn hard_project_conflict_is_reported_and_neutral_local_preference_is_not_an_avoi
 fn story_possibilities_save_reopen_and_project_only_open_nonempty_context() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("story-possibilities-renderer".into()).unwrap();
+    let access = project.documents().attach("story-possibilities-renderer".into()).unwrap();
     let (mut state, mut workshop_session) = state_with_session("story-possibilities-session");
     workshop_session.anchor_document_id = Some("workshop-story-possibilities".into());
     workshop_session.working_text = "A sealed door waits beneath the station.".into();
@@ -1215,7 +1215,7 @@ fn story_possibilities_save_reopen_and_project_only_open_nonempty_context() {
     assert_eq!(stored.state.sessions[0].story_possibilities[2].text, "");
 
     let chapter = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "story-possibilities-chapter".into(),
             document_id: "story-possibilities-chapter".into(),
@@ -1253,7 +1253,7 @@ fn story_possibilities_save_reopen_and_project_only_open_nonempty_context() {
         .contains("tentative author questions and future author intentions"));
     assert_eq!(
         project
-            .document(access.clone(), chapter.head.document_id.clone())
+            .documents().read(access.clone(), chapter.head.document_id.clone())
             .unwrap()
             .head,
         chapter.head
@@ -1261,7 +1261,7 @@ fn story_possibilities_save_reopen_and_project_only_open_nonempty_context() {
 
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
-    let reopened_access = reopened.attach("story-possibilities-reopened".into()).unwrap();
+    let reopened_access = reopened.documents().attach("story-possibilities-reopened".into()).unwrap();
     let reopened_state = reopened.workshop().read(reopened_access).unwrap().state;
     assert_eq!(reopened_state.sessions[0].story_possibilities, workshop_session.story_possibilities);
 }
@@ -1270,7 +1270,7 @@ fn story_possibilities_save_reopen_and_project_only_open_nonempty_context() {
 fn story_possibilities_reject_duplicate_ids_and_oversized_text_but_allow_clear_rows() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("story-possibilities-validation".into()).unwrap();
+    let access = project.documents().attach("story-possibilities-validation".into()).unwrap();
     let (mut state, _) = state_with_session("story-possibilities-validation-session");
     let base = StoryPossibility {
         id: "duplicate".into(),
@@ -1326,7 +1326,7 @@ fn story_possibilities_reject_duplicate_ids_and_oversized_text_but_allow_clear_r
 fn workshop_history_rejects_snapshot_when_save_receipt_result_drifts() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-history-receipt".into()).unwrap();
+    let access = project.documents().attach("workshop-history-receipt".into()).unwrap();
     let (state, _) = state_with_session("history-receipt-session");
     let saved = save_state(&project, &access, "history-receipt-save", "0", state);
 
@@ -1362,7 +1362,7 @@ fn workshop_history_rejects_snapshot_when_save_receipt_result_drifts() {
 
     let reopened = ProjectSession::open(&temp.0).expect("reopen tampered project");
     let reopened_access = reopened
-        .attach("workshop-history-receipt-reopen".into())
+        .documents().attach("workshop-history-receipt-reopen".into())
         .unwrap();
     let error = reopened
         .workshop().history(reopened_access)

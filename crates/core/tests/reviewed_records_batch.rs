@@ -90,7 +90,7 @@ fn chapter(
     text: &str,
 ) -> DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: format!("create-{id}"),
             document_id: id.into(),
@@ -157,7 +157,7 @@ fn working_freeze_batches_current_sets_and_omits_unreviewed_gap() {
     let (temp, project, access) = {
         let temp = TempProject::new();
         let project = ProjectSession::create(temp.child("story"), "Batch review").unwrap();
-        let access = project.attach("batch-test".into()).unwrap();
+        let access = project.documents().attach("batch-test".into()).unwrap();
         (temp, project, access)
     };
     let first = chapter(&project, &access, "chapter-1", "First evidence.");
@@ -185,7 +185,7 @@ fn working_freeze_drops_current_records_when_earlier_prose_is_stale() {
     let (temp, project, access) = {
         let temp = TempProject::new();
         let project = ProjectSession::create(temp.child("story"), "Batch stale").unwrap();
-        let access = project.attach("batch-stale".into()).unwrap();
+        let access = project.documents().attach("batch-stale".into()).unwrap();
         (temp, project, access)
     };
     let first = chapter(&project, &access, "chapter-1", "First evidence.");
@@ -193,7 +193,7 @@ fn working_freeze_drops_current_records_when_earlier_prose_is_stale() {
     mark_ready(&project, &access, &first, "first", "First evidence.");
     mark_ready(&project, &access, &target, "second", "Second evidence.");
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-first".into(),
             expected: first.head.clone(),
@@ -203,7 +203,7 @@ fn working_freeze_drops_current_records_when_earlier_prose_is_stale() {
         })
         .unwrap();
     let current_target = project
-        .document(access.clone(), target.head.document_id.clone())
+        .documents().read(access.clone(), target.head.document_id.clone())
         .unwrap();
     let frozen = freeze(&project, &access, &current_target, "freeze-stale").unwrap();
     assert!(frozen.reviewed_evidence.is_empty());
@@ -216,7 +216,7 @@ fn working_freeze_propagates_malformed_selected_bundle_history() {
     let (temp, project, access) = {
         let temp = TempProject::new();
         let project = ProjectSession::create(temp.child("story"), "Batch malformed").unwrap();
-        let access = project.attach("batch-malformed".into()).unwrap();
+        let access = project.documents().attach("batch-malformed".into()).unwrap();
         (temp, project, access)
     };
     let first = chapter(&project, &access, "chapter-1", "First evidence.");
@@ -245,7 +245,7 @@ fn working_freeze_respects_same_position_document_id_order() {
     let (temp, project, access) = {
         let temp = TempProject::new();
         let project = ProjectSession::create(temp.child("story"), "Batch order").unwrap();
-        let access = project.attach("batch-order".into()).unwrap();
+        let access = project.documents().attach("batch-order".into()).unwrap();
         (temp, project, access)
     };
     let later_id = chapter(&project, &access, "z", "Z evidence.");
@@ -262,9 +262,9 @@ fn working_freeze_respects_same_position_document_id_order() {
     drop(connection);
 
     let reopened = ProjectSession::open(temp.child("story")).unwrap();
-    let reopened_access = reopened.attach("batch-order-reopened".into()).unwrap();
+    let reopened_access = reopened.documents().attach("batch-order-reopened".into()).unwrap();
     let target = reopened
-        .document(reopened_access.clone(), "z".into())
+        .documents().read(reopened_access.clone(), "z".into())
         .unwrap();
     let frozen = freeze(&reopened, &reopened_access, &target, "freeze-tied").unwrap();
     assert!(frozen.reviewed_evidence.is_empty());

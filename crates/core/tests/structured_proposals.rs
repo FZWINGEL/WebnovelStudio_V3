@@ -36,9 +36,9 @@ impl Fixture {
         let root = std::env::temp_dir().join(format!("wns-structured-{}", Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let project = ProjectSession::create(root.join("project"), "Structured proposals").unwrap();
-        let access = project.attach("renderer".into()).unwrap();
+        let access = project.documents().attach("renderer".into()).unwrap();
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -552,7 +552,7 @@ fn nonchapter_develop_uses_author_room_whole_document_scope_and_retains_candidat
     let fixture = Fixture::new();
     let note = fixture
         .project()
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: fixture.access.clone(),
             operation_id: "create-world-note".into(),
             document_id: "world-note".into(),
@@ -660,7 +660,7 @@ fn nonchapter_passage_develop_is_rejected_before_context_compilation() {
     let fixture = Fixture::new();
     let note = fixture
         .project()
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: fixture.access.clone(),
             operation_id: "create-world-passage".into(),
             document_id: "world-passage".into(),
@@ -810,7 +810,7 @@ fn schema22_rebuild_preserves_legacy_candidate_payload_receipt_and_decision() {
     legacy_schema21_proposal_tables(&connection);
     drop(connection);
     let reopened = ProjectSession::open(&path).unwrap();
-    let access = reopened.attach("migration-reader".into()).unwrap();
+    let access = reopened.documents().attach("migration-reader".into()).unwrap();
     let restored = reopened.proposals(access, "chapter".into()).unwrap();
     let restored_passage = restored
         .into_iter()

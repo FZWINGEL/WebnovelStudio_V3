@@ -59,10 +59,10 @@ fn setup(
 ) {
     let project = ProjectSession::create(path, "Lookup backup integrity").expect("create project");
     let access = project
-        .attach("lookup-integrity-session".into())
+        .documents().attach("lookup-integrity-session".into())
         .expect("attach");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),

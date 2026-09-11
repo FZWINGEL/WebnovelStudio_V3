@@ -384,10 +384,10 @@ fn staged_import_replays_by_operation_and_recovery_keeps_inert_evidence() {
     // must not acquire a second project writer or reopen the V2 source.
     let imported_session = ProjectSession::open(&imported_path).expect("open imported project");
     let imported_access = imported_session
-        .attach("import-replay-session".into())
+        .documents().attach("import-replay-session".into())
         .expect("attach imported project");
     let imported_document = imported_session
-        .document(
+        .documents().read(
             imported_access.clone(),
             result.chapter_document_ids["a-null"].clone(),
         )

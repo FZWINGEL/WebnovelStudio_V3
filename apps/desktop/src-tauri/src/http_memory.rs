@@ -438,8 +438,8 @@ mod tests {
             std::fs::create_dir(&root).unwrap();
             let project =
                 ProjectSession::create(root.join("project"), "API memory fixture").unwrap();
-            let access = project.attach("fixture-session".into()).unwrap();
-            let chapter = project.create_document(CreateDocument {
+            let access = project.documents().attach("fixture-session".into()).unwrap();
+            let chapter = project.documents().create(CreateDocument {
                 access: access.clone(), operation_id: "create-chapter".into(), document_id: "chapter".into(),
                 title: "A promise".into(), kind: "chapter".into(),
                 body: serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"Mei promised to return the silver key."}]}]}}),
@@ -634,7 +634,7 @@ mod tests {
         assert_eq!(
             fixture
                 .project
-                .document(fixture.access.clone(), "chapter".into())
+                .documents().read(fixture.access.clone(), "chapter".into())
                 .unwrap()
                 .head,
             fixture.request.expected

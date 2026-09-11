@@ -33,9 +33,9 @@ impl TempProject {
 
     fn create(&self) -> (ProjectSession, ProjectAccess, DocumentRecord) {
         let project = ProjectSession::create(&self.path, "Memory storage test").unwrap();
-        let access = project.attach("memory-renderer".into()).unwrap();
+        let access = project.documents().attach("memory-renderer".into()).unwrap();
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create-chapter".into(),
                 document_id: "chapter-one".into(),
@@ -152,12 +152,12 @@ fn app_server_memory_preserves_astra_binding_and_single_use_delivery_across_reop
     complete.app_server = Some(receipt.clone());
     assert_eq!(project.complete_memory(complete.clone()).unwrap().job.status, MemoryJobStatus::Completed);
     assert_eq!(project.complete_memory(complete).unwrap().result.app_server, Some(receipt.clone()));
-    assert_eq!(project.document(access.clone(), document.head.document_id.clone()).unwrap().body, document.body);
+    assert_eq!(project.documents().read(access.clone(), document.head.document_id.clone()).unwrap().body, document.body);
     let backup = temp.path.with_extension("wnsbackup");
     create_backup(&project, &backup).unwrap();
     let recovered_temp = TempProject::new("app-server-memory-recovered");
     let recovered = webnovel_core::transfer::recover_backup(&backup, &recovered_temp.path, "Recovered").unwrap();
-    let recovered_access = recovered.attach("recovered-app-server-memory".into()).unwrap();
+    let recovered_access = recovered.documents().attach("recovered-app-server-memory".into()).unwrap();
     let recovered_jobs = recovered.read_memory(recovered_access, document.head.document_id.clone()).unwrap();
     assert!(recovered_jobs.jobs[0].historical);
     assert_eq!(recovered_jobs.jobs[0].result.as_ref().unwrap().app_server, Some(receipt.clone()));
@@ -165,7 +165,7 @@ fn app_server_memory_preserves_astra_binding_and_single_use_delivery_across_reop
     fs::remove_file(backup).unwrap();
     drop(project);
     let reopened = ProjectSession::open(&temp.path).unwrap();
-    let access = reopened.attach("memory-reopened".into()).unwrap();
+    let access = reopened.documents().attach("memory-reopened".into()).unwrap();
     let read = reopened.read_memory(access, document.head.document_id).unwrap();
     assert_eq!(read.jobs[0].result.as_ref().unwrap().app_server, Some(receipt));
     assert_eq!(read.jobs[0].provider_binding, Some(binding));
@@ -216,7 +216,7 @@ fn author_selected_codex_binding_cannot_change_the_memory_model() {
     );
     assert_eq!(
         project
-            .document(access, document.head.document_id.clone())
+            .documents().read(access, document.head.document_id.clone())
             .unwrap()
             .body,
         document.body
@@ -260,7 +260,7 @@ fn http_memory_completion_retains_exact_delivery_and_reopens_without_codex_field
 
     drop(project);
     let reopened = ProjectSession::open(&temp.path).unwrap();
-    let access = reopened.attach("http-memory-reopen".into()).unwrap();
+    let access = reopened.documents().attach("http-memory-reopen".into()).unwrap();
     let read = reopened
         .read_memory(access, document.head.document_id)
         .unwrap();
@@ -417,7 +417,7 @@ fn start_replay_ignores_lease_rotation_and_begin_is_idempotent_without_redispatc
     let (project, access, document) = temp.create();
     let request = start_request(&access, &document, "memory-one");
     let first = project.start_memory(request.clone()).unwrap();
-    let replacement = project.attach("memory-renderer-two".into()).unwrap();
+    let replacement = project.documents().attach("memory-renderer-two".into()).unwrap();
     let mut replay = request;
     replay.access = replacement.clone();
     assert_eq!(project.start_memory(replay).unwrap().id, first.id);
@@ -445,7 +445,7 @@ fn stale_before_begin_is_refused_but_late_completion_is_retained_as_historical()
         .start_memory(start_request(&access, &document, "memory-before-stale"))
         .unwrap();
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "save-after-memory-start".into(),
             expected: document.head.clone(),
@@ -460,14 +460,14 @@ fn stale_before_begin_is_refused_but_late_completion_is_retained_as_historical()
     );
 
     let current = project
-        .document(access.clone(), "chapter-one".into())
+        .documents().read(access.clone(), "chapter-one".into())
         .unwrap();
     let second = project
         .start_memory(start_request(&access, &current, "memory-during-stale"))
         .unwrap();
     let dispatch = project.begin_memory(second.owner.clone()).unwrap();
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "save-during-memory".into(),
             expected: current.head,
@@ -511,7 +511,7 @@ fn unrelated_source_epoch_keeps_exact_memory_view_current_without_rewriting_hist
         .unwrap();
     let dispatch = project.begin_memory(job.owner.clone()).unwrap();
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-unrelated-chapter".into(),
             document_id: "unrelated-chapter".into(),
@@ -553,9 +553,9 @@ fn unrelated_source_epoch_keeps_exact_memory_view_current_without_rewriting_hist
 
     mem::drop(project);
     let reopened = ProjectSession::open(&temp.path).unwrap();
-    let reopened_access = reopened.attach("memory-unrelated-reopen".into()).unwrap();
+    let reopened_access = reopened.documents().attach("memory-unrelated-reopen".into()).unwrap();
     let unrelated = reopened
-        .document(reopened_access.clone(), "unrelated-chapter".into())
+        .documents().read(reopened_access.clone(), "unrelated-chapter".into())
         .unwrap();
     let epochs = reopened.context_epochs(reopened_access.clone()).unwrap();
     let frozen = reopened
@@ -625,7 +625,7 @@ fn stop_before_dispatch_and_recovery_prevent_dispatch_or_install() {
     let dispatch = project.begin_memory(running.owner.clone()).unwrap();
     mem::drop(project);
     let reopened = ProjectSession::open(&temp.path).unwrap();
-    let access = reopened.attach("memory-reopened".into()).unwrap();
+    let access = reopened.documents().attach("memory-reopened".into()).unwrap();
     let read = reopened.read_memory(access, "chapter-one".into()).unwrap();
     let recovered = read
         .jobs
@@ -762,7 +762,7 @@ fn reopened_dispatched_claim_can_settle_historical_result_without_installation()
     let (project, _access, document) = temp.create();
     let queued = project
         .start_memory({
-            let access = project.attach("reopen-settle-renderer".into()).unwrap();
+            let access = project.documents().attach("reopen-settle-renderer".into()).unwrap();
             start_request(&access, &document, "memory-reopen-settle")
         })
         .unwrap();
@@ -771,7 +771,7 @@ fn reopened_dispatched_claim_can_settle_historical_result_without_installation()
     mem::drop(project);
 
     let reopened = ProjectSession::open(&temp.path).unwrap();
-    let access = reopened.attach("reopen-settle-after-open".into()).unwrap();
+    let access = reopened.documents().attach("reopen-settle-after-open".into()).unwrap();
     let completion = reopened
         .complete_memory(CompleteMemory {
             app_server: None,
@@ -1023,7 +1023,7 @@ fn recovered_memory_keeps_original_evidence_without_operation_authority() {
         webnovel_core::transfer::recover_backup(&backup, &recovered_temp.path, "Recovered memory")
             .unwrap();
     let recovered_access = recovered
-        .attach("recovered-memory-renderer".into())
+        .documents().attach("recovered-memory-renderer".into())
         .unwrap();
     let read = recovered
         .read_memory(recovered_access.clone(), document.head.document_id)

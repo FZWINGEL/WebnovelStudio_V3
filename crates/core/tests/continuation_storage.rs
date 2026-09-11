@@ -37,9 +37,9 @@ impl Fixture {
         let root = std::env::temp_dir().join(format!("wns-continuation-{}", Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let project = ProjectSession::create(root.join("project"), "Continuation tests").unwrap();
-        let access = project.attach("renderer".into()).unwrap();
+        let access = project.documents().attach("renderer".into()).unwrap();
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -172,7 +172,7 @@ impl Fixture {
 
     fn current(&self) -> webnovel_core::projects::DocumentRecord {
         self.project()
-            .document(self.access.clone(), "chapter".into())
+            .documents().read(self.access.clone(), "chapter".into())
             .unwrap()
     }
 }
@@ -270,7 +270,7 @@ fn reviewed_chapter(
     operation: &str,
 ) -> webnovel_core::projects::DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: operation.into(),
             document_id: id.into(),
@@ -345,7 +345,7 @@ fn continuation_candidate_and_prepared_paragraphs_survive_restart_and_backup() {
     create_backup(fixture.project(), &archive).unwrap();
     drop(fixture.project.take());
     fixture.project = Some(ProjectSession::open(fixture.root.join("project")).unwrap());
-    fixture.access = fixture.project().attach("restarted".into()).unwrap();
+    fixture.access = fixture.project().documents().attach("restarted".into()).unwrap();
     let reopened = fixture
         .project()
         .proposals(fixture.access.clone(), "chapter".into())
@@ -355,7 +355,7 @@ fn continuation_candidate_and_prepared_paragraphs_survive_restart_and_backup() {
 
     let recovered_path = fixture.root.join("recovered");
     let recovered = recover_backup(&archive, &recovered_path, "Recovered continuation").unwrap();
-    let recovered_access = recovered.attach("recovered".into()).unwrap();
+    let recovered_access = recovered.documents().attach("recovered".into()).unwrap();
     let copied = recovered
         .proposals(recovered_access.clone(), "chapter".into())
         .unwrap();
@@ -457,7 +457,7 @@ fn continuation_becomes_stale_after_typing_without_erasing_the_prepared_history(
         .unwrap();
     let changed = fixture
         .project()
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: fixture.access.clone(),
             operation_id: "manual-edit".into(),
             expected: fixture.document.head.clone(),
@@ -499,7 +499,7 @@ fn reviewed_continuation_requires_a_real_reviewed_prefix_and_never_falls_back_to
     let root = std::env::temp_dir().join(format!("wns-reviewed-continuation-{}", Uuid::new_v4()));
     fs::create_dir(&root).unwrap();
     let project = ProjectSession::create(root.join("project"), "Reviewed continuation").unwrap();
-    let access = project.attach("reviewed".into()).unwrap();
+    let access = project.documents().attach("reviewed".into()).unwrap();
     let earlier = reviewed_chapter(&project, &access, "earlier", "create-earlier");
     let target = reviewed_chapter(&project, &access, "target", "create-target");
     mark_ready(&project, &access, &earlier.head, "earlier");
@@ -525,7 +525,7 @@ fn reviewed_continuation_requires_a_real_reviewed_prefix_and_never_falls_back_to
 
     let missing_root = root.join("missing");
     let missing = ProjectSession::create(&missing_root, "Missing reviewed prefix").unwrap();
-    let missing_access = missing.attach("missing".into()).unwrap();
+    let missing_access = missing.documents().attach("missing".into()).unwrap();
     let missing_target = reviewed_chapter(&missing, &missing_access, "target", "create-target");
     let error = missing
         .start_discussion(StartDiscussion {
@@ -678,7 +678,7 @@ fn unrelated_late_source_creation_invalidates_continuation_apply() {
         .unwrap();
     fixture
         .project()
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: fixture.access.clone(),
             operation_id: "create-unrelated-note".into(),
             document_id: "unrelated-note".into(),
@@ -805,7 +805,7 @@ fn schema18_archive_with_legacy_passage_chain_migrates_before_reader_validation(
     let recovered_path = fixture.root.join("schema18-recovered");
     let recovered =
         recover_backup(&schema18_archive, &recovered_path, "Recovered schema18").unwrap();
-    let access = recovered.attach("schema18-reader".into()).unwrap();
+    let access = recovered.documents().attach("schema18-reader".into()).unwrap();
     let proposals = recovered.proposals(access, "chapter".into()).unwrap();
     assert_eq!(proposals.len(), 1);
     assert_eq!(proposals[0].kind, ProposalKind::Passage);

@@ -1269,8 +1269,8 @@ mod tests {
                 .as_nanos()
         ));
         let project = ProjectSession::create(path, "Worker test").unwrap();
-        let access = project.attach("test-session".into()).unwrap();
-        let document = project.create_document(CreateDocument {
+        let access = project.documents().attach("test-session".into()).unwrap();
+        let document = project.documents().create(CreateDocument {
             access: access.clone(), operation_id: "create".into(), document_id: "chapter".into(),
             title: "Chapter".into(), kind: "chapter".into(),
             body: serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"The ending stays."}]}]}}),
@@ -1309,7 +1309,7 @@ mod tests {
                 .as_nanos()
         ));
         let project = ProjectSession::create(path, "Worker structured test").unwrap();
-        let access = project.attach("test-session".into()).unwrap();
+        let access = project.documents().attach("test-session".into()).unwrap();
         let body = serde_json::json!({
             "schemaVersion": 1,
             "body": {"type":"doc","content":[
@@ -1318,7 +1318,7 @@ mod tests {
             ]}
         });
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -1394,7 +1394,7 @@ mod tests {
         assert_eq!(candidates[0].kind, ProposalKind::Continuation);
         assert!(candidates[0].prepared.is_none());
         assert!(candidates[0].decision.is_none());
-        let document = project.document(access, "chapter".into()).unwrap();
+        let document = project.documents().read(access, "chapter".into()).unwrap();
         assert_eq!(document.head, started.run.target);
         assert_eq!(
             document.body["body"]["content"][0]["content"][0]["text"],
@@ -1452,9 +1452,9 @@ mod tests {
                     .as_nanos()
             ));
             let project = ProjectSession::create(path, "Workshop worker test").unwrap();
-            let access = project.attach("test-session".into()).unwrap();
+            let access = project.documents().attach("test-session".into()).unwrap();
             let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create-anchor".into(),
                 document_id: "workshop-anchor".into(),
@@ -1536,7 +1536,7 @@ mod tests {
                     .contains("Keep this fixed detail")
             );
             let document = project
-                .document(access.clone(), "workshop-anchor".into())
+                .documents().read(access.clone(), "workshop-anchor".into())
                 .unwrap();
             assert_eq!(
                 document.body["body"]["content"][0]["content"][0]["text"],
@@ -1560,10 +1560,10 @@ mod tests {
                 .as_nanos()
         ));
         let project = ProjectSession::create(path, "Voice guidance worker test").unwrap();
-        let access = project.attach("test-session".into()).unwrap();
+        let access = project.documents().attach("test-session".into()).unwrap();
         let source_text = "Rain ticked against the workshop glass while she counted each drop.";
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create-voice-anchor".into(),
                 document_id: "workshop-voice-anchor".into(),
@@ -1655,7 +1655,7 @@ mod tests {
         );
         assert_eq!(
             project
-                .document(access, "workshop-voice-anchor".into())
+                .documents().read(access, "workshop-voice-anchor".into())
                 .unwrap()
                 .body["body"]["content"][0]["content"][0]["text"],
             source_text
@@ -1955,7 +1955,7 @@ mod tests {
             }
         });
         assert_eq!(issue_count(&recovery, &project, &access), 1);
-        let fresh = project.attach("next-renderer".into()).unwrap();
+        let fresh = project.documents().attach("next-renderer".into()).unwrap();
         assert!(
             recovery
                 .retry(&project, access, "chapter".into(), run_id.clone())
@@ -2122,7 +2122,7 @@ mod tests {
         assert_eq!(view.runs[0].status, DiscussionRunStatus::Stopped);
         assert_eq!(view.runs[0].output_text, expected);
         assert_eq!(view.messages.len(), 2);
-        let document = project.document(access, "chapter".into()).unwrap();
+        let document = project.documents().read(access, "chapter".into()).unwrap();
         assert_eq!(document.head.version, "0");
         assert_eq!(
             document.body["body"]["content"][0]["content"][0]["text"],

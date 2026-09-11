@@ -68,10 +68,10 @@ fn setup_project(
 ) {
     let project = ProjectSession::create(root, "Discussion test").expect("create project");
     let access = project
-        .attach("discussion-session".into())
+        .documents().attach("discussion-session".into())
         .expect("attach project");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-document".into(),
             document_id: "chapter-one".into(),
@@ -130,13 +130,13 @@ fn app_server_delivery_claim_is_single_use_and_reopens_without_exec_byte_evidenc
     assert_eq!(settled.provider_result.app_server, Some(receipt.clone()));
     create_backup(&project, &temp.child("app-server.wnsbackup")).unwrap();
     let recovered = recover_backup(&temp.child("app-server.wnsbackup"), &temp.child("copy"), "Recovered app-server history").unwrap();
-    let recovered_access = recovered.attach("recovered-app-server".into()).unwrap();
+    let recovered_access = recovered.documents().attach("recovered-app-server".into()).unwrap();
     let copied = recovered.read_discussion(recovered_access, document.head.document_id.clone()).unwrap();
     assert_eq!(copied.runs.last().unwrap().provider_result.as_ref().unwrap().app_server, Some(receipt.clone()));
     assert_eq!(recovered.begin_discussion_run(DiscussionBegin { owner: started.run.owner.clone() }).unwrap_err().code, "DiscussionProjectMismatch");
     drop(project);
     let reopened = ProjectSession::open(&path).unwrap();
-    let access = reopened.attach("app-server-reopened".into()).unwrap();
+    let access = reopened.documents().attach("app-server-reopened".into()).unwrap();
     let view = reopened.read_discussion(access, document.head.document_id).unwrap();
     let result = view.runs.last().unwrap().provider_result.as_ref().unwrap();
     assert_eq!(result.binding, binding);
@@ -174,7 +174,7 @@ fn app_server_refuses_new_story_evidence_between_thread_creation_and_turn_submis
     let dispatch = project.begin_discussion_run(DiscussionBegin { owner: started.run.owner.clone() }).unwrap();
     let packet = serialized_input(&dispatch.packet.messages, &dispatch.packet.options).unwrap();
     let identity = webnovel_core::providers::codex_app_server::prepare_dispatch("server".into(), "thread".into(), "rpc".into(), &binding, &packet).unwrap();
-    project.create_document(CreateDocument {
+    project.documents().create(CreateDocument {
         access, operation_id: "new-evidence".into(), document_id: "new-source".into(),
         title: "A newly revealed transfer".into(), kind: "note".into(), body: body("The pendant now belongs to someone else."),
     }).unwrap();
@@ -428,14 +428,14 @@ fn recent_complete_turns_are_exact_capped_and_frozen_across_retry_and_restart() 
     assert_eq!(project.context().source_epoch().unwrap(), source_epoch);
     assert_eq!(
         project
-            .document(access, document.head.document_id.clone())
+            .documents().read(access, document.head.document_id.clone())
             .unwrap()
             .body,
         document.body
     );
     drop(project);
     let reopened = ProjectSession::open(path).unwrap();
-    let access = reopened.attach("reopened-discussion".into()).unwrap();
+    let access = reopened.documents().attach("reopened-discussion".into()).unwrap();
     assert_eq!(
         reopened
             .prepared_context(access, result.packet.receipt.packet_id.clone())
@@ -456,7 +456,7 @@ fn conversation_is_excluded_across_documents_policy_and_recovery() {
         "A private earlier discussion.",
     );
     let second = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "other-doc".into(),
             document_id: "other-doc".into(),
@@ -489,9 +489,9 @@ fn conversation_is_excluded_across_documents_policy_and_recovery() {
     let archive = temp.child("history.wnsbackup");
     create_backup(&project, &archive).unwrap();
     let copy = recover_backup(&archive, &temp.child("copy"), "Recovered history").unwrap();
-    let access = copy.attach("copy-session".into()).unwrap();
+    let access = copy.documents().attach("copy-session".into()).unwrap();
     let doc = copy
-        .document(access.clone(), document.head.document_id)
+        .documents().read(access.clone(), document.head.document_id)
         .unwrap();
     assert!(
         start(&copy, &access, &doc, "copy-request")
@@ -755,7 +755,7 @@ fn guidance_versions_remain_exact_after_edits_and_restart_while_old_requests_bec
     );
     drop(project);
     let reopened = ProjectSession::open(&path).unwrap();
-    let fresh = reopened.attach("guidance-reopen".into()).unwrap();
+    let fresh = reopened.documents().attach("guidance-reopen".into()).unwrap();
     assert_eq!(
         reopened
             .guidance(fresh.clone(), "chapter-one".into())
@@ -841,7 +841,7 @@ fn next_request_guidance_is_consumed_once_only_after_a_successful_atomic_start()
     let next = start(&project, &access, &document, "guidance-second");
     assert!(next.packet.receipt.guidance_handles.is_empty());
     assert_eq!(
-        project.document(access, "chapter-one".into()).unwrap().body,
+        project.documents().read(access, "chapter-one".into()).unwrap().body,
         document.body
     );
 }
@@ -854,7 +854,7 @@ fn guidance_scope_is_local_and_author_room_instructions_do_not_enter_restricted_
     let temp = TempDir::new("guidance-policy");
     let (project, access, document) = setup_project(&temp.child("project"));
     let other = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-other-chapter".into(),
             document_id: "chapter-two".into(),
@@ -922,7 +922,7 @@ fn recovered_copy_keeps_author_guidance_but_cannot_reuse_original_packet_authori
     let backup = temp.child("guidance.wnsbackup");
     create_backup(&source, &backup).unwrap();
     let copy = recover_backup(&backup, &temp.child("copy"), "Recovered guidance").unwrap();
-    let copy_access = copy.attach("copy-guidance".into()).unwrap();
+    let copy_access = copy.documents().attach("copy-guidance".into()).unwrap();
     assert_eq!(
         copy.guidance(copy_access.clone(), "chapter-one".into())
             .unwrap()
@@ -936,7 +936,7 @@ fn recovered_copy_keeps_author_guidance_but_cannot_reuse_original_packet_authori
         "ContextProjectMismatch"
     );
     let copy_document = copy
-        .document(copy_access.clone(), "chapter-one".into())
+        .documents().read(copy_access.clone(), "chapter-one".into())
         .unwrap();
     let copied = start(&copy, &copy_access, &copy_document, "copy-guidance-run");
     let frozen = copy
@@ -1078,7 +1078,7 @@ fn exact_scope_quote_hash_and_target_head_are_required() {
     assert_eq!(error.code, "InvalidScope");
 
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "scope-target-change".into(),
             expected: document.head.clone(),
@@ -1282,7 +1282,7 @@ fn stop_linearizes_late_output_and_terminal_delivery() {
     drop(project);
     let reopened = ProjectSession::open(temp.child("project")).expect("reopen stopped project");
     let reopened_access = reopened
-        .attach("stop-reopened".into())
+        .documents().attach("stop-reopened".into())
         .expect("attach stopped project");
     let reopened_view = discussion(&reopened, &reopened_access);
     assert_eq!(reopened_view.messages.len(), 2);
@@ -1301,7 +1301,7 @@ fn stop_linearizes_late_output_and_terminal_delivery() {
     assert_eq!(repeated.run.status, DiscussionRunStatus::Stopped);
     assert_eq!(repeated.run.sequence, "2");
     assert_eq!(
-        discussion(&reopened, &reopened.attach("stop-read".into()).unwrap())
+        discussion(&reopened, &reopened.documents().attach("stop-read".into()).unwrap())
             .messages
             .len(),
         2
@@ -1563,7 +1563,7 @@ fn stopping_run_becomes_interrupted_on_reopen() {
     create_backup(&project, &archive).expect("backup stopping project");
     let recovered = recover_backup(&archive, &temp.child("stopping-copy"), "Copy")
         .expect("recover stopping project");
-    let recovered_access = recovered.attach("stopping-copy-session".into()).unwrap();
+    let recovered_access = recovered.documents().attach("stopping-copy-session".into()).unwrap();
     let error = recovered
         .settle_discussion_stop(DiscussionStopSettled {
             owner: owner.clone(),
@@ -1578,7 +1578,7 @@ fn stopping_run_becomes_interrupted_on_reopen() {
     drop(recovered);
     drop(project);
     let reopened = ProjectSession::open(&path).expect("reopen stopping project");
-    let reopened_access = reopened.attach("stopping-recovery-session".into()).unwrap();
+    let reopened_access = reopened.documents().attach("stopping-recovery-session".into()).unwrap();
     let view = discussion(&reopened, &reopened_access);
     assert_eq!(view.runs[0].status, DiscussionRunStatus::Interrupted);
     assert_eq!(view.runs[0].output_text, "prefix");
@@ -1593,7 +1593,7 @@ fn source_or_policy_change_between_queue_and_begin_fails_closed() {
         let started = start(&project, &access, &document, &format!("queued-{label}"));
         if change == "source" {
             project
-                .save(SaveSnapshot {
+                .documents().save(SaveSnapshot {
                     access: access.clone(),
                     operation_id: "queued-source-change".into(),
                     expected: document.head.clone(),
@@ -1689,7 +1689,7 @@ fn restart_marks_active_runs_interrupted_without_replaying_them() {
 
     let reopened = ProjectSession::open(&path).expect("reopen project");
     let reopened_access = reopened
-        .attach("restart-session".into())
+        .documents().attach("restart-session".into())
         .expect("attach reopened");
     let view = discussion(&reopened, &reopened_access);
     assert_eq!(view.runs.len(), 1);
@@ -1700,7 +1700,7 @@ fn restart_marks_active_runs_interrupted_without_replaying_them() {
         .start_discussion(start_request(
             &reopened_access,
             &reopened
-                .document(reopened_access.clone(), "chapter-one".into())
+                .documents().read(reopened_access.clone(), "chapter-one".into())
                 .unwrap(),
             "restart-run",
             "What should the next beat emphasize?",
@@ -1724,7 +1724,7 @@ fn recovered_and_separate_projects_cannot_control_each_others_jobs() {
     let recovered = recover_backup(&archive, &recovered_path, "Recovered discussion")
         .expect("recover discussion copy");
     let recovered_access = recovered
-        .attach("recovered-session".into())
+        .documents().attach("recovered-session".into())
         .expect("attach copy");
     let recovered_view = discussion(&recovered, &recovered_access);
     assert_eq!(recovered_view.runs.len(), 1);
@@ -1742,7 +1742,7 @@ fn recovered_and_separate_projects_cannot_control_each_others_jobs() {
         "RunSealed" | "DiscussionProjectMismatch"
     ));
     let recovered_document = recovered
-        .document(recovered_access.clone(), "chapter-one".into())
+        .documents().read(recovered_access.clone(), "chapter-one".into())
         .expect("read recovered chapter");
     let new_start = start(
         &recovered,
@@ -1817,7 +1817,7 @@ fn composer_draft_is_idempotent_cas_safe_and_retained_when_target_becomes_stale(
     assert_eq!(error.code, "DraftVersionConflict");
 
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "draft-target-change".into(),
             expected: document.head.clone(),
@@ -1962,7 +1962,7 @@ fn linked_retries_keep_exact_guidance_without_consuming_the_next_new_requests_in
     );
     drop(project);
     let project = ProjectSession::open(&path).unwrap();
-    let access = project.attach("reopened".into()).unwrap();
+    let access = project.documents().attach("reopened".into()).unwrap();
     let chained = project
         .start_discussion(retry_request(
             &project,
@@ -1990,7 +1990,7 @@ fn linked_retries_keep_exact_guidance_without_consuming_the_next_new_requests_in
     );
     assert_eq!(
         project
-            .document(access.clone(), "chapter-one".into())
+            .documents().read(access.clone(), "chapter-one".into())
             .unwrap()
             .body,
         document.body
@@ -1998,7 +1998,7 @@ fn linked_retries_keep_exact_guidance_without_consuming_the_next_new_requests_in
     let archive = temp.child("backup.wnsbackup");
     create_backup(&project, &archive).unwrap();
     let recovered = recover_backup(&archive, &temp.child("recovered"), "Recovered").unwrap();
-    let recovered_access = recovered.attach("recovered".into()).unwrap();
+    let recovered_access = recovered.documents().attach("recovered".into()).unwrap();
     assert_eq!(
         recovered
             .discussion_retry(recovered_access, first.run.id)
@@ -2013,7 +2013,7 @@ fn linked_retry_preserves_exact_feedback_scope_and_pins_and_refuses_completed_ru
     let temp = TempDir::new("retry-shape");
     let (project, access, document) = setup_project(&temp.child("project"));
     let other = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "other".into(),
             document_id: "other".into(),
@@ -2098,7 +2098,7 @@ fn retry_rebuilds_current_sources_but_never_revives_revoked_or_changed_guidance(
         match mode {
             "source" => {
                 let save = project
-                    .save(SaveSnapshot {
+                    .documents().save(SaveSnapshot {
                         access: access.clone(),
                         operation_id: "new-prose".into(),
                         expected: document.head.clone(),
@@ -2192,7 +2192,7 @@ fn retry_composer_link_is_durable_payload_bound_and_fenced_in_recovered_copies()
     let archive = temp.child("backup.wnsbackup");
     create_backup(&project, &archive).unwrap();
     let recovered = recover_backup(&archive, &temp.child("copy"), "Copy").unwrap();
-    let copy_access = recovered.attach("copy".into()).unwrap();
+    let copy_access = recovered.documents().attach("copy".into()).unwrap();
     assert!(
         recovered
             .read_discussion(copy_access.clone(), "chapter-one".into())
@@ -2213,7 +2213,7 @@ fn retry_composer_link_is_durable_payload_bound_and_fenced_in_recovered_copies()
     );
     drop(project);
     let project = ProjectSession::open(&path).unwrap();
-    let fresh = project.attach("restart".into()).unwrap();
+    let fresh = project.documents().attach("restart".into()).unwrap();
     assert_eq!(
         project
             .read_discussion(fresh.clone(), "chapter-one".into())
@@ -2283,7 +2283,7 @@ fn schema_six_upgrade_preserves_old_draft_receipts_and_takes_a_backup() {
         .unwrap();
     drop(connection);
     let project = ProjectSession::open(&path).unwrap();
-    let access = project.attach("upgraded".into()).unwrap();
+    let access = project.documents().attach("upgraded".into()).unwrap();
     let replayed = save_draft(&project, &access, "0", "old-save", "A retained thought.");
     assert_eq!(replayed.version, saved.version);
     assert!(replayed.previous_run_id.is_none());
@@ -2302,7 +2302,7 @@ fn propose_edits_uses_restricted_chapter_context_without_author_room_material() 
     let temp = TempDir::new("propose-policy");
     let (project, access, document) = setup_project(&temp.child("project"));
     let future = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "future-chapter".into(),
             document_id: "chapter-two".into(),
@@ -2312,7 +2312,7 @@ fn propose_edits_uses_restricted_chapter_context_without_author_room_material() 
         })
         .unwrap();
     let private = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "private-note".into(),
             document_id: "private-note".into(),
@@ -2646,7 +2646,7 @@ fn safe_brief_draft_retains_unconfirmed_text_across_reopen() {
 
     drop(project);
     let reopened = ProjectSession::open(path).expect("reopen draft project");
-    let reopened_access = reopened.attach("safe-brief-draft-reopen".into()).unwrap();
+    let reopened_access = reopened.documents().attach("safe-brief-draft-reopen".into()).unwrap();
     let view = reopened
         .read_discussion(reopened_access, document.head.document_id)
         .unwrap();
@@ -2790,7 +2790,7 @@ fn safe_brief_backup_retains_history_but_old_origin_cannot_authorize_recovery() 
 
     let recovered = recover_backup(&archive, &temp.child("recovered"), "Recovered brief")
         .expect("recover safe brief history");
-    let recovered_access = recovered.attach("safe-brief-recovered".into()).unwrap();
+    let recovered_access = recovered.documents().attach("safe-brief-recovered".into()).unwrap();
     let packet_json: String = Connection::open(recovered.path.join("project.sqlite3"))
         .unwrap()
         .query_row(
@@ -2805,7 +2805,7 @@ fn safe_brief_backup_retains_history_but_old_origin_cannot_authorize_recovery() 
         "Keep the final image unresolved."
     );
     let recovered_document = recovered
-        .document(recovered_access.clone(), document.head.document_id.clone())
+        .documents().read(recovered_access.clone(), document.head.document_id.clone())
         .unwrap();
     let mut copied_request = start_request(
         &recovered_access,
@@ -2918,7 +2918,7 @@ fn bounded_provider_completion_persists_binding_usage_and_replays_after_restart(
     );
     drop(project);
     let reopened = ProjectSession::open(&path).expect("reopen provider project");
-    let reopened_access = reopened.attach("provider-reopen".into()).unwrap();
+    let reopened_access = reopened.documents().attach("provider-reopen".into()).unwrap();
     let view = reopened
         .read_discussion(reopened_access, "chapter-one".into())
         .unwrap();
@@ -2982,7 +2982,7 @@ fn claude_completion_requires_and_persists_the_exact_reported_model() {
     );
     drop(project);
     let reopened = ProjectSession::open(&path).unwrap();
-    let reopened_access = reopened.attach("claude-provider-reopen".into()).unwrap();
+    let reopened_access = reopened.documents().attach("claude-provider-reopen".into()).unwrap();
     let reopened_view = reopened
         .read_discussion(reopened_access, "chapter-one".into())
         .unwrap();
@@ -3102,7 +3102,7 @@ fn failed_claude_result_retains_requested_and_reported_models() {
     drop(project);
     let reopened = ProjectSession::open(temp.child("project")).unwrap();
     let reopened_access = reopened
-        .attach("claude-provider-failed-model-reopen".into())
+        .documents().attach("claude-provider-failed-model-reopen".into())
         .unwrap();
     let reopened_view = reopened
         .read_discussion(reopened_access, "chapter-one".into())
@@ -3213,7 +3213,7 @@ fn http_provider_completion_persists_delivery_body_and_reopens_without_stdin_cla
     );
     drop(project);
     let reopened = ProjectSession::open(&path).expect("reopen HTTP provider project");
-    let reopened_access = reopened.attach("http-provider-reopen".into()).unwrap();
+    let reopened_access = reopened.documents().attach("http-provider-reopen".into()).unwrap();
     let run = reopened
         .read_discussion(reopened_access, "chapter-one".into())
         .unwrap()
@@ -3309,7 +3309,7 @@ fn http_provider_rejects_tampered_body_and_seals_uncertain_delivery_history() {
     drop(project);
     let reopened = ProjectSession::open(&path).expect("reopen uncertain HTTP project");
     let reopened_access = reopened
-        .attach("http-provider-uncertain-reopen".into())
+        .documents().attach("http-provider-uncertain-reopen".into())
         .unwrap();
     let reopened_view = reopened
         .read_discussion(reopened_access, "chapter-one".into())

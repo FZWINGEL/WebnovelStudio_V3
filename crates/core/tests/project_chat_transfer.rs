@@ -618,7 +618,7 @@ fn valid_project_chat_backup_recovers_with_a_new_current_identity() {
     let temp = Temp::new();
     let source_path = temp.0.join("source");
     let project = ProjectSession::create(&source_path, "Chat transfer").expect("create project");
-    let access = project.attach("chat-transfer-test".into()).expect("attach");
+    let access = project.documents().attach("chat-transfer-test".into()).expect("attach");
     let conversation = project
         .read_project_conversation(ReadProjectConversation {
             access: access.clone(),
@@ -652,7 +652,7 @@ fn valid_project_chat_backup_recovers_with_a_new_current_identity() {
     );
 
     let recovered_access = recovered
-        .attach("recovered-chat".into())
+        .documents().attach("recovered-chat".into())
         .expect("attach recovered");
     let current = recovered
         .read_project_conversation(ReadProjectConversation {
@@ -705,7 +705,7 @@ fn changed_conversation_event_fingerprint_blocks_backup() {
     let project =
         ProjectSession::create(temp.0.join("tampered"), "Tampered chat").expect("create project");
     let access = project
-        .attach("chat-transfer-tamper".into())
+        .documents().attach("chat-transfer-tamper".into())
         .expect("attach");
     let conversation = project
         .read_project_conversation(ReadProjectConversation {
@@ -747,7 +747,7 @@ fn backup_accepts_a_valid_root_chat_and_chapter_request_together() {
     let source_path = temp.0.join("mixed");
     let project = ProjectSession::create(&source_path, "Mixed chat transfer").expect("create");
     let access = project
-        .attach("mixed-chat-transfer".into())
+        .documents().attach("mixed-chat-transfer".into())
         .expect("attach");
     let conversation = project
         .read_project_conversation(ReadProjectConversation {
@@ -757,7 +757,7 @@ fn backup_accepts_a_valid_root_chat_and_chapter_request_together() {
         })
         .expect("create conversation");
     let chapter = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "mixed-create-chapter".into(),
             document_id: "chapter".into(),
@@ -802,7 +802,7 @@ fn backup_accepts_a_valid_root_chat_and_chapter_request_together() {
     let recovered = recover_backup(&backup, &temp.0.join("mixed-recovered"), "Recovered mixed")
         .expect("recover mixed backup");
     let recovered_access = recovered
-        .attach("mixed-recovered-session".into())
+        .documents().attach("mixed-recovered-session".into())
         .expect("attach recovered");
     let view = recovered
         .read_project_conversation(ReadProjectConversation {
@@ -823,7 +823,7 @@ fn backup_rejects_a_chapter_request_forged_for_another_target() {
     let project =
         ProjectSession::create(temp.0.join("cross-target"), "Cross target").expect("create");
     let access = project
-        .attach("cross-target-session".into())
+        .documents().attach("cross-target-session".into())
         .expect("attach");
     let conversation = project
         .read_project_conversation(ReadProjectConversation {
@@ -833,7 +833,7 @@ fn backup_rejects_a_chapter_request_forged_for_another_target() {
         })
         .expect("create conversation");
     let chapter_a = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "cross-create-a".into(),
             document_id: "chapter-a".into(),
@@ -843,7 +843,7 @@ fn backup_rejects_a_chapter_request_forged_for_another_target() {
         })
         .expect("create chapter A");
     let chapter_b = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "cross-create-b".into(),
             document_id: "chapter-b".into(),
@@ -916,7 +916,7 @@ fn grouped_effects_backup_recovery_preserves_historical_material_and_blocks_old_
     let project = ProjectSession::create(temp.0.join("grouped-source"), "Grouped transfer")
         .expect("create grouped project");
     let access = project
-        .attach("grouped-source-session".into())
+        .documents().attach("grouped-source-session".into())
         .expect("attach source");
     let (conversation_id, preview, ack) =
         materialize_grouped_and_adopt(&project, &access, "grouped-transfer");
@@ -925,7 +925,7 @@ fn grouped_effects_backup_recovery_preserves_historical_material_and_blocks_old_
         .expect("read source historical conversation");
     let mut source_documents = {
         let mut documents = project
-            .documents(access.clone())
+            .documents().list(access.clone())
             .expect("read source documents")
             .into_iter()
             .filter(|document| {
@@ -945,7 +945,7 @@ fn grouped_effects_backup_recovery_preserves_historical_material_and_blocks_old_
         .expect("adopted relationship endpoint")
         .clone();
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "grouped-transfer-edit-endpoint".into(),
             expected: endpoint.head,
@@ -955,7 +955,7 @@ fn grouped_effects_backup_recovery_preserves_historical_material_and_blocks_old_
         })
         .expect("edit relationship endpoint after adoption");
     source_documents = project
-        .documents(access.clone())
+        .documents().list(access.clone())
         .expect("read edited source documents")
         .into_iter()
         .filter(|document| {
@@ -985,7 +985,7 @@ fn grouped_effects_backup_recovery_preserves_historical_material_and_blocks_old_
     )
     .expect("recover grouped backup");
     let recovered_access = recovered
-        .attach("grouped-recovered-session".into())
+        .documents().attach("grouped-recovered-session".into())
         .expect("attach recovered project");
     let current = recovered
         .read_project_conversation(ReadProjectConversation {
@@ -1057,7 +1057,7 @@ fn grouped_effects_backup_recovery_preserves_historical_material_and_blocks_old_
 
     let recovered_documents = {
         let mut documents = recovered
-            .documents(recovered_access.clone())
+            .documents().list(recovered_access.clone())
             .expect("read recovered documents")
             .into_iter()
             .filter(|document| {
@@ -1121,7 +1121,7 @@ fn legacy_grouped_snapshot_tuple_hash_remains_recoverable_without_new_marker() {
     let project = ProjectSession::create(temp.0.join("legacy-grouped"), "Legacy grouped")
         .expect("create legacy grouped project");
     let access = project
-        .attach("legacy-grouped-session".into())
+        .documents().attach("legacy-grouped-session".into())
         .expect("attach source");
     let (conversation_id, preview, _) =
         materialize_grouped_and_adopt(&project, &access, "legacy-grouped");
@@ -1159,7 +1159,7 @@ fn legacy_grouped_snapshot_tuple_hash_remains_recoverable_without_new_marker() {
     )
     .expect("recover legacy grouped backup");
     let recovered_access = recovered
-        .attach("legacy-grouped-recovered-session".into())
+        .documents().attach("legacy-grouped-recovered-session".into())
         .expect("attach recovered legacy project");
     assert_eq!(
         recovered
@@ -1198,7 +1198,7 @@ fn new_grouped_snapshot_binding_tampering_blocks_recovery() {
     let project = ProjectSession::create(temp.0.join("binding-grouped"), "Binding grouped")
         .expect("create binding grouped project");
     let access = project
-        .attach("binding-grouped-session".into())
+        .documents().attach("binding-grouped-session".into())
         .expect("attach source");
     let (conversation_id, preview, _) =
         materialize_grouped_and_adopt(&project, &access, "binding-grouped");
@@ -1235,7 +1235,7 @@ fn copied_assistant_draft_identity_is_rejected_by_preview_provenance() {
     let project = ProjectSession::create(temp.0.join("copied-draft-source"), "Copied draft source")
         .expect("create copied-draft source project");
     let access = project
-        .attach("copied-draft-source-session".into())
+        .documents().attach("copied-draft-source-session".into())
         .expect("attach source");
     let (_source_conversation_id, source_preview, _) =
         materialize_grouped_and_adopt(&project, &access, "copied-draft-source");
@@ -1248,7 +1248,7 @@ fn copied_assistant_draft_identity_is_rejected_by_preview_provenance() {
     )
     .expect("recover copied-draft source");
     let recovered_access = recovered
-        .attach("copied-draft-recovered-session".into())
+        .documents().attach("copied-draft-recovered-session".into())
         .expect("attach recovered current identity");
     let (_, current_preview, _) = materialize_grouped_and_adopt(
         &recovered,
@@ -1288,10 +1288,10 @@ fn resealed_grouped_effect_manifest_with_wrong_role_is_rejected_on_recovery() {
     let project = ProjectSession::create(temp.0.join("grouped-tamper"), "Grouped tamper")
         .expect("create grouped tamper project");
     let access = project
-        .attach("grouped-tamper-session".into())
+        .documents().attach("grouped-tamper-session".into())
         .expect("attach source");
     let replacement = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "grouped-tamper-note".into(),
             document_id: "unrelated-note".into(),
@@ -1335,7 +1335,7 @@ fn backup_rejects_recomputed_current_workshop_state_that_drifts_from_snapshot() 
     )
     .expect("create grouped state tamper project");
     let access = project
-        .attach("grouped-state-tamper-session".into())
+        .documents().attach("grouped-state-tamper-session".into())
         .expect("attach source");
     let _ = materialize_grouped_and_adopt(&project, &access, "grouped-state-tamper");
 

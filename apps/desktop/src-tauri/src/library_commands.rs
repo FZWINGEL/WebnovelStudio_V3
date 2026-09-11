@@ -254,7 +254,7 @@ pub async fn library_duplicate(
                         "This copy operation belongs to another source project.",
                     ));
                 }
-                source.documents(access.clone())?;
+                source.documents().list(access.clone())?;
             }
             pending
         } else {
@@ -371,7 +371,7 @@ pub async fn project_backup(
 ) -> CoreResult<Option<String>> {
     let project = projects.project(&access.project_id)?;
     execute(move || {
-        project.documents(access)?;
+        project.documents().list(access)?;
         let Some(path) = rfd::FileDialog::new()
             .set_title("Save project backup")
             .add_filter("WebnovelStudio backup", &["wnsbackup"])

@@ -167,10 +167,10 @@ fn setup(
 ) {
     let temp = TempProject::new(label);
     let project = ProjectSession::create(temp.project(), "Memory lookup storage").unwrap();
-    let access = project.attach("memory-lookup-session".into()).unwrap();
+    let access = project.documents().attach("memory-lookup-session".into()).unwrap();
     let text = "Mei knows the key opens the eastern gate.";
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),
@@ -487,7 +487,7 @@ fn a_legacy_lookup_packet_keeps_search_reads_and_child_replay_working() {
     )
     .unwrap();
     let recovered_access = recovered
-        .attach("legacy-search-copy-session".into())
+        .documents().attach("legacy-search-copy-session".into())
         .unwrap();
     let recovered_view = recovered
         .read_discussion(recovered_access, document.head.document_id)

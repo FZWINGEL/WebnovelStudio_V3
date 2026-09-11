@@ -73,7 +73,7 @@ fn schema24_upgrade_keeps_exact_historical_codex_packet_and_backup() {
     let path = temp.child("project");
     let (project, access, _, saved) = setup_project(&path);
     let current = project
-        .document(access.clone(), saved.head.document_id)
+        .documents().read(access.clone(), saved.head.document_id)
         .unwrap();
     let snapshot_id = freeze_one_snapshot(&project, &access, &current);
     let packet = match project
@@ -113,7 +113,7 @@ fn schema24_upgrade_keeps_exact_historical_codex_packet_and_backup() {
     drop(database);
     let reopened = ProjectSession::open(&path).unwrap();
     assert_eq!(schema_version(&path.join("project.sqlite3")), 40);
-    let access = reopened.attach("new-runtime-reader".into()).unwrap();
+    let access = reopened.documents().attach("new-runtime-reader".into()).unwrap();
     let restored = reopened
         .prepared_context(access, packet.receipt.packet_id)
         .unwrap();
@@ -139,7 +139,7 @@ fn schema35_to38_preserves_workshop_state_and_context_packet_bytes() {
     let path = temp.child("project");
     let (project, access, document, _) = setup_project(&path);
     let current = project
-        .document(access.clone(), document.head.document_id.clone())
+        .documents().read(access.clone(), document.head.document_id.clone())
         .expect("read current migration target");
     let snapshot_id = freeze_one_snapshot(&project, &access, &current);
     let packet = match project
@@ -211,7 +211,7 @@ fn schema35_to38_preserves_workshop_state_and_context_packet_bytes() {
 
     let reopened = ProjectSession::open(&path).expect("upgrade schema35 project");
     assert_eq!(schema_version(&database_path), 40);
-    let reopened_access = reopened.attach("schema36-reader".into()).unwrap();
+    let reopened_access = reopened.documents().attach("schema36-reader".into()).unwrap();
     let view = reopened.workshop().read(reopened_access.clone()).unwrap();
     assert_eq!(view.state.preferences.len(), 1);
     let restored = reopened
@@ -352,7 +352,7 @@ fn schema27_upgrade_preserves_historical_dynamic_author_packet_without_projectio
 
     let reopened = ProjectSession::open(&path).expect("upgrade schema27 project");
     assert_eq!(schema_version(&path.join("project.sqlite3")), 40);
-    let access = reopened.attach("dynamic-author-reader".into()).unwrap();
+    let access = reopened.documents().attach("dynamic-author-reader".into()).unwrap();
     let restored = reopened
         .prepared_context(access, packet.receipt.packet_id.clone())
         .expect("reopen historical dynamic author packet");
@@ -477,7 +477,7 @@ fn schema29_upgrade_preserves_legacy_provider_receipt_with_no_reported_model() {
 
     let reopened = ProjectSession::open(&path).expect("upgrade schema29 provider project");
     assert_eq!(schema_version(&path.join("project.sqlite3")), 40);
-    let reader = reopened.attach("schema29-provider-reader".into()).unwrap();
+    let reader = reopened.documents().attach("schema29-provider-reader".into()).unwrap();
     let view = reopened
         .read_discussion(reader, document.head.document_id.clone())
         .unwrap();
@@ -562,7 +562,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
     drop(db);
 
     let reopened = ProjectSession::open(&path).unwrap();
-    let access = reopened.attach("new-reader".into()).unwrap();
+    let access = reopened.documents().attach("new-reader".into()).unwrap();
     let restored = reopened
         .story_snapshot(access.clone(), frozen.snapshot.snapshot_id)
         .unwrap();
@@ -574,7 +574,7 @@ fn schema14_reader_floor_upgrade_preserves_exact_reviews_and_working_snapshots()
     assert_eq!(status.active_bundle_id, Some(bundle.id));
     assert_eq!(
         reopened
-            .document(access, document.head.document_id)
+            .documents().read(access, document.head.document_id)
             .unwrap()
             .head,
         saved.head
@@ -601,7 +601,7 @@ fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
     let path = temp.child("legacy");
     let (project, access, _, saved) = setup_project(&path);
     let current = project
-        .document(access.clone(), saved.head.document_id.clone())
+        .documents().read(access.clone(), saved.head.document_id.clone())
         .unwrap();
     let snapshot_id = freeze_one_snapshot(&project, &access, &current);
     let frozen = project
@@ -650,7 +650,7 @@ fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
     drop(db);
 
     let reopened = ProjectSession::open(&path).unwrap();
-    let access = reopened.attach("schema19-reader".into()).unwrap();
+    let access = reopened.documents().attach("schema19-reader".into()).unwrap();
     assert_eq!(schema_version(&path.join("project.sqlite3")), 40);
     assert_eq!(
         serde_json::to_vec(
@@ -672,7 +672,7 @@ fn schema16_upgrade_preserves_original_snapshot_and_packet_bytes() {
     );
     assert_eq!(
         reopened
-            .document(access, saved.head.document_id.clone())
+            .documents().read(access, saved.head.document_id.clone())
             .unwrap()
             .head,
         saved.head
@@ -708,7 +708,7 @@ fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
     let path = temp.child("legacy");
     let (project, access, _, saved) = setup_project(&path);
     let target = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-discussion-target".into(),
             document_id: "later-chapter".into(),
@@ -796,7 +796,7 @@ fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
 
     let reopened = ProjectSession::open(&path).unwrap();
     let access = reopened
-        .attach("schema19-navigation-reader".into())
+        .documents().attach("schema19-navigation-reader".into())
         .unwrap();
     assert_eq!(schema_version(&path.join("project.sqlite3")), 40);
     assert_eq!(
@@ -819,7 +819,7 @@ fn schema17_reader_upgrade_preserves_generated_views_pins_and_packet_bytes() {
     );
     assert_eq!(
         reopened
-            .document(access.clone(), saved.head.document_id.clone())
+            .documents().read(access.clone(), saved.head.document_id.clone())
             .unwrap()
             .head,
         saved.head
@@ -900,10 +900,10 @@ fn setup_project(
 ) {
     let project = ProjectSession::create(root, "Migration source").expect("create project");
     let access = project
-        .attach("migration-session".into())
+        .documents().attach("migration-session".into())
         .expect("attach project");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-document".into(),
             document_id: "chapter-one".into(),
@@ -913,7 +913,7 @@ fn setup_project(
         })
         .expect("create document");
     let saved = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "save-document".into(),
             expected: document.head.clone(),
@@ -927,7 +927,7 @@ fn setup_project(
         utf16_offset: 5,
     };
     project
-        .save_view_state(
+        .documents().save_view_state(
             access.clone(),
             saved.head.clone(),
             endpoint.clone(),
@@ -1088,7 +1088,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     let path = temp.child("legacy");
     let (project, access, document, saved) = setup_project(&path);
     let view = project
-        .view_state(access.clone())
+        .documents().view_state(access.clone())
         .expect("read source view state")
         .expect("view state exists");
     let epoch = project.context().source_epoch().expect("read source epoch");
@@ -1105,7 +1105,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
         epoch
     );
     let attached = upgraded
-        .attach_snapshot("after-upgrade".into())
+        .documents().attach_snapshot("after-upgrade".into())
         .expect("attach upgraded project");
     assert_eq!(attached.documents.len(), 1);
     assert_eq!(attached.documents[0].head, saved.head);
@@ -1154,7 +1154,7 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     let path = temp.child("legacy");
     let (project, access, _document, _saved) = setup_project(&path);
     let target = project
-        .document(access.clone(), "chapter-one".into())
+        .documents().read(access.clone(), "chapter-one".into())
         .expect("read current target");
     let snapshot_id = freeze_one_snapshot(&project, &access, &target);
     drop(project);
@@ -1175,7 +1175,7 @@ fn schema3_upgrade_preserves_frozen_snapshot_and_useful_backup() {
     assert_eq!(discussion_tables, 1);
     drop(connection);
     let attached = upgraded
-        .attach_snapshot("schema3-upgrade-reader".into())
+        .documents().attach_snapshot("schema3-upgrade-reader".into())
         .expect("attach upgraded project");
     let restored = upgraded
         .story_snapshot(attached.access.clone(), snapshot_id.clone())
@@ -1219,7 +1219,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     let path = temp.child("legacy");
     let (project, access, document, _saved) = setup_project(&path);
     let current = project
-        .document(access.clone(), document.head.document_id.clone())
+        .documents().read(access.clone(), document.head.document_id.clone())
         .expect("read current migration target");
     let snapshot_id = freeze_one_snapshot(&project, &access, &current);
     let packet = match project
@@ -1299,7 +1299,7 @@ fn schema10_upgrade_adds_safe_brief_storage_and_preserves_old_packet_and_draft()
     );
     drop(connection);
 
-    let reopened = upgraded.attach("schema10-reader".into()).unwrap();
+    let reopened = upgraded.documents().attach("schema10-reader".into()).unwrap();
     let restored = upgraded
         .prepared_context(reopened.clone(), packet.receipt.packet_id)
         .expect("old packet remains readable after latest migration");
@@ -1344,7 +1344,7 @@ fn schema23_lookup_migration_preserves_legacy_composer_draft_and_starts_empty_lo
 
     let upgraded = ProjectSession::open(&path).expect("upgrade schema23 project");
     assert_eq!(schema_version(&path.join("project.sqlite3")), 40);
-    let reader = upgraded.attach("schema23-lookup-reader".into()).unwrap();
+    let reader = upgraded.documents().attach("schema23-lookup-reader".into()).unwrap();
     let restored = upgraded
         .read_discussion(reader, document.head.document_id.clone())
         .unwrap()
@@ -1463,7 +1463,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     let source_path = temp.child("source");
     let (project, access, _document, saved) = setup_project(&source_path);
     let view = project
-        .view_state(access.clone())
+        .documents().view_state(access.clone())
         .expect("read source view")
         .expect("source view exists");
     let epoch = project.context().source_epoch().expect("read source epoch");
@@ -1490,7 +1490,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
         epoch
     );
     let attached = recovered
-        .attach_snapshot("schema2-recovery-reader".into())
+        .documents().attach_snapshot("schema2-recovery-reader".into())
         .expect("attach recovered project");
     assert_eq!(attached.documents[0].head, saved.head);
     assert_eq!(
@@ -1512,7 +1512,7 @@ fn create_backup_rejects_malformed_persisted_context_manifest() {
     let path = temp.child("source");
     let (project, access, _document, _saved) = setup_project(&path);
     let target = project
-        .document(access.clone(), "chapter-one".into())
+        .documents().read(access.clone(), "chapter-one".into())
         .expect("read current target");
     let snapshot_id = freeze_one_snapshot(&project, &access, &target);
     drop(project);
@@ -1541,7 +1541,7 @@ fn recovery_rejects_malformed_persisted_context_pin_without_installing_target() 
     let source_path = temp.child("source");
     let (project, access, _document, _saved) = setup_project(&source_path);
     let target_document = project
-        .document(access.clone(), "chapter-one".into())
+        .documents().read(access.clone(), "chapter-one".into())
         .expect("read current target");
     freeze_one_snapshot(&project, &access, &target_document);
     let valid_archive = temp.child("valid.wnsbackup");
@@ -1589,9 +1589,9 @@ fn schema30_reader_floor_migrates_with_noop_step_and_retains_backup() {
 
     let reopened = ProjectSession::open(&path).expect("schema30 database upgrades");
     assert_eq!(schema_version(&database), 40);
-    let reader = reopened.attach("schema32-reader-floor".into()).unwrap();
+    let reader = reopened.documents().attach("schema32-reader-floor".into()).unwrap();
     let restored = reopened
-        .document(reader, document.head.document_id)
+        .documents().read(reader, document.head.document_id)
         .expect("document survives reader-floor migration");
     assert_eq!(restored.head, saved.head);
     assert_eq!(restored.body, body("saved before schema migration"));

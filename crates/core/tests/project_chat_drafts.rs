@@ -45,7 +45,7 @@ fn body(text: &str) -> Value {
 fn setup() -> (Temp, ProjectSession, ProjectAccess) {
     let temp = Temp::new();
     let project = ProjectSession::create(temp.0.join("project"), "Chat drafts").expect("create");
-    let access = project.attach("chat-drafts-test".into()).expect("attach");
+    let access = project.documents().attach("chat-drafts-test".into()).expect("attach");
     (temp, project, access)
 }
 
@@ -476,7 +476,7 @@ fn explicit_predecessor_creates_a_new_candidate_without_mutating_the_predecessor
 fn ordinary_or_foreign_predecessors_are_rejected_without_creating_drafts() {
     let (_temp, project, access) = setup();
     let ordinary = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "predecessor-ordinary-create".into(),
             document_id: "ordinary-predecessor-source".into(),
@@ -486,7 +486,7 @@ fn ordinary_or_foreign_predecessors_are_rejected_without_creating_drafts() {
         })
         .expect("create ordinary source");
     let ordinary_checkpoint = project
-        .checkpoint(CheckpointRequest {
+        .documents().checkpoint(CheckpointRequest {
             access: access.clone(),
             expected: ordinary.head.clone(),
             reason: CheckpointReason::Source,
@@ -552,7 +552,7 @@ fn ordinary_or_foreign_predecessors_are_rejected_without_creating_drafts() {
 fn scoped_dispositions_only_enter_matching_context_and_task_scope_does_not_leak() {
     let (_temp, project, access) = setup();
     let document_a = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "scope-document-a".into(),
             document_id: "scope-document-a".into(),
@@ -651,7 +651,7 @@ fn scoped_dispositions_only_enter_matching_context_and_task_scope_does_not_leak(
 fn unknown_to_keep_mysterious_survives_project_chat_backup_recovery() {
     let temp = Temp::new();
     let project = ProjectSession::create(temp.0.join("source"), "Mystery backup").expect("create");
-    let access = project.attach("mystery-source".into()).expect("attach");
+    let access = project.documents().attach("mystery-source".into()).expect("attach");
     let (conversation_id, owner) = finish_chat(
         &project,
         &access,
@@ -788,7 +788,7 @@ fn stale_task_draft_can_seed_a_fresh_request_but_cannot_be_adopted() {
     };
 
     let ordinary = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "stale-source-create".into(),
             document_id: "stale-source".into(),
@@ -798,14 +798,14 @@ fn stale_task_draft_can_seed_a_fresh_request_but_cannot_be_adopted() {
         })
         .expect("create ordinary source");
     let ordinary = project
-        .checkpoint(CheckpointRequest {
+        .documents().checkpoint(CheckpointRequest {
             access: access.clone(),
             expected: ordinary.head.clone(),
             reason: CheckpointReason::Source,
         })
         .expect("checkpoint ordinary source");
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "stale-source-edit".into(),
             expected: ordinary.head,

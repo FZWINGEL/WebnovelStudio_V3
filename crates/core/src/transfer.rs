@@ -163,7 +163,7 @@ pub fn capture_duplicate_basis(
 ) -> CoreResult<DuplicateBasis> {
     let metadata = project.project().metadata()?;
     let mut document_heads = project
-        .documents(access)?
+        .documents().list(access)?
         .into_iter()
         .map(|document| document.head)
         .collect::<Vec<_>>();
@@ -2249,7 +2249,7 @@ pub fn prepare_draft_export(
             "The requested export format is unsupported.",
         ));
     }
-    let revision = project.checkpoint(CheckpointRequest {
+    let revision = project.documents().checkpoint(CheckpointRequest {
         access: access.clone(),
         expected,
         reason: CheckpointReason::Export,

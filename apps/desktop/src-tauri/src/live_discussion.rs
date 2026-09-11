@@ -342,8 +342,8 @@ mod tests {
                 .as_nanos()
         ));
         let project = ProjectSession::create(root, "Live worker fixture").unwrap();
-        let access = project.attach("live-test".into()).unwrap();
-        let document = project.create_document(CreateDocument { access:access.clone(), operation_id:"create".into(), document_id:"chapter".into(), title:"Chapter".into(), kind:"chapter".into(),
+        let access = project.documents().attach("live-test".into()).unwrap();
+        let document = project.documents().create(CreateDocument { access:access.clone(), operation_id:"create".into(), document_id:"chapter".into(), title:"Chapter".into(), kind:"chapter".into(),
             body:serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"The ending stays."}]}]}}) }).unwrap();
         let started = project
             .start_discussion(StartDiscussion {
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn local_retry_reconciles_a_saved_chunk_and_commits_one_provider_receipt() {
         let (project, access, dispatch) = started("retry");
-        let before = project.document(access.clone(), "chapter".into()).unwrap();
+        let before = project.documents().read(access.clone(), "chapter".into()).unwrap();
         // The append committed but its caller retained the older sequence.
         project
             .append_discussion_output(DiscussionOutputAppend {
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(view.runs.len(), 1);
         assert_eq!(view.messages.len(), 2);
         assert_eq!(
-            project.document(access, "chapter".into()).unwrap().body,
+            project.documents().read(access, "chapter".into()).unwrap().body,
             before.body
         );
     }

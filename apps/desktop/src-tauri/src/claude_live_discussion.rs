@@ -453,8 +453,8 @@ mod tests {
                     .as_nanos(),
             ));
             let project = ProjectSession::create(&root, "Synthetic Claude recovery").unwrap();
-            let access = project.attach("fixture".into()).unwrap();
-            let document = project.create_document(CreateDocument {
+            let access = project.documents().attach("fixture".into()).unwrap();
+            let document = project.documents().create(CreateDocument {
                 access: access.clone(), operation_id: "create-chapter".into(),
                 document_id: "chapter".into(), title: "The key".into(), kind: "chapter".into(),
                 body: serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"Mei returned the key."}]}]}}),

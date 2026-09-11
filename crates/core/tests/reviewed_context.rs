@@ -86,7 +86,7 @@ fn setup() -> (Cleanup, ProjectSession, ProjectAccess) {
     let root = std::env::temp_dir().join(format!("wns-reviewed-context-{}", Uuid::new_v4()));
     fs::create_dir(&root).expect("create test root");
     let project = ProjectSession::create(root.join("story"), "Reviewed context test").unwrap();
-    let access = project.attach("reviewed-context".into()).unwrap();
+    let access = project.documents().attach("reviewed-context".into()).unwrap();
     (Cleanup(root), project, access)
 }
 
@@ -97,7 +97,7 @@ fn chapter(
     text: &str,
 ) -> DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: format!("create-{id}"),
             document_id: id.into(),
@@ -217,7 +217,7 @@ fn reviewed_continuation_freezes_exact_prefix_and_replays_immutable_basis() {
     assert_eq!(replay.snapshot.snapshot_id, frozen.snapshot.snapshot_id);
 
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-unretrieved-earlier".into(),
             expected: first.head,
@@ -237,7 +237,7 @@ fn reviewed_continuation_freezes_exact_prefix_and_replays_immutable_basis() {
         frozen.snapshot.snapshot_id
     );
     let current_target = project
-        .document(access.clone(), target.head.document_id.clone())
+        .documents().read(access.clone(), target.head.document_id.clone())
         .unwrap();
     let error = project
         .freeze_reviewed_continuation(request(
@@ -480,9 +480,9 @@ fn reviewed_continuation_uses_document_id_to_resolve_tied_positions() {
         .unwrap();
     drop(connection);
     let project = ProjectSession::open(path).unwrap();
-    let access = project.attach("reviewed-context-tied".into()).unwrap();
+    let access = project.documents().attach("reviewed-context-tied".into()).unwrap();
     let target = project
-        .document(access.clone(), target.head.document_id)
+        .documents().read(access.clone(), target.head.document_id)
         .unwrap();
     let frozen = project
         .freeze_reviewed_continuation(request(&project, &access, "tied-position", &target, "2"))
@@ -528,7 +528,7 @@ fn reviewed_reader_position_mutation_is_rejected_but_reordered_history_remains_r
     drop(connection);
 
     let reopened = ProjectSession::open(path).unwrap();
-    let reopened_access = reopened.attach("reader-position-check".into()).unwrap();
+    let reopened_access = reopened.documents().attach("reader-position-check".into()).unwrap();
     let error = reopened
         .story_snapshot(reopened_access, snapshot_id)
         .unwrap_err();
@@ -559,7 +559,7 @@ fn reviewed_reader_position_mutation_is_rejected_but_reordered_history_remains_r
         .unwrap();
     drop(connection);
     let reopened = ProjectSession::open(path).unwrap();
-    let reopened_access = reopened.attach("historical-reorder-check".into()).unwrap();
+    let reopened_access = reopened.documents().attach("historical-reorder-check".into()).unwrap();
     assert_eq!(
         reopened
             .story_snapshot(reopened_access, snapshot_id)
@@ -666,9 +666,9 @@ fn schema14_archived_working_snapshot_recovers_after_reader_pin_migration() {
     let recovered_path = cleanup.0.join("recovered");
     let recovered =
         recover_backup(&legacy_archive, &recovered_path, "Recovered working story").unwrap();
-    let recovered_access = recovered.attach("schema14-reader".into()).unwrap();
+    let recovered_access = recovered.documents().attach("schema14-reader".into()).unwrap();
     let restored = recovered
-        .document(recovered_access.clone(), document.head.document_id)
+        .documents().read(recovered_access.clone(), document.head.document_id)
         .unwrap();
     assert_eq!(restored.body, document.body);
     assert_eq!(

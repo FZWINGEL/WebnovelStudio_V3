@@ -340,7 +340,7 @@ fn adopt(
 
 fn assert_no_material_targets(project: &ProjectSession, access: &ProjectAccess) {
     assert!(project
-        .documents(access.clone())
+        .documents().list(access.clone())
         .expect("list documents")
         .iter()
         .all(|document| document.role != webnovel_core::projects::DocumentRole::Ordinary));
@@ -350,7 +350,7 @@ fn assert_no_material_targets(project: &ProjectSession, access: &ProjectAccess) 
 fn draft_only_effects_resolve_to_ordinary_targets_and_replay_once() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.project_path(), "Grouped effects").expect("create");
-    let access = project.attach("effects-success".into()).expect("attach");
+    let access = project.documents().attach("effects-success".into()).expect("attach");
     let (conversation_id, materialization) = start_chat(
         &project,
         &access,
@@ -461,7 +461,7 @@ fn draft_only_effects_resolve_to_ordinary_targets_and_replay_once() {
 fn excluding_an_effect_endpoint_refuses_before_any_write() {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.project_path(), "Excluded effect").expect("create");
-    let access = project.attach("effects-excluded".into()).expect("attach");
+    let access = project.documents().attach("effects-excluded".into()).expect("attach");
     let (conversation_id, materialization) = start_chat(
         &project,
         &access,
@@ -507,7 +507,7 @@ fn question_and_assumption_keys_cannot_be_used_as_effect_endpoints() {
         let project =
             ProjectSession::create(temp.project_path(), "Invalid effect refs").expect("create");
         let access = project
-            .attach(format!("effects-invalid-{suffix}"))
+            .documents().attach(format!("effects-invalid-{suffix}"))
             .expect("attach");
         let (conversation_id, materialization) = start_chat(
             &project,
@@ -545,7 +545,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
         let project =
             ProjectSession::create(temp.project_path(), "Changed draft effect").expect("create");
         let access = project
-            .attach("effects-draft-fence".into())
+            .documents().attach("effects-draft-fence".into())
             .expect("attach");
         let (conversation_id, materialization) = start_chat(
             &project,
@@ -616,7 +616,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
         let project =
             ProjectSession::create(temp.project_path(), "Changed source effect").expect("create");
         let access = project
-            .attach("effects-source-fence".into())
+            .documents().attach("effects-source-fence".into())
             .expect("attach");
         let (conversation_id, materialization) = start_chat(
             &project,
@@ -634,7 +634,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
             None,
         );
         project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "effects-source-change".into(),
                 document_id: "new-source".into(),
@@ -656,7 +656,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
         assert_eq!(error.code, "ContextChanged");
         assert_eq!(
             project
-                .documents(access.clone())
+                .documents().list(access.clone())
                 .expect("list documents")
                 .iter()
                 .filter(|document| document.title == "The River Keeper"
@@ -679,7 +679,7 @@ fn changed_draft_source_and_workshop_state_fence_effect_adoption() {
         let project =
             ProjectSession::create(temp.project_path(), "Changed workshop effect").expect("create");
         let access = project
-            .attach("effects-workshop-fence".into())
+            .documents().attach("effects-workshop-fence".into())
             .expect("attach");
         let (conversation_id, materialization) = start_chat(
             &project,
@@ -750,7 +750,7 @@ fn relationship_write_failure_rolls_back_materialization_and_allows_same_operati
     let project = ProjectSession::create(temp.project_path(), "Effects transaction rollback")
         .expect("create");
     let access = project
-        .attach("effects-transaction".into())
+        .documents().attach("effects-transaction".into())
         .expect("attach");
     let (conversation_id, materialization) = start_chat(
         &project,
@@ -871,7 +871,7 @@ fn unsupported_grouped_effect_categories_refuse_before_any_write() {
         let project =
             ProjectSession::create(temp.project_path(), "Unsupported effects").expect("create");
         let access = project
-            .attach(format!("effects-unsupported-{category}"))
+            .documents().attach(format!("effects-unsupported-{category}"))
             .expect("attach");
         let (conversation_id, materialization) = start_chat(
             &project,
@@ -914,11 +914,11 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
     let project =
         ProjectSession::create(temp.project_path(), "Relationship endpoint drift").expect("create");
     let access = project
-        .attach("effects-relationship-drift".into())
+        .documents().attach("effects-relationship-drift".into())
         .expect("attach");
 
     let character = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "relationship-character-create".into(),
             document_id: "keeper-character".into(),
@@ -928,7 +928,7 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
         })
         .expect("create character source");
     let witness = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "relationship-witness-create".into(),
             document_id: "keeper-witness".into(),
@@ -938,14 +938,14 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
         })
         .expect("create relationship endpoint source");
     let character_checkpoint = project
-        .checkpoint(CheckpointRequest {
+        .documents().checkpoint(CheckpointRequest {
             access: access.clone(),
             expected: character.head.clone(),
             reason: CheckpointReason::Source,
         })
         .expect("checkpoint character source");
     let _witness_checkpoint = project
-        .checkpoint(CheckpointRequest {
+        .documents().checkpoint(CheckpointRequest {
             access: access.clone(),
             expected: witness.head.clone(),
             reason: CheckpointReason::Source,
@@ -1014,7 +1014,7 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
     // caught by the existing relationship dependency fence before any new
     // draft target or Workshop relationship is materialized.
     let changed_witness = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "relationship-endpoint-drift".into(),
             expected: witness.head.clone(),
@@ -1028,7 +1028,7 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
         .workshop().read(access.clone())
         .expect("read workshop after endpoint drift");
     let character_before_adoption = project
-        .document(access.clone(), character.head.document_id.clone())
+        .documents().read(access.clone(), character.head.document_id.clone())
         .expect("read existing adoption target");
     let error = project
         .adopt_chat_preview(AdoptChatPreview {
@@ -1042,20 +1042,20 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
         .expect_err("relationship endpoint drift must refuse adoption");
     assert_eq!(error.code, "ContextChanged");
 
-    let documents = project.documents(access.clone()).expect("list documents");
+    let documents = project.documents().list(access.clone()).expect("list documents");
     assert!(documents
         .iter()
         .all(|document| document.title != "River Gate"));
     assert_eq!(
         project
-            .document(access.clone(), character.head.document_id.clone())
+            .documents().read(access.clone(), character.head.document_id.clone())
             .expect("read target after rejected adoption")
             .head,
         character_before_adoption.head
     );
     assert_eq!(
         project
-            .document(access.clone(), witness.head.document_id.clone())
+            .documents().read(access.clone(), witness.head.document_id.clone())
             .expect("read changed endpoint")
             .head,
         changed_witness.head
@@ -1100,7 +1100,7 @@ fn rejected_selected_group_member_refuses_without_partial_adoption() {
     let project =
         ProjectSession::create(temp.project_path(), "Rejected grouped member").expect("create");
     let access = project
-        .attach("effects-rejected-member".into())
+        .documents().attach("effects-rejected-member".into())
         .expect("attach");
     let (conversation_id, materialization) = start_chat(
         &project,

@@ -27,9 +27,9 @@ impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("wns-navigation-{}", Uuid::new_v4()));
         let project = ProjectSession::create(&root, "Navigation storage").unwrap();
-        let access = project.attach("navigation-test".into()).unwrap();
+        let access = project.documents().attach("navigation-test".into()).unwrap();
         let target = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create-target".into(),
                 document_id: "target".into(),
@@ -39,7 +39,7 @@ impl Fixture {
             })
             .unwrap();
         let optional = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create-optional".into(),
                 document_id: "optional".into(),
@@ -206,11 +206,11 @@ fn freeze_persists_current_navigation_and_keeps_historical_payload_after_stale_e
 
     let optional = fixture
         .project
-        .document(fixture.access.clone(), "optional".into())
+        .documents().read(fixture.access.clone(), "optional".into())
         .unwrap();
     fixture
         .project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: fixture.access.clone(),
             operation_id: "edit-optional-after-freeze".into(),
             expected: optional.head,
@@ -221,7 +221,7 @@ fn freeze_persists_current_navigation_and_keeps_historical_payload_after_stale_e
         .unwrap();
     let current_target = fixture
         .project
-        .document(fixture.access.clone(), "target".into())
+        .documents().read(fixture.access.clone(), "target".into())
         .unwrap();
     let newer = fixture
         .project
@@ -276,7 +276,7 @@ fn unrelated_new_evidence_epoch_reuses_old_navigation_view() {
 
     fixture
         .project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: fixture.access.clone(),
             operation_id: "create-unretrieved-evidence".into(),
             document_id: "unretrieved".into(),
@@ -287,7 +287,7 @@ fn unrelated_new_evidence_epoch_reuses_old_navigation_view() {
         .unwrap();
     let target = fixture
         .project
-        .document(fixture.access.clone(), "target".into())
+        .documents().read(fixture.access.clone(), "target".into())
         .unwrap();
     let newer = fixture
         .project
@@ -509,7 +509,7 @@ fn recovered_copy_does_not_reuse_original_navigation_views() {
     fixture.install_optional_memory();
     fixture
         .project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: fixture.access.clone(),
             operation_id: "create-copy-unrelated".into(),
             document_id: "copy-unrelated".into(),
@@ -534,7 +534,7 @@ fn recovered_copy_does_not_reuse_original_navigation_views() {
     create_backup(&fixture.project, &archive).unwrap();
     let recovered_root = fixture.root.with_extension("recovered");
     let recovered = recover_backup(&archive, &recovered_root, "Recovered navigation").unwrap();
-    let recovered_access = recovered.attach("recovered-navigation".into()).unwrap();
+    let recovered_access = recovered.documents().attach("recovered-navigation".into()).unwrap();
     assert_ne!(recovered.info.project_id, frozen.snapshot.project_id);
     let recovered_memory = recovered
         .read_memory(recovered_access.clone(), "optional".into())
@@ -554,7 +554,7 @@ fn recovered_copy_does_not_reuse_original_navigation_views() {
     );
 
     let recovered_target = recovered
-        .document(recovered_access.clone(), "target".into())
+        .documents().read(recovered_access.clone(), "target".into())
         .unwrap();
     let epochs = recovered.context_epochs(recovered_access.clone()).unwrap();
     let new_snapshot = recovered

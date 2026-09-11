@@ -541,8 +541,8 @@ mod tests {
                 .as_nanos()
         ));
         let project = ProjectSession::create(path, "Lookup worker test").unwrap();
-        let access = project.attach("lookup-session".into()).unwrap();
-        let document = project.create_document(CreateDocument {
+        let access = project.documents().attach("lookup-session".into()).unwrap();
+        let document = project.documents().create(CreateDocument {
             access: access.clone(), operation_id: "create".into(), document_id: "chapter".into(), title: "Promise".into(), kind: "chapter".into(),
             body: serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"Mei made a promise to return the brass key."}]}]}}),
         }).unwrap();
@@ -628,13 +628,13 @@ mod tests {
         assert!(view.messages[1].packet_id.is_some());
         assert_ne!(view.messages[1].packet_id.as_ref(), Some(&initial));
         assert_eq!(
-            project.document(access, "chapter".into()).unwrap().head,
+            project.documents().read(access, "chapter".into()).unwrap().head,
             target
         );
         let path = project.path.clone();
         drop(project);
         let reopened = ProjectSession::open(path).unwrap();
-        let access = reopened.attach("reopened-session".into()).unwrap();
+        let access = reopened.documents().attach("reopened-session".into()).unwrap();
         let saved = reopened.read_discussion(access, "chapter".into()).unwrap();
         assert_eq!(saved.messages[1].content, view.messages[1].content);
         assert_eq!(saved.runs[0].lookup.as_ref().unwrap().invocations.len(), 3);

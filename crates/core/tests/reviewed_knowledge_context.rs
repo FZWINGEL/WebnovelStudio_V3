@@ -53,7 +53,7 @@ fn setup(name: &str) -> (Cleanup, ProjectSession, ProjectAccess) {
     let project = ProjectSession::create(root.join("story"), "Reviewed knowledge context test")
         .expect("create project");
     let access = project
-        .attach(format!("reviewed-knowledge-{name}"))
+        .documents().attach(format!("reviewed-knowledge-{name}"))
         .expect("attach project");
     (Cleanup(root), project, access)
 }
@@ -66,7 +66,7 @@ fn chapter(
     text: &str,
 ) -> DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: format!("create-{id}"),
             document_id: id.into(),
@@ -548,7 +548,7 @@ fn frozen_knowledge_remains_exact_after_source_edit_but_is_not_current() {
         None,
     );
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit".into(),
             expected: source.head.clone(),

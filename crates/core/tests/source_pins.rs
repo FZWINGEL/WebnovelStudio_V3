@@ -47,9 +47,9 @@ fn setup(
     webnovel_core::projects::DocumentRecord,
 ) {
     let project = ProjectSession::create(root, "Source pins").expect("create project");
-    let access = project.attach("source-pin-session".into()).expect("attach");
+    let access = project.documents().attach("source-pin-session".into()).expect("attach");
     let chapter = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "chapter-create".into(),
             document_id: "chapter-one".into(),
@@ -59,7 +59,7 @@ fn setup(
         })
         .expect("create chapter");
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "note-create".into(),
             document_id: "note-one".into(),
@@ -158,7 +158,7 @@ fn scopes_are_sorted_versioned_cas_safe_and_reopenable() {
     drop(project);
 
     let reopened = ProjectSession::open(&path).expect("reopen project");
-    let access = reopened.attach("reopened".into()).expect("reattach");
+    let access = reopened.documents().attach("reopened".into()).expect("reattach");
     let view = reopened
         .read_source_pins(access, "chapter-one".into())
         .expect("read after reopen");
@@ -472,7 +472,7 @@ fn tampered_receipt_result_is_rejected_on_replay_and_backup() {
     drop(connection);
 
     let reopened = ProjectSession::open(&path).expect("reopen tampered project");
-    let reopened_access = reopened.attach("tampered-replay".into()).unwrap();
+    let reopened_access = reopened.documents().attach("tampered-replay".into()).unwrap();
     let replay = reopened
         .save_source_pins(SaveSourcePins {
             access: reopened_access,
@@ -533,7 +533,7 @@ fn recovery_rebinds_both_pin_scopes_but_keeps_receipts_historical() {
     let recovered = recover_backup(&backup, &temp.child("recovered"), "Recovered pins")
         .expect("recover source-pin backup");
     let recovered_access = recovered
-        .attach("recovered-source-pins".into())
+        .documents().attach("recovered-source-pins".into())
         .expect("attach recovered copy");
     let view = recovered
         .read_source_pins(recovered_access.clone(), chapter.head.document_id.clone())
@@ -602,7 +602,7 @@ fn transfer_allows_stale_source_ids_so_the_author_can_remove_them() {
     drop(connection);
 
     let reopened = ProjectSession::open(&source_path).expect("reopen source");
-    let reopened_access = reopened.attach("stale-source-session".into()).unwrap();
+    let reopened_access = reopened.documents().attach("stale-source-session".into()).unwrap();
     let replay = reopened
         .save_source_pins(SaveSourcePins {
             access: reopened_access.clone(),
@@ -620,7 +620,7 @@ fn transfer_allows_stale_source_ids_so_the_author_can_remove_them() {
         .expect("recover stale source pin");
     let view = recovered
         .read_source_pins(
-            recovered.attach("stale-recovered".into()).unwrap(),
+            recovered.documents().attach("stale-recovered".into()).unwrap(),
             "chapter-one".into(),
         )
         .expect("read stale source pin for removal");
@@ -747,7 +747,7 @@ fn foreign_project_access_cannot_read_or_save_source_pins() {
     let temp = TempDir::new();
     let (project, access, _) = setup(&temp.child("project-one"));
     let foreign = ProjectSession::create(temp.child("project-two"), "Foreign").unwrap();
-    let foreign_access = foreign.attach("foreign-session".into()).unwrap();
+    let foreign_access = foreign.documents().attach("foreign-session".into()).unwrap();
     let read = project
         .read_source_pins(foreign_access.clone(), "chapter-one".into())
         .unwrap_err();

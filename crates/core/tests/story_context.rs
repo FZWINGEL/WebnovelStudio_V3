@@ -28,7 +28,7 @@ impl Fixture {
         let root = std::env::temp_dir().join(format!("wns-context-{}", Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let project = ProjectSession::create(root.join("story"), "Test story").unwrap();
-        let access = project.attach("context-test".into()).unwrap();
+        let access = project.documents().attach("context-test".into()).unwrap();
         Self {
             _cleanup: Cleanup(root.clone()),
             root,
@@ -38,7 +38,7 @@ impl Fixture {
     }
     fn document(&self, id: &str, kind: &str, text: &str) -> DocumentRecord {
         self.project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: self.access.clone(),
                 operation_id: Uuid::new_v4().to_string(),
                 document_id: id.into(),
@@ -90,7 +90,7 @@ impl Fixture {
     }
     fn save(&self, document: &DocumentRecord, text: &str) {
         self.project
-            .save(SaveSnapshot {
+            .documents().save(SaveSnapshot {
                 access: self.access.clone(),
                 operation_id: Uuid::new_v4().to_string(),
                 expected: document.head.clone(),
@@ -185,7 +185,7 @@ fn frozen_snapshot_and_retry_survive_restart_without_repinning_newer_text() {
     } = f;
     drop(project);
     let reopened = ProjectSession::open(path).unwrap();
-    let access = reopened.attach("restarted".into()).unwrap();
+    let access = reopened.documents().attach("restarted".into()).unwrap();
     let restored = reopened
         .story_snapshot(access.clone(), frozen.snapshot.snapshot_id.clone())
         .unwrap();
@@ -366,7 +366,7 @@ fn repeated_unicode_quotes_keep_distinct_utf16_anchors_and_aliases_are_snapshot_
 fn document_aliases_read_is_authorized_atomic_and_cas_bound() {
     let f = Fixture::new();
     let document = f.document("aliases", "character", "The body remains unchanged.");
-    let before = f.project.document(f.access.clone(), document.head.document_id.clone()).unwrap();
+    let before = f.project.documents().read(f.access.clone(), document.head.document_id.clone()).unwrap();
     let initial = f
         .project
         .read_document_aliases(f.access.clone(), document.head.document_id.clone())
@@ -393,7 +393,7 @@ fn document_aliases_read_is_authorized_atomic_and_cas_bound() {
         .unwrap();
     assert_eq!(current.aliases, vec!["Mei", "Méi", "梅"]);
     assert_eq!(current.source_epoch, changed.source);
-    let after = f.project.document(f.access.clone(), document.head.document_id.clone()).unwrap();
+    let after = f.project.documents().read(f.access.clone(), document.head.document_id.clone()).unwrap();
     assert_eq!(after.head, before.head);
     assert_eq!(after.title, before.title);
     assert_eq!(after.body, before.body);
@@ -427,7 +427,7 @@ fn document_aliases_read_is_authorized_atomic_and_cas_bound() {
         "WrongProjectSession"
     );
     let detached = f.access.clone();
-    f.project.attach("aliases-new-session".into()).unwrap();
+    f.project.documents().attach("aliases-new-session".into()).unwrap();
     assert_eq!(
         f.project
             .read_document_aliases(detached, document.head.document_id.clone())
@@ -439,7 +439,7 @@ fn document_aliases_read_is_authorized_atomic_and_cas_bound() {
     let root = f.root.clone();
     drop(f.project);
     let reopened = ProjectSession::open(root.join("story")).unwrap();
-    let reopened_access = reopened.attach("aliases-reopened".into()).unwrap();
+    let reopened_access = reopened.documents().attach("aliases-reopened".into()).unwrap();
     assert_eq!(
         reopened
             .read_document_aliases(reopened_access, document.head.document_id)
@@ -495,7 +495,7 @@ fn project_switch_and_recovery_cannot_redirect_old_snapshot_handles() {
     let document = f.document("chapter", "chapter", "Only in this project.");
     let frozen = f.freeze(&document);
     let other = ProjectSession::create(f.root.join("other"), "Other").unwrap();
-    let other_access = other.attach("other".into()).unwrap();
+    let other_access = other.documents().attach("other".into()).unwrap();
     assert_eq!(
         other
             .story_snapshot(other_access, frozen.snapshot.snapshot_id.clone())
@@ -506,7 +506,7 @@ fn project_switch_and_recovery_cannot_redirect_old_snapshot_handles() {
     let archive = f.root.join("backup.wnsbackup");
     create_backup(&f.project, &archive).unwrap();
     let recovered = recover_backup(&archive, &f.root.join("recovered"), "Recovered").unwrap();
-    let access = recovered.attach("recovered".into()).unwrap();
+    let access = recovered.documents().attach("recovered".into()).unwrap();
     assert_eq!(
         recovered
             .story_snapshot(access.clone(), frozen.snapshot.snapshot_id.clone())
@@ -593,7 +593,7 @@ fn cold_snapshot_cost_is_measured_on_large_synthetic_story() {
     drop(db);
     let target = f
         .project
-        .document(f.access.clone(), "chapter-999".into())
+        .documents().read(f.access.clone(), "chapter-999".into())
         .unwrap();
     let start = Instant::now();
     let frozen = f.freeze(&target);

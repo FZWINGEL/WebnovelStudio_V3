@@ -479,6 +479,32 @@ costs. That is the honest price of D2 and it does not shrink until the last grou
 `interrupt` — for the background-work census, which is read on two unrelated paths (the
 project-chat write path and the app-close sequence) that each need three operations out of 28.
 
+**The DocumentApi facade** (`projects/document_api.rs`) is the largest and was done last for a
+reason. Eleven of the 28 methods are document operations — attach, create, read, list, save,
+checkpoint, history, reconcile, the two view-state calls and the attachment snapshot — and they
+are the ones that actually widen the session's surface. 692 call sites across 62 files moved.
+
+It is also the only facade whose migration could not rely on the rewrite being complete.
+`attach` and `save` are generic names; `OwnedProject` implements every method here, and so do
+test fixtures — `f.save(...)` and `fixture.reconcile(...)` are *different types with the same
+names*, living in the same files as the session's callers. A rewrite keyed on the method name
+would have corrupted them.
+
+So the order was inverted: **the session's methods were removed first**, and the compiler then
+enumerated every remaining call site. A missed receiver or a wrong receiver both became build
+errors rather than silent mis-dispatch. That loop found what four passes of pattern-matching had
+missed — the chained form (`project\n  .documents(…)`, whose receiver is on a previous line),
+`projects.rs`'s own `#[cfg(test)]` module, `transfer.rs`, and two method-call receivers
+(`fixture.project().attach(…)`). It also caught two over-applications where a later pattern
+re-matched its own output (`.documents().list().list(…)`), which the compiler reported as a
+0-argument call.
+
+This is the reusable part, and it supersedes the "a method name does not identify a type"
+warning from the earlier facades: **when the call sites cannot be enumerated reliably, delete
+the old surface and let the compiler enumerate them.** Pattern-matching is a guess about
+completeness; removing the method makes completeness the compiler's problem, and the compiler
+does not forget the test tree.
+
 **The ProjectApi facade** (`projects/project_api.rs`) covers project-level lifecycle and
 inspection — `metadata`, the two renames, and the storage report — for the library and transfer
 paths that need nothing else. Four methods instead of 28. `OwnedProject` implements all four as
@@ -611,18 +637,15 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
 
 **Not yet done, and the next three steps in dependency order.**
 
-1. **`ProjectSession` facades (step 5).** Now unblocked and now measurable: 28 public methods
-   with **166 call sites** across the tree, and `request` alone has 94. This is the gate on
-   everything below it. It is an interface change only — the actor, the channel and the
-   ordering guarantees stay — so the existing suite is the contract.
-2. **`context/packet.rs` (step 6).** Still 3,462 lines, still the file §3.4 describes as the
+1. **`context/packet.rs` (step 6).** Still 3,462 lines, still the file §3.4 describes as the
    hardest. Its `projects::{project_chat_output, story_context, workshop_generation}` imports
    are the inversion to perform.
-3. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)**, then `wns-transfer` and
-   `wns-library` (step 8), then `wns-app` (step 9). Note that `wns-library` *cannot* move
-   before step 5: `webnovel-core/src/library.rs` reaches `ProjectSession` and
-   `projects::import` directly, and a layered crate may not depend on the crate under
-   decomposition — `crates/architecture` will refuse it.
+2. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)**, then `wns-transfer` and
+   `wns-library` (step 8), then `wns-app` (step 9). `wns-library` was blocked on step 5 and no
+   longer is — `library.rs` now reaches `ProjectSession::documents()` and `project()` instead
+   of the flat 28-method surface — but `projects::import` is still a direct module import and
+   must be inverted before it can move. `crates/architecture` will refuse the backward edge if
+   it is attempted too early.
 
 On the frontend, §4.1 (feature slices), §4.4 (generated IPC) and §4.5 (shell reduction) remain.
 §4.4 is the largest remaining correctness win: D6 — 255 hand-written type mirrors across 22

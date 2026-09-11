@@ -110,7 +110,7 @@ impl DesktopProjects {
                 .values()
                 .find(|p| Some(&p.path) == resolved.as_ref())
         {
-            let attached = project.attach_snapshot(session)?;
+            let attached = project.documents().attach_snapshot(session)?;
             let metadata = attached.metadata;
             return Ok(OpenedProject {
                 project: metadata.project,
@@ -131,7 +131,7 @@ impl DesktopProjects {
                 "A different folder with this project identity is already open. Recover or duplicate it with a new identity.",
             ));
         }
-        let attached = project.attach_snapshot(session)?;
+        let attached = project.documents().attach_snapshot(session)?;
         let metadata = attached.metadata;
         let opened = OpenedProject {
             project: metadata.project,
@@ -161,7 +161,7 @@ impl DesktopProjects {
                 "This project identity is already open.",
             ));
         }
-        let attached = project.attach_snapshot(session)?;
+        let attached = project.documents().attach_snapshot(session)?;
         let metadata = attached.metadata;
         let opened = OpenedProject {
             project: metadata.project,
@@ -230,7 +230,7 @@ pub async fn reconcile_project(
 ) -> CoreResult<OpenedProject> {
     let project = state.project(&project_id)?;
     execute(move || {
-        let attached = project.attach_snapshot(session)?;
+        let attached = project.documents().attach_snapshot(session)?;
         let metadata = attached.metadata;
         Ok(OpenedProject {
             project: metadata.project,
@@ -249,7 +249,7 @@ pub async fn create_document(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<DocumentRecord> {
     let project = state.project(&request.access.project_id)?;
-    execute(move || project.create_document(request)).await
+    execute(move || project.documents().create(request)).await
 }
 #[tauri::command]
 pub async fn list_documents(
@@ -257,7 +257,7 @@ pub async fn list_documents(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<Vec<DocumentRecord>> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.documents(access)).await
+    execute(move || project.documents().list(access)).await
 }
 #[tauri::command]
 pub async fn read_document(
@@ -266,7 +266,7 @@ pub async fn read_document(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<DocumentRecord> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.document(access, document_id)).await
+    execute(move || project.documents().read(access, document_id)).await
 }
 #[tauri::command]
 pub async fn save_snapshot(
@@ -274,7 +274,7 @@ pub async fn save_snapshot(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<SaveAck> {
     let project = state.project(&request.access.project_id)?;
-    execute(move || project.save(request)).await
+    execute(move || project.documents().save(request)).await
 }
 #[tauri::command]
 pub async fn reconcile_document(
@@ -282,7 +282,7 @@ pub async fn reconcile_document(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<ReconciledDocument> {
     let project = state.project(&request.project_id)?;
-    execute(move || project.reconcile(request)).await
+    execute(move || project.documents().reconcile(request)).await
 }
 #[tauri::command]
 pub async fn checkpoint_document(
@@ -290,7 +290,7 @@ pub async fn checkpoint_document(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<Revision> {
     let project = state.project(&request.access.project_id)?;
-    execute(move || project.checkpoint(request)).await
+    execute(move || project.documents().checkpoint(request)).await
 }
 #[tauri::command]
 pub async fn document_history(
@@ -299,7 +299,7 @@ pub async fn document_history(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<Vec<Revision>> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.history(access, document_id)).await
+    execute(move || project.documents().history(access, document_id)).await
 }
 
 #[tauri::command]
@@ -353,7 +353,7 @@ pub async fn read_view_state(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<Option<ViewState>> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.view_state(access)).await
+    execute(move || project.documents().view_state(access)).await
 }
 #[tauri::command]
 pub async fn save_view_state(
@@ -364,5 +364,5 @@ pub async fn save_view_state(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<ViewState> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.save_view_state(access, head, anchor, focus)).await
+    execute(move || project.documents().save_view_state(access, head, anchor, focus)).await
 }

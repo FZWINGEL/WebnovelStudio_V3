@@ -56,9 +56,9 @@ fn setup() -> (
 ) {
     let temp = TempDir::new();
     let project = ProjectSession::create(temp.child("project"), "Lookup test").expect("create");
-    let access = project.attach("lookup-session".into()).expect("attach");
+    let access = project.documents().attach("lookup-session".into()).expect("attach");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),

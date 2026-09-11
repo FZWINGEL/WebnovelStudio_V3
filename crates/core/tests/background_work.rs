@@ -63,7 +63,7 @@ fn document(
     operation_id: &str,
 ) -> DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: operation_id.into(),
             document_id: id.into(),
@@ -132,7 +132,7 @@ fn item<'a>(
 fn census_and_exact_stop_cover_discussion_and_memory_without_document_mutation() {
     let temp = TempDir::new("census-stop");
     let project = ProjectSession::create(temp.child("project"), "Background work").unwrap();
-    let access = project.attach("background-session".into()).unwrap();
+    let access = project.documents().attach("background-session".into()).unwrap();
     let first = document(
         &project,
         &access,
@@ -243,27 +243,27 @@ fn census_and_exact_stop_cover_discussion_and_memory_without_document_mutation()
 
     assert_eq!(
         project
-            .document(access.clone(), "chapter-one".into())
+            .documents().read(access.clone(), "chapter-one".into())
             .unwrap()
             .head,
         first.head
     );
     assert_eq!(
         project
-            .document(access.clone(), "chapter-one".into())
+            .documents().read(access.clone(), "chapter-one".into())
             .unwrap()
             .body,
         first.body
     );
     assert_eq!(
         project
-            .document(access.clone(), "chapter-two".into())
+            .documents().read(access.clone(), "chapter-two".into())
             .unwrap()
             .head,
         second.head
     );
     assert_eq!(
-        project.document(access, "chapter-two".into()).unwrap().body,
+        project.documents().read(access, "chapter-two".into()).unwrap().body,
         second.body
     );
 }
@@ -272,7 +272,7 @@ fn census_and_exact_stop_cover_discussion_and_memory_without_document_mutation()
 fn interrupt_exact_census_preserves_partial_output_and_leaves_new_jobs_alive() {
     let temp = TempDir::new("interrupt-census");
     let project = ProjectSession::create(temp.child("project"), "Interrupt census").unwrap();
-    let access = project.attach("interrupt-session".into()).unwrap();
+    let access = project.documents().attach("interrupt-session".into()).unwrap();
     let first = document(
         &project,
         &access,
@@ -352,13 +352,13 @@ fn interrupt_exact_census_preserves_partial_output_and_leaves_new_jobs_alive() {
     assert_eq!(remaining.items[0].status, BackgroundWorkStatus::Queued);
     assert_eq!(
         project
-            .document(access.clone(), "chapter-one".into())
+            .documents().read(access.clone(), "chapter-one".into())
             .unwrap()
             .head,
         first.head
     );
     assert_eq!(
-        project.document(access, "chapter-two".into()).unwrap().body,
+        project.documents().read(access, "chapter-two".into()).unwrap().body,
         second.body
     );
 }
@@ -367,7 +367,7 @@ fn interrupt_exact_census_preserves_partial_output_and_leaves_new_jobs_alive() {
 fn stop_keeps_partial_errors_inspectable_and_rejects_bad_census_items() {
     let temp = TempDir::new("partial-stop");
     let project = ProjectSession::create(temp.child("project"), "Partial stop").unwrap();
-    let access = project.attach("partial-session".into()).unwrap();
+    let access = project.documents().attach("partial-session".into()).unwrap();
     let first = document(&project, &access, "first", "First", "first", "create-first");
     let second = document(
         &project,
@@ -447,7 +447,7 @@ fn stop_keeps_partial_errors_inspectable_and_rejects_bad_census_items() {
 fn recovery_copy_filters_historical_namespace_and_unattached_session_requires_recovery() {
     let temp = TempDir::new("recovery-copy");
     let source = ProjectSession::create(temp.child("source"), "Source").unwrap();
-    let source_access = source.attach("source-session".into()).unwrap();
+    let source_access = source.documents().attach("source-session".into()).unwrap();
     let source_doc = document(
         &source,
         &source_access,
@@ -472,7 +472,7 @@ fn recovery_copy_filters_historical_namespace_and_unattached_session_requires_re
         recovered.work().census().unwrap_err().code,
         "RecoveryRequired"
     );
-    let recovered_access = recovered.attach("recovered-session".into()).unwrap();
+    let recovered_access = recovered.documents().attach("recovered-session".into()).unwrap();
     assert!(recovered.work().census().unwrap().items.is_empty());
 
     // Make a retained historical row look active under the source identity;
@@ -488,7 +488,7 @@ fn recovery_copy_filters_historical_namespace_and_unattached_session_requires_re
     assert!(recovered.work().census().unwrap().items.is_empty());
     assert_eq!(
         recovered
-            .document(recovered_access, "chapter".into())
+            .documents().read(recovered_access, "chapter".into())
             .unwrap()
             .title,
         "Source Chapter"
@@ -499,7 +499,7 @@ fn recovery_copy_filters_historical_namespace_and_unattached_session_requires_re
 fn attach_snapshot_reads_latest_head_before_retiring_old_session() {
     let temp = TempDir::new("attach-snapshot");
     let project = ProjectSession::create(temp.child("project"), "Attach snapshot").unwrap();
-    let old_access = project.attach("old-session".into()).unwrap();
+    let old_access = project.documents().attach("old-session".into()).unwrap();
     let initial = document(
         &project,
         &old_access,
@@ -510,7 +510,7 @@ fn attach_snapshot_reads_latest_head_before_retiring_old_session() {
     );
     let changed = body("after");
     let saved = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: old_access.clone(),
             operation_id: "save-after".into(),
             expected: initial.head.clone(),
@@ -519,10 +519,10 @@ fn attach_snapshot_reads_latest_head_before_retiring_old_session() {
             cause: SaveCause::Typing,
         })
         .unwrap();
-    let attached = project.attach_snapshot("new-session".into()).unwrap();
+    let attached = project.documents().attach_snapshot("new-session".into()).unwrap();
     assert_eq!(attached.documents[0].head, saved.head);
     assert_eq!(attached.documents[0].body, changed);
     assert_eq!(attached.access.session, "new-session");
-    let error = project.document(old_access, "chapter".into()).unwrap_err();
+    let error = project.documents().read(old_access, "chapter".into()).unwrap_err();
     assert_eq!(error.code, "WriterLeaseExpired");
 }

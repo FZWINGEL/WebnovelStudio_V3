@@ -108,7 +108,7 @@ fn read(
 fn current_history_requires_exact_project_namespace_and_conversation_identity() {
     let temp = Temp::new();
     let project = ProjectSession::create(temp.0.join("project"), "History access").unwrap();
-    let access = project.attach("history-session".into()).unwrap();
+    let access = project.documents().attach("history-session".into()).unwrap();
     let reference = finished_project_chat(&project, &access, "history-current");
 
     let history = read(&project, &access, reference.clone()).unwrap();
@@ -145,14 +145,14 @@ fn current_history_requires_exact_project_namespace_and_conversation_identity() 
 fn recovered_project_can_read_original_history_but_current_identity_is_separate() {
     let temp = Temp::new();
     let source = ProjectSession::create(temp.0.join("source"), "History recovery").unwrap();
-    let source_access = source.attach("history-source".into()).unwrap();
+    let source_access = source.documents().attach("history-source".into()).unwrap();
     let reference = finished_project_chat(&source, &source_access, "history-recovered");
     let backup = temp.0.join("history.wnsbackup");
     create_backup(&source, &backup).unwrap();
 
     let recovered_path = temp.0.join("recovered");
     let recovered = recover_backup(&backup, &recovered_path, "Recovered history").unwrap();
-    let recovered_access = recovered.attach("history-recovered".into()).unwrap();
+    let recovered_access = recovered.documents().attach("history-recovered".into()).unwrap();
     let current = recovered
         .read_project_conversation(ReadProjectConversation {
             access: recovered_access.clone(),

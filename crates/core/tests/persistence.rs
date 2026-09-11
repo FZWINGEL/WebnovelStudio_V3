@@ -32,9 +32,9 @@ fn body(text: &str) -> Value {
     json!({"schemaVersion":1,"body":{"type":"doc","content":[block]}})
 }
 fn setup(project: &ProjectSession) -> (ProjectAccess, DocumentRecord) {
-    let access = project.attach("renderer-one".into()).unwrap();
+    let access = project.documents().attach("renderer-one".into()).unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "new-document".into(),
             document_id: "chapter-one".into(),
@@ -63,7 +63,7 @@ fn save(
 }
 fn reconcile(project: &ProjectSession, session: &str, ids: &[&str]) -> ReconciledDocument {
     project
-        .reconcile(ReconcileRequest {
+        .documents().reconcile(ReconcileRequest {
             project_id: project.info.project_id.clone(),
             operation_namespace: project.info.operation_namespace.clone(),
             session: session.into(),
@@ -86,7 +86,7 @@ fn file_backed_save_reopen_and_durability_configuration() {
     assert!(!info.sqlite_source_id.is_empty());
     assert!(!info.compile_options.is_empty());
     let ack = project
-        .save(save(
+        .documents().save(save(
             &access,
             &document.head,
             "save-one",
@@ -114,27 +114,27 @@ fn receipt_replay_is_idempotent_and_payload_and_kind_are_bound() {
     let project = temp.create();
     let (access, doc) = setup(&project);
     let request = save(&access, &doc.head, "save-one", "1", "A lantern.");
-    let first = project.save(request.clone()).unwrap();
-    assert_eq!(project.save(request.clone()).unwrap(), first);
+    let first = project.documents().save(request.clone()).unwrap();
+    assert_eq!(project.documents().save(request.clone()).unwrap(), first);
     let mut changed = request.clone();
     changed.body = body("Another lantern.");
     assert_eq!(
-        project.save(changed).unwrap_err().code,
+        project.documents().save(changed).unwrap_err().code,
         "OperationIdReusedWithDifferentPayload"
     );
     let mut changed = request;
     changed.local_generation = "2".into();
     assert_eq!(
-        project.save(changed).unwrap_err().code,
+        project.documents().save(changed).unwrap_err().code,
         "OperationIdReusedWithDifferentPayload"
     );
     let reused_kind = save(&access, &doc.head, "new-document", "0", "");
     assert_eq!(
-        project.save(reused_kind).unwrap_err().code,
+        project.documents().save(reused_kind).unwrap_err().code,
         "OperationIdReusedWithDifferentPayload"
     );
     assert_eq!(
-        project.document(access, "chapter-one".into()).unwrap().head,
+        project.documents().read(access, "chapter-one".into()).unwrap().head,
         first.head
     );
 }
@@ -145,10 +145,10 @@ fn exact_version_and_hash_cas_and_canonical_decimal_versions() {
     let project = temp.create();
     let (access, doc) = setup(&project);
     let first = project
-        .save(save(&access, &doc.head, "save-one", "1", "A lantern."))
+        .documents().save(save(&access, &doc.head, "save-one", "1", "A lantern."))
         .unwrap();
     let error = project
-        .save(save(&access, &doc.head, "late-save", "2", "Old body"))
+        .documents().save(save(&access, &doc.head, "late-save", "2", "Old body"))
         .unwrap_err();
     assert_eq!(error.code, "VersionConflict");
     assert_eq!(error.current_head, Some(first.head.clone()));
@@ -156,7 +156,7 @@ fn exact_version_and_hash_cas_and_canonical_decimal_versions() {
     wrong.body_hash = doc.head.body_hash;
     assert_eq!(
         project
-            .save(save(&access, &wrong, "wrong-hash", "2", "Bad"))
+            .documents().save(save(&access, &wrong, "wrong-hash", "2", "Bad"))
             .unwrap_err()
             .code,
         "VersionConflict"
@@ -166,7 +166,7 @@ fn exact_version_and_hash_cas_and_canonical_decimal_versions() {
         wrong.version = version.into();
         assert_eq!(
             project
-                .save(save(&access, &wrong, "wrong-version", "2", "Bad"))
+                .documents().save(save(&access, &wrong, "wrong-version", "2", "Bad"))
                 .unwrap_err()
                 .code,
             "InvalidRequest"
@@ -180,13 +180,13 @@ fn a_noop_save_has_a_receipt_without_bumping_version() {
     let project = temp.create();
     let (access, doc) = setup(&project);
     let ack = project
-        .save(save(&access, &doc.head, "noop", "77", ""))
+        .documents().save(save(&access, &doc.head, "noop", "77", ""))
         .unwrap();
     assert_eq!(ack.head, doc.head);
     assert_eq!(ack.saved_generation, "77");
     assert!(
         project
-            .history(access, "chapter-one".into())
+            .documents().history(access, "chapter-one".into())
             .unwrap()
             .is_empty()
     );
@@ -204,28 +204,28 @@ fn reconciliation_fences_old_writes_and_returns_latest_not_receipt_head() {
     let project = temp.create();
     let (access, doc) = setup(&project);
     let original = save(&access, &doc.head, "first", "1", "First");
-    let first = project.save(original.clone()).unwrap();
+    let first = project.documents().save(original.clone()).unwrap();
     let second = project
-        .save(save(&access, &first.head, "second", "2", "Newer"))
+        .documents().save(save(&access, &first.head, "second", "2", "Newer"))
         .unwrap();
     let recovered = reconcile(&project, "renderer-two", &["first", "missing"]);
     assert_eq!(recovered.document.head, second.head);
     assert_eq!(recovered.receipts[0].result.head, first.head);
     assert_eq!(
         project
-            .save(save(&access, &second.head, "late", "3", "Late"))
+            .documents().save(save(&access, &second.head, "late", "3", "Late"))
             .unwrap_err()
             .code,
         "WriterLeaseExpired"
     );
     let mut replay = original;
     replay.access = recovered.access.clone();
-    let ack = project.save(replay).unwrap();
+    let ack = project.documents().save(replay).unwrap();
     assert_eq!(ack.head, first.head);
     assert_eq!(ack.session, "renderer-two");
     assert_eq!(
         project
-            .document(recovered.access, "chapter-one".into())
+            .documents().read(recovered.access, "chapter-one".into())
             .unwrap()
             .head,
         second.head
@@ -239,11 +239,11 @@ fn retired_renderer_cannot_reacquire_a_lease_with_a_late_reconciliation() {
     let (old, doc) = setup(&project);
     let current = reconcile(&project, "new-renderer", &[]);
     assert_eq!(
-        project.attach(old.session.clone()).unwrap_err().code,
+        project.documents().attach(old.session.clone()).unwrap_err().code,
         "WriterLeaseExpired"
     );
     let error = project
-        .reconcile(ReconcileRequest {
+        .documents().reconcile(ReconcileRequest {
             project_id: old.project_id,
             operation_namespace: old.operation_namespace,
             session: old.session,
@@ -253,7 +253,7 @@ fn retired_renderer_cannot_reacquire_a_lease_with_a_late_reconciliation() {
         .unwrap_err();
     assert_eq!(error.code, "WriterLeaseExpired");
     project
-        .save(save(
+        .documents().save(save(
             &current.access,
             &doc.head,
             "current-save",
@@ -279,10 +279,10 @@ fn uncertain_commit_in_save_create_or_checkpoint_fences_and_reopens() {
         connection.execute_batch(&format!("CREATE TRIGGER inject_commit_failure AFTER INSERT ON {table} BEGIN INSERT INTO deferred_fault VALUES('missing-document'); END;")).unwrap();
         let error = match kind {
             "save" => project
-                .save(save(&access, &doc.head, "fault", "1", "Uncommitted"))
+                .documents().save(save(&access, &doc.head, "fault", "1", "Uncommitted"))
                 .unwrap_err(),
             "create" => project
-                .create_document(CreateDocument {
+                .documents().create(CreateDocument {
                     access: access.clone(),
                     operation_id: "fault".into(),
                     document_id: "new".into(),
@@ -292,7 +292,7 @@ fn uncertain_commit_in_save_create_or_checkpoint_fences_and_reopens() {
                 })
                 .unwrap_err(),
             _ => project
-                .checkpoint(CheckpointRequest {
+                .documents().checkpoint(CheckpointRequest {
                     access: access.clone(),
                     expected: doc.head.clone(),
                     reason: CheckpointReason::Manual,
@@ -301,12 +301,12 @@ fn uncertain_commit_in_save_create_or_checkpoint_fences_and_reopens() {
         };
         assert_eq!(error.code, "UncertainOutcome", "{kind}");
         assert_eq!(
-            project.attach(access.session.clone()).unwrap_err().code,
+            project.documents().attach(access.session.clone()).unwrap_err().code,
             "UncertainOutcome"
         );
         assert!(
             project
-                .save(save(&access, &doc.head, "must-not-write", "2", "Blocked"))
+                .documents().save(save(&access, &doc.head, "must-not-write", "2", "Blocked"))
                 .is_err()
         );
         connection
@@ -318,13 +318,13 @@ fn uncertain_commit_in_save_create_or_checkpoint_fences_and_reopens() {
         assert!(recovered.receipts.is_empty());
         assert!(
             project
-                .history(recovered.access.clone(), "chapter-one".into())
+                .documents().history(recovered.access.clone(), "chapter-one".into())
                 .unwrap()
                 .is_empty()
         );
         assert_eq!(project.project().storage().unwrap().synchronous, 2);
         project
-            .save(save(
+            .documents().save(save(
                 &recovered.access,
                 &doc.head,
                 "after-recovery",
@@ -344,7 +344,7 @@ fn project_identity_and_namespace_are_checked_on_every_write() {
     let pb = b.create();
     let (ab, db) = setup(&pb);
     assert_eq!(
-        pa.save(save(&ab, &da.head, "wrong-project", "1", "No"))
+        pa.documents().save(save(&ab, &da.head, "wrong-project", "1", "No"))
             .unwrap_err()
             .code,
         "WrongProjectSession"
@@ -352,17 +352,17 @@ fn project_identity_and_namespace_are_checked_on_every_write() {
     let mut wrong = aa.clone();
     wrong.operation_namespace = ab.operation_namespace.clone();
     assert_eq!(
-        pa.save(save(&wrong, &da.head, "wrong-namespace", "1", "No"))
+        pa.documents().save(save(&wrong, &da.head, "wrong-namespace", "1", "No"))
             .unwrap_err()
             .code,
         "WrongProjectSession"
     );
     assert_eq!(
-        pb.document(ab.clone(), "chapter-one".into()).unwrap().head,
+        pb.documents().read(ab.clone(), "chapter-one".into()).unwrap().head,
         db.head
     );
     assert!(
-        pa.reconcile(ReconcileRequest {
+        pa.documents().reconcile(ReconcileRequest {
             project_id: pa.info.project_id.clone(),
             operation_namespace: "old-namespace".into(),
             session: "a".into(),
@@ -383,20 +383,20 @@ fn checkpoints_are_immutable_reused_and_owned_by_the_document() {
         expected: doc.head.clone(),
         reason: CheckpointReason::Manual,
     };
-    let before = project.checkpoint(request.clone()).unwrap();
-    assert_eq!(project.checkpoint(request).unwrap().id, before.id);
+    let before = project.documents().checkpoint(request.clone()).unwrap();
+    assert_eq!(project.documents().checkpoint(request).unwrap().id, before.id);
     let mut change = save(&access, &doc.head, "undo", "1", "Reverted prose");
     change.cause = SaveCause::Undo;
-    let after = project.save(change).unwrap();
+    let after = project.documents().save(change).unwrap();
     let history = project
-        .history(access.clone(), "chapter-one".into())
+        .documents().history(access.clone(), "chapter-one".into())
         .unwrap();
     assert_eq!(history.len(), 2);
     assert_eq!(history[0].head, after.head);
     assert_eq!(history[0].parent_id, Some(before.id.clone()));
     assert_eq!(
         project
-            .checkpoint(CheckpointRequest {
+            .documents().checkpoint(CheckpointRequest {
                 access,
                 expected: doc.head,
                 reason: CheckpointReason::Source
@@ -441,19 +441,19 @@ fn transaction_failure_after_document_update_rolls_back_body_checkpoint_and_rece
     let mut request = save(&access, &doc.head, "fault", "1", "Should roll back");
     request.cause = SaveCause::Undo;
     assert_eq!(
-        project.save(request).unwrap_err().code,
+        project.documents().save(request).unwrap_err().code,
         "PersistenceUnavailable"
     );
     assert_eq!(
         project
-            .document(access.clone(), "chapter-one".into())
+            .documents().read(access.clone(), "chapter-one".into())
             .unwrap()
             .head,
         doc.head
     );
     assert!(
         project
-            .history(access, "chapter-one".into())
+            .documents().history(access, "chapter-one".into())
             .unwrap()
             .is_empty()
     );
@@ -515,9 +515,9 @@ fn malformed_snapshot_leaves_working_body_and_receipts_untouched() {
     let (access, doc) = setup(&project);
     let mut request = save(&access, &doc.head, "malformed", "1", "No");
     request.body["body"]["content"][0]["attrs"]["unexpected"] = json!(true);
-    assert_eq!(project.save(request).unwrap_err().code, "InvalidDocument");
+    assert_eq!(project.documents().save(request).unwrap_err().code, "InvalidDocument");
     assert_eq!(
-        project.document(access, "chapter-one".into()).unwrap().head,
+        project.documents().read(access, "chapter-one".into()).unwrap().head,
         doc.head
     );
     assert!(reconcile(&project, "r", &["malformed"]).receipts.is_empty());
@@ -529,14 +529,14 @@ fn checkpoint_parent_cannot_cross_documents_even_through_sql() {
     let project = temp.create();
     let (access, doc) = setup(&project);
     let revision = project
-        .checkpoint(CheckpointRequest {
+        .documents().checkpoint(CheckpointRequest {
             access: access.clone(),
             expected: doc.head,
             reason: CheckpointReason::Manual,
         })
         .unwrap();
     let other = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access,
             operation_id: "another".into(),
             document_id: "other".into(),

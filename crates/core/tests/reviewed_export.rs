@@ -60,9 +60,9 @@ fn setup() -> (
     let root = std::env::temp_dir().join(format!("wns-reviewed-export-{}", Uuid::new_v4()));
     fs::create_dir(&root).unwrap();
     let project = ProjectSession::create(root.join("story"), "Reviewed export").unwrap();
-    let access = project.attach("reviewed-export".into()).unwrap();
+    let access = project.documents().attach("reviewed-export".into()).unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter".into(),
@@ -82,7 +82,7 @@ fn chapter(
     operation: &str,
 ) -> webnovel_core::projects::DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: operation.into(),
             document_id: id.into(),
@@ -199,7 +199,7 @@ fn reviewed_preview_uses_exact_txt_and_markdown_bytes_without_checkpoint() {
     let (cleanup, project, access, document) = setup();
     let bundle_id = mark_ready(&project, &access, &document, "chapter");
     let history_len = project
-        .history(access.clone(), document.head.document_id.clone())
+        .documents().history(access.clone(), document.head.document_id.clone())
         .unwrap()
         .len();
 
@@ -219,7 +219,7 @@ fn reviewed_preview_uses_exact_txt_and_markdown_bytes_without_checkpoint() {
     assert_eq!(plain.utf8_bytes as usize, plain.preview_text.len());
     assert_eq!(
         project
-            .history(access.clone(), "chapter".into())
+            .documents().history(access.clone(), "chapter".into())
             .unwrap()
             .len(),
         history_len
@@ -298,7 +298,7 @@ fn reviewed_install_refuses_target_change_earlier_basis_and_policy_without_file(
         Some(bundle_id.as_str())
     );
     let changed = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "change-target".into(),
             expected: document.head.clone(),
@@ -334,7 +334,7 @@ fn reviewed_install_refuses_target_change_earlier_basis_and_policy_without_file(
     )
     .unwrap();
     earlier_project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: earlier_access.clone(),
             operation_id: "change-earlier".into(),
             expected: earlier.head,
@@ -390,7 +390,7 @@ fn historical_reviewed_record_survives_new_bundle_and_recovered_copy_loses_autho
     );
 
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "new-review-prose".into(),
             expected: document.head,
@@ -399,7 +399,7 @@ fn historical_reviewed_record_survives_new_bundle_and_recovered_copy_loses_autho
             cause: SaveCause::Typing,
         })
         .unwrap();
-    let changed_document = project.document(access.clone(), "chapter".into()).unwrap();
+    let changed_document = project.documents().read(access.clone(), "chapter".into()).unwrap();
     let new_bundle = mark_ready(&project, &access, &changed_document, "new");
     assert_ne!(new_bundle, old_bundle);
     let historical = project
@@ -435,9 +435,9 @@ fn historical_reviewed_record_survives_new_bundle_and_recovered_copy_loses_autho
         .unwrap();
     assert_eq!(retained_bundle, old_bundle);
     drop(connection);
-    let recovered_access = recovered.attach("recovered-review".into()).unwrap();
+    let recovered_access = recovered.documents().attach("recovered-review".into()).unwrap();
     let recovered_head = recovered
-        .document(recovered_access.clone(), "chapter".into())
+        .documents().read(recovered_access.clone(), "chapter".into())
         .unwrap()
         .head;
     let error = prepare_reviewed_draft_export(

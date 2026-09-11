@@ -48,7 +48,7 @@ fn setup(name: &str) -> (Cleanup, ProjectSession, ProjectAccess) {
     let project = ProjectSession::create(root.join("story"), "Reviewed summary context test")
         .expect("create project");
     let access = project
-        .attach(format!("reviewed-summary-{name}"))
+        .documents().attach(format!("reviewed-summary-{name}"))
         .expect("attach project");
     (Cleanup(root), project, access)
 }
@@ -61,7 +61,7 @@ fn chapter(
     text: &str,
 ) -> DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: format!("create-{id}"),
             document_id: id.into(),
@@ -570,7 +570,7 @@ fn accepted_summary_remains_readable_in_historical_snapshot_after_source_edit() 
     let summary_text = frozen.reviewed_summaries[0].summary.text.clone();
     let source_handle = frozen.reviewed_summaries[0].source_handle.clone();
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-reviewed-source".into(),
             expected: source.head.clone(),

@@ -44,9 +44,9 @@ fn body(text: &str) -> serde_json::Value {
 fn setup() -> (Temp, ProjectSession, ProjectAccess, webnovel_core::projects::DocumentRecord) {
     let temp = Temp::new();
     let project = ProjectSession::create(temp.0.join("project"), "Chapter chat fixture").unwrap();
-    let access = project.attach("chapter-chat-test".into()).unwrap();
+    let access = project.documents().attach("chapter-chat-test".into()).unwrap();
     let chapter = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-1".into(),

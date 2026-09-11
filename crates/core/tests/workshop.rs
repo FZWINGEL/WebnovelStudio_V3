@@ -78,7 +78,7 @@ fn what_if_session(id: &str, parent_session_id: &str) -> WorkshopSession {
 fn workshop_state_reopens_and_save_is_cas_idempotent() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-renderer".into()).unwrap();
     let mut state = WorkshopState {
         current_session_id: Some("session-one".into()),
         ..WorkshopState::default()
@@ -99,7 +99,7 @@ fn workshop_state_reopens_and_save_is_cas_idempotent() {
     assert_eq!(project.workshop().history(access.clone()).unwrap().len(), 1);
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
-    let access = reopened.attach("workshop-renderer-2".into()).unwrap();
+    let access = reopened.documents().attach("workshop-renderer-2".into()).unwrap();
     let view = reopened.workshop().read(access).unwrap();
     assert_eq!(view.version, saved.version);
     assert_eq!(view.state, saved.state);
@@ -109,7 +109,7 @@ fn workshop_state_reopens_and_save_is_cas_idempotent() {
 fn workshop_branch_graph_rejects_invalid_shapes_atomically() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-branches".into()).unwrap();
+    let access = project.documents().attach("workshop-branches".into()).unwrap();
     let mut state = WorkshopState {
         current_session_id: Some("working-root".into()),
         ..WorkshopState::default()
@@ -201,7 +201,7 @@ fn workshop_branch_graph_rejects_invalid_shapes_atomically() {
 fn nested_what_if_branches_persist_and_parent_edits_do_not_rewrite_ancestors() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-nested-branches".into()).unwrap();
+    let access = project.documents().attach("workshop-nested-branches".into()).unwrap();
     let mut state = WorkshopState {
         current_session_id: Some("working-root".into()),
         ..WorkshopState::default()
@@ -225,7 +225,7 @@ fn nested_what_if_branches_persist_and_parent_edits_do_not_rewrite_ancestors() {
 
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
-    let reopened_access = reopened.attach("workshop-nested-reopened".into()).unwrap();
+    let reopened_access = reopened.documents().attach("workshop-nested-reopened".into()).unwrap();
     let reopened_view = reopened.workshop().read(reopened_access.clone()).unwrap();
     assert_eq!(reopened_view.version, saved.version);
     for (id, parent) in [
@@ -288,7 +288,7 @@ fn nested_what_if_branches_persist_and_parent_edits_do_not_rewrite_ancestors() {
 fn existing_branch_identity_cannot_be_reparented_or_flipped_but_navigation_is_allowed() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-branch-identity".into()).unwrap();
+    let access = project.documents().attach("workshop-branch-identity".into()).unwrap();
     let mut state = WorkshopState {
         current_session_id: Some("working-root".into()),
         ..WorkshopState::default()
@@ -380,9 +380,9 @@ fn existing_branch_identity_cannot_be_reparented_or_flipped_but_navigation_is_al
 fn fixed_selected_details_are_scoped_to_the_adoption_session() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-fixed-branches".into()).unwrap();
+    let access = project.documents().attach("workshop-fixed-branches".into()).unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-fixed-target".into(),
             document_id: "fixed-target".into(),
@@ -467,7 +467,7 @@ fn fixed_selected_details_are_scoped_to_the_adoption_session() {
         .unwrap();
     assert_eq!(adopted.documents[0].head.document_id, "fixed-target");
     let changed = project
-        .document(access.clone(), "fixed-target".into())
+        .documents().read(access.clone(), "fixed-target".into())
         .unwrap();
     assert_eq!(
         changed.body["body"]["content"][0]["content"][0]["text"],
@@ -488,9 +488,9 @@ fn fixed_selected_details_are_scoped_to_the_adoption_session() {
 fn child_generation_includes_chosen_ancestor_material_but_excludes_siblings() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-branch-context".into()).unwrap();
+    let access = project.documents().attach("workshop-branch-context".into()).unwrap();
     let parent_document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-parent-canon".into(),
             document_id: "parent-canon".into(),
@@ -500,7 +500,7 @@ fn child_generation_includes_chosen_ancestor_material_but_excludes_siblings() {
         })
         .unwrap();
     let sibling_document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-sibling-canon".into(),
             document_id: "sibling-canon".into(),
@@ -621,7 +621,7 @@ fn child_generation_includes_chosen_ancestor_material_but_excludes_siblings() {
 fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-renderer".into()).unwrap();
     let mut state = WorkshopState {
         current_session_id: Some("session-one".into()),
         ..WorkshopState::default()
@@ -666,7 +666,7 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
     .unwrap();
     assert!(legacy_user["workshop"].get("relationship").is_none());
     let anchor = project
-        .document(access.clone(), "workshop-session-one".into())
+        .documents().read(access.clone(), "workshop-session-one".into())
         .unwrap();
     assert_eq!(anchor.kind, "note");
     assert_eq!(anchor.head.version, "0");
@@ -699,7 +699,7 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
     assert_eq!(replay.run.id, started.run.id);
     drop(project);
     let reopened = ProjectSession::open(&temp.0).unwrap();
-    let reopened_access = reopened.attach("workshop-reopened".into()).unwrap();
+    let reopened_access = reopened.documents().attach("workshop-reopened".into()).unwrap();
     let reopened_view = reopened.workshop().read(reopened_access.clone()).unwrap();
     assert_eq!(reopened_view.results.len(), 1);
     assert_eq!(reopened_view.results[0].run.id, started.run.id);
@@ -713,9 +713,9 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
 fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-relationship-generation".into()).unwrap();
+    let access = project.documents().attach("workshop-relationship-generation".into()).unwrap();
     let from = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "relationship-generation-from".into(),
             document_id: "relationship-from".into(),
@@ -725,7 +725,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         })
         .unwrap();
     let to = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "relationship-generation-to".into(),
             document_id: "relationship-to".into(),
@@ -735,7 +735,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         })
         .unwrap();
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "relationship-generation-unrelated".into(),
             document_id: "unrelated-document".into(),
@@ -745,7 +745,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         })
         .unwrap();
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "relationship-generation-normal-anchor".into(),
             document_id: "workshop-normal-session".into(),
@@ -1080,7 +1080,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
         .unwrap_err();
     assert_eq!(preview_error.code, "InvalidWorkshopCandidate");
     assert!(project
-        .document(access, "relationship-adoption-target".into())
+        .documents().read(access, "relationship-adoption-target".into())
         .is_err());
 }
 
@@ -1088,7 +1088,7 @@ fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
 fn unknown_relationship_reference_is_rejected_and_legacy_bytes_omit_optional_id() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-relationship-reopen".into()).unwrap();
+    let access = project.documents().attach("workshop-relationship-reopen".into()).unwrap();
     let mut state = WorkshopState {
         current_session_id: Some("relationship-session".into()),
         ..WorkshopState::default()
@@ -1182,7 +1182,7 @@ fn unknown_relationship_reference_is_rejected_and_legacy_bytes_omit_optional_id(
     drop(database);
 
     let reopened = ProjectSession::open(&temp.0).unwrap();
-    let reopened_access = reopened.attach("workshop-relationship-reopened".into()).unwrap();
+    let reopened_access = reopened.documents().attach("workshop-relationship-reopened".into()).unwrap();
     let error = reopened.workshop().read(reopened_access).unwrap_err();
     assert_eq!(error.code, "InvalidRequest");
     assert!(error.detail.contains("unknown relationship"));
@@ -1192,9 +1192,9 @@ fn unknown_relationship_reference_is_rejected_and_legacy_bytes_omit_optional_id(
 fn adoption_refuses_independently_mutated_frozen_request_json() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-preview-integrity".into()).unwrap();
+    let access = project.documents().attach("workshop-preview-integrity".into()).unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "workshop-preview-integrity-document".into(),
             document_id: "workshop-preview-integrity-document".into(),
@@ -1272,7 +1272,7 @@ fn adoption_refuses_independently_mutated_frozen_request_json() {
     assert!(error.detail.contains("request failed its fingerprint"));
     assert_eq!(
         project
-            .document(access, "workshop-preview-integrity-document".into())
+            .documents().read(access, "workshop-preview-integrity-document".into())
             .unwrap()
             .body["body"]["content"][0]["content"][0]["text"],
         "Before adoption"
@@ -1283,9 +1283,9 @@ fn adoption_refuses_independently_mutated_frozen_request_json() {
 fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_anchor() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-relationship-refusal".into()).unwrap();
+    let access = project.documents().attach("workshop-relationship-refusal".into()).unwrap();
     let from = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "relationship-refusal-from".into(),
             document_id: "relationship-refusal-from".into(),
@@ -1295,7 +1295,7 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
         })
         .unwrap();
     let to = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "relationship-refusal-to".into(),
             document_id: "relationship-refusal-to".into(),
@@ -1375,7 +1375,7 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
     assert_eq!(missing_error.code, "InvalidRequest");
     assert!(missing_error.detail.contains("unknown relationship"));
     assert!(project
-        .document(access.clone(), "workshop-refusal-session".into())
+        .documents().read(access.clone(), "workshop-refusal-session".into())
         .is_err());
 
     let archived = save_state(
@@ -1399,7 +1399,7 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
     .unwrap_err();
     assert_eq!(archived_error.code, "InvalidWorkshopRelationship");
     assert!(project
-        .document(access.clone(), "workshop-refusal-session".into())
+        .documents().read(access.clone(), "workshop-refusal-session".into())
         .is_err());
 
     let stale = save_state(
@@ -1415,7 +1415,7 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
     )
     .unwrap();
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "relationship-refusal-stale-edit".into(),
             expected: to.head,
@@ -1433,7 +1433,7 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
     .unwrap_err();
     assert_eq!(stale_error.code, "StaleRelationship");
     assert!(project
-        .document(access.clone(), "workshop-refusal-session".into())
+        .documents().read(access.clone(), "workshop-refusal-session".into())
         .is_err());
     assert!(project.workshop().read(access).unwrap().results.is_empty());
 }
@@ -1442,7 +1442,7 @@ fn relationship_exploration_refuses_missing_archived_and_stale_targets_without_a
 fn recovered_workshop_keeps_historical_results_and_selected_candidates_reviewable() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-renderer".into()).unwrap();
     let mut state = WorkshopState {
         current_session_id: Some("session-one".into()),
         ..WorkshopState::default()
@@ -1541,7 +1541,7 @@ fn recovered_workshop_keeps_historical_results_and_selected_candidates_reviewabl
         .unwrap()
         .join(format!("wns-workshop-recovered-{}", Uuid::new_v4()));
     let recovered = recover_backup(&backup, &recovered_path, "Recovered workshop").unwrap();
-    let recovered_access = recovered.attach("workshop-recovered".into()).unwrap();
+    let recovered_access = recovered.documents().attach("workshop-recovered".into()).unwrap();
     let recovered_view = recovered.workshop().read(recovered_access.clone()).unwrap();
     assert_eq!(recovered_view.results.len(), 1);
     assert!(recovered_view.results[0].stale);
@@ -1569,9 +1569,9 @@ fn recovered_workshop_keeps_historical_results_and_selected_candidates_reviewabl
 fn adoption_is_atomic_nonchapter_and_replayable() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-renderer".into()).unwrap();
     let world = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-world".into(),
             document_id: "world-one".into(),
@@ -1696,13 +1696,13 @@ fn adoption_is_atomic_nonchapter_and_replayable() {
     );
     assert_eq!(
         project
-            .history(access.clone(), "world-one".into())
+            .documents().history(access.clone(), "world-one".into())
             .unwrap()
             .len(),
         3
     );
     assert_eq!(second.documents[0].head.version, "2");
-    assert_eq!(project.documents(access.clone()).unwrap().len(), 1);
+    assert_eq!(project.documents().list(access.clone()).unwrap().len(), 1);
 
     let mut archived = final_view.state.clone();
     let previous_id = first.decision_ids[0].clone();
@@ -1757,7 +1757,7 @@ fn hard_preference_conflicts_normalize_confirmed_labels_and_ignore_neutral_polar
     let temp = TempProject::new();
     let project = temp.project();
     let access = project
-        .attach("workshop-preference-conflicts".into())
+        .documents().attach("workshop-preference-conflicts".into())
         .unwrap();
     let mut state = WorkshopState {
         current_session_id: Some("session-one".into()),
@@ -1854,9 +1854,9 @@ fn hard_preference_conflicts_normalize_confirmed_labels_and_ignore_neutral_polar
 fn adoption_creates_new_linked_endpoints_with_exact_committed_heads() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-relationships".into()).unwrap();
+    let access = project.documents().attach("workshop-relationships".into()).unwrap();
     let existing = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-existing-character".into(),
             document_id: "existing-character".into(),
@@ -1920,7 +1920,7 @@ fn adoption_creates_new_linked_endpoints_with_exact_committed_heads() {
         .workshop().adopt(access.clone(), "adopt-linked-world".into(), preview.id)
         .unwrap();
     let new_world = project
-        .document(access.clone(), "new-world".into())
+        .documents().read(access.clone(), "new-world".into())
         .unwrap();
     assert_eq!(adopted.documents.len(), 1);
     assert_eq!(new_world.head.version, "0");
@@ -1941,10 +1941,10 @@ fn relationship_drafts_require_descriptions_and_null_heads_for_new_endpoints() {
     let temp = TempProject::new();
     let project = temp.project();
     let access = project
-        .attach("workshop-relationship-validation".into())
+        .documents().attach("workshop-relationship-validation".into())
         .unwrap();
     let existing = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-validation-character".into(),
             document_id: "validation-character".into(),
@@ -2022,10 +2022,10 @@ fn stale_relationship_endpoint_rolls_back_all_adoption_targets() {
     let temp = TempProject::new();
     let project = temp.project();
     let access = project
-        .attach("workshop-stale-relationship".into())
+        .documents().attach("workshop-stale-relationship".into())
         .unwrap();
     let from = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-stale-from".into(),
             document_id: "stale-from".into(),
@@ -2035,7 +2035,7 @@ fn stale_relationship_endpoint_rolls_back_all_adoption_targets() {
         })
         .unwrap();
     let to = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-stale-to".into(),
             document_id: "stale-to".into(),
@@ -2087,7 +2087,7 @@ fn stale_relationship_endpoint_rolls_back_all_adoption_targets() {
         })
         .unwrap();
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-stale-to".into(),
             expected: to.head,
@@ -2103,7 +2103,7 @@ fn stale_relationship_endpoint_rolls_back_all_adoption_targets() {
     assert_eq!(project.workshop().read(access.clone()).unwrap().version, "1");
     assert_eq!(
         project
-            .document(access, "should-not-appear".into())
+            .documents().read(access, "should-not-appear".into())
             .unwrap_err()
             .code,
         "DocumentNotFound"
@@ -2115,10 +2115,10 @@ fn relationship_impacts_follow_the_changed_endpoint_decision() {
     let temp = TempProject::new();
     let project = temp.project();
     let access = project
-        .attach("workshop-relationship-impact".into())
+        .documents().attach("workshop-relationship-impact".into())
         .unwrap();
     let from = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-impact-from".into(),
             document_id: "impact-from".into(),
@@ -2128,7 +2128,7 @@ fn relationship_impacts_follow_the_changed_endpoint_decision() {
         })
         .unwrap();
     let to = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-impact-to".into(),
             document_id: "impact-to".into(),
@@ -2212,9 +2212,9 @@ fn relationship_impacts_follow_the_changed_endpoint_decision() {
 fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-impacts".into()).unwrap();
+    let access = project.documents().attach("workshop-impacts".into()).unwrap();
     let affected = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-impact-world".into(),
             document_id: "impact-world".into(),
@@ -2358,14 +2358,14 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
         .unwrap();
     assert_eq!(adopted.documents.len(), 1);
     let unchanged = project
-        .document(access.clone(), "impact-world".into())
+        .documents().read(access.clone(), "impact-world".into())
         .unwrap();
     assert_eq!(
         unchanged.body["body"]["content"][0]["content"][0]["text"],
         "Original"
     );
     let anchor = project
-        .document(access.clone(), "workshop-impact-session".into())
+        .documents().read(access.clone(), "workshop-impact-session".into())
         .unwrap();
     assert_eq!(anchor.kind, "note");
     assert_eq!(anchor.head.version, "0");
@@ -2404,9 +2404,9 @@ fn candidate_impacts_are_reviewable_without_rewriting_affected_documents() {
 fn chapter_targets_are_rejected_before_preview() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-renderer".into()).unwrap();
     let chapter = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),
@@ -2455,9 +2455,9 @@ fn chapter_targets_are_rejected_before_preview() {
 fn stale_unrelated_relationship_remains_reviewable_without_blocking_other_work() {
     let temp = TempProject::new();
     let project = temp.project();
-    let access = project.attach("workshop-renderer".into()).unwrap();
+    let access = project.documents().attach("workshop-renderer".into()).unwrap();
     let first = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-related-one".into(),
             document_id: "related-one".into(),
@@ -2467,7 +2467,7 @@ fn stale_unrelated_relationship_remains_reviewable_without_blocking_other_work()
         })
         .unwrap();
     let second = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-related-two".into(),
             document_id: "related-two".into(),
@@ -2500,7 +2500,7 @@ fn stale_unrelated_relationship_remains_reviewable_without_blocking_other_work()
         })
         .unwrap();
     let updated = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-related-one".into(),
             expected: first.head,

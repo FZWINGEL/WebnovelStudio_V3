@@ -88,10 +88,10 @@ fn setup_current() -> (
     let project =
         ProjectSession::create(temp.child("project"), "Current project").expect("create project");
     let access = project
-        .attach("metadata-renderer".into())
+        .documents().attach("metadata-renderer".into())
         .expect("attach renderer");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-document".into(),
             document_id: "chapter-one".into(),
@@ -108,7 +108,7 @@ fn scene_break_selection_is_a_valid_saved_view() {
     let (_temp, project, access, document) = setup_current();
     let snapshot = json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"sceneBreak","attrs":{"id":"scene"}}]}});
     let saved = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "scene-body".into(),
             expected: document.head,
@@ -122,10 +122,10 @@ fn scene_break_selection_is_a_valid_saved_view() {
         utf16_offset: 0,
     };
     project
-        .save_view_state(access.clone(), saved.head, endpoint.clone(), endpoint)
+        .documents().save_view_state(access.clone(), saved.head, endpoint.clone(), endpoint)
         .unwrap();
-    assert!(project.view_state(access).unwrap().is_some());
-    let reopened = project.attach_snapshot("scene-reader".into()).unwrap();
+    assert!(project.documents().view_state(access).unwrap().is_some());
+    let reopened = project.documents().attach_snapshot("scene-reader".into()).unwrap();
     assert_eq!(reopened.view_state.unwrap().anchor.block_id, "scene");
 }
 
@@ -137,14 +137,14 @@ fn a_trashed_last_document_does_not_prevent_project_opening() {
         utf16_offset: 0,
     };
     project
-        .save_view_state(access.clone(), document.head, endpoint.clone(), endpoint)
+        .documents().save_view_state(access.clone(), document.head, endpoint.clone(), endpoint)
         .unwrap();
     let db = Connection::open(project.path.join("project.sqlite3")).unwrap();
     db.execute("UPDATE documents SET trashed=1 WHERE id='chapter-one'", [])
         .unwrap();
-    assert!(project.view_state(access).unwrap().is_none());
+    assert!(project.documents().view_state(access).unwrap().is_none());
     let opened = project
-        .attach_snapshot("reopen-after-trash".into())
+        .documents().attach_snapshot("reopen-after-trash".into())
         .unwrap();
     assert!(opened.documents.is_empty());
     assert!(opened.view_state.is_none());
@@ -158,7 +158,7 @@ fn failed_destination_read_preserves_the_existing_writer_lease() {
         utf16_offset: 0,
     };
     project
-        .save_view_state(
+        .documents().save_view_state(
             access.clone(),
             document.head.clone(),
             endpoint.clone(),
@@ -170,11 +170,11 @@ fn failed_destination_read_preserves_the_existing_writer_lease() {
         .unwrap();
     assert!(
         project
-            .attach_snapshot("failed-next-renderer".into())
+            .documents().attach_snapshot("failed-next-renderer".into())
             .is_err()
     );
     let saved = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access,
             operation_id: "old-editor-still-writes".into(),
             expected: document.head,
@@ -270,7 +270,7 @@ fn v1_upgrade_failure_rolls_back_schema_and_retains_backup() {
 fn view_state_round_trips_unicode_endpoints_and_keeps_exact_historic_head() {
     let (temp, project, access, document) = setup_current();
     let state = project
-        .save_view_state(
+        .documents().save_view_state(
             access.clone(),
             document.head.clone(),
             Endpoint {
@@ -286,7 +286,7 @@ fn view_state_round_trips_unicode_endpoints_and_keeps_exact_historic_head() {
     assert_eq!(state.head, document.head);
     assert_eq!(project.context().source_epoch().expect("read epoch"), "1");
     let later = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "later-body".into(),
             expected: document.head.clone(),
@@ -297,18 +297,18 @@ fn view_state_round_trips_unicode_endpoints_and_keeps_exact_historic_head() {
         .expect("save later body");
     assert_ne!(later.head, state.head);
     let stale = project
-        .view_state(access.clone())
+        .documents().view_state(access.clone())
         .expect("read historic view state")
         .expect("view state exists");
     assert_eq!(stale.head, document.head);
     drop(project);
     let reopened = ProjectSession::open(temp.child("project")).expect("reopen project");
     let reopened_access = reopened
-        .attach("metadata-renderer-2".into())
+        .documents().attach("metadata-renderer-2".into())
         .expect("attach again");
     assert_eq!(
         reopened
-            .view_state(reopened_access)
+            .documents().view_state(reopened_access)
             .expect("read resumed view")
             .expect("resumed view")
             .anchor,
@@ -360,7 +360,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
         "3"
     );
     let noop = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "noop-body".into(),
             expected: document.head.clone(),
@@ -375,7 +375,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
         "3"
     );
     let changed = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "body-change".into(),
             expected: document.head.clone(),
@@ -396,13 +396,13 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
         body: document.body.clone(),
         cause: SaveCause::Undo,
     };
-    let undone = project.save(undo.clone()).expect("undo save");
+    let undone = project.documents().save(undo.clone()).expect("undo save");
     assert_eq!(
         project.context().source_epoch().expect("epoch after undo"),
         "5"
     );
     let checkpoint = project
-        .checkpoint(webnovel_core::projects::CheckpointRequest {
+        .documents().checkpoint(webnovel_core::projects::CheckpointRequest {
             access: access.clone(),
             expected: undone.head.clone(),
             reason: webnovel_core::projects::CheckpointReason::Manual,
@@ -421,7 +421,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
     connection
         .execute_batch("CREATE TRIGGER fail_metadata_epoch BEFORE INSERT ON command_receipts WHEN NEW.operation_id='failed-change' BEGIN SELECT RAISE(ABORT,'test failure'); END;")
         .expect("install save fault");
-    assert!(project.save(undo).is_err());
+    assert!(project.documents().save(undo).is_err());
     drop(connection);
     assert_eq!(
         project
@@ -438,7 +438,7 @@ fn wrong_view_head_or_grapheme_boundary_is_rejected() {
     wrong.body_hash = "0".repeat(64);
     assert_eq!(
         project
-            .save_view_state(
+            .documents().save_view_state(
                 access.clone(),
                 wrong,
                 Endpoint {
@@ -456,7 +456,7 @@ fn wrong_view_head_or_grapheme_boundary_is_rejected() {
     );
     assert_eq!(
         project
-            .save_view_state(
+            .documents().save_view_state(
                 access,
                 document.head,
                 Endpoint {

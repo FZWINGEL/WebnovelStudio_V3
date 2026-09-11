@@ -472,8 +472,8 @@ mod tests {
             let project =
                 ProjectSession::create(root.join("project"), "HTTP reconciliation fixture")
                     .unwrap();
-            let access = project.attach("test".into()).unwrap();
-            let document = project.create_document(CreateDocument { access:access.clone(), operation_id:"create".into(), document_id:"chapter".into(), title:"Chapter".into(), kind:"chapter".into(), body:serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"The ending stays."}]}]}}) }).unwrap();
+            let access = project.documents().attach("test".into()).unwrap();
+            let document = project.documents().create(CreateDocument { access:access.clone(), operation_id:"create".into(), document_id:"chapter".into(), title:"Chapter".into(), kind:"chapter".into(), body:serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":"The ending stays."}]}]}}) }).unwrap();
             let profile = EndpointProfile {
                 id: "openai-compatible:00000000-0000-0000-0000-000000000001".into(),
                 label: "Historical endpoint".into(),
@@ -595,7 +595,7 @@ mod tests {
         assert_eq!(
             fixture
                 .project
-                .document(fixture.access.clone(), "chapter".into())
+                .documents().read(fixture.access.clone(), "chapter".into())
                 .unwrap()
                 .head,
             fixture.request.expected

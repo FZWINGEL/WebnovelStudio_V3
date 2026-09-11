@@ -266,7 +266,7 @@ impl ProjectSession {
         })
     }
     pub fn rebuild_story_index(&self, access: ProjectAccess) -> CoreResult<u32> {
-        let documents = self.documents(access.clone())?;
+        let documents = self.documents().list(access.clone())?;
         self.clear_story_index(access.clone())?;
         let mut count = 0;
         // Each document is a separate queue turn. Saves may run between turns

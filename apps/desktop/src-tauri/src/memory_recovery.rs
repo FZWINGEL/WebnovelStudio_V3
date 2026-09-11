@@ -271,9 +271,9 @@ mod tests {
                 .as_nanos()
         ));
         let project = ProjectSession::create(path, "Memory recovery test").expect("create");
-        let access = project.attach("memory-session".into()).expect("attach");
+        let access = project.documents().attach("memory-session".into()).expect("attach");
         let document = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: format!("create-{label}"),
                 document_id: "chapter".into(),
@@ -368,7 +368,7 @@ mod tests {
 
         trigger(&project, "DROP TRIGGER memory_result_fault;");
         let new_access = project
-            .attach("memory-session-after-navigation".into())
+            .documents().attach("memory-session-after-navigation".into())
             .expect("new lease");
         assert_eq!(
             project
@@ -512,7 +512,7 @@ mod tests {
         recovery.retain_claim(&dispatch.job);
         assert!(recovery.claim_pending(&dispatch.job.owner));
         let access = project
-            .attach("claim-reconciliation-renderer".into())
+            .documents().attach("claim-reconciliation-renderer".into())
             .expect("reattach");
         let checked = recovery
             .retry(&project, dispatch.job.owner.clone())
@@ -556,7 +556,7 @@ mod tests {
         // Archive removes the registry session. The same process can retain
         // an unsaved result while a new actor performs startup recovery.
         let reopened = ProjectSession::open(&path).expect("reopen archived project");
-        let access = reopened.attach("after-archive".into()).expect("attach");
+        let access = reopened.documents().attach("after-archive".into()).expect("attach");
         let settled = recovery
             .retry(&reopened, dispatch.job.owner.clone())
             .expect("retain historical terminal without restarting");

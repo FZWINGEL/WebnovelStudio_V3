@@ -68,7 +68,7 @@ fn chapter(
     text: &str,
 ) -> DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: format!("create-{id}"),
             document_id: id.into(),
@@ -122,7 +122,7 @@ fn fixture() -> Fixture {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Reviewed context test")
         .expect("create project");
-    let access = project.attach("reviewed-context-test".into()).unwrap();
+    let access = project.documents().attach("reviewed-context-test".into()).unwrap();
     let first = chapter(&project, &access, "chapter-1", "One", "First original.");
     let second = chapter(&project, &access, "chapter-2", "Two", "Second original.");
     let target = chapter(&project, &access, "chapter-3", "Three", "Current target.");
@@ -191,7 +191,7 @@ fn assert_snapshot_rejected(fixture: Fixture, mutate: impl FnOnce(&mut Value)) {
     drop(fixture.project);
     rewrite_manifest(db_path, &snapshot_id, mutate);
     let reopened = ProjectSession::open(project_path).expect("reopen tampered project");
-    let access = reopened.attach("reviewed-context-reader".into()).unwrap();
+    let access = reopened.documents().attach("reviewed-context-reader".into()).unwrap();
     let error = reopened
         .story_snapshot(access, snapshot_id)
         .expect_err("tampered reviewed snapshot must be refused");
@@ -249,7 +249,7 @@ fn historical_reviewed_snapshot_remains_readable_but_becomes_stale_after_edit_an
     let old_handle = format!("reviewed-{}", fixture.first_bundle);
     fixture
         .project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: fixture.access.clone(),
             operation_id: "edit-reviewed-first".into(),
             expected: fixture.first.head.clone(),
@@ -260,7 +260,7 @@ fn historical_reviewed_snapshot_remains_readable_but_becomes_stale_after_edit_an
         .expect("edit reviewed source");
     let current_first = fixture
         .project
-        .document(
+        .documents().read(
             fixture.access.clone(),
             fixture.first.head.document_id.clone(),
         )
@@ -305,7 +305,7 @@ fn recovered_copy_cannot_replay_or_initiate_the_source_snapshot_operation() {
     let recovered = recover_backup(&backup, &fixture.temp.child("recovered"), "Recovered")
         .expect("recover reviewed context");
     let access = recovered
-        .attach("recovered-reviewed-context".into())
+        .documents().attach("recovered-reviewed-context".into())
         .unwrap();
     assert_eq!(
         recovered

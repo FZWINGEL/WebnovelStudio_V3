@@ -80,7 +80,7 @@ fn create_document(
     operation_id: &str,
 ) -> DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: operation_id.into(),
             document_id: id.into(),
@@ -384,7 +384,7 @@ fn stop_without_registered_workers_interrupts_orphan_and_preserves_prefix() {
     assert!(view.runs[0].output_text.contains("retained prefix"));
     assert_eq!(project.work().census().unwrap().items.len(), 0);
     assert_eq!(
-        project.document(access, "chapter".into()).unwrap().head,
+        project.documents().read(access, "chapter".into()).unwrap().head,
         original_head
     );
     runtime.cancel_close("orphan-stop").unwrap();

@@ -92,7 +92,7 @@ fn evidence(
 fn setup() -> (TempProject, ProjectSession, ProjectAccess) {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Reviewed story test").unwrap();
-    let access = project.attach("review-test".into()).unwrap();
+    let access = project.documents().attach("review-test".into()).unwrap();
     (temp, project, access)
 }
 
@@ -104,7 +104,7 @@ fn chapter(
     text: &str,
 ) -> webnovel_core::projects::DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: format!("create-{id}"),
             document_id: id.into(),
@@ -259,7 +259,7 @@ fn author_review_pins_exact_revisions_and_requires_an_earlier_prefix() {
 
     drop(project);
     let reopened = ProjectSession::open(temp.child("story")).unwrap();
-    let reopened_access = reopened.attach("review-reopen".into()).unwrap();
+    let reopened_access = reopened.documents().attach("review-reopen".into()).unwrap();
     assert_eq!(
         reopened
             .chapter_review_status(reopened_access, "chapter-2".into())
@@ -280,7 +280,7 @@ fn changing_an_earlier_chapter_fences_later_review_until_reaffirmed() {
     ready(&project, &access, "ready-second", &second_stage.id);
 
     let first_saved = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-first".into(),
             expected: first.head.clone(),
@@ -305,7 +305,7 @@ fn changing_an_earlier_chapter_fences_later_review_until_reaffirmed() {
     );
 
     let new_first = project
-        .document(access.clone(), "chapter-1".into())
+        .documents().read(access.clone(), "chapter-1".into())
         .unwrap();
     assert_eq!(new_first.head, first_saved.head);
     let reaffirm_first = stage(&project, &access, "stage-first-again", &new_first);
@@ -318,7 +318,7 @@ fn changing_an_earlier_chapter_fences_later_review_until_reaffirmed() {
         ReviewState::EarlierBasisChanged
     );
     let current_second = project
-        .document(access.clone(), "chapter-2".into())
+        .documents().read(access.clone(), "chapter-2".into())
         .unwrap();
     let reaffirm_second = stage(&project, &access, "stage-second-again", &current_second);
     assert_eq!(reaffirm_second.prefix[0].head, new_first.head);
@@ -338,7 +338,7 @@ fn stale_stage_is_rejected_and_history_remains_immutable() {
     let first = chapter(&project, &access, "chapter-1", "One", "Original.");
     let staged = stage(&project, &access, "stage-first", &first);
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-before-mark".into(),
             expected: first.head.clone(),
@@ -368,7 +368,7 @@ fn stale_selected_review_survives_backup_and_recovery_clears_active_head() {
     let first_stage = stage(&project, &access, "stage-first", &first);
     ready(&project, &access, "ready-first", &first_stage.id);
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-first".into(),
             expected: first.head,
@@ -390,7 +390,7 @@ fn stale_selected_review_survives_backup_and_recovery_clears_active_head() {
 
     let recovered = recover_backup(&archive, &temp.child("recovered"), "Recovered story")
         .expect("recover backup");
-    let recovered_access = recovered.attach("recovered-review".into()).unwrap();
+    let recovered_access = recovered.documents().attach("recovered-review".into()).unwrap();
     let status = recovered
         .chapter_review_status(recovered_access, "chapter-1".into())
         .unwrap();
@@ -505,7 +505,7 @@ fn corrupt_suffix_fence_is_rejected_by_backup_validation() {
     let second_stage = stage(&project, &access, "stage-second", &second);
     ready(&project, &access, "ready-second", &second_stage.id);
     let first_now = project
-        .document(access.clone(), "chapter-1".into())
+        .documents().read(access.clone(), "chapter-1".into())
         .unwrap();
     let first_again = stage(&project, &access, "stage-first-again", &first_now);
     ready(&project, &access, "ready-first-again", &first_again.id);
@@ -546,7 +546,7 @@ fn policy_change_marks_selected_review_stale_until_reaffirmed() {
     assert_eq!(stale.active_bundle_id, Some(first_bundle.id));
 
     let current = project
-        .document(access.clone(), "chapter-1".into())
+        .documents().read(access.clone(), "chapter-1".into())
         .unwrap();
     let reaffirm = stage(&project, &access, "stage-first-policy", &current);
     ready(&project, &access, "ready-first-policy", &reaffirm.id);
@@ -586,18 +586,18 @@ fn tied_position_reordering_invalidates_prefix_and_can_be_reaffirmed() {
     drop(connection);
 
     let reopened = ProjectSession::open(temp.child("story")).unwrap();
-    let access = reopened.attach("reorder-review".into()).unwrap();
+    let access = reopened.documents().attach("reorder-review".into()).unwrap();
     let stale = reopened
         .chapter_review_status(access.clone(), "c".into())
         .unwrap();
     assert_eq!(stale.state, ReviewState::EarlierBasisChanged);
     assert!(!stale.can_stage);
 
-    let current_b = reopened.document(access.clone(), "b".into()).unwrap();
+    let current_b = reopened.documents().read(access.clone(), "b".into()).unwrap();
     let reaffirm_b = stage(&reopened, &access, "stage-b-reordered", &current_b);
     assert!(reaffirm_b.prefix.is_empty());
     ready(&reopened, &access, "ready-b-reordered", &reaffirm_b.id);
-    let current_c = reopened.document(access.clone(), "c".into()).unwrap();
+    let current_c = reopened.documents().read(access.clone(), "c".into()).unwrap();
     let reaffirm_c = stage(&reopened, &access, "stage-c-reordered", &current_c);
     assert_eq!(reaffirm_c.prefix.len(), 1);
     assert_eq!(reaffirm_c.prefix[0].document_id, "b");
@@ -616,7 +616,7 @@ fn review_operations_replay_after_writer_lease_rotation() {
     let (_temp, project, access_one) = setup();
     let first = chapter(&project, &access_one, "chapter-1", "One", "First.");
     let staged = stage(&project, &access_one, "stage-lease", &first);
-    let access_two = project.attach("review-test-new-lease".into()).unwrap();
+    let access_two = project.documents().attach("review-test-new-lease".into()).unwrap();
 
     let old_stage = project
         .stage_author_review(StageAuthorReview {
@@ -779,7 +779,7 @@ fn inherited_evidence_is_revalidated_against_new_revision() {
     );
     ready(&project, &access, "ready-inherited-original", &staged.id);
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-inherited-source".into(),
             expected: first.head,
@@ -789,7 +789,7 @@ fn inherited_evidence_is_revalidated_against_new_revision() {
         })
         .unwrap();
     let changed = project
-        .document(access.clone(), "chapter-1".into())
+        .documents().read(access.clone(), "chapter-1".into())
         .unwrap();
     let error = project
         .stage_author_review(StageAuthorReview {

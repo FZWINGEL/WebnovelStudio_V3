@@ -170,10 +170,10 @@ fn archiving_keeps_fixed_protection_until_explicit_unfix() {
     let temp = TempProject::new();
     let project = temp.project();
     let access = project
-        .attach("workshop-protection-archive".into())
+        .documents().attach("workshop-protection-archive".into())
         .unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-fixed-world".into(),
             document_id: "fixed-world".into(),
@@ -265,10 +265,10 @@ fn adoption_supersession_cannot_release_a_fixed_previous_revision() {
     let temp = TempProject::new();
     let project = temp.project();
     let access = project
-        .attach("workshop-protection-supersede".into())
+        .documents().attach("workshop-protection-supersede".into())
         .unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-fixed-world".into(),
             document_id: "fixed-world".into(),
@@ -344,10 +344,10 @@ fn actor_omits_unrelated_fixed_source_from_request_packet() {
     let temp = TempProject::new();
     let project = temp.project();
     let access = project
-        .attach("workshop-protection-packet".into())
+        .documents().attach("workshop-protection-packet".into())
         .unwrap();
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-unrelated-world".into(),
             document_id: "unrelated-world".into(),

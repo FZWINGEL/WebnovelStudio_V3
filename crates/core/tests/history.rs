@@ -42,9 +42,9 @@ fn body(text: &str, id: &str) -> Value {
 }
 
 fn setup(project: &ProjectSession) -> (ProjectAccess, DocumentRecord) {
-    let access = project.attach("history-renderer".into()).expect("attach");
+    let access = project.documents().attach("history-renderer".into()).expect("attach");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "history-create".into(),
             document_id: "chapter-one".into(),
@@ -62,7 +62,7 @@ fn checkpoint(
     head: &Head,
 ) -> webnovel_core::projects::Revision {
     project
-        .checkpoint(CheckpointRequest {
+        .documents().checkpoint(CheckpointRequest {
             access: access.clone(),
             expected: head.clone(),
             reason: CheckpointReason::Manual,
@@ -78,7 +78,7 @@ fn save(
     text: &str,
 ) -> webnovel_core::projects::SaveAck {
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: operation_id.into(),
             expected: head.clone(),
@@ -150,7 +150,7 @@ fn exact_revision_read_survives_trashed_source_but_live_paths_do_not() {
     let (access, initial) = setup(&project);
     let source = checkpoint(&project, &access, &initial.head);
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "history-create-other".into(),
             document_id: "other-document".into(),
@@ -169,7 +169,7 @@ fn exact_revision_read_survives_trashed_source_but_live_paths_do_not() {
     drop(connection);
 
     let project = ProjectSession::open(&temp.path).expect("reopen hidden source project");
-    let access = project.attach("history-hidden-renderer".into()).unwrap();
+    let access = project.documents().attach("history-hidden-renderer".into()).unwrap();
     let retained = project
         .read_document_revision(access.clone(), "chapter-one".into(), source.id.clone())
         .expect("read exact retained revision");
@@ -188,7 +188,7 @@ fn exact_revision_read_survives_trashed_source_but_live_paths_do_not() {
     let other_temp = TempProject::new();
     let other_project = other_temp.create();
     let other_access = other_project
-        .attach("other-history-renderer".into())
+        .documents().attach("other-history-renderer".into())
         .unwrap();
     let wrong_project_error = project
         .read_document_revision(other_access, "chapter-one".into(), source.id.clone())
@@ -245,7 +245,7 @@ fn restore_advances_head_records_receipt_and_replays_latest_document() {
     assert_eq!(replay.document.head, later.head);
     assert_eq!(replay.document.body, body("later", "p1"));
     let reconciled = project
-        .reconcile(webnovel_core::projects::ReconcileRequest {
+        .documents().reconcile(webnovel_core::projects::ReconcileRequest {
             project_id: project.info.project_id.clone(),
             operation_namespace: project.info.operation_namespace.clone(),
             session: access.session,
@@ -304,7 +304,7 @@ fn restore_refuses_stale_heads_foreign_revisions_hashes_and_noops() {
         "RevisionHashMismatch"
     );
     let other = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "history-other".into(),
             document_id: "other-document".into(),
@@ -377,7 +377,7 @@ fn restore_failures_roll_back_every_mutation_stage() {
             .expect_err("restore must fail at injected stage");
         assert_eq!(error.code, "PersistenceUnavailable", "{point}");
         let unchanged = project
-            .document(access.clone(), "chapter-one".into())
+            .documents().read(access.clone(), "chapter-one".into())
             .expect("unchanged document");
         assert_eq!(unchanged.head, current.head, "{point}");
         assert_eq!(unchanged.body, body("newer", "p1"), "{point}");
@@ -388,7 +388,7 @@ fn restore_failures_roll_back_every_mutation_stage() {
         );
         assert_eq!(
             project
-                .history(access.clone(), "chapter-one".into())
+                .documents().history(access.clone(), "chapter-one".into())
                 .unwrap()
                 .len(),
             1,
@@ -450,10 +450,10 @@ fn restored_history_survives_backup_and_new_namespace_can_restore_locally() {
     ));
     let recovered = recover_backup(&archive, &recovered_path, "Recovered").expect("recover");
     let recovered_access = recovered
-        .attach("recovered-renderer".into())
+        .documents().attach("recovered-renderer".into())
         .expect("attach copy");
     let document = recovered
-        .document(recovered_access.clone(), "chapter-one".into())
+        .documents().read(recovered_access.clone(), "chapter-one".into())
         .expect("copy document");
     assert_eq!(document.head, backup_current.head);
     let historical = recovered

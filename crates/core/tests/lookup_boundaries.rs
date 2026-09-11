@@ -62,10 +62,10 @@ fn setup_at(
 ) {
     let project = ProjectSession::create(path, "Lookup boundary test").expect("create project");
     let access = project
-        .attach("lookup-boundary-session".into())
+        .documents().attach("lookup-boundary-session".into())
         .expect("attach");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),
@@ -265,7 +265,7 @@ fn pretty_json_final_response_survives_reopen() {
     let reopened = recover_backup(&backup, &recovered_path, "Recovered pretty response")
         .expect("pretty response remains valid through backup recovery");
     let reopened_access = reopened
-        .attach("pretty-reopen-session".into())
+        .documents().attach("pretty-reopen-session".into())
         .expect("reattach");
     let view = reopened
         .read_discussion(reopened_access, "chapter-one".into())
@@ -315,7 +315,7 @@ fn completed_needs_context_followed_by_stop_survives_backup_recovery() {
     )
     .expect("recover stopped needs-context response");
     let recovered_access = recovered
-        .attach("recovered-session".into())
+        .documents().attach("recovered-session".into())
         .expect("attach");
     let view = recovered
         .read_discussion(recovered_access, "chapter-one".into())
@@ -375,7 +375,7 @@ fn needs_context_with_prepared_child_followed_by_stop_survives_backup_recovery()
     )
     .expect("recover stopped prepared child");
     let recovered_access = recovered
-        .attach("recovered-session".into())
+        .documents().attach("recovered-session".into())
         .expect("attach");
     let view = recovered
         .read_discussion(recovered_access, "chapter-one".into())
@@ -420,7 +420,7 @@ fn malformed_completed_envelope_is_a_failed_result_that_survives_backup_recovery
     )
     .expect("recover malformed result");
     let recovered_access = recovered
-        .attach("recovered-session".into())
+        .documents().attach("recovered-session".into())
         .expect("attach");
     let view = recovered
         .read_discussion(recovered_access, "chapter-one".into())
@@ -533,7 +533,7 @@ fn story_edit_between_prepare_and_claim_stales_lookup_before_dispatch() {
     let owner = started.run.owner.clone();
     let _initial = begin(&project, &owner);
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-before-claim-save".into(),
             expected: document.head,

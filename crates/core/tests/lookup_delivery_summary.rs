@@ -54,10 +54,10 @@ fn setup() -> (
     let project = ProjectSession::create(temp.child("project"), "Lookup delivery test")
         .expect("create project");
     let access = project
-        .attach("lookup-delivery-session".into())
+        .documents().attach("lookup-delivery-session".into())
         .expect("attach");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),

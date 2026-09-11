@@ -8,7 +8,7 @@ struct Temp(PathBuf);
 impl Temp { fn new()->Self {let path=std::env::temp_dir().join(format!("wns-project-chat-{}",uuid::Uuid::new_v4()));fs::create_dir_all(&path).unwrap();Self(path)} }
 impl Drop for Temp {fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
 fn setup()->(Temp,ProjectSession,ProjectAccess) {
-    let temp=Temp::new();let project=ProjectSession::create(temp.0.join("project"),"Chat fixture").unwrap();let access=project.attach("chat-test".into()).unwrap();(temp,project,access)
+    let temp=Temp::new();let project=ProjectSession::create(temp.0.join("project"),"Chat fixture").unwrap();let access=project.documents().attach("chat-test".into()).unwrap();(temp,project,access)
 }
 
 #[test]
@@ -17,14 +17,14 @@ fn manual_save_recap_uses_receipts_survives_reopen_and_does_not_create_chat_even
     let (temp, project, access) = setup();
     let initial = read(&project, &access);
     let body = |text: &str| serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p1"},"content":[{"type":"text","text":text}]}]}});
-    let document = project.create_document(CreateDocument {
+    let document = project.documents().create(CreateDocument {
         access: access.clone(), operation_id: "recap-create".into(), document_id: "recap-note".into(),
         title: "Author note".into(), kind: "note".into(), body: body("First wording"),
     }).unwrap();
     let request = SaveSnapshot { access: access.clone(), operation_id: "recap-save".into(), expected: document.head, local_generation: "1".into(), body: body("Author revised wording"), cause: SaveCause::Typing };
-    let ack = project.save(request.clone()).unwrap();
-    project.save(request).unwrap();
-    let checkpoint = project.checkpoint(CheckpointRequest { access: access.clone(), expected: ack.head.clone(), reason: CheckpointReason::Manual }).unwrap();
+    let ack = project.documents().save(request.clone()).unwrap();
+    project.documents().save(request).unwrap();
+    let checkpoint = project.documents().checkpoint(CheckpointRequest { access: access.clone(), expected: ack.head.clone(), reason: CheckpointReason::Manual }).unwrap();
     let epoch = project.context().source_epoch().unwrap();
     let view = read(&project, &access);
     assert_eq!(view.document_saves.len(), 1);
@@ -40,7 +40,7 @@ fn manual_save_recap_uses_receipts_survives_reopen_and_does_not_create_chat_even
     assert!(read(&other, &other_access).document_saves.is_empty());
     drop(project);
     let reopened = ProjectSession::open(temp.0.join("project")).unwrap();
-    let reopened_access = reopened.attach("recap-reopen".into()).unwrap();
+    let reopened_access = reopened.documents().attach("recap-reopen".into()).unwrap();
     let retained = read(&reopened, &reopened_access);
     assert_eq!(retained.document_saves.len(), 1);
     assert_eq!(retained.document_saves[0].head, ack.head);
@@ -96,7 +96,7 @@ fn blank_project_has_one_conversation_without_a_story_document_or_source_change(
     let (_temp,project,access)=setup();let epoch=project.context().source_epoch().unwrap();
     let first=read(&project,&access);let second=read(&project,&access);
     assert_eq!(first.id,second.id);assert!(first.items.is_empty());assert!(first.composer.body.text.is_empty());
-    assert!(project.documents(access).unwrap().is_empty());assert_eq!(project.context().source_epoch().unwrap(),epoch);
+    assert!(project.documents().list(access).unwrap().is_empty());assert_eq!(project.context().source_epoch().unwrap(),epoch);
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn composer_is_versioned_recoverable_and_does_not_change_story_context() {
     assert_eq!(project.save_project_composer(request.clone()).unwrap().version,first.version);
     let mut stale=request;stale.operation_id="save-two".into();stale.body.text="Unsent newer buffer".into();
     assert_eq!(project.save_project_composer(stale).unwrap_err().code,"VersionConflict");assert_eq!(project.context().source_epoch().unwrap(),epoch);
-    drop(project);let reopened=ProjectSession::open(temp.0.join("project")).unwrap();let access=reopened.attach("reopened".into()).unwrap();
+    drop(project);let reopened=ProjectSession::open(temp.0.join("project")).unwrap();let access=reopened.documents().attach("reopened".into()).unwrap();
     assert_eq!(read(&reopened,&access).composer.body.text,"A city where people trade memories.");
 }
 
@@ -118,7 +118,7 @@ fn first_idea_acceptance_links_run_and_clears_only_the_accepted_composer_atomica
     let retry=project.start_project_chat(request.clone()).unwrap();assert_eq!(accepted.run.id,retry.run.id);
     assert_eq!(accepted.run.intent,webnovel_core::projects::discussions::FeedbackIntent::Discuss);
     let next=read(&project,&access);assert!(next.composer.body.text.is_empty());assert_eq!(next.composer.version,"2");
-    assert_eq!(next.items.iter().filter(|i|i.kind=="request").count(),1);assert!(project.documents(access.clone()).unwrap().is_empty());
+    assert_eq!(next.items.iter().filter(|i|i.kind=="request").count(),1);assert!(project.documents().list(access.clone()).unwrap().is_empty());
     let envelope:serde_json::Value=serde_json::from_str(&accepted.packet.messages[1].content).unwrap();
     assert_eq!(envelope["projectChat"]["conversationId"],view.id);assert_eq!(accepted.packet.messages.last().unwrap().content,request.composer.text);
     let next_saved=save(&project,&access,&next,"A second idea while the first runs.");
@@ -139,6 +139,6 @@ fn failed_packet_acceptance_keeps_the_composer_and_has_no_run_link() {
 #[test]
 fn another_project_cannot_read_or_send_into_the_conversation() {
     let (temp,project,access)=setup();let view=read(&project,&access);
-    let other=ProjectSession::create(temp.0.join("other"),"Other project").unwrap();let other_access=other.attach("other".into()).unwrap();
+    let other=ProjectSession::create(temp.0.join("other"),"Other project").unwrap();let other_access=other.documents().attach("other".into()).unwrap();
     assert_eq!(other.save_project_composer(SaveProjectComposer{access:other_access,operation_id:"wrong".into(),conversation_id:view.id,expected_version:"0".into(),body:ProjectComposer::default()}).unwrap_err().code,"WrongProjectConversation");
 }

@@ -53,10 +53,10 @@ fn open_project(
 ) {
     let project = ProjectSession::create(root, "Transfer test").expect("create project");
     let access = project
-        .attach("transfer-session".into())
+        .documents().attach("transfer-session".into())
         .expect("attach project");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-document".into(),
             document_id: "chapter-one".into(),
@@ -75,7 +75,7 @@ fn save(
     body: Value,
 ) -> webnovel_core::projects::SaveAck {
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: operation.into(),
             expected: document.head.clone(),
@@ -163,7 +163,7 @@ fn online_backup_captures_file_backed_wal_and_actor_can_save_afterward() {
         sha256(&archive_entries(&backup_path).1)
     );
     let current = project
-        .document(access.clone(), first.head.document_id.clone())
+        .documents().read(access.clone(), first.head.document_id.clone())
         .expect("read current");
     let second = save(
         &project,
@@ -188,7 +188,7 @@ fn recover_creates_new_identity_and_old_receipts_are_historical() {
         body(json!([paragraph("p", json!([text("saved")]))])),
     );
     project
-        .save_view_state(
+        .documents().save_view_state(
             access.clone(),
             ack.head.clone(),
             webnovel_core::documents::Endpoint {
@@ -218,7 +218,7 @@ fn recover_creates_new_identity_and_old_receipts_are_historical() {
         source_marker
     );
     let recovered_access = recovered
-        .attach("recovered-session".into())
+        .documents().attach("recovered-session".into())
         .expect("attach recovered");
     assert_eq!(
         recovered.context().source_epoch().expect("recovered epoch"),
@@ -226,12 +226,12 @@ fn recover_creates_new_identity_and_old_receipts_are_historical() {
     );
     assert!(
         recovered
-            .view_state(recovered_access.clone())
+            .documents().view_state(recovered_access.clone())
             .expect("read recovered view")
             .is_some()
     );
     let reconciled = recovered
-        .reconcile(webnovel_core::projects::ReconcileRequest {
+        .documents().reconcile(webnovel_core::projects::ReconcileRequest {
             project_id: recovered.info.project_id.clone(),
             operation_namespace: recovered.info.operation_namespace.clone(),
             session: recovered_access.session.clone(),
@@ -241,7 +241,7 @@ fn recover_creates_new_identity_and_old_receipts_are_historical() {
         .expect("reconcile recovered");
     assert!(reconciled.receipts.is_empty());
     let reused = recovered
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: reconciled.access.clone(),
             operation_id: "reused-operation".into(),
             expected: reconciled.document.head,
@@ -343,10 +343,10 @@ fn staged_recovery_resumes_prepared_folder_with_matching_creation_origin() {
     )
     .expect("resume prepared staging project");
     let resumed_access = resumed
-        .attach("resume-session".into())
+        .documents().attach("resume-session".into())
         .expect("attach resumed project");
     let resumed_document = resumed
-        .document(resumed_access, "chapter-one".into())
+        .documents().read(resumed_access, "chapter-one".into())
         .expect("read resumed document");
     assert_eq!(
         resumed_document
@@ -377,13 +377,13 @@ fn duplicate_uses_consistent_copy_and_preserves_source() {
         .expect("duplicate project");
     assert_ne!(duplicate.info.project_id, project.info.project_id);
     let source_doc = project
-        .document(access, "chapter-one".into())
+        .documents().read(access, "chapter-one".into())
         .expect("source remains readable");
     let duplicate_access = duplicate
-        .attach("duplicate-session".into())
+        .documents().attach("duplicate-session".into())
         .expect("attach duplicate");
     let duplicate_doc = duplicate
-        .document(duplicate_access, "chapter-one".into())
+        .documents().read(duplicate_access, "chapter-one".into())
         .expect("duplicate body");
     assert_eq!(source_doc.body, duplicate_doc.body);
     assert!(project.path.join("project.wns.json").exists());
@@ -452,7 +452,7 @@ fn duplicate_basis_retry_resumes_matching_prepared_stage_before_live_source_read
     let staging = temp.child(".prepared-duplicate-stage");
     fs::rename(&prepared_target, &staging).expect("move prepared folder into stage");
     let current = project
-        .document(access.clone(), document.head.document_id.clone())
+        .documents().read(access.clone(), document.head.document_id.clone())
         .expect("read current source");
     save(
         &project,
@@ -472,10 +472,10 @@ fn duplicate_basis_retry_resumes_matching_prepared_stage_before_live_source_read
     )
     .expect("resume prepared duplicate without recapturing source");
     let duplicate_access = duplicate
-        .attach("prepared-duplicate-session".into())
+        .documents().attach("prepared-duplicate-session".into())
         .expect("attach duplicate");
     let duplicate_document = duplicate
-        .document(duplicate_access, "chapter-one".into())
+        .documents().read(duplicate_access, "chapter-one".into())
         .expect("read prepared duplicate");
     assert_eq!(
         duplicate_document
@@ -670,7 +670,7 @@ fn prepared_plain_text_and_markdown_exports_have_exact_preview_and_record() {
     drop(project);
     let reopened = ProjectSession::open(&source).expect("reopen exported project");
     let reopened_access = reopened
-        .attach("export-reader".into())
+        .documents().attach("export-reader".into())
         .expect("attach export reader");
     assert_eq!(
         reopened.read_export_record(reopened_access, markdown.id),
@@ -693,7 +693,7 @@ fn export_uses_frozen_revision_after_a_later_working_edit() {
         prepare_draft_export(&project, &access, saved.head.clone(), DraftFormat::Markdown)
             .expect("prepare frozen export");
     let current = project
-        .document(access.clone(), "chapter-one".into())
+        .documents().read(access.clone(), "chapter-one".into())
         .unwrap();
     let later = save(
         &project,
@@ -708,7 +708,7 @@ fn export_uses_frozen_revision_after_a_later_working_edit() {
         .expect("export retained revision");
     assert_eq!(fs::read_to_string(target).unwrap(), "frozen source");
     assert_eq!(
-        project.document(access, "chapter-one".into()).unwrap().head,
+        project.documents().read(access, "chapter-one".into()).unwrap().head,
         later.head
     );
 }
@@ -1273,7 +1273,7 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     );
     assert!(
         recovered
-            .view_state(recovered.attach("schema1-session".into()).expect("attach"))
+            .documents().view_state(recovered.documents().attach("schema1-session".into()).expect("attach"))
             .expect("read migrated view state")
             .is_none()
     );

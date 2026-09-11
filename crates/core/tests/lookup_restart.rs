@@ -58,10 +58,10 @@ fn setup_at(
 ) {
     let project = ProjectSession::create(path, "Lookup restart test").expect("create project");
     let access = project
-        .attach("lookup-restart-session".into())
+        .documents().attach("lookup-restart-session".into())
         .expect("attach");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),
@@ -169,7 +169,7 @@ fn reopening_claimed_lookup_marks_it_unknown_and_blocks_dispatch_replay() {
     drop(project);
 
     let reopened = ProjectSession::open(&path).expect("reopen project");
-    let reopened_access = reopened.attach("reopened-claimed".into()).expect("attach");
+    let reopened_access = reopened.documents().attach("reopened-claimed".into()).expect("attach");
     let view = reopened
         .read_discussion(reopened_access, "chapter-one".into())
         .expect("read recovered discussion");
@@ -193,7 +193,7 @@ fn reopening_claimed_lookup_marks_it_unknown_and_blocks_dispatch_replay() {
     )
     .expect("recover interrupted lookup history");
     let recovered_access = recovered
-        .attach("recovered-claimed".into())
+        .documents().attach("recovered-claimed".into())
         .expect("attach recovered");
     let recovered_view = recovered
         .read_discussion(recovered_access, "chapter-one".into())
@@ -241,7 +241,7 @@ fn reopening_prepared_lookup_child_stops_child_and_keeps_predecessor_result() {
     drop(project);
 
     let reopened = ProjectSession::open(&path).expect("reopen project");
-    let reopened_access = reopened.attach("reopened-child".into()).expect("attach");
+    let reopened_access = reopened.documents().attach("reopened-child".into()).expect("attach");
     let view = reopened
         .read_discussion(reopened_access, "chapter-one".into())
         .expect("read recovered discussion");
@@ -274,7 +274,7 @@ fn reopening_prepared_lookup_child_stops_child_and_keeps_predecessor_result() {
     )
     .expect("recover interrupted child history");
     let recovered_access = recovered
-        .attach("recovered-child".into())
+        .documents().attach("recovered-child".into())
         .expect("attach recovered");
     let recovered_view = recovered
         .read_discussion(recovered_access, "chapter-one".into())

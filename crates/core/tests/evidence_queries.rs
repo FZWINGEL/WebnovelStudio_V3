@@ -51,7 +51,7 @@ fn chapter(
     text: &str,
 ) -> DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: format!("create-{id}"),
             document_id: id.into(),
@@ -134,7 +134,7 @@ fn policy(
 fn catalog_reuses_ids_preserves_same_names_and_does_not_write() {
     let temp = Temp::new();
     let project = ProjectSession::create(temp.0.join("story"), "Story").unwrap();
-    let access = project.attach("test".into()).unwrap();
+    let access = project.documents().attach("test".into()).unwrap();
     let first = chapter(&project, &access, "One", "Mei held the key.");
     review(
         &project,
@@ -191,7 +191,7 @@ fn catalog_reuses_ids_preserves_same_names_and_does_not_write() {
 fn review_replacement_changes_catalog_while_history_keeps_exact_frozen_evidence() {
     let temp = Temp::new();
     let project = ProjectSession::create(temp.0.join("story"), "Story").unwrap();
-    let access = project.attach("test".into()).unwrap();
+    let access = project.documents().attach("test".into()).unwrap();
     let first = chapter(&project, &access, "One", "Mei held the key.");
     review(
         &project,
@@ -260,7 +260,7 @@ fn review_replacement_changes_catalog_while_history_keeps_exact_frozen_evidence(
     let archive = temp.0.join("copy.wnsbackup");
     create_backup(&project, &archive).unwrap();
     let recovered = recover_backup(&archive, &temp.0.join("copy"), "Copy").unwrap();
-    let recovered_access = recovered.attach("test".into()).unwrap();
+    let recovered_access = recovered.documents().attach("test".into()).unwrap();
     assert!(
         recovered
             .reviewed_entity_catalog(recovered_access.clone())
@@ -292,7 +292,7 @@ fn review_replacement_changes_catalog_while_history_keeps_exact_frozen_evidence(
 fn historical_evidence_rejects_decodable_tampered_prefix_rows() {
     let temp = Temp::new();
     let project = ProjectSession::create(temp.0.join("story"), "Story").unwrap();
-    let access = project.attach("tamper-test".into()).unwrap();
+    let access = project.documents().attach("tamper-test".into()).unwrap();
     let first = chapter(&project, &access, "One", "Mei held the key.");
     review(
         &project,
@@ -362,7 +362,7 @@ fn historical_evidence_rejects_decodable_tampered_prefix_rows() {
 fn restricted_history_filters_private_observations_before_labels_and_results() {
     let temp = Temp::new();
     let project = ProjectSession::create(temp.0.join("story"), "Story").unwrap();
-    let access = project.attach("test".into()).unwrap();
+    let access = project.documents().attach("test".into()).unwrap();
     let first = chapter(&project, &access, "One", "Mei held the key.");
     review(
         &project,

@@ -38,9 +38,9 @@ fn body(text: &str) -> Value {
 
 fn open_with_chapter(path: &Path) -> (ProjectSession, webnovel_core::projects::ProjectAccess, webnovel_core::projects::DocumentRecord) {
     let project = ProjectSession::create(path, "Document roles").expect("create project");
-    let access = project.attach("document-role-session".into()).expect("attach");
+    let access = project.documents().attach("document-role-session".into()).expect("attach");
     let chapter = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter".into(),
@@ -96,10 +96,10 @@ fn generic_document_paths_reject_assistant_and_anchor_roles() {
     drop(db);
 
     let reopened = ProjectSession::open(&path).expect("reopen project");
-    let access = reopened.attach("document-role-reopen".into()).expect("attach");
-    assert_eq!(reopened.documents(access.clone()).expect("list documents").len(), 1);
+    let access = reopened.documents().attach("document-role-reopen".into()).expect("attach");
+    assert_eq!(reopened.documents().list(access.clone()).expect("list documents").len(), 1);
     let hidden = reopened
-        .document(access.clone(), "chapter-draft".into())
+        .documents().read(access.clone(), "chapter-draft".into())
         .expect_err("ordinary read must reject assistant drafts");
     assert_eq!(hidden.code, "DocumentRoleMismatch");
     let renamed = reopened.project().rename_document(
@@ -109,13 +109,13 @@ fn generic_document_paths_reject_assistant_and_anchor_roles() {
         "Renamed".into(),
     );
     assert_eq!(renamed.expect_err("rename must reject hidden document").code, "DocumentRoleMismatch");
-    let history = reopened.history(access.clone(), "chapter-draft".into()).expect_err("history must reject hidden document");
+    let history = reopened.documents().history(access.clone(), "chapter-draft".into()).expect_err("history must reject hidden document");
     assert_eq!(history.code, "DocumentRoleMismatch");
     let pins = reopened
         .read_source_pins(access.clone(), "chapter-draft".into())
         .expect_err("source pins must reject hidden document");
     assert_eq!(pins.code, "DocumentNotFound");
-    let save = reopened.save(SaveSnapshot {
+    let save = reopened.documents().save(SaveSnapshot {
         access,
         operation_id: "hidden-save".into(),
         expected: Head {

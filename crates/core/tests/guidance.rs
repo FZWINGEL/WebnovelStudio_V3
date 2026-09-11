@@ -55,10 +55,10 @@ fn setup(
 ) {
     let project = ProjectSession::create(root, "Guidance story").expect("create project");
     let access = project
-        .attach("guidance-session".into())
+        .documents().attach("guidance-session".into())
         .expect("attach project");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-document".into(),
             document_id: "chapter-one".into(),
@@ -340,7 +340,7 @@ fn guidance_is_copied_into_recovery_and_remains_editable_with_local_history() {
     let recovered = recover_backup(&backup, &temp.child("recovered"), "Recovered story")
         .expect("recover project");
     let recovered_access = recovered
-        .attach("recovered-session".into())
+        .documents().attach("recovered-session".into())
         .expect("attach recovered");
     let copied = recovered
         .guidance(recovered_access.clone(), document.head.document_id.clone())

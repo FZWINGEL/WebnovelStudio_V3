@@ -334,9 +334,9 @@ mod tests {
             std::fs::create_dir_all(&root).unwrap();
             let project =
                 ProjectSession::create(root.join("project"), "Native project chat").unwrap();
-            let access = project.attach("native-test".into()).unwrap();
+            let access = project.documents().attach("native-test".into()).unwrap();
             let chapter = project
-                .create_document(CreateDocument {
+                .documents().create(CreateDocument {
                     access: access.clone(),
                     operation_id: "create-chapter".into(),
                     document_id: "chapter".into(),

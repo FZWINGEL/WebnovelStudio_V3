@@ -50,7 +50,7 @@ fn hash_bytes(value: &[u8]) -> String {
 fn setup() -> (TempProject, ProjectSession, ProjectAccess) {
     let temp = TempProject::new();
     let project = ProjectSession::create(temp.child("story"), "Reviewed summary test").unwrap();
-    let access = project.attach("summary-test".into()).unwrap();
+    let access = project.documents().attach("summary-test".into()).unwrap();
     (temp, project, access)
 }
 
@@ -60,7 +60,7 @@ fn chapter(
     text: &str,
 ) -> webnovel_core::projects::DocumentRecord {
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-chapter".into(),
             document_id: "chapter-one".into(),
@@ -163,7 +163,7 @@ fn changed_source_requires_explicit_summary_decision_and_clear_is_atomic() {
     );
     ready(&project, &access, "ready-summary", &staged.id);
     let saved = project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "edit-chapter".into(),
             expected: original.head,
@@ -173,7 +173,7 @@ fn changed_source_requires_explicit_summary_decision_and_clear_is_atomic() {
         })
         .unwrap();
     let changed = project
-        .document(access.clone(), saved.head.document_id.clone())
+        .documents().read(access.clone(), saved.head.document_id.clone())
         .unwrap();
     let stale = project
         .stage_author_review(StageAuthorReview {
@@ -201,7 +201,7 @@ fn changed_source_requires_explicit_summary_decision_and_clear_is_atomic() {
 
     drop(project);
     let reopened = ProjectSession::open(temp.child("story")).unwrap();
-    let reopened_access = reopened.attach("summary-reopen".into()).unwrap();
+    let reopened_access = reopened.documents().attach("summary-reopen".into()).unwrap();
     let read = reopened
         .read_reviewed_record_set(reopened_access, "chapter-one".into())
         .unwrap()

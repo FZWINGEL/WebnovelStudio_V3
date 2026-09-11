@@ -61,10 +61,10 @@ fn setup_project(
 ) {
     let project = ProjectSession::create(root, "Packet test").expect("create project");
     let access = project
-        .attach("packet-session".into())
+        .documents().attach("packet-session".into())
         .expect("attach project");
     let document = project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "create-document".into(),
             document_id: "chapter-one".into(),
@@ -343,7 +343,7 @@ fn legacy_packet_without_mandatory_annotation_retains_exact_input_and_replays() 
     let temp = TempDir::new("legacy-mandatory-annotation");
     let (project, access, document) = setup_project(&temp.child("project"));
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "legacy-source-create".into(),
             document_id: "legacy-source".into(),
@@ -415,7 +415,7 @@ fn legacy_v1_packet_replays_at_budget_boundary_after_restart_and_backup() {
     let project_path = temp.child("project");
     let (project, access, document) = setup_project(&project_path);
     project
-        .create_document(CreateDocument {
+        .documents().create(CreateDocument {
             access: access.clone(),
             operation_id: "legacy-v1-optional-source".into(),
             document_id: "legacy-v1-source".into(),
@@ -526,7 +526,7 @@ fn legacy_v1_packet_replays_at_budget_boundary_after_restart_and_backup() {
     drop(project);
     let reopened = ProjectSession::open(&project_path).expect("reopen legacy project");
     let reopened_access = reopened
-        .attach("legacy-v1-reopened".into())
+        .documents().attach("legacy-v1-reopened".into())
         .expect("attach reopened project");
     assert_eq!(
         reopened
@@ -753,7 +753,7 @@ fn prepared_packet_round_trips_exactly_after_project_restart() {
 
     let reopened = ProjectSession::open(&path).expect("reopen project");
     let reopened_access = reopened
-        .attach("packet-session-after-restart".into())
+        .documents().attach("packet-session-after-restart".into())
         .expect("attach after restart");
     let restored = reopened
         .prepared_context(reopened_access, expected.receipt.packet_id.clone())
@@ -780,10 +780,10 @@ fn stale_story_blocks_new_preparation_but_old_packet_remains_inspectable() {
             .expect("prepare old packet"),
     );
     let current = project
-        .document(access.clone(), document.head.document_id.clone())
+        .documents().read(access.clone(), document.head.document_id.clone())
         .expect("read current document");
     project
-        .save(SaveSnapshot {
+        .documents().save(SaveSnapshot {
             access: access.clone(),
             operation_id: "change-after-packet".into(),
             expected: current.head,
@@ -854,7 +854,7 @@ fn revoked_policy_blocks_reading_an_old_prepared_packet() {
     let recovered = recover_backup(&archive, &temp.child("recovered"), "Recovered history")
         .expect("revoked historical packets remain valid stored evidence");
     let recovered_access = recovered
-        .attach("recovered-history-session".into())
+        .documents().attach("recovered-history-session".into())
         .unwrap();
     assert_eq!(
         recovered
@@ -864,7 +864,7 @@ fn revoked_policy_blocks_reading_an_old_prepared_packet() {
         "ContextProjectMismatch"
     );
     let current = recovered
-        .document(recovered_access.clone(), "chapter-one".into())
+        .documents().read(recovered_access.clone(), "chapter-one".into())
         .unwrap();
     let frozen = freeze(&recovered, &recovered_access, &current);
     let fresh = prepared(
@@ -904,7 +904,7 @@ fn recovered_copy_rejects_original_packet_identity_and_accepts_new_snapshot_pack
     let recovered = recover_backup(&archive, &target, "Recovered packet project")
         .expect("recover copied project");
     let recovered_access = recovered
-        .attach("recovered-packet-session".into())
+        .documents().attach("recovered-packet-session".into())
         .expect("attach recovered project");
     let error = recovered
         .prepared_context(recovered_access.clone(), original.receipt.packet_id.clone())
@@ -912,7 +912,7 @@ fn recovered_copy_rejects_original_packet_identity_and_accepts_new_snapshot_pack
     assert_eq!(error.code, "ContextProjectMismatch");
 
     let recovered_document = recovered
-        .document(recovered_access.clone(), "chapter-one".into())
+        .documents().read(recovered_access.clone(), "chapter-one".into())
         .expect("read recovered target");
     let recovered_snapshot = freeze(&recovered, &recovered_access, &recovered_document);
     let new_packet = prepared(
@@ -935,7 +935,7 @@ fn budget_rejection_creates_no_packet_and_does_not_mutate_body() {
     let (project, access, document) = setup_project(&temp.child("project"));
     let snapshot = freeze(&project, &access, &document);
     let before = project
-        .document(access.clone(), "chapter-one".into())
+        .documents().read(access.clone(), "chapter-one".into())
         .expect("read body before budget rejection");
     let result = project
         .prepare_context(prepare_request(
@@ -957,7 +957,7 @@ fn budget_rejection_creates_no_packet_and_does_not_mutate_body() {
     }
     assert_eq!(packet_count(&project), 0);
     let after = project
-        .document(access, "chapter-one".into())
+        .documents().read(access, "chapter-one".into())
         .expect("read body after budget rejection");
     assert_eq!(after.body, before.body);
     assert_eq!(after.head, before.head);
@@ -1106,7 +1106,7 @@ fn coherent_packet_tampering_is_rejected_by_reads_and_transfer() {
         let temp = TempDir::new(label);
         let (project, access, document) = setup_project(&temp.child("project"));
         let second = project
-            .create_document(CreateDocument {
+            .documents().create(CreateDocument {
                 access: access.clone(),
                 operation_id: format!("create-second-{label}"),
                 document_id: "chapter-two".into(),

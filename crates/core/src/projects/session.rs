@@ -352,34 +352,14 @@ impl ProjectSession {
         receiver.recv().map_err(|_| CoreError::disconnected())?
     }
     /// Host-owned attachment: every renderer creation begins with a fresh lease.
-    pub fn attach(&self, session: String) -> CoreResult<ProjectAccess> {
-        self.request(|r| Command::Attach(session, r))
-    }
-    /// Read destination state before replacing the current lease. Failed opens
-    /// must not retire an editor whose manuscript remains on screen.
-    pub fn attach_snapshot(&self, session: String) -> CoreResult<AttachedProject> {
-        self.request(|r| Command::AttachSnapshot(session, r))
-    }
-    pub fn create_document(&self, request: CreateDocument) -> CoreResult<DocumentRecord> {
-        self.request(|r| Command::Create(request, r))
-    }
-    pub fn documents(&self, access: ProjectAccess) -> CoreResult<Vec<DocumentRecord>> {
-        self.request(|r| Command::List(access, r))
-    }
-    pub fn document(&self, access: ProjectAccess, id: String) -> CoreResult<DocumentRecord> {
-        self.request(|r| Command::Read(access, id, r))
-    }
-    pub fn save(&self, request: SaveSnapshot) -> CoreResult<SaveAck> {
-        self.request(|r| Command::Save(request, r))
-    }
-    pub fn checkpoint(&self, request: CheckpointRequest) -> CoreResult<Revision> {
-        self.request(|r| Command::Checkpoint(request, r))
-    }
-    pub fn history(&self, access: ProjectAccess, id: String) -> CoreResult<Vec<Revision>> {
-        self.request(|r| Command::LegacyHistory(access, id, r))
-    }
-    pub fn reconcile(&self, request: ReconcileRequest) -> CoreResult<ReconciledDocument> {
-        self.request(|r| Command::Reconcile(request, r))
+    /// Narrow interface to the document concern: eleven methods instead of 28,
+    /// and the group that actually widens this type's surface. See
+    /// [`DocumentApi`].
+    ///
+    /// Distinct from the actor's own methods of the same names, which run on
+    /// the actor thread against the live connection.
+    pub fn documents(&self) -> DocumentApi {
+        DocumentApi::new(Arc::clone(&self.handle))
     }
     /// Read project metadata without a renderer lease so an unknown metadata
     /// commit can be reconciled even when the project has no documents.
@@ -390,18 +370,6 @@ impl ProjectSession {
     /// actor thread against the live connection.
     pub fn project(&self) -> ProjectApi {
         ProjectApi::new(Arc::clone(&self.handle))
-    }
-    pub fn view_state(&self, access: ProjectAccess) -> CoreResult<Option<ViewState>> {
-        self.request(|r| Command::ViewState(access, r))
-    }
-    pub fn save_view_state(
-        &self,
-        access: ProjectAccess,
-        head: Head,
-        anchor: Endpoint,
-        focus: Endpoint,
-    ) -> CoreResult<ViewState> {
-        self.request(|r| Command::SaveViewState(access, head, anchor, focus, r))
     }
     /// Narrow interface to the context-freshness concern. See [`ContextApi`].
     ///
