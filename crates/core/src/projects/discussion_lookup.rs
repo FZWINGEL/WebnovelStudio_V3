@@ -4,9 +4,8 @@
 //! terminal row per legacy discussion and its historical packet/result bytes
 //! are part of the transfer contract.  Lookup discussions instead retain one
 //! mutable invocation state row plus immutable result and local-read rows.
-
+pub use wns_story::run_vocabulary::*;
 use super::check_id;
-use super::discussions::RunOwner;
 use wns_providers::vocabulary::{ProviderCleanup, ProviderOutcomeStatus, ProviderUsage};
 use super::{CoreError, CoreResult};
 use crate::context::lookup::{
@@ -74,68 +73,7 @@ pub enum LookupAdvance {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum LookupInvocationState {
-    Prepared,
-    Claimed,
-    NeedsContext,
-    Completed,
-    Failed,
-    Stopped,
-    Unknown,
-}
 
-impl LookupInvocationState {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Prepared => "prepared",
-            Self::Claimed => "claimed",
-            Self::NeedsContext => "needs_context",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-            Self::Stopped => "stopped",
-            Self::Unknown => "unknown",
-        }
-    }
-
-    fn parse(value: &str) -> CoreResult<Self> {
-        match value {
-            "prepared" => Ok(Self::Prepared),
-            "claimed" => Ok(Self::Claimed),
-            "needs_context" => Ok(Self::NeedsContext),
-            "completed" => Ok(Self::Completed),
-            "failed" => Ok(Self::Failed),
-            "stopped" => Ok(Self::Stopped),
-            "unknown" => Ok(Self::Unknown),
-            _ => Err(CoreError::new(
-                "InvalidProject",
-                "The saved lookup invocation has an unknown state.",
-            )),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LookupInvocationSummary {
-    pub ordinal: String,
-    pub packet_id: String,
-    pub state: LookupInvocationState,
-    /// Whether the provider receipt confirms the complete serialized packet was
-    /// written. This is independent of whether the invocation produced a
-    /// usable answer or failed after receiving its input.
-    pub input_delivered: bool,
-    pub response: Option<Value>,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LookupRunSummary {
-    pub allowance: LookupAllowance,
-    pub invocations: Vec<LookupInvocationSummary>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct InvocationIdentity {
