@@ -761,12 +761,39 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
 
    The whole thing is one commit because it could not be anything else — which is the finding
    two aborted attempts paid for.
-2. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)**, then `wns-transfer` and
-   `wns-library` (step 8), then `wns-app` (step 9). `wns-library` was blocked on step 5 and no
-   longer is — `library.rs` now reaches `ProjectSession::documents()` and `project()` instead
-   of the flat 28-method surface — but `projects::import` is still a direct module import and
-   must be inverted before it can move. `crates/architecture` will refuse the backward edge if
-   it is attempted too early.
+2. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)** — **gated on a design decision,
+   not on effort.** All twenty-one modules under `projects/` define an inherent impl on
+   `ProjectSession` or `OwnedProject`:
+
+   ```
+   background_work · context_packets · discussions · discussions/app_server · evidence_queries
+   exports · guidance · history · memory · memory/app_server · project_chat · project_chat/chapters
+   project_chat/draft_lifecycle · project_chat/materialize · project_chat/store · proposals
+   reviewed_story · session · source_pins · story_context · workshop
+   ```
+
+   In Rust an inherent impl must live in the crate that owns the type, so **no domain module can
+   move to another crate while its methods are inherent impls on the actor's types.** And the
+   actor cannot move down to meet them: `OwnedProject` dispatches twelve domains
+   (`handle_context`, `handle_discussion`, `handle_memory`, `handle_workshop`… via 39 `Command`
+   variants), so it sits above all of them by construction.
+
+   This is the step-6 `impl WorkshopPacketMetadata` problem at the scale of the whole actor.
+   Step 6 needed one type's behaviour to travel with it; step 7 needs thirty-five impl blocks
+   across twenty-one modules to stop being inherent impls. The shapes that work:
+
+   - a trait per concern that the actor implements, with the method bodies as free functions in
+     the owning crate, or
+   - the per-concern facades of §3.5 growing into the real interface, with the actor reached
+     through a narrow host trait rather than named directly.
+
+   Either is a design decision, and it is the remaining design question of this migration. It is
+   also the last one: steps 8 and 9 are ordinary moves once the actor stops being a type every
+   module can add methods to.
+
+   `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
+   module import; `crates/architecture` will refuse the backward edge if it is attempted too
+   early.
 
 On the frontend, §4.1 (feature slices), §4.4 (generated IPC) and §4.5 (shell reduction) remain.
 §4.4 is the largest remaining correctness win: D6 — 255 hand-written type mirrors across 22
