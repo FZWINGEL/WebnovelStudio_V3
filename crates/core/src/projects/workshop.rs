@@ -2621,19 +2621,20 @@ fn existing_workshop_receipt(
 }
 
 fn read_workshop_results(
-    connection: &Connection,
+    host: &impl WorkshopHost,
     state: &WorkshopState,
     project_id: &str,
     operation_namespace: &str,
     source_epoch: &str,
 ) -> CoreResult<Vec<WorkshopResult>> {
+    let connection = host.db()?;
     let mut statement = connection.prepare("SELECT id FROM discussion_runs ORDER BY rowid")?;
     let run_ids = statement
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
     let mut results = Vec::new();
     for run_id in run_ids {
-        let run = crate::projects::discussions::read_run(connection, &run_id)?;
+        let run = host.read_run(&run_id)?;
         if run.intent != wns_story::discussion_vocabulary::FeedbackIntent::WorkshopExplore {
             continue;
         }
@@ -3101,7 +3102,7 @@ pub fn read_workshop(host: &impl WorkshopHost, access: ProjectAccess) -> CoreRes
     Ok(WorkshopView {
         version: parse_stored_version(version)?,
         results: read_workshop_results(
-            host.db()?,
+            host,
             &state,
             &host.info().project_id,
             &access.operation_namespace,
