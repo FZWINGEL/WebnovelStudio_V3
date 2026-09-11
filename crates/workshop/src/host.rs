@@ -18,7 +18,7 @@
 use rusqlite::Connection;
 use wns_story::discussion_vocabulary::StartDiscussion;
 use wns_story::run_vocabulary::DiscussionStart;
-use wns_kernel::{CoreError, CoreResult, ProjectAccess};
+use wns_kernel::{CoreResult, ProjectAccess};
 
 pub trait WorkshopHost {
     fn check_access(&self, access: &ProjectAccess) -> CoreResult<()>;
