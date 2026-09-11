@@ -12,7 +12,7 @@
 //! snapshot to answer whether a prepared packet is still current.
 
 use rusqlite::Connection;
-use wns_kernel::{CoreResult, ProjectAccess};
+use wns_kernel::{CoreResult, ProjectInfo, ProjectAccess};
 
 pub trait StoryHost {
     fn check_access(&self, access: &ProjectAccess) -> CoreResult<()>;
@@ -20,5 +20,8 @@ pub trait StoryHost {
     fn db_mut(&mut self) -> CoreResult<&mut Connection>;
     fn fence_uncertain<T>(&mut self, result: &CoreResult<T>);
     fn context_source_epoch(&self) -> CoreResult<String>;
+    /// The actor reads two fields off this (`project_id`, `operation_namespace`)
+    /// to validate a runtime owner. Everything else it reaches for is a method.
+    fn info(&self) -> &ProjectInfo;
 }
 

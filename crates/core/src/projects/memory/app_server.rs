@@ -29,85 +29,85 @@ impl ProjectSession {
     }
 }
 
-impl OwnedProject {
-    pub(super) fn claim_memory_app_server_dispatch(
-        &mut self,
-        owner: MemoryOwner,
-        dispatch: AppServerDispatch,
-    ) -> CoreResult<()> {
-        validate_runtime_owner(&self.info, &owner)?;
-        dispatch.validate()?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let job = read_memory_job_row(&tx, &owner.job_id)?;
-        validate_job_owner(&job, &owner)?;
-        if job.status != "running" || job.dispatch_state != "dispatched" {
-            return Err(CoreError::new(
-                "MemoryJobNotRunning",
-                "This memory job no longer permits external dispatch.",
-            ));
-        }
-        let packet = context_packets::validated_packet_record(&tx, &job.packet_id)?;
-        let (frozen, _) = story_context::validated_snapshot_record(&tx, &job.snapshot_id)?;
-        ensure_current_policy(&tx, &frozen)?;
-        ensure_memory_basis_current(&tx, &job)?;
-        if !packet
-            .options
-            .provider_binding
-            .as_ref()
-            .is_some_and(is_app_server)
-            || !dispatch_matches_packet(&dispatch, &packet)?
-        {
-            return Err(CoreError::new(
-                "ProviderBindingMismatch",
-                "The app-server dispatch does not match the frozen memory packet.",
-            ));
-        }
-        let inserted = tx.execute(
-            "INSERT INTO codex_app_server_dispatches(job_kind,job_id,packet_id,dispatch_json) VALUES('memory',?,?,?) ON CONFLICT(job_kind,job_id) DO NOTHING",
-            params![job.id, job.packet_id, serde_json::to_string(&dispatch)?],
-        )?;
-        if inserted != 1 {
-            return Err(CoreError::new(
-                "DispatchAlreadyClaimed",
-                "This memory job already claimed external submission. It will not be sent again.",
-            ));
-        }
-        tx.commit().map_err(CoreError::uncertain)
-    }
+// Actor-side logic, as free functions over `StoryHost`.
 
-    pub(super) fn acknowledge_memory_app_server_turn(
-        &mut self,
-        owner: MemoryOwner,
-        dispatch: AppServerDispatch,
-        turn_id: String,
-    ) -> CoreResult<()> {
-        validate_runtime_owner(&self.info, &owner)?;
-        dispatch.validate()?;
-        if !valid_identifier(&turn_id) {
-            return Err(CoreError::new(
-                "InvalidRequest",
-                "The app-server turn identity is invalid.",
-            ));
-        }
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let job = read_memory_job_row(&tx, &owner.job_id)?;
-        validate_job_owner(&job, &owner)?;
-        let saved = stored_dispatch(&tx, &job.id)?;
-        if saved.as_ref().is_none_or(|(identity, saved_turn)| {
-            identity != &dispatch || saved_turn.as_ref().is_some_and(|value| value != &turn_id)
-        }) {
-            return Err(CoreError::new(
-                "ProviderBindingMismatch",
-                "The acknowledged turn does not match this memory job's dispatch.",
-            ));
-        }
-        tx.execute("UPDATE codex_app_server_dispatches SET turn_id=? WHERE job_kind='memory' AND job_id=? AND turn_id IS NULL", params![turn_id, job.id])?;
-        tx.commit().map_err(CoreError::uncertain)
+pub fn claim_memory_app_server_dispatch(
+    host: &mut impl StoryHost,
+    owner: MemoryOwner,
+    dispatch: AppServerDispatch,
+) -> CoreResult<()> {
+    validate_runtime_owner(&host.info(), &owner)?;
+    dispatch.validate()?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let job = read_memory_job_row(&tx, &owner.job_id)?;
+    validate_job_owner(&job, &owner)?;
+    if job.status != "running" || job.dispatch_state != "dispatched" {
+        return Err(CoreError::new(
+            "MemoryJobNotRunning",
+            "This memory job no longer permits external dispatch.",
+        ));
     }
+    let packet = context_packets::validated_packet_record(&tx, &job.packet_id)?;
+    let (frozen, _) = story_context::validated_snapshot_record(&tx, &job.snapshot_id)?;
+    ensure_current_policy(&tx, &frozen)?;
+    ensure_memory_basis_current(&tx, &job)?;
+    if !packet
+        .options
+        .provider_binding
+        .as_ref()
+        .is_some_and(is_app_server)
+        || !dispatch_matches_packet(&dispatch, &packet)?
+    {
+        return Err(CoreError::new(
+            "ProviderBindingMismatch",
+            "The app-server dispatch does not match the frozen memory packet.",
+        ));
+    }
+    let inserted = tx.execute(
+        "INSERT INTO codex_app_server_dispatches(job_kind,job_id,packet_id,dispatch_json) VALUES('memory',?,?,?) ON CONFLICT(job_kind,job_id) DO NOTHING",
+        params![job.id, job.packet_id, serde_json::to_string(&dispatch)?],
+    )?;
+    if inserted != 1 {
+        return Err(CoreError::new(
+            "DispatchAlreadyClaimed",
+            "This memory job already claimed external submission. It will not be sent again.",
+        ));
+    }
+    tx.commit().map_err(CoreError::uncertain)
+}
+
+pub fn acknowledge_memory_app_server_turn(
+    host: &mut impl StoryHost,
+    owner: MemoryOwner,
+    dispatch: AppServerDispatch,
+    turn_id: String,
+) -> CoreResult<()> {
+    validate_runtime_owner(&host.info(), &owner)?;
+    dispatch.validate()?;
+    if !valid_identifier(&turn_id) {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The app-server turn identity is invalid.",
+        ));
+    }
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let job = read_memory_job_row(&tx, &owner.job_id)?;
+    validate_job_owner(&job, &owner)?;
+    let saved = stored_dispatch(&tx, &job.id)?;
+    if saved.as_ref().is_none_or(|(identity, saved_turn)| {
+        identity != &dispatch || saved_turn.as_ref().is_some_and(|value| value != &turn_id)
+    }) {
+        return Err(CoreError::new(
+            "ProviderBindingMismatch",
+            "The acknowledged turn does not match this memory job's dispatch.",
+        ));
+    }
+    tx.execute("UPDATE codex_app_server_dispatches SET turn_id=? WHERE job_kind='memory' AND job_id=? AND turn_id IS NULL", params![turn_id, job.id])?;
+    tx.commit().map_err(CoreError::uncertain)
 }
 
 fn stored_dispatch(

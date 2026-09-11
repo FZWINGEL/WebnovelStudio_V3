@@ -17,16 +17,10 @@ use serde_json::Value;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use wns_kernel::{CoreError, CoreResult, DocumentRecord, Head, ProjectAccess, StoredResult};
+use wns_kernel::{
+    CoreError, CoreResult, DocumentRecord, Head, ProjectAccess, ProjectInfo, StoredResult,
+};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProjectInfo {
-    pub project_id: String,
-    pub operation_namespace: String,
-    pub title: String,
-    pub format_version: u32,
-}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectMetadata {

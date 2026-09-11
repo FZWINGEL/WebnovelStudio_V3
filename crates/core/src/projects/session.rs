@@ -200,7 +200,9 @@ impl ProjectSession {
                     }
                     while let Ok(command) = receiver.recv() {
                         match command {
-                            Command::Memory(command) => project.handle_memory(*command),
+                            Command::Memory(command) => {
+                                crate::projects::memory::handle_memory(&mut project, *command)
+                            }
                             Command::ProjectChat(command) => project.handle_project_chat(*command),
                             Command::Packet(command) => {
                                 crate::projects::context_packets::handle_packet(&mut project, *command)

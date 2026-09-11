@@ -288,8 +288,11 @@ impl OwnedProject {
                 BackgroundWorkKind::Discussion => self
                     .stop_discussion(access.clone(), record.id.clone())
                     .map(|stop| BackgroundWorkStatus::from(stop.run.status)),
-                BackgroundWorkKind::Memory => self
-                    .stop_memory(access.clone(), record.id.clone())
+                BackgroundWorkKind::Memory => memory::stop_memory(
+                    self,
+                    access.clone(),
+                    record.id.clone(),
+                )
                     .map(|job| BackgroundWorkStatus::from(job.status)),
             };
             match outcome {
@@ -326,13 +329,15 @@ impl OwnedProject {
                 BackgroundWorkKind::Discussion => self
                     .interrupt_discussion(access.clone(), record.id.clone())
                     .map(|run| BackgroundWorkStatus::from(run.status)),
-                BackgroundWorkKind::Memory => self
-                    .interrupt_memory_claim(memory::MemoryOwner {
+                BackgroundWorkKind::Memory => memory::interrupt_memory_claim(
+                    self,
+                    memory::MemoryOwner {
                         project_id: access.project_id.clone(),
                         operation_namespace: access.operation_namespace.clone(),
                         job_id: record.id.clone(),
-                    })
-                    .map(|job| BackgroundWorkStatus::from(job.status)),
+                    },
+                )
+                .map(|job| BackgroundWorkStatus::from(job.status)),
             };
             match outcome {
                 Ok(status) => {

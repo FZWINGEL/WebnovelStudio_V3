@@ -189,6 +189,23 @@ pub struct Revision {
     pub parent_id: Option<String>,
 }
 
+/// A project's identity.
+///
+/// Moved down from `webnovel-core::projects::records` because the story-context
+/// host trait has to name it: `validate_runtime_owner` reads exactly two of
+/// these fields — `project_id` and `operation_namespace` — to decide whether a
+/// dispatch belongs to the running operation. A trait declared below core cannot
+/// name a type declared in core, and the two-field reading is not a reason to
+/// widen the trait past what it is for.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectInfo {
+    pub project_id: String,
+    pub operation_namespace: String,
+    pub title: String,
+    pub format_version: u32,
+}
+
 /// One document row, typed.
 ///
 /// Moved down from `webnovel-core::projects::records` so that the row readers

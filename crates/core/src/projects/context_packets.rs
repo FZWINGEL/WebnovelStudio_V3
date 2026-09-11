@@ -488,6 +488,9 @@ impl wns_story::host::StoryHost for OwnedProject {
     fn fence_uncertain<T>(&mut self, result: &CoreResult<T>) {
         OwnedProject::fence_uncertain(self, result)
     }
+    fn info(&self) -> &wns_kernel::ProjectInfo {
+        &self.info
+    }
     fn context_source_epoch(&self) -> CoreResult<String> {
         OwnedProject::context_source_epoch(self)
     }

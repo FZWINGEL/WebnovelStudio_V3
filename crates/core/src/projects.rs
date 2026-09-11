@@ -73,7 +73,9 @@ pub use wns_kernel::{
 //
 // Vocabulary went to L0, row access to L1, and both are re-exported at their
 // historical paths so not one of the 240 call sites changed.
-pub use wns_kernel::{AppliedDecision, DocumentRecord, DocumentRole, RestoredDecision, StoredResult};
+pub use wns_kernel::{
+    AppliedDecision, DocumentRecord, DocumentRole, ProjectInfo, RestoredDecision, StoredResult,
+};
 // Document vocabulary, moved to L2 beside the model it describes. Re-exported
 // here so `webnovel_core::projects::blank_document` and the integration tests
 // that build fixtures with it are unchanged.
@@ -332,7 +334,7 @@ impl OwnedProject {
             needs_reopen: false,
         };
         project.recover_interrupted_discussions()?;
-        project.recover_interrupted_memory()?;
+        crate::projects::memory::recover_interrupted_memory(&mut project)?;
         Ok(project)
     }
 
