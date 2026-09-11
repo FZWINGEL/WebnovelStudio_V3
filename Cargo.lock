@@ -5309,6 +5309,7 @@ dependencies = [
 name = "wns-workshop"
 version = "3.0.0"
 dependencies = [
+ "rusqlite",
  "serde",
  "serde_json",
  "wns-context",

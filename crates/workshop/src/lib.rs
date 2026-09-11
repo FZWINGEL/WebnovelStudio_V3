@@ -29,3 +29,6 @@
 //! # Dependency rule
 //!
 //! L4. May depend on L0–L3.
+
+/// What the Workshop needs from the actor.
+pub mod host;
