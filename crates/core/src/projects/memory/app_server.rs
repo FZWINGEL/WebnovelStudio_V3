@@ -35,7 +35,7 @@ impl OwnedProject {
         owner: MemoryOwner,
         dispatch: AppServerDispatch,
     ) -> CoreResult<()> {
-        validate_runtime_owner(self, &owner)?;
+        validate_runtime_owner(&self.info, &owner)?;
         dispatch.validate()?;
         let tx = self
             .db_mut()?
@@ -83,7 +83,7 @@ impl OwnedProject {
         dispatch: AppServerDispatch,
         turn_id: String,
     ) -> CoreResult<()> {
-        validate_runtime_owner(self, &owner)?;
+        validate_runtime_owner(&self.info, &owner)?;
         dispatch.validate()?;
         if !valid_identifier(&turn_id) {
             return Err(CoreError::new(

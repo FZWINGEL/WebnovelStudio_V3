@@ -835,7 +835,7 @@ impl OwnedProject {
                 mutate!(reply, self.halt_lookup(request));
             }
             DiscussionCommand::ReadRun(owner, reply) => {
-                let result = validate_runtime_owner(self, &owner).and_then(|()| {
+                let result = validate_runtime_owner(&self.info, &owner).and_then(|()| {
                     read_run(self.db()?, &owner.run_id).and_then(|run| {
                         validate_owner(&run, &owner)?;
                         Ok(run)
@@ -1210,7 +1210,7 @@ impl OwnedProject {
         request: DiscussionOutputAppend,
     ) -> CoreResult<DiscussionRun> {
         validate_output_event(&request.owner, &request.event_id, &request.chunk)?;
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         let expected = parse_version(&request.expected_sequence)?;
         let tx = self
             .db_mut()?
@@ -1274,7 +1274,7 @@ impl OwnedProject {
         check_id(&request.owner.project_id)?;
         check_id(&request.owner.operation_namespace)?;
         check_id(&request.owner.run_id)?;
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         let tx = self
             .db_mut()?
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1363,7 +1363,7 @@ impl OwnedProject {
         check_id(&owner.project_id)?;
         check_id(&owner.operation_namespace)?;
         check_id(&owner.run_id)?;
-        validate_runtime_owner(self, &owner)?;
+        validate_runtime_owner(&self.info, &owner)?;
         let ordinal = parse_lookup_ordinal(ordinal_text)?;
         let tx = self
             .db_mut()?
@@ -1420,7 +1420,7 @@ impl OwnedProject {
         request: discussion_lookup::LookupInvocationReport,
     ) -> CoreResult<DiscussionRun> {
         validate_lookup_report_shape(&request)?;
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         let ordinal = parse_lookup_ordinal(&request.ordinal)?;
         let tx = self
             .db_mut()?
@@ -1585,7 +1585,7 @@ impl OwnedProject {
         check_id(&request.owner.project_id)?;
         check_id(&request.owner.operation_namespace)?;
         check_id(&request.owner.run_id)?;
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         let completed = parse_lookup_ordinal(&request.completed_ordinal)?;
         let current_source_epoch = self.context_source_epoch()?;
         let tx = self
@@ -1755,7 +1755,7 @@ impl OwnedProject {
         check_id(&request.owner.project_id)?;
         check_id(&request.owner.operation_namespace)?;
         check_id(&request.owner.run_id)?;
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         if request.reason.trim().is_empty() || request.reason.len() > 4096 {
             return Err(CoreError::new(
                 "InvalidRequest",
@@ -1797,7 +1797,7 @@ impl OwnedProject {
         check_id(&owner.project_id)?;
         check_id(&owner.operation_namespace)?;
         check_id(&owner.run_id)?;
-        validate_runtime_owner(self, &owner)?;
+        validate_runtime_owner(&self.info, &owner)?;
         let tx = self
             .db_mut()?
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1832,7 +1832,7 @@ impl OwnedProject {
         request: DiscussionFinish,
     ) -> CoreResult<DiscussionRun> {
         validate_finish_request(&request.owner, &request.event_id, &request.assistant_text)?;
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         let expected = parse_version(&request.expected_sequence)?;
         let tx = self
             .db_mut()?
@@ -1918,7 +1918,7 @@ impl OwnedProject {
     ) -> CoreResult<DiscussionRun> {
         check_id(&request.owner.project_id)?;
         check_id(&request.owner.operation_namespace)?;
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         check_id(&request.event_id)?;
         check_id(&request.owner.run_id)?;
         let expected = parse_version(&request.expected_sequence)?;
@@ -2033,7 +2033,7 @@ impl OwnedProject {
         request: DiscussionStopSettled,
     ) -> CoreResult<DiscussionRun> {
         validate_settlement_request(&request)?;
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         let expected = parse_version(&request.expected_sequence)?;
         let tx = self
             .db_mut()?
@@ -2145,7 +2145,7 @@ impl OwnedProject {
         request: ProviderTerminalReport,
     ) -> CoreResult<ProviderDiscussionSettlement> {
         validate_provider_report_shape(&request)?;
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         let expected = parse_version(&request.expected_sequence)?;
         let confirmed_stdin_bytes = parse_decimal_u64(&request.confirmed_stdin_bytes)?;
         let tx = self
@@ -4127,9 +4127,9 @@ fn lookup_failure_reason(status: ProviderOutcomeStatus, cleanup: ProviderCleanup
     }
 }
 
-fn validate_runtime_owner(project: &OwnedProject, owner: &RunOwner) -> CoreResult<()> {
-    if owner.project_id != project.info.project_id
-        || owner.operation_namespace != project.info.operation_namespace
+fn validate_runtime_owner(info: &ProjectInfo, owner: &RunOwner) -> CoreResult<()> {
+    if owner.project_id != info.project_id
+        || owner.operation_namespace != info.operation_namespace
     {
         return Err(CoreError::new(
             "DiscussionProjectMismatch",

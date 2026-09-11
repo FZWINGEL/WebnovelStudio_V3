@@ -407,7 +407,7 @@ impl OwnedProject {
                 let _ = reply.send(self.list_memory(access));
             }
             MemoryCommand::ReadJob(owner, reply) => {
-                let result = validate_runtime_owner(self, &owner)
+                let result = validate_runtime_owner(&self.info, &owner)
                     .and_then(|()| {
                         let policy = current_policy_version(self.db()?)?;
                         read_memory_job_with_policy(self.db()?, &owner.job_id, &policy)
@@ -538,7 +538,7 @@ impl OwnedProject {
     }
 
     pub(super) fn begin_memory(&mut self, owner: MemoryOwner) -> CoreResult<MemoryDispatch> {
-        validate_runtime_owner(self, &owner)?;
+        validate_runtime_owner(&self.info, &owner)?;
         let tx = self
             .db_mut()?
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -613,7 +613,7 @@ impl OwnedProject {
     /// provider request.  This is intentionally owner based so recovery can
     /// run without a renderer lease.
     pub(super) fn interrupt_memory_claim(&mut self, owner: MemoryOwner) -> CoreResult<MemoryJob> {
-        validate_runtime_owner(self, &owner)?;
+        validate_runtime_owner(&self.info, &owner)?;
         let tx = self
             .db_mut()?
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -687,7 +687,7 @@ impl OwnedProject {
         &mut self,
         request: CompleteMemory,
     ) -> CoreResult<MemoryCompletion> {
-        validate_runtime_owner(self, &request.owner)?;
+        validate_runtime_owner(&self.info, &request.owner)?;
         validate_complete_memory(&request)?;
         let tx = self
             .db_mut()?
@@ -818,7 +818,7 @@ impl OwnedProject {
     }
 
     pub(super) fn install_memory(&mut self, owner: MemoryOwner) -> CoreResult<MemoryView> {
-        validate_runtime_owner(self, &owner)?;
+        validate_runtime_owner(&self.info, &owner)?;
         let tx = self
             .db_mut()?
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1328,9 +1328,9 @@ fn validate_memory_lifecycle(
     }
 }
 
-fn validate_runtime_owner(project: &OwnedProject, owner: &MemoryOwner) -> CoreResult<()> {
-    if owner.project_id != project.info.project_id
-        || owner.operation_namespace != project.info.operation_namespace
+fn validate_runtime_owner(info: &ProjectInfo, owner: &MemoryOwner) -> CoreResult<()> {
+    if owner.project_id != info.project_id
+        || owner.operation_namespace != info.operation_namespace
     {
         return Err(CoreError::new(
             "MemoryProjectMismatch",

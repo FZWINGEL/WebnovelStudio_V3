@@ -810,6 +810,38 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    functions do its impl bodies call?"*, not how many actor methods they call — and that number
    is readable with one grep per module before committing to the pattern.
 
+   **And the helpers are the hard part, measured rather than assumed.** Taking the same smallest
+   module and following its four helpers to their definitions:
+
+   | Helper | Defined in | Also used by | Shape |
+   |---|---|---|---|
+   | `invalid` | `conversation_context.rs` | 4 other modules | trivial |
+   | `read_memory_job_row` | `memory.rs` | `memory.rs` | takes `&Connection` — movable |
+   | `validate_job_owner` | `memory.rs` | `memory.rs` | takes rows — movable |
+   | `validate_runtime_owner` | `discussions.rs` | **`discussions.rs` too** | **takes `&OwnedProject`** |
+
+   The last one is the blocker and it is the pattern in miniature. A helper that takes the actor
+   by name cannot move to a crate that does not own the actor — so it must first be generalised
+   over the host (`&impl Host`) rather than over `OwnedProject`. It is also shared with
+   `discussions`, which means generalising it is a step that two modules depend on, and doing it
+   for one module pulls the other along.
+
+   **So the first real action of step 7 is not moving a module.** It is generalising the shared
+   helpers — `validate_runtime_owner` above all — over the host, in place, with everything still
+   compiling. That is a bounded, verifiable change whose only purpose is to unblock the moves,
+   and it is the correct first commit of the step rather than a precursor to it.
+
+   **Done.** Both `validate_runtime_owner` definitions — one in `discussions.rs` for `RunOwner`,
+   one in `memory.rs` for `MemoryOwner` — read exactly two fields off the actor
+   (`project.info.project_id` and `project.info.operation_namespace`) and nothing else. So
+   neither needed the actor at all: they now take `&ProjectInfo`, and their twenty-two call
+   sites pass `&self.info`. Ten lines of signature change, no behaviour touched, and the shared
+   helper that blocked two modules is now movable.
+
+   That is what the pattern costs when the measurement is done first. The doc predicted this
+   would be "a bounded, verifiable change" and it was — but only after four failed estimates
+   taught me to read the helper's body before deciding whether it could travel.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
