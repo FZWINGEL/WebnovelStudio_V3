@@ -60,7 +60,7 @@ pub use workshop_api::*;
 // existing `webnovel_core::projects::{CoreError, CoreResult, Head}` import,
 // including the `use super::*` globs in this crate's own submodules, keeps
 // resolving unchanged.
-pub use wns_kernel::{CoreError, CoreResult, Head, Revision};
+pub use wns_kernel::{CoreError, CoreResult, Head, Revision, check_id};
 
 // L2 vocabulary that the packet compiler consumes. `story_records` is the set of
 // shapes a compiled packet carries, so it lives at or below the compiler rather
@@ -959,20 +959,6 @@ impl OwnedProject {
 
 fn new_id() -> String {
     Uuid::new_v4().to_string()
-}
-fn check_id(id: &str) -> CoreResult<()> {
-    if id.is_empty()
-        || id.len() > 64
-        || !id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    {
-        return Err(CoreError::new(
-            "InvalidRequest",
-            "Identifiers must contain 1–64 ASCII letters, digits, dashes or underscores.",
-        ));
-    }
-    Ok(())
 }
 fn validate_title(title: &str) -> CoreResult<()> {
     if title.trim().is_empty() || title.len() > 512 || title.chars().any(char::is_control) {

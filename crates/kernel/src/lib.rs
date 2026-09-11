@@ -86,6 +86,26 @@ pub struct Head {
     pub body_hash: String,
 }
 
+/// Validate the shape of an identifier used across project records.
+///
+/// Moved down from `projects.rs`, where it was a 12-line private helper with
+/// 300 call sites. It is an identity primitive of the same class as [`Head`],
+/// and record vocabulary at L2 needs it to validate its own shapes.
+pub fn check_id(id: &str) -> CoreResult<()> {
+    if id.is_empty()
+        || id.len() > 64
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "Identifiers must contain 1–64 ASCII letters, digits, dashes or underscores.",
+        ));
+    }
+    Ok(())
+}
+
 /// One immutable saved revision of a document.
 ///
 /// Moved down from `projects/records.rs` so the packet compiler's input
