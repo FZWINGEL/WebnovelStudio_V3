@@ -1193,8 +1193,44 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    (`story_context → project_chat_context` via `validate_frozen_project_chat`, `memory →
    discussions`) are both L4→L5 upward edges that each need their own discharge first.
 
-   That unit is ~5,000 lines across three files, it is the last one in step 7, and it is the
-   session's work this document has now predicted four times and measured properly once.
+   **The first escape looked cheap and is not.** `validate_frozen_project_chat` is 117 lines,
+   takes `&Connection` and `&FrozenContext`, and is named exactly like the `validate_frozen_*`
+   family already at L3 — so it reads as a clean two-function move once `require_blank_anchor`
+   comes along, about 137 lines. It was attempted on that reading and reverted.
+
+   Its transitive closure is **646 lines and three types**:
+
+   ```
+   validate_frozen_project_chat   117
+   validate_frozen_dispositions   136
+   require_blank_anchor            20
+   parse_disposition_scope         21
+   parse_unknown_to                16
+   validate_disposition_scope_reference  41
+   disposition_scope_applies       29
+   collect_project_chat_dispositions    266
+                                   ───
+                                   646   plus ChatDispositionScope,
+                                         ChatDispositionScopeKind, ChatUnknownTo
+   ```
+
+   `collect_project_chat_dispositions` is larger than everything else combined, and the three
+   types live in `project_chat` (L5). So discharging this edge is not a move at all — it is a
+   split of `project_chat_context` along the frozen/authoring seam, and that split has to be
+   designed rather than extracted.
+
+   This is the fourth time the estimate has been one level too shallow and the first time the
+   error was caught before a commit: the earlier three were found by the compiler after the
+   move, this one by measuring the closure before writing it. The rule that is finally earning
+   its keep:
+
+   > Size a move by the transitive closure of what it drags, never by the function you start
+   > from — and measure that closure before the first edit, not after.
+
+   A reverted attempt is not wasted. It is the only measurement that settles this edge, and it
+   settles it in the direction that saves a session: the last step-7 unit is `story_context` +
+   `memory` + `context_packets` moved together, and its two escapes are *both* designed splits
+   rather than extractions.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
