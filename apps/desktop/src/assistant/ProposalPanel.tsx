@@ -1,3 +1,4 @@
+import { errorCode } from '../kernel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { rejectProposal, type PreparedProposal, type Proposal, type StructuredBlock } from '../ipc/proposals';
 import type { ProjectAccess } from '../ipc/projects';
@@ -37,9 +38,6 @@ function versionNumber(value: string | undefined): bigint {
   try { return BigInt(value ?? '0'); } catch { return 0n; }
 }
 
-function errorCode(reason: unknown): string | null {
-  return reason && typeof reason === 'object' && 'code' in reason && typeof reason.code === 'string' ? reason.code : null;
-}
 
 function retainPreparationAttempt(reason: unknown): boolean {
   const code = errorCode(reason);

@@ -1,3 +1,4 @@
+import { errorTextFor, sameDocumentHead } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
 import { bodyHash, canonicalJson } from '../editor/document';
 import type { Scope } from '../editor/selection';
@@ -18,10 +19,7 @@ const labels: Record<ReviewStatus['state'], string> = {
   noReview: 'Not reviewed yet', ready: 'Reviewed version is current', changedProse: 'Writing changed since review',
   earlierBasisChanged: 'Earlier story needs review', reviewNeeded: 'Review needs attention',
 };
-function message(error: unknown): string {
-  return error && typeof error === 'object' && 'detail' in error ? String(error.detail)
-    : error instanceof Error ? error.message : 'Could not confirm the review. Check its saved result before trying again.';
-}
+const message = errorTextFor('Could not confirm the review. Check its saved result before trying again.');
 function uncertain(error: unknown): boolean {
   return !error || typeof error !== 'object' || !('code' in error)
     || ['UncertainOutcome', 'ReconciliationRequired', 'PersistenceUnavailable', 'ProtocolError'].includes(String(error.code));
@@ -31,9 +29,6 @@ function summarySource(access: ProjectAccess, revision: Revision): SourceRef {
 }
 function summaryBasisMatches(summary: SummaryRevision, access: ProjectAccess, target: { documentId: string; bodyHash: string }, current: boolean): boolean {
   return current && summary.source.projectId === access.projectId && summary.source.documentId === target.documentId && summary.source.bodyHash === target.bodyHash;
-}
-function sameHead(left: { documentId: string; version: string; bodyHash: string } | null, right: { documentId: string; version: string; bodyHash: string }): boolean {
-  return !!left && left.documentId === right.documentId && left.version === right.version && left.bodyHash === right.bodyHash;
 }
 function makeSummaryDraft(summary: SummaryRevision | null | undefined, canInherit: boolean): ReviewSummaryDraft {
   return summary ? { choice: canInherit ? 'inherit' : 'required', text: summary.text, audience: summary.audience } : { choice: 'inherit', text: '', audience: 'authorRoom' };
@@ -176,7 +171,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
       setCurrentPromises(promises); setOrphanedPromises(previous => previous ?? (!bundleCurrent && promises.length ? structuredClone(promises) : null));
       setCurrentKnowledge(knowledge); setOrphanedKnowledge(previous => previous ?? (!bundleCurrent && knowledge.length ? structuredClone(knowledge) : null));
       setCurrentRecords(records); setCurrentRecordsCurrent(bundleCurrent); setCurrentBundleTarget(bundleTarget); setOrphanedRecords(previous => previous ?? (!bundleCurrent && records.length ? structuredClone(records) : null));
-      setCurrentSummary(summary); setSummaryDraft(makeSummaryDraft(summary, bundleCurrent && !!summary && result.state === 'ready' && sameHead(bundleTarget, state.head) && summaryBasisMatches(summary, access, state.head, true))); setStatus(result); setReadError('');
+      setCurrentSummary(summary); setSummaryDraft(makeSummaryDraft(summary, bundleCurrent && !!summary && result.state === 'ready' && sameDocumentHead(bundleTarget, state.head) && summaryBasisMatches(summary, access, state.head, true))); setStatus(result); setReadError('');
     }).catch(reason => { if (read === sequence.current && owns() && liveVisible.current) setReadError(message(reason)); })
       .finally(() => { if (read === sequence.current && owns()) setLoading(false); });
     return () => { ++sequence.current; };
@@ -341,7 +336,7 @@ export function ReviewPanel({ session, state, visible, onClose, captureSelection
   const needsStage = !stage || outdated || recordsChanged || summaryChanged;
   const stagedSummary = stage ? stage.summary ?? null : currentSummary;
   const summaryCanInherit = !outdated && (stage ? stage.summary !== undefined
-    : status?.state === 'ready' && sameHead(currentBundleTarget, state.head) && !!currentSummary && summaryBasisMatches(currentSummary, access, state.head, currentRecordsCurrent));
+    : status?.state === 'ready' && sameDocumentHead(currentBundleTarget, state.head) && !!currentSummary && summaryBasisMatches(currentSummary, access, state.head, currentRecordsCurrent));
   const displayedSummaryDraft = outdated && stagedSummary && summaryDraft.choice === 'inherit'
     ? { choice: 'required' as const, text: stagedSummary.text, audience: stagedSummary.audience } : summaryDraft;
   const reviewActionLabel = !stage ? (status?.state === 'ready' ? 'Update reviewed details' : 'Review saved chapter')

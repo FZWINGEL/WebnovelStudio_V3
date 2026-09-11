@@ -1,3 +1,4 @@
+import { errorCode } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
 import type { DocumentSession } from '../editor/session';
 import {
@@ -44,9 +45,6 @@ function detail(reason: unknown): string {
   return 'The writing guidance could not be saved. Your text is retained.';
 }
 
-function errorCode(reason: unknown): string | null {
-  return reason && typeof reason === 'object' && 'code' in reason ? String(reason.code) : null;
-}
 
 function uncertain(reason: unknown): boolean {
   const code = errorCode(reason);

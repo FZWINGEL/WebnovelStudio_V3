@@ -1,3 +1,4 @@
+import { errorTextFor } from '../kernel';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
 import { listDocumentHistory, readDocumentRevision, type RevisionSummary } from '../ipc/history';
@@ -13,10 +14,7 @@ function label(item: RevisionSummary): string {
   const when = Number.isNaN(date.getTime()) ? '' : ` · ${date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
   return `${reasonLabel(item.reason)}${when} · Version ${item.head.version}`;
 }
-function message(error: unknown): string {
-  return error && typeof error === 'object' && 'detail' in error ? String(error.detail)
-    : error instanceof Error ? error.message : 'Could not read the saved version. Try again.';
-}
+const message = errorTextFor('Could not read the saved version. Try again.');
 
 /** Inert text/formatting only. History never creates a second editor. */
 export function SavedProse({ body }: { body: WnsDocument }) {

@@ -1,3 +1,4 @@
+import { sameHead } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
 import { readDocument, type DocumentRecord, type OpenedProject } from '../ipc/projects';
 import { readDocumentRevision } from '../ipc/history';
@@ -13,10 +14,6 @@ type StoryBibleItem = {
   changed: boolean;
   sourceAvailable: boolean;
 };
-
-function sameHead(left: { documentId: string; version: string; bodyHash: string }, right: { documentId: string; version: string; bodyHash: string }): boolean {
-  return left.documentId === right.documentId && left.version === right.version && left.bodyHash === right.bodyHash;
-}
 
 async function readExactRevision(project: OpenedProject, decision: WorkshopDecision): Promise<WnsDocument> {
   const revision = await readDocumentRevision(project.access, decision.documentId, decision.revisionId);

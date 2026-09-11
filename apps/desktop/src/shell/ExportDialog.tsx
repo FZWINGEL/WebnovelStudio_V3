@@ -1,3 +1,4 @@
+import { errorCode, errorTextFor } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
 import { bodyHash } from '../editor/document';
 import type { DraftExportPreview, DraftFormat } from '../ipc/exports';
@@ -5,16 +6,15 @@ import type { ProjectAccess } from '../ipc/projects';
 
 export type ExportBasis = 'working' | 'reviewed';
 
-function errorText(error: unknown): string {
-  return error && typeof error === 'object' && 'detail' in error ? String(error.detail)
-    : error instanceof Error ? error.message : 'Could not prepare this export. Try again.';
-}
+const errorText = errorTextFor('Could not prepare this export. Try again.');
 function definitelyNotWritten(error: unknown): boolean {
   if (!error || typeof error !== 'object' || !('code' in error)) return false;
   const code = String(error.code);
   return ['TargetExists', 'InvalidRequest', 'InvalidExport', 'ExportPreviewMismatch', 'ExportSourceMismatch', 'InvalidDocument', 'DocumentNotFound', 'InvalidPath', 'ExportAlreadyRecorded', 'RevisionNotFound', 'RevisionMismatch', 'RevisionDocumentMismatch', 'WrongProjectSession', 'OperationIdReusedWithDifferentPayload', 'VersionConflict', 'ReviewRequired', 'ReviewStale', 'ReviewSourceMismatch', 'ReviewBundleNotFound', 'ReviewBasisUnavailable', 'ReviewedExportStale'].includes(code);
 }
-function errorCode(error: unknown): string { return error && typeof error === 'object' && 'code' in error ? String(error.code) : ''; }
+// The shared `errorCode` returns `string | null`; the `?? ''` below is where this
+// surface's former local copy used to coerce the absence itself.
+
 
 /** Preview exact frozen output; no destination is written until the author chooses one. */
 export function ExportDialog({ access, documentId, title, isChapter = false, onPrepare, onExport, onClose }: {
@@ -78,7 +78,7 @@ export function ExportDialog({ access, documentId, title, isChapter = false, onP
     } catch (reason) {
       if (!owns()) return;
       setError(errorText(reason));
-      if (!['TargetExists', 'InvalidPath'].includes(errorCode(reason))) {
+      if (!['TargetExists', 'InvalidPath'].includes(errorCode(reason) ?? '')) {
         setPreview(null);
         if (errorCode(reason) === 'ExportAlreadyRecorded') setNotice('This preview was already exported. Prepare another preview if you want an additional copy.');
         else if (!definitelyNotWritten(reason)) setNotice('A file may already have been created. Check the chosen destination before preparing another export.');

@@ -1,3 +1,4 @@
+import { errorTextFor } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
 import {
   preparedStoryContext, preparedStoryContextIsCurrent, readStoryContextSource, reviewedEvidenceHistory, reviewedKnowledgeHistory, reviewedPromiseHistory, searchStoryContext, storyContextSnapshot,
@@ -12,10 +13,7 @@ import { permittedKnowledgeRows, KnowledgeContextRows } from './KnowledgeContext
 import { LookupContextView, type LookupDeliveryState } from './LookupContextView';
 import { SourceVersionComparison } from './SourceVersionComparison';
 
-function message(reason: unknown): string {
-  if (reason && typeof reason === 'object' && 'detail' in reason) return String(reason.detail);
-  return reason instanceof Error ? reason.message : 'Could not read this story context. Try again.';
-}
+const message = errorTextFor('Could not read this story context. Try again.');
 function sameSource(left: SourceRef, right: SourceRef): boolean {
   return left.projectId === right.projectId && left.documentId === right.documentId
     && left.revisionId === right.revisionId && left.bodyHash === right.bodyHash;

@@ -1,12 +1,10 @@
+import { errorTextFor } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
 import type { ProjectAccess } from '../ipc/projects';
 import { listProjectChatHistory, readHistoricalProjectChat, type HistoricalConversation, type HistoricalConversationSummary } from '../ipc/chatHistory';
 import { HistoricalConversation as Transcript } from './HistoricalConversation';
 
-function message(reason: unknown): string {
-  return reason && typeof reason === 'object' && 'detail' in reason ? String(reason.detail)
-    : reason instanceof Error ? reason.message : 'Saved conversation history could not be read.';
-}
+const message = errorTextFor('Saved conversation history could not be read.');
 
 export function ConversationHistoryPanel({ access, onClose }: { access: ProjectAccess; onClose(): void }) {
   const [conversations, setConversations] = useState<HistoricalConversationSummary[]>([]);

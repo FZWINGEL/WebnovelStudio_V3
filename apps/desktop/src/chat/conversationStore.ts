@@ -1,3 +1,4 @@
+import { errorCode, errorTextFor, sameDocumentHead } from '../kernel';
 import type { ModelSelection } from '../ipc/providers';
 import {
   adoptChatPreview,
@@ -66,20 +67,13 @@ const transport: ProjectConversationTransport = {
 };
 
 function copy<T>(value: T): T { return structuredClone(value); }
-function errorCode(reason: unknown): string | null {
-  return reason && typeof reason === 'object' && 'code' in reason && typeof reason.code === 'string' ? reason.code : null;
-}
-function errorMessage(reason: unknown): string {
-  if (reason && typeof reason === 'object' && 'detail' in reason) return String(reason.detail);
-  return reason instanceof Error ? reason.message : 'The conversation could not be saved.';
-}
+const errorMessage = errorTextFor('The conversation could not be saved.');
 function isDefiniteRequestError(reason: unknown): boolean {
   return ['InvalidRequest', 'InvalidDocument', 'InvalidComposer', 'ConversationNotFound', 'ProjectNotFound', 'VersionConflict', 'OperationIdReusedWithDifferentPayload'].includes(errorCode(reason) ?? '');
 }
 function isDefiniteStartError(reason: unknown): boolean {
   return ['InvalidRequest', 'InvalidProjectChat', 'InvalidChapterRequest', 'InvalidSafeBrief', 'InvalidScope', 'InvalidContext', 'InvalidDocument', 'ProjectChatBusy', 'ProviderUnavailable', 'ModelChoiceChanged', 'ContextBudgetExceeded', 'ContextChanged', 'ContextPreparationFailed', 'VersionConflict', 'OperationIdReusedWithDifferentPayload', 'InvalidProviderBinding', 'UnsupportedProvider', 'InvalidModelSelection'].includes(errorCode(reason) ?? '');
 }
-function sameHead(a: Head, b: Head): boolean { return a.documentId === b.documentId && a.version === b.version && a.bodyHash === b.bodyHash; }
 function sameComposer(a: ProjectComposer, b: ProjectComposer): boolean { return JSON.stringify(a) === JSON.stringify(b); }
 function nextVersion(value: string): string {
   try { return (BigInt(value) + 1n).toString(); } catch { return value; }
@@ -526,4 +520,3 @@ export class ProjectConversationStore {
 
 export function conversationItems(view: ProjectConversationView | null): ConversationItem[] { return view ? view.items.slice().sort((a, b) => Number(a.sequence) - Number(b.sequence)) : []; }
 export function draftRefs(drafts: AssistantDraft[]): ProjectChatDraftRef[] { return drafts.filter(draft => draft.disposition === 'pending' && !draft.stale).map(draft => ({ head: copy(draft.document.head), dispositionVersion: draft.dispositionVersion })); }
-export function sameDocumentHead(left: Head | null | undefined, right: Head | null | undefined): boolean { return !!left && !!right && sameHead(left, right); }

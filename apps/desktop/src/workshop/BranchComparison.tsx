@@ -1,3 +1,4 @@
+import { sameHead } from '../kernel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { readDocumentRevision } from '../ipc/history';
 import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
@@ -11,10 +12,6 @@ type RevisionRead = { decision: WorkshopDecision; body: WnsDocument | null; erro
 type FieldChange = { label: string; parent: string; alternate: string };
 type DecisionChange = { kind: 'added' | 'removed' | 'changed'; parent: WorkshopDecision | null; alternate: WorkshopDecision | null };
 type AffectedMaterial = { documentId: string; reason: string; candidateTitle: string | null; stale: boolean };
-
-function sameHead(left: Head, right: Head): boolean {
-  return left.documentId === right.documentId && left.version === right.version && left.bodyHash === right.bodyHash;
-}
 
 async function readExactRevision(access: OpenedProject['access'], decision: WorkshopDecision): Promise<WnsDocument> {
   const revision = await readDocumentRevision(access, decision.documentId, decision.revisionId);

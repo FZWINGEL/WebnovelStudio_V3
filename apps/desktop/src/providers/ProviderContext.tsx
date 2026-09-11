@@ -1,3 +1,4 @@
+import { errorCode } from '../kernel';
 import { isTauri } from '@tauri-apps/api/core';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { checkClaudeConnection, checkCodexConnection, localModel, readProviderState, saveModelSettings, saveStoryMemoryProvider, type ModelKey, type ModelSelection, type ProviderState } from '../ipc/providers';
@@ -26,10 +27,6 @@ export const useProviders = () => useContext(Providers);
 function describe(error: unknown): string {
   return error && typeof error === 'object' && 'detail' in error ? String(error.detail) : 'Could not confirm the saved model choice. Check Settings before sending another request.';
 }
-function errorCode(error: unknown): string | null {
-  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : null;
-}
-
 /**
  * A fresh library starts on the deterministic mock.  Once native Codex has
  * been checked, it is safe to offer the installed Luna profile as the first

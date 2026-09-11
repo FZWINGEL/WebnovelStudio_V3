@@ -47,11 +47,9 @@ export class CreateIntentRecoveryError extends Error {
   }
 }
 
-export function errorCode(reason: unknown): string | null {
-  if (!reason || typeof reason !== 'object' || !('code' in reason)) return null;
-  const code = (reason as { code?: unknown }).code;
-  return typeof code === 'string' ? code : null;
-}
+import { errorCode } from '../kernel';
+
+export { errorCode };
 
 /**
  * These errors are rejected before a create can commit. Keep this list small:

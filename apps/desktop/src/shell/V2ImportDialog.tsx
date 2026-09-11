@@ -1,3 +1,4 @@
+import { errorTextFor } from '../kernel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   v2Import,
@@ -11,10 +12,7 @@ import {
 } from '../ipc/v2Import';
 import type { OpenedProject } from '../ipc/projects';
 
-function errorText(error: unknown): string {
-  return error && typeof error === 'object' && 'detail' in error ? String(error.detail)
-    : error instanceof Error ? error.message : 'Could not read this V2 database.';
-}
+const errorText = errorTextFor('Could not read this V2 database.');
 function uncertainImport(error: unknown): boolean {
   if (!error || typeof error !== 'object' || !('code' in error)) return true;
   return ['UncertainOutcome', 'ReconciliationRequired', 'PersistenceUnavailable'].includes(String(error.code));

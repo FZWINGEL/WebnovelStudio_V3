@@ -1,3 +1,4 @@
+import { sameHead } from '../kernel';
 import { bodyHash, canonicalJson, type WnsDocument } from './document';
 import type { CheckpointRequest, DocumentRecord, Head, OperationReceipt, ProjectAccess, ProjectTransport, ReconciledDocument, Revision, SaveAck, SaveSnapshot } from '../ipc/projects';
 import type { ApplyProposal, PreparedProposal, Proposal } from '../ipc/proposals';
@@ -28,7 +29,6 @@ function version(value: string): bigint {
   if (!/^(0|[1-9][0-9]*)$/u.test(value) || BigInt(value) > 9223372036854775807n) throw new SessionError('ProtocolError', 'The saved version is invalid.');
   return BigInt(value);
 }
-function sameHead(a: Head, b: Head): boolean { return a.documentId === b.documentId && a.version === b.version && a.bodyHash === b.bodyHash; }
 function errorOf(reason: unknown): SessionError {
   if (reason instanceof SessionError) return reason;
   if (reason && typeof reason === 'object' && 'code' in reason && 'detail' in reason) return new SessionError(String(reason.code), String(reason.detail));

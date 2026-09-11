@@ -1,3 +1,4 @@
+import { sameHead } from '../kernel';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { readStoryContextSource, type AppServerDelivery, type SourceRead } from '../ipc/context';
 import { readMemory, readMemorySource, retryMemorySave, startMemory, stopMemory, type DigestCandidate, type MemoryJob, type MemoryRead, type MemoryViewRecord, type StartMemory } from '../ipc/memory';
@@ -18,9 +19,6 @@ function detail(reason: unknown): string {
 function uncertain(reason: unknown): boolean {
   return !reason || typeof reason !== 'object' || !('code' in reason)
     || ['UncertainOutcome', 'ReconciliationRequired', 'PersistenceUnavailable', 'ProtocolError', 'ProviderInputUnknown'].includes(String(reason.code));
-}
-function sameHead(left: { documentId: string; version: string; bodyHash: string }, right: { documentId: string; version: string; bodyHash: string }): boolean {
-  return left.documentId === right.documentId && left.version === right.version && left.bodyHash === right.bodyHash;
 }
 function sameSource(left: { projectId: string; documentId: string; revisionId: string; bodyHash: string }, right: { projectId: string; documentId: string; revisionId: string; bodyHash: string }): boolean {
   return left.projectId === right.projectId && left.documentId === right.documentId && left.revisionId === right.revisionId && left.bodyHash === right.bodyHash;
