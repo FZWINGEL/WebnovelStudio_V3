@@ -14,7 +14,9 @@ pub use wns_story::workshop_vocabulary::{
     WorkshopPreference, WorkshopQuestion, WorkshopQuestionStatus, WorkshopRelationship,
     WorkshopRelationshipStatus,
 };
-use crate::projects::discussions::DiscussionRun;
+// The run vocabulary now lives below both conversation crates; naming it there
+// is what will let this module move to `wns-workshop` without an L5→L5 edge.
+use wns_story::run_vocabulary::{DiscussionRun, DiscussionRunStatus, DiscussionStart};
 use super::*;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -2683,7 +2685,7 @@ fn read_workshop_results(
             })
             || relationship_stale;
         let (output, validation_error) = if run.status
-            == crate::projects::discussions::DiscussionRunStatus::Completed
+            == DiscussionRunStatus::Completed
             && run.dispatch_state == "delivered"
         {
             match crate::projects::workshop_generation::validate_workshop_output(
@@ -2835,7 +2837,7 @@ impl OwnedProject {
     pub(super) fn start_workshop(
         &mut self,
         request: crate::projects::workshop_generation::StartWorkshop,
-    ) -> CoreResult<crate::projects::discussions::DiscussionStart> {
+    ) -> CoreResult<DiscussionStart> {
         self.check_access(&request.access)?;
         check_id(&request.operation_id)?;
         let payload_hash = operation_payload(&request)?;
@@ -3873,7 +3875,7 @@ pub(crate) fn validate_storage(connection: &Connection) -> CoreResult<()> {
             ));
         }
         if kind == "startWorkshop" {
-            let started: crate::projects::discussions::DiscussionStart =
+            let started: DiscussionStart =
                 serde_json::from_str(&result).map_err(|_| {
                     CoreError::new("InvalidBackup", "A workshop start receipt is invalid.")
                 })?;
