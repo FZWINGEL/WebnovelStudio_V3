@@ -11,7 +11,7 @@ use crate::context::evidence_history::EvidenceHistory;
 use crate::context::knowledge_history::KnowledgeHistory;
 use crate::context::promise_history::PromiseHistory;
 use crate::projects::story_context::{FrozenContext, SearchMode, SearchResult, SourcePassage};
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};

@@ -12,7 +12,7 @@ use crate::projects::story_context::FrozenContext;
 use crate::projects::story_records::{
     EvidenceAnchor, EvidenceAudience, PossessionTiming, StoryEntityRef,
 };
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 

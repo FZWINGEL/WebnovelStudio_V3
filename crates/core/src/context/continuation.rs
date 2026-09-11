@@ -4,7 +4,7 @@
 //! response before it becomes a durable candidate; document identities and
 //! editor operations remain outside this response contract.
 
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 
 /// Versioned response contract for a continuation request.

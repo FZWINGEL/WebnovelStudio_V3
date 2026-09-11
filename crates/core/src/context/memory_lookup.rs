@@ -18,7 +18,7 @@ use super::reviewed_knowledge::{ReviewedKnowledgeSet, validate_frozen_knowledge_
 use super::reviewed_promises::{ReviewedPromiseSet, validate_frozen_promise_set};
 use crate::projects::story_context::FrozenContext;
 use crate::projects::story_records::StoryEntityRef;
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use std::collections::HashMap;
 
 /// Execute one typed memory read against the immutable snapshot.

@@ -9,7 +9,7 @@ use crate::context::{
     StorySnapshot, evaluate_sources,
 };
 use crate::projects::story_context::SourceRead;
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;

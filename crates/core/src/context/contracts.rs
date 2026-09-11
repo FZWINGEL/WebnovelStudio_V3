@@ -45,7 +45,7 @@ pub struct ProjectBriefOrigin {
     pub operation_namespace: String,
     pub conversation_id: String,
     pub message_id: String,
-    pub target: crate::projects::Head,
+    pub target: wns_kernel::Head,
     pub scope_hash: String,
     pub text_hash: String,
 }

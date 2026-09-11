@@ -5,7 +5,7 @@
 
 use crate::context::{CoverageLabel, SourceKind, SourceRef};
 use crate::projects::story_context::{SourcePassage, SourceRead};
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

@@ -5,7 +5,7 @@ use super::{
 };
 use crate::projects::reviewed_summary::SummaryAudience;
 use crate::projects::reviewed_summary::SummaryRevision;
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
