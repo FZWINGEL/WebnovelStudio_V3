@@ -1072,6 +1072,31 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    produced two failed attempts earlier, so it is written down as the next action rather than
    attempted at the end of a long session.
 
+   **Attempted, and reverted — but the measurement is now complete, which is what the attempt
+   bought.** The type side is exactly as measured and extracts cleanly; it is the *readers*
+   that do not. `read_run` and `read_start` are not leaf reads — they call `intent_for_packet`,
+   `read_provider_result` and `read_message`, and `DiscussionRun` names
+   `discussion_lookup::LookupInvocationSummary`, which names `LookupInvocationState`. The
+   closure of the readers is roughly as large again as the types.
+
+   > A vocabulary extraction is bounded by its **types**; an extraction that includes readers
+   > is bounded by **their call graph**, and the two are not the same size.
+
+   That is why the inversion is the better instrument here, and the attempt makes the case
+   concretely rather than by argument:
+
+   **`workshop` needs a run, not a run's reader.** If the workshop side received an
+   already-read `DiscussionRun` instead of calling `read_run` itself, the types move —
+   `RunOwner` (5), `DiscussionRunStatus` (9 + impl), `DiscussionMessageRole` (6 + impl),
+   `DiscussionMessage` (10), `ProviderTerminalReport`, `ProviderResult` (21),
+   `ProviderDiscussionSettlement`, `DiscussionRun` (26), `DiscussionStart` (6), `LookupRunSummary`,
+   `LookupInvocationSummary`, `LookupInvocationState` — and neither reader travels, nor any of
+   the three helpers behind them.
+
+   So the next attempt should transfer the *reader's result* across the workshop boundary
+   rather than the reader, and the extraction becomes the same bounded move the other
+   vocabulary extractions were.
+
    The alternative worth weighing when it is attempted: `workshop`'s need is a *run*, not a
    run's *reader*. If the workshop side received an already-read run instead of calling
    `read_run` itself, neither function would travel — the inversion §3.4 keeps proposing,
