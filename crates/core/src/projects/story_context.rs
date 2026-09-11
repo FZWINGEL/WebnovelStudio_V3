@@ -113,4 +113,3 @@ impl ProjectSession {
 }
 
 pub use wns_story::story_context::*;
-pub(crate) use wns_context::frozen::decode_snapshot;

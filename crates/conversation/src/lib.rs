@@ -41,3 +41,6 @@
 /// The frozen half it used to share a file with sits at L3 in `wns-context`,
 /// which is what discharged the cycle this module had with `story_context`.
 pub mod guidance;
+
+/// Project-chat context ownership and the freeze dispatch it wraps.
+pub mod project_chat_context;

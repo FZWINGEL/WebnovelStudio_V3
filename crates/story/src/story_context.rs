@@ -19,7 +19,7 @@ pub use wns_context::frozen::{
 // the type they construct and the receipt they return. `decode_snapshot` is
 // re-exported at its historical path for the eight call sites in `discussions`,
 // `memory`, `project_chat/*` and `project_chat_context`.
-pub(crate) use wns_context::frozen::decode_snapshot;
+pub use wns_context::frozen::decode_snapshot;
 use wns_context::frozen::{eligibility, eligibility_error};
 // `validate_frozen_project_chat` moved to `wns-context::frozen` and
 // `ProjectChatFreeze` was already in `wns-context::chat_vocabulary`, so both are
