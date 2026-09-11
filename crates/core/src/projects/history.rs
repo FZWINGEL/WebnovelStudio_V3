@@ -58,7 +58,7 @@ pub struct RestoreAck {
     pub document: DocumentRecord,
 }
 
-pub(super) enum HistoryCommand {
+pub(crate) enum HistoryCommand {
     List(
         ProjectAccess,
         String,

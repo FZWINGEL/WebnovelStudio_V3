@@ -46,7 +46,7 @@ pub enum PreparationResult {
     },
 }
 
-pub(super) enum PacketCommand {
+pub(crate) enum PacketCommand {
     Prepare(Box<PrepareContext>, Reply<PreparationResult>),
     Read(ProjectAccess, String, Reply<CompiledPacket>),
     Current(ProjectAccess, String, Reply<bool>),

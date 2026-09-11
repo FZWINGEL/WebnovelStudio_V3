@@ -27,7 +27,7 @@ pub struct SaveGuidance {
     pub origin_message_id: Option<String>,
 }
 
-pub(super) enum GuidanceCommand {
+pub(crate) enum GuidanceCommand {
     Save(SaveGuidance, Reply<GuidanceVersion>),
     List(ProjectAccess, String, Reply<Vec<GuidanceVersion>>),
 }

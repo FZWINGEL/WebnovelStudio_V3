@@ -160,7 +160,7 @@ pub struct SearchResult {
     pub coverage: String,
 }
 
-pub(super) enum ContextCommand {
+pub(crate) enum ContextCommand {
     Epochs(ProjectAccess, Reply<ContextEpochs>),
     ReadAliases(ProjectAccess, String, Reply<DocumentAliases>),
     Freeze(FreezeStory, Reply<FrozenContext>),

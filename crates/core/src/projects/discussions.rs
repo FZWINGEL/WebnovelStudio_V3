@@ -582,7 +582,7 @@ pub struct DiscussionBegin {
 }
 
 #[allow(clippy::large_enum_variant)]
-pub(super) enum DiscussionCommand {
+pub(crate) enum DiscussionCommand {
     ClaimAppServer(
         RunOwner,
         crate::providers::codex_app_server::AppServerDispatch,

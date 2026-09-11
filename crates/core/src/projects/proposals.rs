@@ -213,7 +213,7 @@ pub struct ApplyAck {
     pub document: DocumentRecord,
 }
 
-pub(super) enum ProposalCommand {
+pub(crate) enum ProposalCommand {
     List(ProjectAccess, String, Reply<Vec<Proposal>>),
     Prepare(PrepareProposal, Reply<PreparedProposal>),
     PrepareContinuation(PrepareContinuation, Reply<PreparedProposal>),

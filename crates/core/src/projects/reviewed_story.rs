@@ -163,7 +163,7 @@ pub enum ReviewState {
     ReviewNeeded,
 }
 
-pub(super) enum ReviewCommand {
+pub(crate) enum ReviewCommand {
     Status(ProjectAccess, String, Reply<ReviewStatus>),
     ReadStage(ProjectAccess, String, Reply<ReviewStage>),
     Stage(StageAuthorReview, Reply<ReviewStage>),

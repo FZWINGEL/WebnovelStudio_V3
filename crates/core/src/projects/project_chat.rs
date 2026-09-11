@@ -459,7 +459,7 @@ pub struct ChatAdoptionAck {
     pub decision_id: String,
 }
 
-pub(super) enum ProjectChatCommand {
+pub(crate) enum ProjectChatCommand {
     FindRun(ProjectAccess, String, String, Reply<Option<DiscussionRun>>),
     FindChapterRun(ProjectAccess, String, String, Reply<Option<DiscussionRun>>),
     ReadChapterFeedback(

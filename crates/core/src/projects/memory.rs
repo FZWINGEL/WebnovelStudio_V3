@@ -254,7 +254,7 @@ pub struct MemoryList {
 /// SQLite connection.  No command starts a provider call itself; Begin merely
 /// claims a queued packet and returns the exact frozen dispatch payload.
 #[allow(clippy::large_enum_variant)]
-pub(super) enum MemoryCommand {
+pub(crate) enum MemoryCommand {
     ClaimAppServer(MemoryOwner, AppServerDispatch, Reply<()>),
     AckAppServer(MemoryOwner, AppServerDispatch, String, Reply<()>),
     Start(StartMemory, Reply<MemoryJob>),

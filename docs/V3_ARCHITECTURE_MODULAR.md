@@ -428,6 +428,26 @@ construction, endpoint-profile validation, preference validation — for product
 tests. Those items are promoted to `pub`; the honest fix is step 8, where `wns-library` takes
 that logic with it.
 
+**Prerequisite step — `projects.rs` split (D3).** Every remaining crate is gated behind this,
+so it was done next rather than in sequence. `projects.rs` was a *namespace*, not a module: it
+held the record types, the actor, the session façade and the persistence helpers in 2,709
+lines, and 28 files under `projects/` reached all of it through `use super::*`. Nothing could
+be lifted out until those concerns were separated.
+
+It is now `projects/records.rs` (253 lines — the record types) and `projects/session.rs`
+(488 lines — the actor, `Command`, `Handle`, `ProjectSession`), with `projects.rs` down to
+2,024 lines holding the submodule declarations, the re-exports, the persistence helpers and
+the `OwnedProject` actor implementation. **The re-export is what makes this a safe split**: `pub use records::*; pub use
+session::*;` means `use super::*` and `crate::projects::{…}` resolve exactly as before, so not
+one of the 28 dependent files had to change.
+
+Three items needed wider visibility to cross the new module boundary — `Command` and `Reply`
+became `pub(crate)`, and `ProjectSession::request` did too, since 94 call sites in sibling
+submodules use it. **That is the finding worth keeping**: the session façade is not merely
+large, it is the channel every other module writes through. Widening three visibilities to
+split one file is the measurement of D2, and it is why step 5 — replacing that façade with
+per-concern ones — has to come before the middle layers can move.
+
 **Enforcement.** `crates/architecture` asserts, in CI-able tests: every layered crate exists
 with a manifest; every layered crate is a workspace member; no crate depends on a sibling or a
 higher layer; and no layered crate depends on `webnovel-core`. It ships a deliberately
@@ -506,8 +526,15 @@ Three things make this worth stating outright, because each is a trap for a futu
 
 What keeps the tree honest is structural, not diligence: `tests/integration.rs:11-25` compiles
 all files into one binary and asserts `registered == discovered`, so a test file cannot be
-orphaned or silently emptied. Verified alongside: zero `#[ignore]`, zero `todo!`/`unimplemented!`,
-and no test pinning a retired wire contract.
+orphaned or silently emptied.
+
+Verified alongside: **exactly one** `#[ignore]` in the whole tree —
+`projects::tests::crash_child`, which carries the reason
+`"Subprocess target for kill_after_commit_before_ack_recovers_once"` and is spawned by its
+sibling test rather than skipped. It is a fixture, not a disabled test. (An earlier pass of
+this audit reported zero; that count grepped the bare `#[ignore]` form and missed the
+reason-string form. Recorded because the correction is the point of an audit.) Also verified:
+zero `todo!`/`unimplemented!`, and no test pinning a retired wire contract.
 
 **The one real instance of what was being looked for is documentation, not tests.**
 `ADR_0022:78` states "The current reader floor is schema 34" while `LATEST_SCHEMA_VERSION` is

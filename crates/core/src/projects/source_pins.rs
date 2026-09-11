@@ -58,7 +58,7 @@ pub struct SaveSourcePins {
     pub source_document_ids: Vec<String>,
 }
 
-pub(super) enum SourcePinCommand {
+pub(crate) enum SourcePinCommand {
     Read(ProjectAccess, String, Reply<SourcePinsView>),
     Save(SaveSourcePins, Reply<SourcePinSet>),
 }

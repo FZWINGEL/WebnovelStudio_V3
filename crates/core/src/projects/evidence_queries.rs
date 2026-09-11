@@ -50,7 +50,7 @@ pub struct ReviewedKnowledgeHistoryResult {
     pub history: KnowledgeHistory,
 }
 
-pub(super) enum EvidenceQueryCommand {
+pub(crate) enum EvidenceQueryCommand {
     Entities(ProjectAccess, Reply<ReviewedEntityCatalog>),
     History(ProjectAccess, String, String, Reply<ReviewedHistoryResult>),
     PromiseEntities(ProjectAccess, Reply<ReviewedEntityCatalog>),
