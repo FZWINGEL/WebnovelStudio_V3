@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use wns_kernel::{CoreError, CoreResult, Head};
 
-pub(crate) type Reply<T> = mpsc::SyncSender<CoreResult<T>>;
+pub(crate) use wns_kernel::Reply;
 pub(crate) enum Command {
     ProjectChat(Box<project_chat::ProjectChatCommand>),
     Memory(Box<memory::MemoryCommand>),

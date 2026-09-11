@@ -22,6 +22,13 @@ use url::Url;
 
 pub type CoreResult<T> = Result<T, CoreError>;
 
+/// The reply channel one actor command answers on.
+///
+/// Moved down from `projects/session.rs`: a command enum cannot leave
+/// `webnovel-core` while its variants name this type, and every module's
+/// command enum names it.
+pub type Reply<T> = std::sync::mpsc::SyncSender<CoreResult<T>>;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CoreError {

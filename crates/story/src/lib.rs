@@ -25,3 +25,7 @@
 //!
 //! L3. May depend on L0–L2. Must not depend on `wns-conversation`,
 //! `wns-workshop` or above.
+
+/// Durable AuthorRoom source preferences: vocabulary and actor-side logic,
+/// behind a host trait the actor implements. See the module.
+pub mod source_pins;

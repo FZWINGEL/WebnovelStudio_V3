@@ -902,6 +902,24 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    this document can usefully measure. What remains is execution against a pattern that is now
    fully characterised rather than partly guessed.
 
+   **And the pattern is now proven, not just described.** `source_pins.rs` was the first module
+   to move — chosen because its command vocabulary is the smallest in the tree at two arms.
+   `wnsd-story` owns the vocabulary (`SourcePinScope`, `SourcePinSet`, `SourcePinsView`,
+   `SaveSourcePins`, `SourcePinCommand`), the actor-side logic, and every helper in the file;
+   `webnovel-core` keeps the two `impl ProjectSession` methods, because they construct
+   `Command::SourcePins` and an inherent impl must live with its type.
+
+   Between them is `SourcePinHost` — **four methods**: `check_access`, `db`, `db_mut`,
+   `fence_uncertain`. `OwnedProject` implements it in core in twelve lines, and
+   `handle_source_pins` becomes a one-line delegation. Zero errors, zero warnings, and the
+   suite unchanged.
+
+   Three things had to travel down first, and each was found by the compiler rather than by
+   planning: `Reply` (every module's command enum names it), and `parse_version` /
+   `parse_stored_version` / `logical_hash` (eleven to twenty callers each). That is the ordering
+   lesson of step 7 — **the shared vocabulary moves before the modules do**, or each module move
+   re-discovers the same blocked helper.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.

@@ -4700,6 +4700,7 @@ dependencies = [
  "wns-kernel",
  "wns-providers",
  "wns-storage",
+ "wns-story",
  "zip",
 ]
 
@@ -5269,6 +5270,7 @@ dependencies = [
 name = "wns-story"
 version = "3.0.0"
 dependencies = [
+ "rusqlite",
  "serde",
  "serde_json",
  "wns-context",
