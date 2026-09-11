@@ -1136,8 +1136,30 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    was never the line count of the group; it was the number of edges crossing out of it, and
    that number is three.
 
-   `memory` remains the harder half: it reaches `context_packets` and `discussions`, which are
-   conversation-side and do not shrink this way.
+   **Two of the three are done, and the third is not what it looked like.** The
+   `conversation_context` half went the same way as guidance — and more cheaply, because
+   `decode_snapshot` belongs beside the type it constructs and the selectors beside the
+   `FrozenConversation` they produce, so both landed in `wns-context` without a host trait
+   (`conversation_context` has no `impl` blocks either). `decode_snapshot`'s two test-only
+   helpers travelled with it: `eligibility`, a one-line wrapper over `evaluate_sources`, which
+   was already there.
+
+   But the "**one** call into `memory`" was measured by call *sites*, and that is the same unit
+   error this document has now made three times. `story_context` calls
+   `validate_navigation_view_record` — one function, 65 lines — and that function's body reaches
+   `MemoryView`, `MemoryJobRow`, `read_memory_job_row`, `validate_memory_job_record` and
+   `read_memory_view`, each with its own closure, two of them shared with `memory/app_server.rs`.
+   It is a slice of `memory.rs`, not a function.
+
+   So the count that matters is not edges either, but **the transitive closure of what crosses
+   one**. Every estimate in this step has been one level too shallow: modules → helpers → helper
+   closures. `story_context` and `memory` are also both bound for `wns-story`, so once `memory`'s
+   own blockers clear, moving them *together* discharges this cycle for free and the slice never
+   has to be carved out at all. That is the likely resolution, and it is why this one was left
+   rather than forced.
+
+   `memory` reaches `context_packets` and `discussions`, which are conversation-side and do not
+   shrink this way. That is the remaining knot.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
