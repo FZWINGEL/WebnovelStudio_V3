@@ -36,6 +36,8 @@
 // caller — `discussions` and the seven files under `project_chat/` — through
 // `webnovel-core`'s shim, which now points at `wns-context`.
 
+pub mod host;
+
 /// Durable author guidance: the authoring half, behind `StoryHost`.
 ///
 /// The frozen half it used to share a file with sits at L3 in `wns-context`,
@@ -57,3 +59,6 @@ pub mod proposals;
 /// settlement, recovery/lost-acknowledgment, lookup invocation, and
 /// packet-assembly glue. `app_server` and `retry` are its submodules.
 pub mod discussions;
+
+/// The project conversation projection: references, composer CAS and decisions.
+pub mod project_chat;

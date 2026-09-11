@@ -8,11 +8,12 @@
 //! document store.
 
 use super::*;
-use crate::projects::material_adoption::{self, MaterialTarget};
-use crate::projects::project_chat_output::{
+use wns_documents::material_adoption::{self, MaterialTarget};
+use wns_context::project_chat_output::{
     ChatGroupEffectsOutput, parse_project_assistant_output_with_predecessors_and_chapters,
 };
-use crate::projects::{context_packets, story_context, workshop};
+use wns_story::workshop_state;
+use wns_story::{context_packets, story_context, workshop_vocabulary as workshop};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -31,14 +32,14 @@ struct GroupOrigin {
 }
 
 pub(super) fn read_preview(
-    project: &OwnedProject,
+    host: &impl ProjectChatHost,
     access: &ProjectAccess,
     conversation_id: &str,
     preview_id: &str,
 ) -> CoreResult<ChatAdoptionPreview> {
-    project.check_access(access)?;
+    host.check_access(access)?;
     check_id(preview_id)?;
-    let db = project.db()?;
+    let db = host.db()?;
     store::require_conversation(db, access, conversation_id)?;
     let item = store::read_item_by_reference(db, conversation_id, PREVIEW_KIND, preview_id)?;
     let stored: StoredPreview = serde_json::from_value(item.payload)?;
@@ -130,10 +131,10 @@ struct StoredChatAdoptionDecision {
 }
 
 pub(super) fn prepare(
-    project: &mut OwnedProject,
+    host: &mut impl ProjectChatHost,
     request: PrepareChatAdoption,
 ) -> CoreResult<ChatAdoptionPreview> {
-    project.check_access(&request.access)?;
+    host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     check_id(&request.conversation_id)?;
     if request.drafts.is_empty() || request.drafts.len() > MAX_TARGETS {
@@ -144,7 +145,7 @@ pub(super) fn prepare(
     }
 
     let payload_hash = logical_hash(&request)?;
-    let connection = project.db_mut()?;
+    let connection = host.db_mut()?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
     // A request operation is idempotent.  Keep the original immutable preview
@@ -310,7 +311,7 @@ pub(super) fn prepare(
             },
         )
         .collect::<Vec<_>>();
-    workshop::validate_chat_material_targets(&tx, &material_targets)?;
+    workshop_state::validate_chat_material_targets(&tx, &material_targets)?;
 
     let draft_document_ids = targets
         .iter()
@@ -398,10 +399,10 @@ pub(super) fn prepare(
 }
 
 pub(super) fn adopt(
-    project: &mut OwnedProject,
+    host: &mut impl ProjectChatHost,
     request: AdoptChatPreview,
 ) -> CoreResult<ChatAdoptionAck> {
-    project.check_access(&request.access)?;
+    host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     check_id(&request.conversation_id)?;
     check_id(&request.preview_id)?;
@@ -413,7 +414,7 @@ pub(super) fn adopt(
         ));
     }
     let payload_hash = logical_hash(&request)?;
-    let connection = project.db_mut()?;
+    let connection = host.db_mut()?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
     if let Some(existing) =
@@ -464,7 +465,7 @@ pub(super) fn adopt(
             expected: target.before.as_ref().map(|before| before.head.clone()),
         })
         .collect::<Vec<_>>();
-    workshop::validate_chat_material_targets(&tx, &targets)?;
+    workshop_state::validate_chat_material_targets(&tx, &targets)?;
 
     let mut documents = Vec::with_capacity(targets.len());
     for target in &targets {
@@ -487,7 +488,7 @@ pub(super) fn adopt(
         .map(|effects| materialize_chat_relationships(effects, &documents))
         .transpose()?
         .unwrap_or_default();
-    workshop::append_chat_relationships(
+    workshop_state::append_chat_relationships(
         &tx,
         &request.access.project_id,
         &request.access.operation_namespace,
@@ -884,7 +885,7 @@ fn build_adoption_effects(
         }
     }
     let relationship_dependencies =
-        workshop::chat_relationship_dependencies(connection, &target_ids)?
+        workshop_state::chat_relationship_dependencies(connection, &target_ids)?
             .into_iter()
             .map(|relationship| ChatRelationshipDependency {
                 relationship_id: relationship.id,
@@ -898,7 +899,7 @@ fn build_adoption_effects(
     let mut protected_content = Vec::new();
     for (_, _, _, _, document_id, _, _, before, _) in targets {
         let Some(before) = before else { continue };
-        for text in workshop::chat_protected_text(connection, document_id)? {
+        for text in workshop_state::chat_protected_text(connection, document_id)? {
             protected_content.push(ChatProtectedContent {
                 target_document_id: document_id.clone(),
                 source_head: before.head.clone(),
@@ -1024,7 +1025,7 @@ fn build_adoption_effects(
 fn materialize_chat_relationships(
     effects: &ChatAdoptionEffects,
     documents: &[DocumentRecord],
-) -> CoreResult<Vec<crate::projects::workshop::WorkshopRelationship>> {
+) -> CoreResult<Vec<wns_story::workshop_vocabulary::WorkshopRelationship>> {
     let heads = documents
         .iter()
         .map(|document| (document.head.document_id.clone(), document.head.clone()))
@@ -1041,14 +1042,14 @@ fn materialize_chat_relationships(
                 .get(&relationship.to_document_id)
                 .cloned()
                 .unwrap_or_else(|| relationship.to_head.clone());
-            Ok(crate::projects::workshop::WorkshopRelationship {
+            Ok(wns_story::workshop_vocabulary::WorkshopRelationship {
                 id: relationship.relationship_id.clone(),
                 from_document_id: relationship.from_document_id.clone(),
                 to_document_id: relationship.to_document_id.clone(),
                 relationship_type: relationship.relationship_type.clone(),
                 description: relationship.description.clone(),
                 uncertainty: relationship.uncertainty.clone(),
-                status: crate::projects::workshop::WorkshopRelationshipStatus::Chosen,
+                status: wns_story::workshop_vocabulary::WorkshopRelationshipStatus::Chosen,
                 source_heads: vec![from_head, to_head],
             })
         })
@@ -1771,7 +1772,7 @@ pub(crate) fn validate_chat_workshop_snapshot(
             ));
         }
         let committed = read_historical_document_ref(connection, reference.clone())?;
-        let body = crate::validate_snapshot_json(&serde_json::to_string(&target.body)?)
+        let body = wns_kernel::validate_snapshot_json(&serde_json::to_string(&target.body)?)
             .map_err(|error| CoreError::new("InvalidProjectChat", &error))?;
         let expected_version = target
             .before
@@ -1980,7 +1981,7 @@ fn validate_effects_current(
         .iter()
         .map(|target| target.document_id.clone())
         .collect::<HashSet<_>>();
-    let dependencies = workshop::chat_relationship_dependencies(connection, &target_ids)?;
+    let dependencies = workshop_state::chat_relationship_dependencies(connection, &target_ids)?;
     for expected in &effects.relationship_dependencies {
         let Some(actual) = dependencies
             .iter()
@@ -2017,7 +2018,7 @@ fn validate_effects_current(
         let current = read_document(connection, &protected.target_document_id)?;
         if current.head != protected.source_head
             || sha256_hex(protected.text.as_bytes()) != protected.text_hash
-            || !workshop::chat_protected_text(connection, &protected.target_document_id)?
+            || !workshop_state::chat_protected_text(connection, &protected.target_document_id)?
                 .contains(&protected.text)
         {
             return Err(CoreError::new(

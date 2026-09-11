@@ -203,7 +203,12 @@ impl ProjectSession {
                             Command::Memory(command) => {
                                 crate::projects::memory::handle_memory(&mut project, *command)
                             }
-                            Command::ProjectChat(command) => project.handle_project_chat(*command),
+                            Command::ProjectChat(command) => {
+                                wns_conversation::project_chat::handle_project_chat(
+                                    &mut project,
+                                    *command,
+                                )
+                            }
                             Command::Packet(command) => {
                                 crate::projects::context_packets::handle_packet(&mut project, *command)
                             }

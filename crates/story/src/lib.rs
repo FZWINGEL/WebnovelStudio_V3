@@ -45,4 +45,5 @@ pub mod memory;
 pub mod story_context;
 pub mod reviewed_story;
 pub mod workshop_metadata;
+pub mod workshop_state;
 pub mod workshop_vocabulary;

@@ -10,9 +10,10 @@
 
 use super::ProjectComposer;
 use super::{ChatDispositionScope, ChatDispositionScopeKind, ChatUnknownTo};
-use crate::projects::project_chat_output::ChatGroupEffectsOutput;
-use crate::projects::{CoreError, CoreResult, DocumentRole, read_document_with_role};
-use crate::validate_snapshot_json;
+use wns_context::project_chat_output::ChatGroupEffectsOutput;
+use wns_kernel::{CoreError, CoreResult, DocumentRole};
+use wns_storage::read_document_with_role;
+use wns_kernel::validate_snapshot_json;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::Value;
@@ -109,7 +110,7 @@ fn sha256(value: &[u8]) -> String {
 fn canonical_json(value: &str, label: &str) -> CoreResult<Value> {
     let parsed: Value = serde_json::from_str(value)
         .map_err(|error| invalid(format!("{label} is not valid JSON: {error}")))?;
-    let canonical = serde_json::to_string(&crate::canonicalize_value(parsed.clone()))
+    let canonical = serde_json::to_string(&wns_kernel::canonicalize_value(parsed.clone()))
         .map_err(|error| invalid(format!("{label} cannot be canonicalized: {error}")))?;
     if canonical != value {
         return Err(invalid(format!("{label} is not in canonical form.")));
@@ -951,7 +952,7 @@ fn validate_conversation_items(
                 let reference_id = reference_id
                     .as_deref()
                     .ok_or_else(|| invalid("An adoption preview has no identity."))?;
-                crate::projects::project_chat::adoption::validate_backup_preview(
+                crate::project_chat::adoption::validate_backup_preview(
                     db,
                     &owner.project_id,
                     &owner.operation_namespace,
@@ -1238,7 +1239,7 @@ fn validate_command_receipts(
             }
             continue;
         }
-        let stored: crate::projects::StoredResult = serde_json::from_value(result)
+        let stored: wns_kernel::StoredResult = serde_json::from_value(result)
             .map_err(|error| invalid(format!("A chat receipt result is invalid: {error}")))?;
         if let Some(document_id) = document_id
             && stored.head.document_id != document_id

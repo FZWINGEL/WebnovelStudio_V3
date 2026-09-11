@@ -8,9 +8,9 @@
 //! or generation operation against that identity.
 
 use super::*;
-use crate::context::{SourceDescriptor, SourceKind};
-use crate::projects::Revision;
-use crate::projects::discussions::{
+use wns_context::{SourceDescriptor, SourceKind};
+use wns_kernel::Revision;
+use crate::discussions::{
     DiscussionMessage, DiscussionMessageRole, DiscussionRun, FeedbackIntent,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -252,8 +252,8 @@ pub(super) fn read(
         rows.into_iter().rev()
     {
         if sequence <= 0
-            || !super::super::valid_hash(&payload_hash)
-            || crate::sha256_hex(payload_json.as_bytes()) != payload_hash
+            || !valid_hash(&payload_hash)
+            || wns_kernel::sha256_hex(payload_json.as_bytes()) != payload_hash
         {
             return Err(CoreError::new(
                 "InvalidProjectChat",
@@ -476,14 +476,14 @@ fn read_source_revisions(
             "The retained run packet is outside the requested project identity.",
         ));
     };
-    let frozen = super::super::story_context::decode_snapshot(&manifest, &manifest_hash)?;
+    let frozen = wns_story::story_context::decode_snapshot(&manifest, &manifest_hash)?;
     let mut seen = HashSet::new();
     let mut revisions = Vec::with_capacity(frozen.snapshot.sources.len());
     for descriptor in frozen.snapshot.sources {
         if !seen.insert(descriptor.source.revision_id.clone()) {
             continue;
         }
-        let revision = super::super::read_revision(db, &descriptor.source.revision_id)?;
+        let revision = read_revision(db, &descriptor.source.revision_id)?;
         if revision.head.document_id != descriptor.source.document_id
             || revision.head.body_hash != descriptor.source.body_hash
         {
@@ -536,7 +536,7 @@ fn hydrate_draft_revisions(
     let mut revisions = Vec::new();
     for row in rows {
         let (document_id, initial_id, current_id) = row?;
-        let initial = super::super::read_revision(db, &initial_id)?;
+        let initial = read_revision(db, &initial_id)?;
         if initial.head.document_id != document_id {
             return Err(CoreError::new(
                 "InvalidProjectChat",
@@ -549,7 +549,7 @@ fn hydrate_draft_revisions(
             revision: initial,
         });
         if let Some(current_id) = current_id.filter(|id| id != &initial_id) {
-            let current = super::super::read_revision(db, &current_id)?;
+            let current = read_revision(db, &current_id)?;
             if current.head.document_id != document_id {
                 return Err(CoreError::new(
                     "InvalidProjectChat",

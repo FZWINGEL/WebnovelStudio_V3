@@ -1,9 +1,9 @@
 //! One locked project, one owned SQLite connection, and explicit renderer leases.
 use crate::documents::Endpoint;
-use crate::{sha256_hex, storage, validate_snapshot_json};
+use crate::{storage, validate_snapshot_json};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -19,10 +19,8 @@ pub mod exports;
 pub mod guidance;
 pub mod history;
 pub mod import;
-mod material_adoption;
 pub mod memory;
 pub mod project_chat;
-pub(crate) mod project_chat_context;
 pub mod project_chat_output;
 pub mod proposals;
 pub mod reviewed_story;
@@ -82,8 +80,7 @@ pub use wns_kernel::{
 pub use wns_documents::blank_document;
 pub(crate) use wns_kernel::{new_id, require_head, valid_hash, validate_title};
 pub(crate) use wns_storage::{
-    checkpoint_at, existing_receipt, insert_receipt, read_document, read_document_with_role,
-    read_revision,
+    checkpoint_at, existing_receipt, insert_receipt, read_document, read_revision,
 };
 
 // L2 vocabulary that the packet compiler consumes. `story_records` is the set of
@@ -1227,6 +1224,7 @@ fn hold_context_after_commit_before_ack(operation_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
 

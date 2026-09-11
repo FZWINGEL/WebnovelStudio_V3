@@ -7,12 +7,12 @@
 //! readable in the originating run but never become story documents.
 
 use super::*;
-use crate::projects::context_packets;
-use crate::projects::project_chat_output::{
+use wns_story::context_packets;
+use wns_context::project_chat_output::{
     ChatDraftOutput, ChatGroupEffectsOutput, materialize_draft_body,
     parse_project_assistant_output_with_predecessors_and_chapters,
 };
-use crate::projects::story_context;
+use wns_story::story_context;
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::json;
 use std::collections::BTreeSet;
@@ -171,7 +171,7 @@ fn read_provider_terminal(
     tx: &Transaction<'_>,
     owner: &RunOwner,
     run: &RawTerminalRun,
-    packet: &crate::context::packet::CompiledPacket,
+    packet: &wns_context::packet::CompiledPacket,
 ) -> CoreResult<bool> {
     let Some(binding) = packet.options.provider_binding.as_ref() else {
         return Ok(true);
@@ -202,8 +202,8 @@ fn parse_packet_and_context(
     tx: &Transaction<'_>,
     run: &RawTerminalRun,
 ) -> CoreResult<(
-    crate::context::packet::CompiledPacket,
-    crate::projects::story_context::FrozenContext,
+    wns_context::packet::CompiledPacket,
+    wns_story::story_context::FrozenContext,
 )> {
     let packet = context_packets::validated_packet_record(tx, &run.packet_id)?;
     let (frozen, _) = story_context::validated_snapshot_record(tx, &packet.receipt.snapshot_id)?;
@@ -212,7 +212,7 @@ fn parse_packet_and_context(
 
 pub(crate) fn allowed_target_handles(
     tx: &Transaction<'_>,
-    frozen: &crate::projects::story_context::FrozenContext,
+    frozen: &wns_story::story_context::FrozenContext,
 ) -> CoreResult<BTreeSet<String>> {
     let mut handles = BTreeSet::new();
     for source in &frozen.snapshot.sources {
@@ -233,7 +233,7 @@ pub(crate) fn allowed_target_handles(
 /// nonchapter material target by sharing the generic target validator.
 pub(crate) fn allowed_chapter_target_handles(
     tx: &Transaction<'_>,
-    frozen: &crate::projects::story_context::FrozenContext,
+    frozen: &wns_story::story_context::FrozenContext,
 ) -> CoreResult<BTreeSet<String>> {
     let mut handles = BTreeSet::new();
     for source in &frozen.snapshot.sources {
@@ -254,14 +254,14 @@ pub(crate) fn allowed_chapter_target_handles(
 /// full snapshot and are never valid ordinary working targets.
 pub(crate) fn allowed_predecessor_handles(
     tx: &Transaction<'_>,
-    frozen: &crate::projects::story_context::FrozenContext,
+    frozen: &wns_story::story_context::FrozenContext,
 ) -> CoreResult<BTreeSet<String>> {
     let Some(chat) = frozen.project_chat.as_ref() else {
         return Ok(BTreeSet::new());
     };
     let mut handles = BTreeSet::new();
     for source in &frozen.snapshot.sources {
-        if source.kind != crate::context::SourceKind::AssistantDraft {
+        if source.kind != wns_context::SourceKind::AssistantDraft {
             continue;
         }
         let explicit = chat.task_draft_refs.iter().any(|draft| {
@@ -288,7 +288,7 @@ pub(crate) fn allowed_predecessor_handles(
 }
 
 fn predecessor_document_id(
-    frozen: &crate::projects::story_context::FrozenContext,
+    frozen: &wns_story::story_context::FrozenContext,
     handle: Option<&str>,
 ) -> CoreResult<Option<String>> {
     let Some(handle) = handle else {
@@ -311,7 +311,7 @@ fn predecessor_document_id(
                 "The draft predecessor is not frozen.",
             )
         })?;
-    if source.kind != crate::context::SourceKind::AssistantDraft
+    if source.kind != wns_context::SourceKind::AssistantDraft
         || !chat.task_draft_refs.iter().any(|draft| {
             draft.head.document_id == source.source.document_id
                 && draft.head.body_hash == source.source.body_hash
@@ -327,7 +327,7 @@ fn predecessor_document_id(
 
 fn source_head(
     tx: &Transaction<'_>,
-    frozen: &crate::projects::story_context::FrozenContext,
+    frozen: &wns_story::story_context::FrozenContext,
     handle: &str,
 ) -> CoreResult<Head> {
     let source = frozen
@@ -364,7 +364,7 @@ fn insert_draft(
     owner: &RunOwner,
     conversation_id: &str,
     run: &RawTerminalRun,
-    frozen: &crate::projects::story_context::FrozenContext,
+    frozen: &wns_story::story_context::FrozenContext,
     ordinal: usize,
     draft: &ChatDraftOutput,
 ) -> CoreResult<String> {
@@ -420,183 +420,183 @@ fn insert_draft(
     Ok(document_id)
 }
 
-impl OwnedProject {
-    pub(super) fn materialize_chat_result(
-        &mut self,
-        owner: RunOwner,
-    ) -> CoreResult<Option<ChatMaterialization>> {
-        if owner.project_id != self.info.project_id
-            || owner.operation_namespace != self.info.operation_namespace
-        {
-            return Err(CoreError::new(
-                "DiscussionProjectMismatch",
-                "The project-chat run belongs to another project identity.",
-            ));
-        }
-        check_id(&owner.run_id)?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+// Actor-side logic, as free functions over `ProjectChatHost`.
 
-        let conversation_id: Option<String> = tx
-            .query_row(
-                "SELECT conversation_id FROM conversation_items
-                 WHERE kind='request' AND reference_id=? AND project_id=? AND operation_namespace=?
-                 ORDER BY sequence LIMIT 1",
-                params![owner.run_id, owner.project_id, owner.operation_namespace],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let Some(conversation_id) = conversation_id else {
-            return Ok(None);
-        };
-        let access = ProjectAccess {
-            project_id: owner.project_id.clone(),
-            operation_namespace: owner.operation_namespace.clone(),
-            session: String::new(),
-            writer_lease: String::new(),
-        };
-        let operation_id = materialize_operation_id(&owner.run_id);
-        let payload_hash = materialize_payload_hash(&owner);
-        if let Some(saved) =
-            replay_materialization(&tx, &access, &conversation_id, &operation_id, &payload_hash)?
-        {
-            tx.commit().map_err(CoreError::uncertain)?;
-            return Ok(Some(saved));
-        }
-        let anchor = store::require_conversation(&tx, &access, &conversation_id)?;
-        let Some(raw) = read_terminal_run(&tx, &owner)? else {
-            tx.commit().map_err(CoreError::uncertain)?;
-            return Ok(None);
-        };
+pub fn materialize_chat_result(
+host: &mut impl ProjectChatHost,
+    owner: RunOwner,
+) -> CoreResult<Option<ChatMaterialization>> {
+    if owner.project_id != host.info().project_id
+        || owner.operation_namespace != host.info().operation_namespace
+    {
+        return Err(CoreError::new(
+            "DiscussionProjectMismatch",
+            "The project-chat run belongs to another project identity.",
+        ));
+    }
+    check_id(&owner.run_id)?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
-        // A packet or snapshot that fails its immutable validation produces a
-        // retained non-adoptable result.  It is still recorded as a local
-        // event so a later retry cannot accidentally call the provider again.
-        let mut output_valid = false;
-        let mut detail = None;
-        let mut draft_ids = Vec::new();
-        let mut group_effects = None;
-        let parsed = if raw.status != "completed" {
-            detail = Some(format!("terminal_status_{}", raw.status));
-            None
-        } else {
-            match parse_packet_and_context(&tx, &raw) {
-                Ok((packet, frozen)) if read_provider_terminal(&tx, &owner, &raw, &packet)? => {
-                    let handles = allowed_target_handles(&tx, &frozen)?;
-                    let predecessor_handles = allowed_predecessor_handles(&tx, &frozen)?;
-                    let chapter_handles = allowed_chapter_target_handles(&tx, &frozen)?;
-                    match parse_project_assistant_output_with_predecessors_and_chapters(
-                        &raw.output_text,
-                        &handles,
-                        &predecessor_handles,
-                        &chapter_handles,
-                    ) {
-                        Ok(output) => {
-                            group_effects = output.group_effects.clone();
-                            if let Some(chat) = frozen.project_chat.as_ref() {
-                                if chat.conversation_id != conversation_id
-                                    || chat.operation_namespace != owner.operation_namespace
-                                {
-                                    detail = Some("project_chat_identity_mismatch".to_owned());
-                                    None
-                                } else {
-                                    output_valid = true;
-                                    Some((output, frozen))
-                                }
-                            } else {
-                                detail = Some("missing_project_chat_context".to_owned());
+    let conversation_id: Option<String> = tx
+        .query_row(
+            "SELECT conversation_id FROM conversation_items
+             WHERE kind='request' AND reference_id=? AND project_id=? AND operation_namespace=?
+             ORDER BY sequence LIMIT 1",
+            params![owner.run_id, owner.project_id, owner.operation_namespace],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(conversation_id) = conversation_id else {
+        return Ok(None);
+    };
+    let access = ProjectAccess {
+        project_id: owner.project_id.clone(),
+        operation_namespace: owner.operation_namespace.clone(),
+        session: String::new(),
+        writer_lease: String::new(),
+    };
+    let operation_id = materialize_operation_id(&owner.run_id);
+    let payload_hash = materialize_payload_hash(&owner);
+    if let Some(saved) =
+        replay_materialization(&tx, &access, &conversation_id, &operation_id, &payload_hash)?
+    {
+        tx.commit().map_err(CoreError::uncertain)?;
+        return Ok(Some(saved));
+    }
+    let anchor = store::require_conversation(&tx, &access, &conversation_id)?;
+    let Some(raw) = read_terminal_run(&tx, &owner)? else {
+        tx.commit().map_err(CoreError::uncertain)?;
+        return Ok(None);
+    };
+
+    // A packet or snapshot that fails its immutable validation produces a
+    // retained non-adoptable result.  It is still recorded as a local
+    // event so a later retry cannot accidentally call the provider again.
+    let mut output_valid = false;
+    let mut detail = None;
+    let mut draft_ids = Vec::new();
+    let mut group_effects = None;
+    let parsed = if raw.status != "completed" {
+        detail = Some(format!("terminal_status_{}", raw.status));
+        None
+    } else {
+        match parse_packet_and_context(&tx, &raw) {
+            Ok((packet, frozen)) if read_provider_terminal(&tx, &owner, &raw, &packet)? => {
+                let handles = allowed_target_handles(&tx, &frozen)?;
+                let predecessor_handles = allowed_predecessor_handles(&tx, &frozen)?;
+                let chapter_handles = allowed_chapter_target_handles(&tx, &frozen)?;
+                match parse_project_assistant_output_with_predecessors_and_chapters(
+                    &raw.output_text,
+                    &handles,
+                    &predecessor_handles,
+                    &chapter_handles,
+                ) {
+                    Ok(output) => {
+                        group_effects = output.group_effects.clone();
+                        if let Some(chat) = frozen.project_chat.as_ref() {
+                            if chat.conversation_id != conversation_id
+                                || chat.operation_namespace != owner.operation_namespace
+                            {
+                                detail = Some("project_chat_identity_mismatch".to_owned());
                                 None
+                            } else {
+                                output_valid = true;
+                                Some((output, frozen))
                             }
-                        }
-                        Err(error) => {
-                            detail = Some(error.detail);
+                        } else {
+                            detail = Some("missing_project_chat_context".to_owned());
                             None
                         }
                     }
-                }
-                Ok(_) => {
-                    detail = Some("provider_terminal_receipt_missing_or_mismatched".to_owned());
-                    None
-                }
-                Err(error) => {
-                    detail = Some(error.detail);
-                    None
+                    Err(error) => {
+                        detail = Some(error.detail);
+                        None
+                    }
                 }
             }
-        };
-        if let Some((output, frozen)) = parsed {
-            for (ordinal, draft) in output.drafts.iter().enumerate() {
-                draft_ids.push(insert_draft(
-                    &tx,
-                    &owner,
-                    &conversation_id,
-                    &raw,
-                    &frozen,
-                    ordinal,
-                    draft,
-                )?);
+            Ok(_) => {
+                detail = Some("provider_terminal_receipt_missing_or_mismatched".to_owned());
+                None
             }
-            // A source or policy change while the provider was running does
-            // not delete a reviewable draft.  The draft reader computes the
-            // stale flag from these frozen epochs and adoption will refuse it.
-            if detail.is_none() && raw.status != "completed" {
-                output_valid = false;
-                detail = Some("terminal_run_was_not_completed".to_owned());
+            Err(error) => {
+                detail = Some(error.detail);
+                None
             }
         }
-        if raw.status != "completed" {
+    };
+    if let Some((output, frozen)) = parsed {
+        for (ordinal, draft) in output.drafts.iter().enumerate() {
+            draft_ids.push(insert_draft(
+                &tx,
+                &owner,
+                &conversation_id,
+                &raw,
+                &frozen,
+                ordinal,
+                draft,
+            )?);
+        }
+        // A source or policy change while the provider was running does
+        // not delete a reviewable draft.  The draft reader computes the
+        // stale flag from these frozen epochs and adoption will refuse it.
+        if detail.is_none() && raw.status != "completed" {
             output_valid = false;
-            if detail.is_none() {
-                detail = Some(format!("terminal_status_{}", raw.status));
-            }
+            detail = Some("terminal_run_was_not_completed".to_owned());
         }
-        let item_payload = json!({
-            "runId": owner.run_id,
-            "sequence": raw.sequence,
-            "outputHash": sha256_hex(raw.output_text.as_bytes()),
-            "outputValid": output_valid,
-            "draftRefs": draft_ids.iter().enumerate().map(|(ordinal, document_id)| json!({
-                "ordinal": ordinal,
-                "documentId": document_id,
-            })).collect::<Vec<_>>(),
-            "detail": detail.clone(),
-            "groupEffects": group_effects.clone(),
-        });
-        let item = store::append_item(
-            &tx,
-            &access,
-            &conversation_id,
-            Some(&operation_id),
-            MATERIALIZE_ITEM_KIND,
-            Some(&owner.run_id),
-            &item_payload,
-        )?;
-        let result = ChatMaterialization {
-            run_id: owner.run_id,
-            item_id: item.id.clone(),
-            draft_ids,
-            output_valid,
-            detail,
-            group_effects,
-        };
-        // Keep the event payload to references and the output fingerprint.
-        // The assistant answer and draft bodies remain in their authoritative
-        // run/message and document/revision rows respectively.
-        insert_receipt(
-            &tx,
-            &access.operation_namespace,
-            &operation_id,
-            MATERIALIZE_RECEIPT_KIND,
-            &payload_hash,
-            &StoredResult {
-                head: anchor.head,
-                saved_generation: "0".into(),
-                applied: None,
-                restored: None,
-            },
-        )?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(Some(result))
     }
+    if raw.status != "completed" {
+        output_valid = false;
+        if detail.is_none() {
+            detail = Some(format!("terminal_status_{}", raw.status));
+        }
+    }
+    let item_payload = json!({
+        "runId": owner.run_id,
+        "sequence": raw.sequence,
+        "outputHash": sha256_hex(raw.output_text.as_bytes()),
+        "outputValid": output_valid,
+        "draftRefs": draft_ids.iter().enumerate().map(|(ordinal, document_id)| json!({
+            "ordinal": ordinal,
+            "documentId": document_id,
+        })).collect::<Vec<_>>(),
+        "detail": detail.clone(),
+        "groupEffects": group_effects.clone(),
+    });
+    let item = store::append_item(
+        &tx,
+        &access,
+        &conversation_id,
+        Some(&operation_id),
+        MATERIALIZE_ITEM_KIND,
+        Some(&owner.run_id),
+        &item_payload,
+    )?;
+    let result = ChatMaterialization {
+        run_id: owner.run_id,
+        item_id: item.id.clone(),
+        draft_ids,
+        output_valid,
+        detail,
+        group_effects,
+    };
+    // Keep the event payload to references and the output fingerprint.
+    // The assistant answer and draft bodies remain in their authoritative
+    // run/message and document/revision rows respectively.
+    insert_receipt(
+        &tx,
+        &access.operation_namespace,
+        &operation_id,
+        MATERIALIZE_RECEIPT_KIND,
+        &payload_hash,
+        &StoredResult {
+            head: anchor.head,
+            saved_generation: "0".into(),
+            applied: None,
+            restored: None,
+        },
+    )?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(Some(result))
 }

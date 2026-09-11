@@ -1,5 +1,5 @@
-use super::super::discussions::{self, FeedbackIntent, StartDiscussion};
-use super::super::project_chat_context::ProjectChatFreeze;
+use crate::discussions::{self, FeedbackIntent, StartDiscussion};
+use crate::project_chat_context::ProjectChatFreeze;
 use super::*;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -97,7 +97,7 @@ pub(super) fn append_item(
     payload: &Value,
 ) -> CoreResult<ConversationItem> {
     let id = new_id();
-    let payload_json = serde_json::to_string(&crate::canonicalize_value(payload.clone()))?;
+    let payload_json = serde_json::to_string(&wns_kernel::canonicalize_value(payload.clone()))?;
     db.execute("INSERT INTO conversation_items(id,conversation_id,project_id,operation_namespace,sequence,operation_id,kind,reference_id,payload_json,payload_hash) VALUES(?,?,?,?,(SELECT COALESCE(MAX(sequence),0)+1 FROM conversation_items WHERE conversation_id=?),?,?,?,?,?)",
         params![id,conversation_id,access.project_id,access.operation_namespace,conversation_id,operation_id,kind,reference_id,payload_json,sha256_hex(payload_json.as_bytes())])?;
     read_item(db, &id)
@@ -282,7 +282,7 @@ pub(super) fn read_chapter_feedback(
         [&run.packet_id],
         |row| row.get(0),
     )?;
-    let request: crate::projects::context_packets::PrepareContext =
+    let request: wns_story::context_packets::PrepareContext =
         serde_json::from_str(&request_json).map_err(|error| {
             CoreError::new(
                 "InvalidContextPacket",
@@ -290,13 +290,13 @@ pub(super) fn read_chapter_feedback(
             )
         })?;
     if request.response_contract.as_deref()
-        != Some(crate::projects::project_chat_output::CHAPTER_DISCUSSION_RESPONSE_CONTRACT)
+        != Some(wns_context::project_chat_output::CHAPTER_DISCUSSION_RESPONSE_CONTRACT)
     {
         return Ok(None);
     }
-    let packet = crate::projects::context_packets::validated_packet_record(db, &run.packet_id)?;
+    let packet = wns_story::context_packets::validated_packet_record(db, &run.packet_id)?;
     let (frozen, owner_namespace) =
-        crate::projects::story_context::validated_snapshot_record(db, &packet.receipt.snapshot_id)?;
+        wns_story::story_context::validated_snapshot_record(db, &packet.receipt.snapshot_id)?;
     if owner_namespace != access.operation_namespace
         || frozen.snapshot.project_id != access.project_id
         || frozen.snapshot.target.document_id != run.target.document_id
@@ -319,9 +319,9 @@ pub(super) fn read_chapter_feedback(
                 "The chapter packet target is missing from its frozen source manifest.",
             )
         })?;
-    let target = crate::projects::story_context::read_source(db, &frozen, &target_handle)?;
+    let target = wns_story::story_context::read_source(db, &frozen, &target_handle)?;
     let mut projection =
-        match crate::projects::project_chat_output::project_chapter_discussion_output(
+        match wns_context::project_chat_output::project_chapter_discussion_output(
             &run.output_text,
             &run.target,
             &target.body,
@@ -390,9 +390,9 @@ pub(super) fn read_draft(
     let document = read_document_with_role(db, document_id, DocumentRole::AssistantDraft)?;
     let current = epochs(db)?;
     let (manifest, hash): (String,String) = db.query_row("SELECT s.manifest_json,s.manifest_hash FROM context_packets p JOIN story_snapshots s ON s.id=p.snapshot_id WHERE p.id=?", [&row.1], |r|Ok((r.get(0)?,r.get(1)?)))?;
-    let frozen = super::super::story_context::decode_snapshot(&manifest, &hash)?;
+    let frozen = wns_story::story_context::decode_snapshot(&manifest, &hash)?;
     let task_current =
-        super::super::project_chat_context::project_chat_basis_is_current(db, &frozen)?;
+        crate::project_chat_context::project_chat_basis_is_current(db, &frozen)?;
     Ok(AssistantDraft {
         document,
         conversation_id: conversation_id.into(),
@@ -438,286 +438,286 @@ pub(super) fn validate_composer(composer: &ProjectComposer) -> CoreResult<()> {
     Ok(())
 }
 
-impl OwnedProject {
-    pub(super) fn read_project_conversation(
-        &mut self,
-        request: ReadProjectConversation,
-    ) -> CoreResult<ProjectConversation> {
-        self.check_access(&request.access)?;
-        if request.limit == 0 || request.limit > 100 {
-            return Err(CoreError::new(
-                "InvalidRequest",
-                "Choose a conversation page size from 1 to 100.",
-            ));
-        }
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let id = ensure_conversation(&tx, &request.access)?;
-        let before = request
-            .before
-            .as_deref()
-            .map(parse_version)
-            .transpose()?
-            .unwrap_or(i64::MAX);
-        let rows = {
-            let mut q=tx.prepare("SELECT id FROM conversation_items WHERE conversation_id=? AND sequence<? AND kind NOT IN ('saveProjectComposer','saveAssistantDraft','adoptChatPreviewReceipt','prepareChatAdoptionReceipt') ORDER BY sequence DESC LIMIT ?")?;
-            q.query_map(params![id, before, request.limit as i64 + 1], |r| {
-                r.get::<_, String>(0)
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-        };
-        let has_older = rows.len() > request.limit as usize;
-        let mut items = rows
-            .into_iter()
-            .take(request.limit as usize)
-            .map(|id| read_item(&tx, &id))
-            .collect::<CoreResult<Vec<_>>>()?;
-        let older_before = has_older.then(|| {
-            items
-                .last()
-                .expect("nonempty bounded page")
-                .sequence
-                .clone()
-        });
-        items.reverse();
-        for item in &mut items {
-            if (item.kind == "request" || item.kind == "chapterRequest")
-                && let Some(run_id) = &item.reference_id
+// Actor-side logic, as free functions over `ProjectChatHost`.
+
+pub fn read_project_conversation(
+host: &mut impl ProjectChatHost,
+    request: ReadProjectConversation,
+) -> CoreResult<ProjectConversation> {
+    host.check_access(&request.access)?;
+    if request.limit == 0 || request.limit > 100 {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "Choose a conversation page size from 1 to 100.",
+        ));
+    }
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let id = ensure_conversation(&tx, &request.access)?;
+    let before = request
+        .before
+        .as_deref()
+        .map(parse_version)
+        .transpose()?
+        .unwrap_or(i64::MAX);
+    let rows = {
+        let mut q=tx.prepare("SELECT id FROM conversation_items WHERE conversation_id=? AND sequence<? AND kind NOT IN ('saveProjectComposer','saveAssistantDraft','adoptChatPreviewReceipt','prepareChatAdoptionReceipt') ORDER BY sequence DESC LIMIT ?")?;
+        q.query_map(params![id, before, request.limit as i64 + 1], |r| {
+            r.get::<_, String>(0)
+        })?
+        .collect::<Result<Vec<_>, _>>()?
+    };
+    let has_older = rows.len() > request.limit as usize;
+    let mut items = rows
+        .into_iter()
+        .take(request.limit as usize)
+        .map(|id| read_item(&tx, &id))
+        .collect::<CoreResult<Vec<_>>>()?;
+    let older_before = has_older.then(|| {
+        items
+            .last()
+            .expect("nonempty bounded page")
+            .sequence
+            .clone()
+    });
+    items.reverse();
+    for item in &mut items {
+        if (item.kind == "request" || item.kind == "chapterRequest")
+            && let Some(run_id) = &item.reference_id
+        {
+            let run = discussions::read_run(&tx, run_id)?;
+            if run.owner.project_id != request.access.project_id
+                || run.owner.operation_namespace != request.access.operation_namespace
             {
-                let run = discussions::read_run(&tx, run_id)?;
-                if run.owner.project_id != request.access.project_id
-                    || run.owner.operation_namespace != request.access.operation_namespace
-                {
-                    return Err(CoreError::new(
-                        "InvalidProjectChat",
-                        "A conversation run has another owner.",
-                    ));
-                }
-                let user: String = tx.query_row(
-                    "SELECT content FROM discussion_messages WHERE run_id=? AND role='user'",
-                    [run_id],
-                    |r| r.get(0),
-                )?;
-                item.payload["run"] = serde_json::to_value(run)?;
-                item.payload["instruction"] = Value::String(user);
-                // Keep the authoritative assistant message identity beside
-                // the run so an author can explicitly adapt that exact
-                // project-chat answer into a restricted chapter brief.
-                // The message is optional while a run is still queued.
-                let assistant_message: Option<String> = tx
-                        .query_row(
-                            "SELECT id FROM discussion_messages WHERE run_id=? AND role='assistant' ORDER BY rowid DESC LIMIT 1",
-                            [run_id],
-                            |r| r.get(0),
-                        )
-                        .optional()?;
-                if let Some(message_id) = assistant_message {
-                    item.payload["assistantMessageId"] = Value::String(message_id);
-                }
-            }
-        }
-        let draft_ids = {
-            // Do not silently hide old unresolved drafts. Timeline messages
-            // are paged separately; the review inventory must remain complete.
-            let mut q=tx.prepare("SELECT document_id FROM assistant_drafts WHERE conversation_id=? ORDER BY rowid DESC")?;
-            q.query_map([&id], |r| r.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        let drafts = draft_ids
-            .iter()
-            .map(|d| read_draft(&tx, &request.access, &id, d))
-            .collect::<CoreResult<Vec<_>>>()?;
-        let active:Option<String>=tx.query_row("SELECT r.id FROM discussion_runs r JOIN conversation_items i ON i.reference_id=r.id AND i.kind IN ('request','chapterRequest') WHERE i.conversation_id=? AND r.status IN ('queued','running','stopping') ORDER BY r.rowid DESC LIMIT 1", [&id], |r|r.get(0)).optional()?;
-        let active_run = active.map(|r| discussions::read_run(&tx, &r)).transpose()?;
-        let (source_epoch, policy_epoch) = epochs(&tx)?;
-        let earlier_workshop: bool =
-            tx.query_row("SELECT EXISTS(SELECT 1 FROM workshop_state)", [], |r| {
-                r.get(0)
-            })?;
-        let composer = read_composer(&tx, &id)?;
-        let document_saves = super::save_recap::read_document_saves(&tx, &request.access, &id)?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(ProjectConversation {
-            id,
-            composer,
-            items,
-            older_before,
-            active_run,
-            drafts,
-            source_epoch,
-            policy_epoch,
-            earlier_workshop,
-            document_saves,
-        })
-    }
-
-    pub(super) fn save_project_composer(
-        &mut self,
-        request: SaveProjectComposer,
-    ) -> CoreResult<ProjectComposerSnapshot> {
-        self.check_access(&request.access)?;
-        check_id(&request.operation_id)?;
-        validate_composer(&request.body)?;
-        let payload = logical_hash(&request)?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let anchor = require_conversation(&tx, &request.access, &request.conversation_id)?;
-        if let Some(version) = replay_local::<String>(
-            &tx,
-            &request.access,
-            &request.conversation_id,
-            &request.operation_id,
-            "saveProjectComposer",
-            &payload,
-        )? {
-            tx.commit().map_err(CoreError::uncertain)?;
-            return Ok(ProjectComposerSnapshot {
-                conversation_id: request.conversation_id,
-                version,
-                body: request.body,
-            });
-        }
-        let current = read_composer(&tx, &request.conversation_id)?;
-        if current.version != request.expected_version {
-            return Err(CoreError::new(
-                "VersionConflict",
-                "The project composer changed in another editor.",
-            ));
-        }
-        let next = parse_version(&current.version)?
-            .checked_add(1)
-            .ok_or_else(|| CoreError::new("VersionLimit", "Composer version exhausted."))?;
-        tx.execute("UPDATE project_conversations SET composer_version=?,composer_json=? WHERE id=? AND composer_version=?",params![next,serde_json::to_string(&request.body)?,request.conversation_id,parse_version(&current.version)?])?;
-        record_local(
-            &tx,
-            &request.access,
-            &request.conversation_id,
-            &request.operation_id,
-            "saveProjectComposer",
-            &payload,
-            &anchor,
-            &next.to_string(),
-        )?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(ProjectComposerSnapshot {
-            conversation_id: request.conversation_id,
-            version: next.to_string(),
-            body: request.body,
-        })
-    }
-
-    pub(super) fn start_project_chat(
-        &mut self,
-        request: StartProjectChat,
-    ) -> CoreResult<DiscussionStart> {
-        self.check_access(&request.access)?;
-        check_id(&request.operation_id)?;
-        validate_composer(&request.composer)?;
-        if request.composer.chapter.is_some() {
-            return Err(CoreError::new(
-                "InvalidProjectChat",
-                "A chapter task must be submitted through the chapter request command.",
-            ));
-        }
-        if request.composer.text.trim().is_empty() {
-            return Err(CoreError::new(
-                "InvalidProjectChat",
-                "Write an idea or a question first.",
-            ));
-        }
-        let payload = logical_hash(&request)?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let anchor = require_conversation(&tx, &request.access, &request.conversation_id)?;
-        let existing:Option<(String,String)>=tx.query_row("SELECT id,payload_hash FROM discussion_runs WHERE project_id=? AND operation_namespace=? AND operation_id=?",params![request.access.project_id,request.access.operation_namespace,request.operation_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-        if let Some((run_id, hash)) = existing {
-            if hash != payload {
                 return Err(CoreError::new(
-                    "OperationIdReusedWithDifferentPayload",
-                    "This request ID already has another instruction or model.",
+                    "InvalidProjectChat",
+                    "A conversation run has another owner.",
                 ));
             }
-            read_item_by_reference(&tx, &request.conversation_id, "request", &run_id)?;
-            let result = discussions::read_start(&tx, &run_id)?;
-            tx.commit().map_err(CoreError::uncertain)?;
-            return Ok(result);
+            let user: String = tx.query_row(
+                "SELECT content FROM discussion_messages WHERE run_id=? AND role='user'",
+                [run_id],
+                |r| r.get(0),
+            )?;
+            item.payload["run"] = serde_json::to_value(run)?;
+            item.payload["instruction"] = Value::String(user);
+            // Keep the authoritative assistant message identity beside
+            // the run so an author can explicitly adapt that exact
+            // project-chat answer into a restricted chapter brief.
+            // The message is optional while a run is still queued.
+            let assistant_message: Option<String> = tx
+                    .query_row(
+                        "SELECT id FROM discussion_messages WHERE run_id=? AND role='assistant' ORDER BY rowid DESC LIMIT 1",
+                        [run_id],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+            if let Some(message_id) = assistant_message {
+                item.payload["assistantMessageId"] = Value::String(message_id);
+            }
         }
-        if existing_receipt(
-            &tx,
-            &request.access.operation_namespace,
-            &request.operation_id,
-            "projectChat",
-            &payload,
-        )?
-        .is_some()
-        {
+    }
+    let draft_ids = {
+        // Do not silently hide old unresolved drafts. Timeline messages
+        // are paged separately; the review inventory must remain complete.
+        let mut q=tx.prepare("SELECT document_id FROM assistant_drafts WHERE conversation_id=? ORDER BY rowid DESC")?;
+        q.query_map([&id], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let drafts = draft_ids
+        .iter()
+        .map(|d| read_draft(&tx, &request.access, &id, d))
+        .collect::<CoreResult<Vec<_>>>()?;
+    let active:Option<String>=tx.query_row("SELECT r.id FROM discussion_runs r JOIN conversation_items i ON i.reference_id=r.id AND i.kind IN ('request','chapterRequest') WHERE i.conversation_id=? AND r.status IN ('queued','running','stopping') ORDER BY r.rowid DESC LIMIT 1", [&id], |r|r.get(0)).optional()?;
+    let active_run = active.map(|r| discussions::read_run(&tx, &r)).transpose()?;
+    let (source_epoch, policy_epoch) = epochs(&tx)?;
+    let earlier_workshop: bool =
+        tx.query_row("SELECT EXISTS(SELECT 1 FROM workshop_state)", [], |r| {
+            r.get(0)
+        })?;
+    let composer = read_composer(&tx, &id)?;
+    let document_saves = super::save_recap::read_document_saves(&tx, &request.access, &id)?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(ProjectConversation {
+        id,
+        composer,
+        items,
+        older_before,
+        active_run,
+        drafts,
+        source_epoch,
+        policy_epoch,
+        earlier_workshop,
+        document_saves,
+    })
+}
+
+pub fn save_project_composer(
+host: &mut impl ProjectChatHost,
+    request: SaveProjectComposer,
+) -> CoreResult<ProjectComposerSnapshot> {
+    host.check_access(&request.access)?;
+    check_id(&request.operation_id)?;
+    validate_composer(&request.body)?;
+    let payload = logical_hash(&request)?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let anchor = require_conversation(&tx, &request.access, &request.conversation_id)?;
+    if let Some(version) = replay_local::<String>(
+        &tx,
+        &request.access,
+        &request.conversation_id,
+        &request.operation_id,
+        "saveProjectComposer",
+        &payload,
+    )? {
+        tx.commit().map_err(CoreError::uncertain)?;
+        return Ok(ProjectComposerSnapshot {
+            conversation_id: request.conversation_id,
+            version,
+            body: request.body,
+        });
+    }
+    let current = read_composer(&tx, &request.conversation_id)?;
+    if current.version != request.expected_version {
+        return Err(CoreError::new(
+            "VersionConflict",
+            "The project composer changed in another editor.",
+        ));
+    }
+    let next = parse_version(&current.version)?
+        .checked_add(1)
+        .ok_or_else(|| CoreError::new("VersionLimit", "Composer version exhausted."))?;
+    tx.execute("UPDATE project_conversations SET composer_version=?,composer_json=? WHERE id=? AND composer_version=?",params![next,serde_json::to_string(&request.body)?,request.conversation_id,parse_version(&current.version)?])?;
+    record_local(
+        &tx,
+        &request.access,
+        &request.conversation_id,
+        &request.operation_id,
+        "saveProjectComposer",
+        &payload,
+        &anchor,
+        &next.to_string(),
+    )?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(ProjectComposerSnapshot {
+        conversation_id: request.conversation_id,
+        version: next.to_string(),
+        body: request.body,
+    })
+}
+
+pub fn start_project_chat(
+host: &mut impl ProjectChatHost,
+    request: StartProjectChat,
+) -> CoreResult<DiscussionStart> {
+    host.check_access(&request.access)?;
+    check_id(&request.operation_id)?;
+    validate_composer(&request.composer)?;
+    if request.composer.chapter.is_some() {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "A chapter task must be submitted through the chapter request command.",
+        ));
+    }
+    if request.composer.text.trim().is_empty() {
+        return Err(CoreError::new(
+            "InvalidProjectChat",
+            "Write an idea or a question first.",
+        ));
+    }
+    let payload = logical_hash(&request)?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let anchor = require_conversation(&tx, &request.access, &request.conversation_id)?;
+    let existing:Option<(String,String)>=tx.query_row("SELECT id,payload_hash FROM discussion_runs WHERE project_id=? AND operation_namespace=? AND operation_id=?",params![request.access.project_id,request.access.operation_namespace,request.operation_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+    if let Some((run_id, hash)) = existing {
+        if hash != payload {
             return Err(CoreError::new(
                 "OperationIdReusedWithDifferentPayload",
-                "A local operation already uses this request ID.",
+                "This request ID already has another instruction or model.",
             ));
         }
-        let active:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM discussion_runs r JOIN conversation_items i ON i.reference_id=r.id AND i.kind IN ('request','chapterRequest') WHERE i.conversation_id=? AND r.status IN ('queued','running','stopping'))",[&request.conversation_id],|r|r.get(0))?;
-        if active {
-            return Err(CoreError::new(
-                "ProjectChatBusy",
-                "Wait for this project's request or stop it before sending another.",
-            ));
-        }
-        let current = read_composer(&tx, &request.conversation_id)?;
-        if current.version != request.expected_composer_version || current.body != request.composer
-        {
-            return Err(CoreError::new(
-                "VersionConflict",
-                "Save the exact composer and references before sending.",
-            ));
-        }
-        let mut sources = request.composer.source_refs.clone();
-        if let Some(focused) = &request.composer.focused_document_ref
-            && !sources.iter().any(|h| h.document_id == focused.document_id)
-        {
-            sources.push(focused.clone());
-        }
-        let chat = ProjectChatFreeze {
-            conversation_id: request.conversation_id.clone(),
-            source_refs: sources.clone(),
-            task_draft_refs: request.composer.task_draft_refs.clone(),
-            prompt_recipe_version: Some(
-                crate::projects::project_chat_output::PROJECT_CHAT_PROMPT_RECIPE_V3.to_owned(),
-            ),
-        };
-        let discussion = StartDiscussion {
-            access: request.access.clone(),
-            operation_id: request.operation_id.clone(),
-            expected: anchor.head,
-            instruction: request.composer.text.clone(),
-            intent: FeedbackIntent::Discuss,
-            basis: None,
-            scope: None,
-            pinned_document_ids: Vec::new(),
-            safe_brief: None,
-            budget: request.budget,
-            provider_binding: request.provider_binding,
-            previous_run_id: None,
-            lookup: None,
-        };
-        let result =
-            discussions::start_discussion_at(&tx, &discussion, &payload, Some(&chat), false)?;
-        append_item(
-            &tx,
-            &request.access,
-            &request.conversation_id,
-            Some(&request.operation_id),
-            "request",
-            Some(&result.run.id),
-            &json!({"composerVersion":request.expected_composer_version,"sourceRefs":sources,"taskDraftRefs":request.composer.task_draft_refs,"userMessageId":result.user_message.id}),
-        )?;
-        // The accepted buffer is cleared atomically. Renderer keeps any newer
-        // typing and saves that next buffer against this advanced watermark.
-        tx.execute("UPDATE project_conversations SET composer_version=composer_version+1,composer_json=? WHERE id=?",params![serde_json::to_string(&ProjectComposer::default())?,request.conversation_id])?;
+        read_item_by_reference(&tx, &request.conversation_id, "request", &run_id)?;
+        let result = discussions::read_start(&tx, &run_id)?;
         tx.commit().map_err(CoreError::uncertain)?;
-        Ok(result)
+        return Ok(result);
     }
+    if existing_receipt(
+        &tx,
+        &request.access.operation_namespace,
+        &request.operation_id,
+        "projectChat",
+        &payload,
+    )?
+    .is_some()
+    {
+        return Err(CoreError::new(
+            "OperationIdReusedWithDifferentPayload",
+            "A local operation already uses this request ID.",
+        ));
+    }
+    let active:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM discussion_runs r JOIN conversation_items i ON i.reference_id=r.id AND i.kind IN ('request','chapterRequest') WHERE i.conversation_id=? AND r.status IN ('queued','running','stopping'))",[&request.conversation_id],|r|r.get(0))?;
+    if active {
+        return Err(CoreError::new(
+            "ProjectChatBusy",
+            "Wait for this project's request or stop it before sending another.",
+        ));
+    }
+    let current = read_composer(&tx, &request.conversation_id)?;
+    if current.version != request.expected_composer_version || current.body != request.composer
+    {
+        return Err(CoreError::new(
+            "VersionConflict",
+            "Save the exact composer and references before sending.",
+        ));
+    }
+    let mut sources = request.composer.source_refs.clone();
+    if let Some(focused) = &request.composer.focused_document_ref
+        && !sources.iter().any(|h| h.document_id == focused.document_id)
+    {
+        sources.push(focused.clone());
+    }
+    let chat = ProjectChatFreeze {
+        conversation_id: request.conversation_id.clone(),
+        source_refs: sources.clone(),
+        task_draft_refs: request.composer.task_draft_refs.clone(),
+        prompt_recipe_version: Some(
+            wns_context::project_chat_output::PROJECT_CHAT_PROMPT_RECIPE_V3.to_owned(),
+        ),
+    };
+    let discussion = StartDiscussion {
+        access: request.access.clone(),
+        operation_id: request.operation_id.clone(),
+        expected: anchor.head,
+        instruction: request.composer.text.clone(),
+        intent: FeedbackIntent::Discuss,
+        basis: None,
+        scope: None,
+        pinned_document_ids: Vec::new(),
+        safe_brief: None,
+        budget: request.budget,
+        provider_binding: request.provider_binding,
+        previous_run_id: None,
+        lookup: None,
+    };
+    let result =
+        discussions::start_discussion_at(&tx, &discussion, &payload, Some(&chat), false)?;
+    append_item(
+        &tx,
+        &request.access,
+        &request.conversation_id,
+        Some(&request.operation_id),
+        "request",
+        Some(&result.run.id),
+        &json!({"composerVersion":request.expected_composer_version,"sourceRefs":sources,"taskDraftRefs":request.composer.task_draft_refs,"userMessageId":result.user_message.id}),
+    )?;
+    // The accepted buffer is cleared atomically. Renderer keeps any newer
+    // typing and saves that next buffer against this advanced watermark.
+    tx.execute("UPDATE project_conversations SET composer_version=composer_version+1,composer_json=? WHERE id=?",params![serde_json::to_string(&ProjectComposer::default())?,request.conversation_id])?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(result)
 }
