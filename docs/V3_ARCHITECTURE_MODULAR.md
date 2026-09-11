@@ -1037,10 +1037,45 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    helpers its bodies use, and the test hooks its crash paths reach. None of the three is visible
    in the imports, which is why the only way to find the order is to try.
 
-   Five of the twenty-one have moved: `source_pins`, `history`, `reviewed_story`,
-   `project_chat_output`, `material_adoption` — chosen in that order not for size but for
-   reachability, and the later ones' ease is the return on the primitive-layer commit that
-   made them possible.
+   **Where step 7 now stands, measured.** Eleven of the twenty-one have moved:
+   `source_pins`, `history`, `reviewed_story`, `project_chat_output`, `material_adoption`,
+   `evidence_queries`, `guidance`, `project_chat_context`, and the three-module
+   `story_context` + `memory` + `context_packets` unit. Four structural cycles were discharged
+   along the way, plus two extractions that existed only to unblock others — the provider
+   delivery types and the whole workshop metadata graph.
+
+   Each was chosen in that order not for size but for reachability, and the later ones' ease is
+   the return on the primitive-layer commit that made them possible.
+
+   **What is left is one cluster, and its shape is now known.** `discussions`,
+   `discussion_lookup`, `proposals`, `project_chat` and `background_work` are bound for
+   `wns-conversation` (L5); `workshop` and `workshop_generation` for `wns-workshop` (L5).
+   Within the conversation side the mutual edges are all *intra*-crate — `RunOwner` and
+   `DiscussionRun` are used by ten files and every one of them lands on that side — so they
+   cost nothing where they are. The only cross-crate edges were the two the last commits
+   deleted, and they are gone.
+
+   **The remaining blocker is the run lifecycle, and it is the third time the same inversion
+   would serve.** `workshop` reaches into `discussions` for `DiscussionRun`,
+   `DiscussionRunStatus`, `DiscussionStart`, `read_run` and `read_start` — 147 lines — because
+   a workshop request *is* a discussion run. `workshop` is bound for the other L5 crate, so
+   that vocabulary has to sit below both.
+
+   Measured at the top level: `RunOwner` (5), `DiscussionRunStatus` (9 plus its impl),
+   `DiscussionRun` (26), `DiscussionStart` (6), `DiscussionMessage` (10), `ProviderResult`
+   (21), `read_start` (28), `read_run` (73), and `discussion_lookup::LookupRunSummary` (4) —
+   which is the reverse edge, and moving it is what finally makes `discussion_lookup` and
+   `discussions` separable at all.
+
+   What is **not** measured is the inside: `read_run`'s 73 lines, `ProviderResult`'s fields,
+   and `DiscussionRunStatus`'s impl. On this step's record that is exactly the gap that
+   produced two failed attempts earlier, so it is written down as the next action rather than
+   attempted at the end of a long session.
+
+   The alternative worth weighing when it is attempted: `workshop`'s need is a *run*, not a
+   run's *reader*. If the workshop side received an already-read run instead of calling
+   `read_run` itself, neither function would travel — the inversion §3.4 keeps proposing,
+   applied for the third time.
 
    **And there is a fourth category of module, which the three before it hid.**
    `project_chat_output` (1,113 lines) has **no `impl` blocks at all**: no `ProjectSession`
