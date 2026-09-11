@@ -1161,6 +1161,41 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    `memory` reaches `context_packets` and `discussions`, which are conversation-side and do not
    shrink this way. That is the remaining knot.
 
+   **And the technique has a boundary, which the next measurement found.** The obvious move for
+   the rest of the cluster is the one that worked twice already: `story_context`'s operations are
+   a shared surface by the same measurement — `validated_snapshot_record` at **17 call sites in
+   10 files**, `load_snapshot` at 12, `read_source` at 10 — so move *those* to L3 beside
+   `decode_snapshot`, exactly as `projects.rs`'s primitive layer moved to L0/L1.
+
+   It cannot be done, and one line says why:
+
+   ```
+   validated_snapshot_record → validate_pins → reviewed_story::ReviewValidationContext
+   ```
+
+   `reviewed_story` is at L4. A shared surface that depends on an L4 type cannot sit at L3, and
+   `validate_pins` is not separable from the record — it is what makes a validated record
+   *validated*.
+
+   > Moving one half of a cycle down works when that half genuinely belongs at the lower layer.
+   > It fails when the shared surface depends on types that belong at the higher one — and then
+   > the dependency is not an ordering accident to be discharged, it is the boundary asserting
+   > itself.
+
+   That is the difference between this cluster and the two that yielded. Guidance's frozen half
+   and the conversation selectors were L3 concerns by their own nature: they produce
+   `FrozenGuidance` and `FrozenConversation`, both already at L3. `story_context`'s operations
+   produce a *validated* `FrozenContext`, and validation is the story boundary.
+
+   So the resolution for this cluster is the one the first four modules used: move the modules,
+   not the surface. `story_context`, `memory` and `context_packets` are all bound for
+   `wns-story` and are mutually dependent, which makes them one unit — and their two escapes
+   (`story_context → project_chat_context` via `validate_frozen_project_chat`, `memory →
+   discussions`) are both L4→L5 upward edges that each need their own discharge first.
+
+   That unit is ~5,000 lines across three files, it is the last one in step 7, and it is the
+   session's work this document has now predicted four times and measured properly once.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
