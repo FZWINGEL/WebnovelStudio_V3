@@ -312,7 +312,7 @@ fn repeated_unicode_quotes_keep_distinct_utf16_anchors_and_aliases_are_snapshot_
     let f = Fixture::new();
     let document = f.document("elodie", "chapter", "🌙 Mei vows. Mei vows. Li waits.");
     f.project
-        .rename_document(
+        .project().rename_document(
             f.access.clone(),
             document.head.document_id.clone(),
             "0".into(),

@@ -623,7 +623,7 @@ fn source_metadata_change_invalidates_target_preview() {
         refs,
     );
     project
-        .rename_document(
+        .project().rename_document(
             access.clone(),
             source.head.document_id.clone(),
             source.metadata_version.clone(),

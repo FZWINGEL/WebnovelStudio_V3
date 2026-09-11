@@ -479,6 +479,12 @@ costs. That is the honest price of D2 and it does not shrink until the last grou
 `interrupt` — for the background-work census, which is read on two unrelated paths (the
 project-chat write path and the app-close sequence) that each need three operations out of 28.
 
+**The ProjectApi facade** (`projects/project_api.rs`) covers project-level lifecycle and
+inspection — `metadata`, the two renames, and the storage report — for the library and transfer
+paths that need nothing else. Four methods instead of 28. `OwnedProject` implements all four as
+well and calls them on itself, so the same exclusion discipline applied: those sites were
+verified untouched by count before and after.
+
 **Two mistakes were made doing this, and they are the same mistake twice.** The first count of
 Workshop call sites forgot the test tree is a caller. The next one ran a blanket
 `find crates apps -exec sed` for the Work methods, which also rewrote the actor's own dispatch

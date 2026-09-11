@@ -401,7 +401,7 @@ fn duplicate_expected_basis_rejects_a_changed_epoch_or_head_before_install() {
         "save-basis",
         body(json!([paragraph("p", json!([text("basis")]))])),
     );
-    let metadata = project.project_metadata().expect("read source identity");
+    let metadata = project.project().metadata().expect("read source identity");
     let basis = DuplicateBasis {
         project_id: metadata.project.project_id,
         operation_namespace: metadata.project.operation_namespace,
@@ -1189,7 +1189,7 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
     let temp = TempDir::new("schema1-recovery");
     let source = temp.child("source");
     let project = ProjectSession::create(&source, "Schema one source").expect("create source");
-    let metadata = project.project_metadata().expect("read source metadata");
+    let metadata = project.project().metadata().expect("read source metadata");
     drop(project);
     let database_path = source.join("project.sqlite3");
     let connection = Connection::open(&database_path).expect("open source database");

@@ -383,27 +383,13 @@ impl ProjectSession {
     }
     /// Read project metadata without a renderer lease so an unknown metadata
     /// commit can be reconciled even when the project has no documents.
-    pub fn project_metadata(&self) -> CoreResult<ProjectMetadata> {
-        self.request(Command::ProjectMetadata)
-    }
-    pub fn rename_project(
-        &self,
-        access: ProjectAccess,
-        expected_metadata_version: String,
-        title: String,
-    ) -> CoreResult<ProjectMetadata> {
-        self.request(|r| Command::RenameProject(access, expected_metadata_version, title, r))
-    }
-    pub fn rename_document(
-        &self,
-        access: ProjectAccess,
-        document_id: String,
-        expected_metadata_version: String,
-        title: String,
-    ) -> CoreResult<DocumentRecord> {
-        self.request(|r| {
-            Command::RenameDocument(access, document_id, expected_metadata_version, title, r)
-        })
+    /// Narrow interface to project-level lifecycle and inspection: metadata,
+    /// the two renames, and the storage report. See [`ProjectApi`].
+    ///
+    /// Distinct from the actor's own methods of the same names, which run on the
+    /// actor thread against the live connection.
+    pub fn project(&self) -> ProjectApi {
+        ProjectApi::new(Arc::clone(&self.handle))
     }
     pub fn view_state(&self, access: ProjectAccess) -> CoreResult<Option<ViewState>> {
         self.request(|r| Command::ViewState(access, r))
@@ -424,9 +410,6 @@ impl ProjectSession {
     /// the channel.
     pub fn context(&self) -> ContextApi {
         ContextApi::new(Arc::clone(&self.handle))
-    }
-    pub fn storage_info(&self) -> CoreResult<StorageInfo> {
-        self.request(Command::StorageInfo)
     }
     /// Narrow interface to the Workshop concern: six methods instead of 28.
     ///

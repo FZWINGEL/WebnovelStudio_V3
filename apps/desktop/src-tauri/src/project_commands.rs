@@ -308,7 +308,7 @@ pub async fn project_metadata(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<ProjectMetadata> {
     let project = state.project(&project_id)?;
-    execute(move || project.project_metadata()).await
+    execute(move || project.project().metadata()).await
 }
 #[tauri::command]
 pub async fn rename_project(
@@ -321,7 +321,7 @@ pub async fn rename_project(
     let project = state.project(&access.project_id)?;
     let library = library.inner().clone();
     execute(move || {
-        let metadata = project.rename_project(access, expected_metadata_version, title)?;
+        let metadata = project.project().rename(access, expected_metadata_version, title)?;
         let library_warning = match library.0.lock() {
             Ok(mut library) => library.register(&project).err().map(|e| e.detail),
             Err(_) => {
@@ -344,7 +344,7 @@ pub async fn rename_document(
     state: State<'_, DesktopProjects>,
 ) -> CoreResult<DocumentRecord> {
     let project = state.project(&access.project_id)?;
-    execute(move || project.rename_document(access, document_id, expected_metadata_version, title))
+    execute(move || project.project().rename_document(access, document_id, expected_metadata_version, title))
         .await
 }
 #[tauri::command]

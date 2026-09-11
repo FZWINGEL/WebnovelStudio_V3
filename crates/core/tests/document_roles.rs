@@ -102,7 +102,7 @@ fn generic_document_paths_reject_assistant_and_anchor_roles() {
         .document(access.clone(), "chapter-draft".into())
         .expect_err("ordinary read must reject assistant drafts");
     assert_eq!(hidden.code, "DocumentRoleMismatch");
-    let renamed = reopened.rename_document(
+    let renamed = reopened.project().rename_document(
         access.clone(),
         "chapter-draft".into(),
         "0".into(),

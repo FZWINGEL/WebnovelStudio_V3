@@ -241,7 +241,7 @@ fn author_review_pins_exact_revisions_and_requires_an_earlier_prefix() {
         ReviewState::Ready
     );
     let renamed = project
-        .rename_document(
+        .project().rename_document(
             access.clone(),
             "chapter-1".into(),
             "0".into(),

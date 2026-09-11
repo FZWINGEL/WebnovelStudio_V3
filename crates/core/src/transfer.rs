@@ -161,7 +161,7 @@ pub fn capture_duplicate_basis(
     project: &ProjectSession,
     access: ProjectAccess,
 ) -> CoreResult<DuplicateBasis> {
-    let metadata = project.project_metadata()?;
+    let metadata = project.project().metadata()?;
     let mut document_heads = project
         .documents(access)?
         .into_iter()
@@ -1546,7 +1546,7 @@ fn read_archive(path: &Path) -> CoreResult<ArchiveContents> {
 
 /// Create a consistent stored ZIP backup without pausing the project actor.
 pub fn create_backup(project: &ProjectSession, target: &Path) -> CoreResult<BackupManifest> {
-    let metadata = project.project_metadata()?;
+    let metadata = project.project().metadata()?;
     assert_marker_identity(&project.path, &metadata.project)?;
     let target = output_outside(&project.path, target)?;
     let parent = target.parent().ok_or_else(|| {
@@ -2255,7 +2255,7 @@ pub fn prepare_draft_export(
         reason: CheckpointReason::Export,
     })?;
     let projected = project_draft(&revision.body, format)?;
-    let metadata = project.project_metadata()?;
+    let metadata = project.project().metadata()?;
     Ok(DraftExportPreview {
         id: Uuid::new_v4().to_string(),
         project_id: metadata.project.project_id,
@@ -2291,7 +2291,7 @@ pub fn prepare_reviewed_draft_export(
     let (review_bundle_id, revision) =
         project.resolve_reviewed_export_source(access.clone(), expected)?;
     let projected = project_draft(&revision.body, format)?;
-    let metadata = project.project_metadata()?;
+    let metadata = project.project().metadata()?;
     Ok(DraftExportPreview {
         id: Uuid::new_v4().to_string(),
         project_id: metadata.project.project_id,

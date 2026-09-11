@@ -690,7 +690,7 @@ impl Library {
     /// Registration follows project installation/commit. Callers report a registry
     /// error as a library warning; they must not report a manuscript save failure.
     pub fn register(&mut self, project: &ProjectSession) -> CoreResult<()> {
-        let metadata = project.project_metadata()?;
+        let metadata = project.project().metadata()?;
         let path = std::fs::canonicalize(&project.path)?;
         self.register_metadata(&path, &metadata)
     }

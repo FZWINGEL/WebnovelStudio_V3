@@ -194,7 +194,7 @@ fn v1_upgrade_takes_local_online_backup_and_preserves_data() {
     let project = ProjectSession::open(&path).expect("upgrade v1 project");
     assert_eq!(
         project
-            .project_metadata()
+            .project().metadata()
             .expect("metadata")
             .metadata_version,
         "0"
@@ -321,13 +321,13 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
     let (temp, project, access, document) = setup_current();
     assert_eq!(
         project
-            .project_metadata()
+            .project().metadata()
             .expect("initial metadata")
             .metadata_version,
         "0"
     );
     let renamed = project
-        .rename_project(access.clone(), "0".into(), "Renamed project".into())
+        .project().rename(access.clone(), "0".into(), "Renamed project".into())
         .expect("rename project");
     assert_eq!(renamed.metadata_version, "1");
     assert_eq!(renamed.project.title, "Renamed project");
@@ -339,13 +339,13 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
     );
     assert_eq!(
         project
-            .rename_project(access.clone(), "0".into(), "Stale rename".into())
+            .project().rename(access.clone(), "0".into(), "Stale rename".into())
             .unwrap_err()
             .code,
         "MetadataConflict"
     );
     let doc_renamed = project
-        .rename_document(
+        .project().rename_document(
             access.clone(),
             "chapter-one".into(),
             "0".into(),

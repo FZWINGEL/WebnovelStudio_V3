@@ -78,7 +78,7 @@ fn file_backed_save_reopen_and_durability_configuration() {
     let temp = TempProject::new();
     let project = temp.create();
     let (access, document) = setup(&project);
-    let info = project.storage_info().unwrap();
+    let info = project.project().storage().unwrap();
     assert_eq!(
         (&*info.journal_mode, info.synchronous, info.foreign_keys),
         ("wal", 2, 1)
@@ -322,7 +322,7 @@ fn uncertain_commit_in_save_create_or_checkpoint_fences_and_reopens() {
                 .unwrap()
                 .is_empty()
         );
-        assert_eq!(project.storage_info().unwrap().synchronous, 2);
+        assert_eq!(project.project().storage().unwrap().synchronous, 2);
         project
             .save(save(
                 &recovered.access,
