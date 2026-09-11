@@ -36,7 +36,9 @@ composer. The harness follows the visible jump-to-latest control before acting
 on a new response at 200% zoom. Zero page errors were recorded and owned-process
 cleanup was confirmed. No live model calls were made.
 
-This is the working-tree Coauthor Desk slice based on `4320ac1`, not a newly
+This is the Coauthor Desk slice based on `4320ac1`, committed as **`e902532`**
+("Refine the chat workspace into the selected Coauthor Desk direction") on
+11 September 2026 — 26 files changed, 1,338 insertions. It is not a newly
 published release. The executable is **54,886,400 bytes**, built at **14:49:52
 UTC on 9 September 2026**, SHA-256
 **`f845cee782b601521dce0e892b017426d9776339664109dffb4b61c7616d659e`**.
@@ -46,9 +48,19 @@ The final report and geometry records are under `.local/native-results/chat/`.
 
 Earlier attempts exposed stale harness selectors and genuine compact-layout
 overflow/overlap; those were corrected before this checkpoint. The separate
-live-provider harness has updated selectors but was not rerun. Human formative
-evaluation, screen-reader and installed-package qualification remain open;
-the default workspace remains unchanged and chat remains opt-in.
+live-provider harness has since been rerun and **passes 27 live Codex Exec
+checks across exactly two requests** in default mode. Each request
+materialized exactly one reviewable draft, preserved the named detail `Mei`,
+and left its packet unchanged after terminal materialization; neither request
+ran a hidden retry or fallback, and zero renderer page errors were recorded.
+The run records its own provenance: commit `e902532`, executable SHA-256
+`f845cee782b601521dce0e892b017426d9776339664109dffb4b61c7616d659e`,
+WebView2 **152.0.4191.66**, and Codex CLI **`0.154.0-alpha.6.1`** through
+`codex-stdin.author.v1` at Luna/xhigh/priority. The CLI still reports no
+effective model or tier. Report, source identity, and per-request packets:
+`.local/native-results/chat-live/`. Human formative evaluation, screen-reader
+and installed-package qualification remain open; the default workspace remains
+unchanged and chat remains opt-in.
 
 ### Earlier recovery checkpoint
 

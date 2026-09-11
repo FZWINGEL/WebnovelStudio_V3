@@ -13,7 +13,8 @@ the current state.
 The author's selected **Let's build your story** concept now shapes the
 opt-in conversation: a project/material rail, a quieter conversation, readable
 draft tabs with Read/Changes views, and a pinned exact-adoption action. Source
-and provider details are disclosed on demand. See the [Coauthor Desk
+and provider details are disclosed on demand. The slice is committed as
+**`e902532`**, 26 files changed. See the [Coauthor Desk
 surface record](COAUTHOR_DESK_DESIGN.md) and the current verification checkpoint
 in the chat-first implementation ledger. This is a frontend refinement of the
 existing save/adoption protocols, not a new story or provider subsystem.
@@ -55,8 +56,10 @@ narrative qualification remain open; the default chat rollout remains opt-in
 and the full chat-first specification is not declared complete. English-only
 authoring means IME qualification is not a product requirement. The current
 Codex Exec trials cover handoff and chapter-range response contracts and a
-separate one-request grouped relationship adoption/reopen. They do not
-establish other adapters or narrative quality.
+separate one-request grouped relationship adoption/reopen. The chat live harness
+has been rerun on the committed slice and passes **27 live checks across
+exactly two requests**, recording its own provenance at commit `e902532`. It
+does not establish other adapters or narrative quality.
 
 ## Optional persistent Codex transport (8 September 2026)
 
