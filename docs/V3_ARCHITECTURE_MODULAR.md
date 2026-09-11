@@ -861,6 +861,27 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    actor owns. That is the intended split: command plumbing with the actor, domain logic in the
    crate, and the trait as the only thing between them.
 
+   **But the host trait is not the unit, and that is the last measurement.** The `impl
+   ProjectSession` half cannot stay behind the way the split above assumes: it does
+   `Command::Memory(Box::new(MemoryCommand::ClaimAppServer(owner, dispatch, reply)))`, so
+   `MemoryCommand` and everything in its twelve variants must be reachable from wherever those
+   methods live. `MemoryCommand` carries `MemoryOwner`, `AppServerDispatch`, `StartMemory`,
+   `MemoryJob`, `MemoryDispatch`, `CompleteMemory`, `MemoryCompletion`, `MemoryView`,
+   `MemoryRead` and `MemoryList` — roughly ten types, all defined in `memory.rs`.
+
+   Core's `Command` enum is the only other consumer, and it sits *above* the new crate, so
+   referencing `wns_story::MemoryCommand` from there is a legal downward edge. The move is
+   therefore possible — **but its unit is the whole memory module's vocabulary, not the
+   `app_server.rs` file.** A host trait narrows what a module needs from the *actor*; it does
+   nothing about what the module's own command enum needs from the *actor's command enum*, and
+   that second dependency is what actually sets the size.
+
+   So the sizing question has a third form, after "how many actor methods" and "how many private
+   helpers": **"does this module's `Command` variant own a vocabulary that other modules share?"**
+   For memory the answer is ten types. That is readable before starting, by looking at the enum's
+   variants rather than at the file's imports — and it is the number that decides whether a
+   module is a step-7 unit or a step-7 project.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
