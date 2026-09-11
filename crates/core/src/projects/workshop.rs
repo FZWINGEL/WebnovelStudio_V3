@@ -4004,6 +4004,9 @@ impl wns_workshop::host::WorkshopHost for OwnedProject {
     fn read_start(&self, run_id: &str) -> CoreResult<DiscussionStart> {
         crate::projects::discussions::read_start(self.db()?, run_id)
     }
+    fn read_run(&self, run_id: &str) -> CoreResult<DiscussionRun> {
+        crate::projects::discussions::read_run(self.db()?, run_id)
+    }
     fn info(&self) -> &ProjectInfo {
         &self.info
     }

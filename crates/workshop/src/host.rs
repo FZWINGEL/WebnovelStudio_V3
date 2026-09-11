@@ -17,8 +17,9 @@
 
 use rusqlite::Connection;
 use wns_story::discussion_vocabulary::StartDiscussion;
-use wns_story::run_vocabulary::DiscussionStart;
+use wns_story::run_vocabulary::{DiscussionRun, DiscussionStart};
 use wns_kernel::{CoreResult, ProjectAccess, ProjectInfo};
+
 
 pub trait WorkshopHost {
     fn check_access(&self, access: &ProjectAccess) -> CoreResult<()>;
@@ -29,6 +30,12 @@ pub trait WorkshopHost {
     fn start_discussion(&mut self, request: StartDiscussion) -> CoreResult<DiscussionStart>;
     /// The immutable discussion row, for the recovery window after a commit.
     fn read_start(&self, run_id: &str) -> CoreResult<DiscussionStart>;
+    /// A run by id.
+    ///
+    /// `workshop` needs a run, not a run's *reader*: `read_run` calls
+    /// `intent_for_packet`, `read_provider_result` and `read_message`, so it
+    /// stays in `discussions` and is reached from here instead of travelling.
+    fn read_run(&self, run_id: &str) -> CoreResult<DiscussionRun>;
     /// The actor reads two fields off this (`project_id`, `operation_namespace`).
     fn info(&self) -> &ProjectInfo;
 }
