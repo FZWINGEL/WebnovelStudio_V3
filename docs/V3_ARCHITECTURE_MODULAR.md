@@ -618,6 +618,21 @@ this audit reported zero; that count grepped the bare `#[ignore]` form and misse
 reason-string form. Recorded because the correction is the point of an audit.) Also verified:
 zero `todo!`/`unimplemented!`, and no test pinning a retired wire contract.
 
+**One test is timing-sensitive, found by accident.** During step 6,
+`codex_app_server::completed_thread_threshold_recycles_idle_connection` failed
+once in a full run (`left: 1, right: 0`) and passed both in isolation and on the
+next full run. It is unrelated to that change, which moved string constants. The
+cause is visible in the test: it performs 128 sequential start/collect
+round-trips against a real child process and then asserts `active_count() == 0`
+immediately, with no wait for the last request to finish settling. Under the
+parallel load of a full suite, that read can win the race.
+
+This matters beyond the one test. Every step of this migration was verified by
+`719 passed / 0 failed`, and that figure is a strong signal but not a proof — it
+is a suite containing at least one test that can fail for reasons unrelated to
+the change under test. A green run is evidence; a red run of *this* test, on a
+change that does not touch the app-server transport, is not.
+
 **The one real instance of what was being looked for is documentation, not tests.**
 `ADR_0022:78` states "The current reader floor is schema 34" while `LATEST_SCHEMA_VERSION` is
 40 — and it does not mention the schema 36, 37, 39 or 40 floors at all. That is genuine drift,
