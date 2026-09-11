@@ -26,6 +26,7 @@
     "desktop:spike": "tauri build --debug --no-bundle"
   },
   "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
     "@tauri-apps/api": "2.11.1",
     "@tiptap/core": "3.31.3",
     "@tiptap/pm": "3.31.3",

@@ -13,6 +13,8 @@ conversation is being qualified as an opt-in trial. See the
 behavior, executed checks, and remaining rollout gates. The
 [author trial protocol](CHAT_FIRST_AUTHOR_TRIAL.md) defines the unexecuted human
 comparison and accessibility observations needed before default rollout.
+The selected [Coauthor Desk direction](COAUTHOR_DESK_DESIGN.md) refines the
+conversation, library navigation and draft-review presentation.
 
 | Read | Document | Responsibility |
 | --- | --- | --- |

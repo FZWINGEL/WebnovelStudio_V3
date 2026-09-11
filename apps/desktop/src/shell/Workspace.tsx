@@ -17,6 +17,7 @@ import { ModelSettings } from '../providers/ModelSettings';
 import { PROJECT_TABS, documentsForTab, tabForKind, readProjectTabs, writeProjectTabs, type ProjectTabId } from './projectTabs';
 import { readWorkspaceMode, writeWorkspaceMode, CHAT_FIRST_TRIAL_ENABLED, type WorkspaceMode } from './workspaceModes';
 import { RecentProjectPicker, type RecentProjectPickerItem } from './RecentProjectPicker';
+import { CoauthorSidebar } from './CoauthorSidebar';
 import { ProjectConversation, type ProjectConversationHandle } from '../chat/ProjectConversation';
 import { ConversationHistoryPanel } from '../chat/ConversationHistoryPanel';
 import type { ChatAdoptionTarget } from '../ipc/projectChat';
@@ -26,6 +27,7 @@ import { StoryBible } from './StoryBible';
 import { AppCloseDialog, type AppCloseDialogPhase } from './AppCloseDialog';
 import { appCloseStatus, beginAppClose, cancelAppClose, finishAppClose, stopAppJobs, type AppCloseStatus } from '../ipc/appClose';
 import './workspaceModes.css';
+import './CoauthorWorkspace.css';
 
 const EditorTrial = typeof __WNS_EDITOR_TRIAL__ !== 'undefined' && __WNS_EDITOR_TRIAL__
   ? lazy(() => import('./App').then(module => ({ default: module.App })))
@@ -189,6 +191,11 @@ export function Workspace() {
   }, [active?.session]);
 
   async function refreshLibrary() { setLibrary(await librarySnapshot()); }
+  function focusAfterNavigation(selector: string, projectId: string | null) {
+    requestAnimationFrame(() => {
+      if ((projectRef.current?.project.projectId ?? null) === projectId) document.querySelector<HTMLElement>(selector)?.focus();
+    });
+  }
   useEffect(() => { void refreshLibrary().catch(reason => setError(errorText(reason))).finally(() => setLoading(false)); }, []);
   useEffect(() => {
     let disposed = false;
@@ -197,7 +204,7 @@ export function Workspace() {
   }, []);
   useEffect(() => {
     setProjectActivity({});
-    if (!projectPickerOpen) return;
+    if (!projectPickerOpen && workspaceMode !== 'chat') return;
     let disposed = false;
     let inFlight = false;
     const identity = project ? projectIdentity(project) : null;
@@ -226,7 +233,7 @@ export function Workspace() {
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 2000);
     return () => { disposed = true; window.clearInterval(timer); };
-  }, [projectPickerOpen, project?.project.projectId, project?.access.operationNamespace, project?.access.session, library.entries]);
+  }, [projectPickerOpen, workspaceMode, project?.project.projectId, project?.access.operationNamespace, project?.access.session, library.entries]);
 
   function currentCloseAttempt(attempt: CloseAttempt): boolean {
     return closeAttempt.current === attempt && !attempt.invalidated;
@@ -870,6 +877,7 @@ export function Workspace() {
         return result;
       });
       activate(opened); await refreshLibrary();
+      focusAfterNavigation('.app-header .brand strong', opened.project.projectId);
     });
   }
   function create(title: string, operationId?: string) {
@@ -878,10 +886,11 @@ export function Workspace() {
       if (creation.current.title !== name) creation.current = { id: crypto.randomUUID(), title: name };
       const opened = await navigate(() => libraryCreate(operationId ?? creation.current.id, name, renderer.current));
       activate(opened); await refreshLibrary(); setTitle(''); creation.current = { id: crypto.randomUUID(), title: '' };
+      focusAfterNavigation('.app-header .brand strong', opened.project.projectId);
     });
   }
   function backToLibrary() {
-    void perform(async () => { await navigate(refreshLibrary); setActive(null); setProject(null); setSearch(''); });
+    void perform(async () => { await navigate(refreshLibrary); setActive(null); setProject(null); setSearch(''); focusAfterNavigation('.library-heading h1', null); });
   }
   function recover(operationId?: string, title = 'Recovered project') {
     void perform(async () => {
@@ -944,8 +953,8 @@ export function Workspace() {
       activate({ ...projectBase, access }, record);
     });
   }
-  function selectTab(tab: ProjectTabId) {
-    if (!project || tab === projectTab) return;
+  function selectTab(tab: ProjectTabId, openWriting = false) {
+    if (!project || (tab === projectTab && (!openWriting || workspaceMode === 'write'))) return;
     void perform(async () => {
       const settled = await settlePendingDocumentIntent();
       const projectBase = settled?.opened ?? project;
@@ -958,6 +967,11 @@ export function Workspace() {
       writeProjectTabs(project.project.projectId, updated);
       setProject({ ...projectBase, access, documents: record ? projectBase.documents.map(item => item.head.documentId === record.head.documentId ? record : item) : projectBase.documents });
       setProjectTab(tab);
+      if (openWriting) {
+        writeWorkspaceMode(project.project.projectId, 'write');
+        setWorkspaceMode('write');
+        focusAfterNavigation(`#project-tab-${tab}`, project.project.projectId);
+      }
       setActive(record ? { record, session: new DocumentSession(access, record, projectTransport), viewState: null } : null);
       setSearch(''); setNewDocument(false); setRenamingDocument(false); setExporting(null);
     });
@@ -1117,8 +1131,10 @@ export function Workspace() {
   const tabDocuments = documentsForTab(project?.documents ?? [], projectTab);
   const documents = tabDocuments.filter(document => document.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const activeIndex = tabDocuments.findIndex(document => document.head.documentId === active?.record.head.documentId);
-  return <div className="app persistent-workspace">
-    <header className="app-header"><div className="brand">{project && <button className="library-back" disabled={busy} onClick={backToLibrary}>All projects</button>}<strong>{project ? project.project.title : 'WebnovelStudio'}</strong>{!project && <span className="trial-label">Your library</span>}<RecentProjectPicker current={pickerCurrent} recent={pickerRecent} disabled={busy} onVisibilityChange={setProjectPickerOpen} onOpen={path => open(path)} /></div>
+  const coauthorLayout = !!project && workspaceMode === 'chat';
+  return <div className={`app persistent-workspace${coauthorLayout ? ' coauthor-workspace' : ''}`}>
+    {coauthorLayout && pickerCurrent && <CoauthorSidebar current={pickerCurrent} recent={pickerRecent} busy={busy} counts={Object.fromEntries(PROJECT_TABS.map(tab => [tab.id, documentsForTab(project.documents, tab.id).length])) as Record<ProjectTabId, number>} onLibrary={backToLibrary} onNewProject={() => setNewProject(true)} onOpen={path => open(path)} onMaterial={tab => selectTab(tab, true)} creationForm={newProject ? <form className="inline-form" onSubmit={event => { event.preventDefault(); create(title); }}><label htmlFor="coauthor-project-title">Project title</label><input autoFocus id="coauthor-project-title" value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder="Untitled project" disabled={busy} /><div><button type="button" disabled={busy} onClick={() => setNewProject(false)}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? 'Creating…' : 'Create project'}</button></div></form> : undefined} />}
+    <header className="app-header"><div className="brand">{project && !coauthorLayout && <button className="library-back" disabled={busy} onClick={backToLibrary}>All projects</button>}<strong tabIndex={-1}>{project ? project.project.title : 'WebnovelStudio'}</strong>{!project && <span className="trial-label">Your library</span>}{!coauthorLayout && <RecentProjectPicker current={pickerCurrent} recent={pickerRecent} disabled={busy} onVisibilityChange={setProjectPickerOpen} onOpen={path => open(path)} />}</div>
       <div className="assistant-controls"><ModelSelector /><ModelSettings /></div>
     </header>
     {project && <div className="project-navigation">
@@ -1144,7 +1160,7 @@ export function Workspace() {
     {project && renaming && <form className="rename-project-form" onSubmit={rename}><label htmlFor="rename-project">Project title</label><input autoFocus id="rename-project" value={renamedTitle} maxLength={160} onChange={event => setRenamedTitle(event.target.value)} /><button type="button" onClick={() => setRenaming(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedTitle.trim()}>Save title</button></form>}
     {project && active && renamingDocument && <form className="rename-project-form" onSubmit={renameCurrentDocument}><label htmlFor="rename-document">Document title</label><input autoFocus id="rename-document" value={renamedDocumentTitle} maxLength={160} onChange={event => setRenamedDocumentTitle(event.target.value)} /><button type="button" onClick={() => setRenamingDocument(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedDocumentTitle.trim()}>Save document title</button></form>}
     {!project ? <main className="library-page" aria-label="Project library">
-      <div className="library-heading"><div><h1>Your stories</h1><p>Start wherever the idea begins.</p></div><div className="header-actions"><button className="secondary-button" disabled={busy} onClick={() => open(null)}>Open folder</button><button className="secondary-button" disabled={busy} onClick={() => setImportingV2(true)}>Import V2 project</button><button className="primary-button" disabled={busy} onClick={() => setNewProject(true)}>New project</button></div></div>
+      <div className="library-heading"><div><h1 tabIndex={-1}>Your stories</h1><p>Start wherever the idea begins.</p></div><div className="header-actions"><button className="secondary-button" disabled={busy} onClick={() => open(null)}>Open folder</button><button className="secondary-button" disabled={busy} onClick={() => setImportingV2(true)}>Import V2 project</button><button className="primary-button" disabled={busy} onClick={() => setNewProject(true)}>New project</button></div></div>
       {newProject && <form className="inline-form" onSubmit={event => { event.preventDefault(); create(title); }}><label htmlFor="project-title">Project title</label><input autoFocus id="project-title" value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder="Untitled project" disabled={busy} /><div><button type="button" disabled={busy} onClick={() => setNewProject(false)}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? 'Creating…' : 'Create project'}</button></div></form>}
       <div className="library-filters"><label className="search-field"><span className="sr-only">Find a project</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Find a project" /></label><button aria-pressed={archived} onClick={() => setArchived(!archived)}>{archived ? 'Show active' : 'Archived'}</button></div>
       {loading ? <p role="status">Opening your library…</p> : entries.length ? <ul className="project-list">{entries.map(entry => <li key={entry.projectId}><button className="project-open" disabled={busy || entry.missing} onClick={() => open(entry.path)}><strong>{entry.title}</strong><span>{entry.missing ? 'Folder moved or unavailable' : `Last opened ${new Date(entry.lastOpened).toLocaleDateString()}`}</span></button>{entry.missing && <button disabled={busy} onClick={() => open(null)}>Locate</button>}<button disabled={busy} aria-label={`${entry.archived ? 'Unarchive' : 'Archive'} ${entry.title}`} onClick={() => void perform(async () => { await libraryArchive(entry.projectId, !entry.archived); await refreshLibrary(); })}>{entry.archived ? 'Unarchive' : 'Archive'}</button></li>)}</ul>

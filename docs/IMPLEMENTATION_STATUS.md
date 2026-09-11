@@ -10,6 +10,14 @@ is [V3 chat-first implementation status](V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.
 This section supersedes older dated checkpoint summaries below when describing
 the current state.
 
+The author's selected **Let's build your story** concept now shapes the
+opt-in conversation: a project/material rail, a quieter conversation, readable
+draft tabs with Read/Changes views, and a pinned exact-adoption action. Source
+and provider details are disclosed on demand. See the [Coauthor Desk
+surface record](COAUTHOR_DESK_DESIGN.md) and the current verification checkpoint
+in the chat-first implementation ledger. This is a frontend refinement of the
+existing save/adoption protocols, not a new story or provider subsystem.
+
 The same project conversation supports project questions and chapter feedback.
 Chapter requests retain an exact chapter and selected scope. Assistant output
 is stored as isolated task drafts, shown with exact reviewable before/after

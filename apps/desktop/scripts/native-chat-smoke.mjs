@@ -60,7 +60,7 @@ async function createProject(title) {
 }
 
 async function exerciseBlankEntryPath(title, instruction, checkId, description) {
-  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await returnToLibrary();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await createProject(title);
   const entry = (await invoke('library_snapshot')).entries.find(item => item.title === title);
@@ -86,6 +86,22 @@ async function exerciseBlankEntryPath(title, instruction, checkId, description) 
     entryDatabase.close();
   }
   recordCheck(checks, checkId, description);
+}
+
+async function openStoryNavigation() {
+  const compactNavigation = page.getByRole('button', { name: 'Projects & story material', exact: true });
+  if (await compactNavigation.isVisible() && await compactNavigation.getAttribute('aria-expanded') !== 'true') await compactNavigation.click();
+}
+
+async function returnToLibrary() {
+  await openStoryNavigation();
+  await page.getByRole('button', { name: 'Your library', exact: true }).click();
+}
+
+async function inspectAttachedContext() {
+  const disclosure = page.locator('.coauthor-composer-details');
+  if (await disclosure.getAttribute('open') === null) await disclosure.locator(':scope > summary').click();
+  await page.getByLabel('Attached context', { exact: true }).waitFor();
 }
 
 async function connectApp() {
@@ -148,8 +164,12 @@ try {
   const draftEditor = page.locator('.chat-draft-editor .ProseMirror');
   await draftEditor.fill('An author-edited world draft. The city floats above a sea of clouds.');
   await until(() => count("SELECT COUNT(*) AS n FROM documents WHERE role='assistantDraft' AND working_version>0") === 1, 'draft autosave');
-  for (const checkbox of await page.getByRole('checkbox', { name: 'Include in this adoption', exact: true }).all()) await checkbox.check();
-  await page.getByRole('button', { name: 'Prepare grouped preview', exact: true }).click();
+  for (const draftTab of await page.getByRole('tablist', { name: 'Available drafts', exact: true }).getByRole('tab').all()) {
+    await draftTab.click();
+    const draftId = await draftTab.getAttribute('data-draft-id');
+    await page.locator(`.coauthor-review-selection input[data-draft-id="${draftId}"]`).check();
+  }
+  await page.getByRole('button', { name: /^Prepare grouped review/ }).click();
   await page.getByRole('region', { name: 'Exact adoption preview', exact: true }).waitFor();
   await page.getByRole('region', { name: 'Exact adoption preview', exact: true }).scrollIntoViewIfNeeded();
   assert.equal(ordinary().length, 0);
@@ -165,7 +185,7 @@ try {
   const firstProjectDrafts = count('SELECT COUNT(*) AS n FROM assistant_drafts');
   recordCheck(checks, 'native-chat-smoke:03', 'Author draft edits save independently; exact before/after preview precedes grouped adoption and one source-epoch advance');
 
-  await page.getByRole('button', { name: 'All projects', exact: true }).click();
+  await returnToLibrary();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await createProject('Second isolated chat story');
   assert.equal(await composer.inputValue(), '');
@@ -253,12 +273,12 @@ try {
     recordCheck(checks, 'native-chat-smoke:14', 'Draft rejection and request-scoped Not now persist without changing the ordinary note; an unrelated idea sends only after explicit author action and creates fresh isolated drafts while the other project stays unchanged');
   } finally { secondDatabase.close(); }
   await composer.fill('An independent project with an independent composer.');
-  await page.locator('.recent-project-picker > summary').click();
-  await until(async () => /\d+ drafts? to review/.test(await page.locator('.project-picker-current').textContent()), 'current project badge reports its retained pending drafts');
+  await openStoryNavigation();
+  await until(async () => /\d+ drafts? to review/.test(await page.locator('.coauthor-current-project').textContent()), 'current project badge reports its retained pending drafts');
   const activity = await invoke('project_activity');
   assert.equal(activity.find(item => item.projectId === entry.projectId).pendingDrafts, 0);
   assert(activity.find(item => item.projectId === secondEntry.projectId).pendingDrafts > 0);
-  await page.getByRole('navigation', { name: 'Recent projects', exact: true }).getByRole('button').filter({ hasText: title }).click();
+  await page.getByRole('navigation', { name: 'Your projects', exact: true }).getByRole('button').filter({ hasText: title }).click();
   await until(async () => (await page.locator('.app-header .brand > strong').textContent()) === title, 'recent project navigation settled');
   await until(async () => (await composer.inputValue()) === 'Keep the ending hopeful. This is my next unsent request.', 'original project composer restored');
   assert.equal(await composer.inputValue(), 'Keep the ending hopeful. This is my next unsent request.');
@@ -275,7 +295,7 @@ try {
   const linkedSource = database.prepare("SELECT id,working_version,body_hash,title FROM documents WHERE kind IN ('world','character') AND role='ordinary' AND trashed=0 ORDER BY id LIMIT 1").get();
   assert(linkedSource, 'The adopted first-project world or character document is available as a linkable source');
   await page.locator(`[data-document-id="${linkedSource.id}"]`).getByRole('button', { name: `Use ${linkedSource.title} as a source`, exact: true }).click();
-  await page.getByLabel('Attached context', { exact: true }).waitFor();
+  await inspectAttachedContext();
   await until(() => {
     const value = JSON.parse(database.prepare('SELECT composer_json FROM project_conversations').get().composer_json);
     return value.sourceRefs.some(head => head.documentId === linkedSource.id && head.version === String(linkedSource.working_version) && head.bodyHash === linkedSource.body_hash);
@@ -374,6 +394,17 @@ try {
   await composer.fill('An unsent keyboard navigation check.');
   await composer.press('Tab');
   assert.equal(await page.getByRole('button', { name: /^Send/ }).evaluate(element => element === document.activeElement), true);
+  const narrowReply = await page.evaluate(() => {
+    const transcript = document.querySelector('.chat-transcript-shell').getBoundingClientRect();
+    const composer = document.querySelector('.chat-composer-wrap').getBoundingClientRect();
+    const reply = document.querySelector('.chat-transcript-new-reply')?.getBoundingClientRect();
+    return { transcriptTop: transcript.top, transcriptBottom: transcript.bottom, composerTop: composer.top,
+      replyTop: reply?.top ?? null, replyBottom: reply?.bottom ?? null };
+  });
+  assert(narrowReply.transcriptBottom <= narrowReply.composerTop + 1, 'The transcript cannot overlap the narrow composer.');
+  if (narrowReply.replyBottom !== null) assert(narrowReply.replyTop >= narrowReply.transcriptTop && narrowReply.replyBottom <= narrowReply.composerTop,
+    `The new-reply action cannot cover the narrow composer: ${JSON.stringify(narrowReply)}`);
+  await writeFile(resolve(output, 'native-narrow-reply-layout.json'), JSON.stringify(narrowReply, null, 2));
   recordCheck(checks, 'native-chat-smoke:07', 'An actual 800×600 native window keeps the composer visible, document navigation usable, and keyboard Send reachable');
   await page.screenshot({ path: resolve(output, 'native-narrow.png') });
 
@@ -440,7 +471,7 @@ try {
   await page.getByRole('searchbox', { name: 'Find documents' }).fill('');
   const source = database.prepare("SELECT id, working_version, body_hash, title FROM documents WHERE kind='world' AND role='ordinary' AND trashed=0 ORDER BY id LIMIT 1").get();
   await page.locator(`[data-document-id="${source.id}"]`).getByRole('button', { name: `Use ${source.title} as a source`, exact: true }).click();
-  await page.getByLabel('Attached context', { exact: true }).waitFor();
+  await inspectAttachedContext();
   await until(() => {
     const value = JSON.parse(database.prepare('SELECT composer_json FROM project_conversations').get().composer_json);
     return value.sourceRefs.some(head => head.documentId === source.id && head.version === String(source.working_version) && head.bodyHash === source.body_hash);
@@ -469,6 +500,12 @@ try {
   await until(() => count("SELECT COUNT(*) AS n FROM discussion_runs WHERE status='completed'") === runsBeforeClose + 1, 'handoff response terminal');
   assert.deepEqual(ordinary(), beforeHandoff);
   await reopenedComposer.fill('Use the approved brief and begin gently.');
+  // Follow the visible new-reply affordance before acting inside the reply;
+  // at 200% zoom the compact transcript intentionally keeps older reading
+  // position until the author asks to jump to the newly completed response.
+  const jumpToHandoff = page.getByRole('button', { name: /new repl(?:y|ies); jump to latest/ });
+  if (await jumpToHandoff.isVisible()) await jumpToHandoff.click();
+  assert.equal(await reopenedComposer.inputValue(), 'Use the approved brief and begin gently.');
   await handoff.getByRole('button', { name: 'Create blank chapter and prepare writing', exact: true }).click();
   await page.getByRole('region', { name: 'Writing brief editor', exact: true }).waitFor();
   assert.equal(count('SELECT COUNT(*) AS n FROM discussion_runs'), runsBeforeClose + 1);

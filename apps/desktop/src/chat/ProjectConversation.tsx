@@ -21,6 +21,7 @@ import { readStalePreviewComparison } from './stalePreviewComparison';
 import type { StalePreviewComparison } from './DraftReviewPanel';
 import { chatViewPreferenceKey, readChatViewPreferences, writeChatViewPreferences } from './viewPreferences';
 import './chat.css';
+import './CoauthorConversation.css';
 import { ChatSplitPane } from './ChatSplitPane';
 import { NewReplyAffordance, useTranscriptScroll } from './TranscriptScroll';
 
@@ -163,6 +164,15 @@ function requestItemForRun(items: ConversationItem[], run: DiscussionRun | null)
   return items.find(item => (item.kind === 'request' || item.kind === 'chapterRequest') && (item.referenceId === run.id || runPayload(item.payload)?.id === run.id)) ?? null;
 }
 
+function materializedDraftIds(item: ConversationItem): string[] {
+  if (item.kind !== 'materializeChatResult' || !Array.isArray(item.payload.draftRefs)) return [];
+  return item.payload.draftRefs.flatMap(value => {
+    if (!value || typeof value !== 'object') return [];
+    const documentId = (value as Record<string, unknown>).documentId;
+    return typeof documentId === 'string' && documentId.trim() ? [documentId] : [];
+  });
+}
+
 function frozenRequestContext(item: ConversationItem | null, documents: DocumentRecord[]): { surface: 'authorRoom' | 'chapterWriting'; targetLabel: string; scopeLabel: string } | undefined {
   if (!item) return undefined;
   if (item.kind === 'chapterRequest') {
@@ -303,7 +313,21 @@ function Transcript({ store, documents, activeDocument, onDisposition, onStageAs
       if (item.kind === 'materializeChatResult') {
         const valid = item.payload.outputValid === true;
         const drafts = Array.isArray(item.payload.draftRefs) ? item.payload.draftRefs.length : 0;
-        return <article className="chat-message chat-message-assistant" data-conversation-item-id={item.id} key={item.id}><div className="chat-message-meta">Assistant result</div><p>{valid ? drafts ? `${drafts} isolated draft${drafts === 1 ? '' : 's'} saved for review.` : 'Answer saved. No draft was requested.' : 'The response was retained, but no reviewable draft was created.'}</p></article>;
+        const reviewDrafts = materializedDraftIds(item).flatMap(documentId => {
+          const draft = state.view?.drafts.find(candidate => candidate.document.head.documentId === documentId);
+          return draft ? [draft] : [];
+        });
+        return <article className="chat-message chat-message-assistant" data-conversation-item-id={item.id} key={item.id}>
+          <div className="chat-message-meta">Assistant result</div>
+          <p>{valid ? drafts ? `${drafts} isolated draft${drafts === 1 ? '' : 's'} saved for review.` : 'Answer saved. No draft was requested.' : 'The response was retained, but no reviewable draft was created.'}</p>
+          {reviewDrafts.length > 0 && <div className="chat-inline-drafts" aria-label="Drafts ready to review">
+            <span className="chat-inline-drafts-label">Drafts ready to review</span>
+            {reviewDrafts.map(draft => <button type="button" className="chat-inline-draft" key={draft.document.head.documentId} onClick={() => void onOpenDraft?.(draft)}>
+              <span>{draft.document.title}</span>
+              <small>{draft.document.kind} · Draft v{draft.document.head.version} · {draft.disposition === 'pending' ? 'Not adopted' : draft.disposition}</small>
+            </button>)}
+          </div>}
+        </article>;
       }
       if (item.kind === 'chatDisposition') {
         const value = typeof item.payload.disposition === 'string' ? item.payload.disposition : 'updated';
@@ -361,6 +385,7 @@ export const ProjectConversation = forwardRef<ProjectConversationHandle, Project
   const [previewError, setPreviewError] = useState('');
   const applyOperationId = useRef<ReturnType<typeof crypto.randomUUID> | null>(null);
   const [rightMode, setRightMode] = useState<'document' | 'review'>('document');
+  const [composerDetailsOpen, setComposerDetailsOpen] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
   const [briefApprovalBusy, setBriefApprovalBusy] = useState(false);
   const [briefFocus, setBriefFocus] = useState(0);
@@ -407,6 +432,17 @@ export const ProjectConversation = forwardRef<ProjectConversationHandle, Project
     writeChatViewPreferences(preferenceKey, { rightMode, transcriptAnchor, preview, applyOperationId: applyOperationId.current });
   }, [preferenceKey, preview, rightMode, transcriptAnchor]);
   const drafts = state.view?.drafts ?? [];
+  const reviewableDrafts = drafts.filter(draft => draft.disposition === 'pending');
+  const activeOrdinaryDocument = activeDocument && (activeDocument.role ?? 'ordinary') === 'ordinary' ? activeDocument : null;
+  const autoReviewKey = `${accessKey}:${activeOrdinaryDocument?.head.documentId ?? 'none'}:${reviewableDrafts.map(draft => `${draft.document.head.documentId}:${draft.dispositionVersion}:${draft.stale}`).join('|')}`;
+  const lastAutoReviewKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastAutoReviewKey.current === autoReviewKey) return;
+    lastAutoReviewKey.current = autoReviewKey;
+    if (!activeOrdinaryDocument && reviewableDrafts.length > 0) {
+      setRightMode('review');
+    }
+  }, [autoReviewKey]);
   const send = async () => {
     setError('');
     const currentBrief = store.state.composer.chapter?.safeBrief;
@@ -682,15 +718,25 @@ export const ProjectConversation = forwardRef<ProjectConversationHandle, Project
   return <section className="chat-project-conversation" aria-label={`Conversation for ${project.project.title}`}>
     <RequestStatus status={state.status} run={state.activeRun} error={error || state.error} uncertainOperationId={state.uncertainOperationId} workerIssues={state.view?.workerIssues} requestContext={requestContext} freshness={storyFreshness} onStop={() => void store.stop().catch(reason => { if (isCurrentConversation()) setError(reasonMessage(reason, 'The request could not be stopped.')); })} onRetrySave={runId => void store.retrySave(runId).catch(reason => { if (isCurrentConversation()) setError(reasonMessage(reason, 'The retained response could not be saved.')); })} onReconcile={() => void store.reconcileStart().catch(reason => { if (isCurrentConversation()) setError(reasonMessage(reason, 'The operation could not be reconciled.')); })} />
     <nav className="chat-mobile-tabs" aria-label="Project workspace surfaces"><button type="button" aria-selected={mobileSurface === 'chat'} onClick={() => void switchMobileSurface('chat')}>Chat</button><button type="button" aria-selected={mobileSurface === 'documents'} onClick={() => void switchMobileSurface('documents')}>Documents</button><button type="button" aria-selected={mobileSurface === 'chapter'} onClick={() => void switchMobileSurface('chapter')}>Chapter</button>{rightMode === 'review' && <button type="button" aria-selected={mobileSurface === 'review'} onClick={() => void switchMobileSurface('review')}>Review</button>}</nav>
-    <ChatSplitPane projectKey={`${project.access.projectId}:${project.access.operationNamespace}`} left={
+    <ChatSplitPane initialWidthPercent={47} projectKey={`${project.access.projectId}:${project.access.operationNamespace}`} left={
       <section className={`chat-conversation-surface ${mobileSurface === 'chat' ? 'mobile-visible' : ''}`}>
+        <header className="coauthor-conversation-header">
+          <div>
+            <span className="coauthor-conversation-kicker">Project conversation</span>
+            <h1>Let's build your story</h1>
+          </div>
+          {reviewableDrafts.length > 0 && <span className="coauthor-conversation-draft-count">{reviewableDrafts.length} draft{reviewableDrafts.length === 1 ? '' : 's'} to review</span>}
+        </header>
         <Transcript store={store} documents={project.documents} activeDocument={activeDocument} anchor={transcriptAnchor} onAnchorChange={setTranscriptAnchor} onDisposition={disposition} onStageAssumptionCorrection={stageAssumptionCorrection} onOpenDocument={onOpenDocument} onOpenDraft={openDraft} onOpenChapterResult={onOpenChapterResult ? openChapterResult : undefined} onAdaptBrief={chapter && chapter.intent !== 'discuss' ? adaptBrief : undefined} onPrepareHandoff={onPrepareChapter ? prepareHandoff : undefined} onBrowseDocuments={() => void switchMobileSurface('documents')} onCreateChapter={onCreateChapter} onCreateNote={onCreateNote} />
         <div className="chat-composer-wrap">
-          <div className="chat-composer-context" tabIndex={0} aria-label="Request context and scope">
           <div className="chat-composer-reference">{chapter ? <>Chapter task · <strong>{chapterTarget?.title ?? chapter.target.documentId}</strong></> : activeDocument ? state.composer.focusedDocumentRef?.documentId === activeDocument.head.documentId ? <>Discussing <strong>{activeDocument.title}</strong></> : <>Open document · <strong>{activeDocument.title}</strong> <small>(attach from Writer to include its exact text)</small></> : 'Project conversation'}<span>{composerStatus} · {scopeSummary}</span></div>
-          {(state.composer.sourceRefs.length > 0 || state.composer.taskDraftRefs.length > 0 || state.composer.focusedDocumentRef) && <div className="chat-composer-chips" aria-label="Attached context"><span className="chat-composer-chips-label">Attached context</span>{state.composer.sourceRefs.map(head => <span className="chat-composer-chip" key={`source:${head.documentId}`}><span>{project.documents.find(document => document.head.documentId === head.documentId)?.title ?? head.documentId} · v{head.version} · {head.bodyHash.slice(0, 10)}…</span><button type="button" aria-label={`Remove ${head.documentId} source`} onClick={() => store.setSources(state.composer.sourceRefs.filter(item => item.documentId !== head.documentId))}>×</button></span>)}{state.composer.focusedDocumentRef && <span className="chat-composer-chip"><span>{project.documents.find(document => document.head.documentId === state.composer.focusedDocumentRef?.documentId)?.title ?? state.composer.focusedDocumentRef.documentId} · focused v{state.composer.focusedDocumentRef.version}</span><button type="button" aria-label="Remove focused document" onClick={() => store.setFocus(undefined)}>×</button></span>}{state.composer.taskDraftRefs.map(reference => <span className="chat-composer-chip chat-composer-chip-draft" key={`draft:${reference.head.documentId}`}><span>{drafts.find(draft => draft.document.head.documentId === reference.head.documentId)?.document.title ?? reference.head.documentId} · draft v{reference.head.version} · decision {reference.dispositionVersion}</span><button type="button" aria-label={`Remove ${reference.head.documentId} draft`} onClick={() => store.setTaskDrafts(state.composer.taskDraftRefs.filter(item => item.head.documentId !== reference.head.documentId))}>×</button></span>)}</div>}
-          {chapter && <section className="chat-chapter-context" aria-label="Captured chapter task"><div className="chat-chapter-context-heading"><strong>Captured chapter task</strong><button type="button" onClick={() => void clearChapter()}>Return to project conversation</button></div><div className="chat-chapter-controls"><label>Intent<select value={chapter.intent} onChange={event => store.setChapterIntent(event.target.value as ProjectChapterComposer['intent'])}><option value="discuss">Discuss this chapter</option>{chapterHasScope && <option value="proposeEdits">Suggest edits to the captured scope</option>}<option value="continue">Continue this chapter</option></select></label>{chapter.intent === 'continue' && <label>Continuation basis<select value={chapter.basis ?? 'working'} onChange={event => store.setChapterBasis(event.target.value as NonNullable<ProjectChapterComposer['basis']>)}><option value="working">Current working story</option><option value="reviewed">Reviewed story</option></select></label>}</div>{chapter.scope && <p className="chat-chapter-scope"><strong>Captured scope:</strong> “{chapter.scope.quote || 'Whole chapter'}”</p>}{chapter.intent !== 'discuss' && <div className="chat-brief-launcher"><span>{chapter.safeBrief?.confirmed ? 'Writing brief approved' : chapter.safeBrief ? 'Writing brief needs approval' : 'Writing brief · optional'}</span><button type="button" onClick={openBrief} disabled={briefApprovalBusy}>{chapter.safeBrief ? 'Edit brief' : 'Add writing brief'}</button></div>}{briefOpen && chapter.intent !== 'discuss' && chapter.safeBrief && <SafeBriefEditor value={chapter.safeBrief} disabled={briefApprovalBusy || ['saving', 'queued', 'running', 'stopping', 'uncertain'].includes(state.status)} focusKey={briefFocus} onChange={updateBrief} onRemove={removeBrief} />}</section>}
-          </div>
+          {chapter && <section className="chat-chapter-context" aria-label="Captured chapter task"><div className="chat-chapter-context-heading"><strong>Captured chapter task</strong><button type="button" onClick={() => void clearChapter()}>Return to project conversation</button></div>{chapter.scope && <p className="chat-chapter-scope"><strong>Captured scope:</strong> “{chapter.scope.quote || 'Whole chapter'}”</p>}<div className="chat-chapter-controls"><label>Intent<select value={chapter.intent} onChange={event => store.setChapterIntent(event.target.value as ProjectChapterComposer['intent'])}><option value="discuss">Discuss this chapter</option>{chapterHasScope && <option value="proposeEdits">Suggest edits to the captured scope</option>}<option value="continue">Continue this chapter</option></select></label>{chapter.intent === 'continue' && <label>Continuation basis<select value={chapter.basis ?? 'working'} onChange={event => store.setChapterBasis(event.target.value as NonNullable<ProjectChapterComposer['basis']>)}><option value="working">Current working story</option><option value="reviewed">Reviewed story</option></select></label>}</div>{chapter.intent !== 'discuss' && <div className="chat-brief-launcher"><span>{chapter.safeBrief?.confirmed ? 'Writing brief approved' : chapter.safeBrief ? 'Writing brief needs approval' : 'Writing brief · optional'}</span><button type="button" onClick={openBrief} disabled={briefApprovalBusy}>{chapter.safeBrief ? 'Edit brief' : 'Add writing brief'}</button></div>}{briefOpen && chapter.intent !== 'discuss' && chapter.safeBrief && <SafeBriefEditor value={chapter.safeBrief} disabled={briefApprovalBusy || ['saving', 'queued', 'running', 'stopping', 'uncertain'].includes(state.status)} focusKey={briefFocus} onChange={updateBrief} onRemove={removeBrief} />}</section>}
+          <details className="coauthor-composer-details" open={composerDetailsOpen} onToggle={event => setComposerDetailsOpen(event.currentTarget.open)}>
+            <summary><span>Sources &amp; details</span><small>{scopeSummary}</small></summary>
+            <div className="chat-composer-context" tabIndex={0} aria-label="Request context and scope">
+            {(state.composer.sourceRefs.length > 0 || state.composer.taskDraftRefs.length > 0 || state.composer.focusedDocumentRef) && <div className="chat-composer-chips" aria-label="Attached context"><span className="chat-composer-chips-label">Attached context</span>{state.composer.sourceRefs.map(head => <span className="chat-composer-chip" key={`source:${head.documentId}`}><span>{project.documents.find(document => document.head.documentId === head.documentId)?.title ?? head.documentId} · v{head.version} · {head.bodyHash.slice(0, 10)}…</span><button type="button" aria-label={`Remove ${head.documentId} source`} onClick={() => store.setSources(state.composer.sourceRefs.filter(item => item.documentId !== head.documentId))}>×</button></span>)}{state.composer.focusedDocumentRef && <span className="chat-composer-chip"><span>{project.documents.find(document => document.head.documentId === state.composer.focusedDocumentRef?.documentId)?.title ?? state.composer.focusedDocumentRef.documentId} · focused v{state.composer.focusedDocumentRef.version}</span><button type="button" aria-label="Remove focused document" onClick={() => store.setFocus(undefined)}>×</button></span>}{state.composer.taskDraftRefs.map(reference => <span className="chat-composer-chip chat-composer-chip-draft" key={`draft:${reference.head.documentId}`}><span>{drafts.find(draft => draft.document.head.documentId === reference.head.documentId)?.document.title ?? reference.head.documentId} · draft v{reference.head.version} · decision {reference.dispositionVersion}</span><button type="button" aria-label={`Remove ${reference.head.documentId} draft`} onClick={() => store.setTaskDrafts(state.composer.taskDraftRefs.filter(item => item.head.documentId !== reference.head.documentId))}>×</button></span>)}</div>}
+            </div>
+          </details>
           <textarea ref={composerRef} disabled={!state.view} aria-busy={!state.view} aria-label="Message the project assistant" value={composerText} onChange={event => store.setText(event.target.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !composing.current && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} placeholder={chapter ? 'Describe what should happen in this chapter…' : 'Tell me what you want to explore or write next…'} rows={4} />
           <div className="chat-composer-actions"><button type="button" onClick={() => void send()} disabled={!state.view || !modelReady || !composerText.trim() || briefApprovalBusy || !!(chapter?.safeBrief && !chapter.safeBrief.confirmed) || ['queued', 'running', 'stopping', 'saving', 'uncertain'].includes(state.status)} className="primary-button">Send <span>Ctrl+Enter</span></button><button type="button" onClick={onEarlierWorkshop}>Earlier Workshop</button><span className="chat-composer-help">Enter makes a new line · the assistant may ask one useful question</span></div>
         </div>

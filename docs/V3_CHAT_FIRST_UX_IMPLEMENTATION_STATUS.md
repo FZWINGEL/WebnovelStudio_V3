@@ -9,7 +9,48 @@ needs qualification.
 
 ## Current state — 9 September 2026
 
-### Current verified checkpoint
+### Coauthor Desk verified checkpoint
+
+The author-selected **Let's build your story** direction is implemented in the
+opt-in conversation. It adds a project/material rail, guarded new-project and
+material navigation, a quieter conversation with real draft links, named
+Read/Changes review tabs, and one pinned exact-adoption action. Draft editors
+retain distinct sessions, and receiving a reply does not replace an ordinary
+editor or switch a narrow-screen author away from the composer. The
+[surface record](COAUTHOR_DESK_DESIGN.md) includes the chosen concept and native
+captures.
+
+The frontend suite passes **713 tests across 74 files**. TypeScript, the
+production frontend build, debug native build and diff checks pass. Log:
+`.local/coauthor-frontend-final-tests.log`; native build log:
+`.local/coauthor-native-final-build.log`. The existing large frontend chunk
+warning remains. No Rust behavior changed in this visual slice, so the Rust
+and tooling counts in the earlier checkpoint below remain prior evidence.
+
+The rebuilt development executable passes **24 native chat checks in 30.751
+seconds**, including exact grouped adoption, lost-acknowledgment recovery,
+independent projects and composers, source attachment, scoped chapter feedback,
+native close/reopen, an 800×600 window and actual 200% WebView2 zoom. A new
+geometry assertion prevents the new-reply affordance from covering the narrow
+composer. The harness follows the visible jump-to-latest control before acting
+on a new response at 200% zoom. Zero page errors were recorded and owned-process
+cleanup was confirmed. No live model calls were made.
+
+This is the working-tree Coauthor Desk slice based on `4320ac1`, not a newly
+published release. The executable is **54,886,400 bytes**, built at **14:49:52
+UTC on 9 September 2026**, SHA-256
+**`f845cee782b601521dce0e892b017426d9776339664109dffb4b61c7616d659e`**.
+Runtime: WebView2 **152.0.4191.66**. Final launcher:
+`.local/isolated-native-launch/20260909-145214178-20568/launch.json`.
+The final report and geometry records are under `.local/native-results/chat/`.
+
+Earlier attempts exposed stale harness selectors and genuine compact-layout
+overflow/overlap; those were corrected before this checkpoint. The separate
+live-provider harness has updated selectors but was not rerun. Human formative
+evaluation, screen-reader and installed-package qualification remain open;
+the default workspace remains unchanged and chat remains opt-in.
+
+### Earlier recovery checkpoint
 
 The recovery and history repairs pass the complete local gate: **929 Rust
 tests** (122 core, 719 integration, 88 desktop; one additional intentional

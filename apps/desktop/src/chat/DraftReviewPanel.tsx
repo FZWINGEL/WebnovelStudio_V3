@@ -14,6 +14,7 @@ import { chatViewPreferenceKey, readChatViewPreferences, writeChatViewPreference
 import { DraftReviewDiff } from './DraftReviewDiff';
 import { ChatAdoptionEffects } from './ChatAdoptionEffects';
 import type { DraftReviewContext } from './useDraftReviewContext';
+import './CoauthorReview.css';
 export type { DraftReviewContext } from './useDraftReviewContext';
 
 function inlineText(inline: Inline): string { return inline.type === 'hardBreak' ? '\n' : inline.text; }
@@ -248,10 +249,15 @@ export const DraftReviewPanel = forwardRef<DraftReviewPanelHandle, DraftReviewPa
   const [editingId, setEditingId] = useState<string | null>(null);
   const [focusEditingId, setFocusEditingId] = useState<string | null>(null);
   const [openedDraft, setOpenedDraft] = useState<{ id: string; readOnly: boolean } | null>(null);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(() => reviewable[0]?.document.head.documentId ?? drafts[0]?.document.head.documentId ?? null);
+  const [activePresentation, setActivePresentation] = useState<'read' | 'changes'>(preview ? 'changes' : 'read');
   const [loadedStaleComparison, setLoadedStaleComparison] = useState<StalePreviewComparison | null>(null);
   const [comparisonBusy, setComparisonBusy] = useState(false);
   const [comparisonError, setComparisonError] = useState('');
   const draftList = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (preview) setActivePresentation('changes');
+  }, [preview?.id]);
   useEffect(() => {
     if (!openedDraft) return;
     const card = [...(draftList.current?.querySelectorAll<HTMLElement>('[data-draft-id]') ?? [])]
@@ -259,6 +265,10 @@ export const DraftReviewPanel = forwardRef<DraftReviewPanelHandle, DraftReviewPa
     card?.scrollIntoView?.({ block: 'nearest' });
     if (openedDraft.readOnly) card?.focus();
   }, [openedDraft]);
+  useEffect(() => {
+    if (activeDraftId && drafts.some(draft => draft.document.head.documentId === activeDraftId)) return;
+    setActiveDraftId(reviewable[0]?.document.head.documentId ?? drafts[0]?.document.head.documentId ?? null);
+  }, [activeDraftId, drafts, reviewable]);
   const activeSession = useRef<DocumentSession | null>(null);
   const restoredViewKey = useRef<string | null>(null);
   const preferenceKey = viewKey ?? (drafts[0] ? chatViewPreferenceKey(project.access, drafts[0].conversationId) : null);
@@ -286,17 +296,38 @@ export const DraftReviewPanel = forwardRef<DraftReviewPanelHandle, DraftReviewPa
       if (!target) return;
       if (activeSession.current) await activeSession.current.flush();
       setSelected(previous => previous.includes(documentId) ? previous : [...previous, documentId]);
+      setActiveDraftId(documentId);
+      setActivePresentation('read');
       setEditingId(target.disposition === 'pending' && !target.stale ? documentId : null);
       setFocusEditingId(target.disposition === 'pending' && !target.stale ? documentId : null);
       setOpenedDraft({ id: documentId, readOnly: target.disposition !== 'pending' || target.stale });
     },
   }), [drafts, editingId, selected]);
   const beginEdit = async (id: string) => {
-    try { if (activeSession.current) await activeSession.current.flush(); setEditingId(id); }
+    try {
+      if (activeSession.current) await activeSession.current.flush();
+      setActiveDraftId(id);
+      setActivePresentation('read');
+      setEditingId(id);
+    }
     catch { /* The editor keeps its error and remains mounted for an explicit retry. */ }
   };
-  if (!drafts.length) return <section className="chat-draft-review chat-empty"><h2>Drafts to review</h2><p>No assistant drafts are waiting for a decision.</p></section>;
+  const switchDraft = async (id: string) => {
+    if (id === activeDraftId) return;
+    try {
+      if (activeSession.current) await activeSession.current.flush();
+      setEditingId(null);
+      setFocusEditingId(null);
+      setActiveDraftId(id);
+      setActivePresentation('read');
+    } catch {
+      // Keep the current draft mounted when its local buffer cannot be flushed.
+      // The editor exposes the actionable save/reconciliation state in place.
+    }
+  };
+  if (!drafts.length) return <section className="chat-draft-review chat-empty coauthor-review-panel"><h2>Drafts to review</h2><p>No assistant drafts are waiting for a decision.</p></section>;
   const selectedDrafts = reviewable.filter(draft => selected.includes(draft.document.head.documentId) && !draft.stale);
+  const activeDraft = drafts.find(draft => draft.document.head.documentId === activeDraftId) ?? drafts[0];
   const adoptionLabel = preview ? preview.targets.length === 1 ? `Adopt ${preview.targets[0].title} draft v${preview.targets[0].draft.head.version}` : `Adopt all ${preview.targets.length} documents` : '';
   const adoptionAccessibleLabel = preview ? preview.targets.length === 1 ? adoptionLabel : `Adopt all ${preview.targets.length} documents: ${preview.targets.map(target => `${target.title} draft v${target.draft.head.version}`).join(', ')}` : '';
   const previewIsStale = !!preview && stalePreviewError(previewError);
@@ -318,41 +349,80 @@ export const DraftReviewPanel = forwardRef<DraftReviewPanelHandle, DraftReviewPa
     try { await onPrepareAgainstCurrent([draft], comparison); }
     catch (reason) { setComparisonError(reason instanceof Error ? reason.message : 'A fresh preview could not be prepared against the current versions.'); }
   };
-  return <section className="chat-draft-review" aria-labelledby="chat-draft-review-title">
-    <div className="chat-panel-heading"><div><h2 id="chat-draft-review-title">Drafts to review</h2><p>Editing a draft keeps it isolated until you explicitly adopt it.</p></div><span>{reviewable.length} pending</span></div>
-    {preview && <section className="chat-adoption-preview" aria-label="Exact adoption preview"><div className="chat-panel-heading"><div><h3>Exact adoption preview</h3><p>{preview.targets.length} document{preview.targets.length === 1 ? '' : 's'} ready for your review</p></div><button type="button" aria-label={previewIsStale ? 'Preview is stale; compare current sources before preparing again' : adoptionAccessibleLabel} disabled={!previewVerified || previewIsStale} onClick={() => void onApplyPreview(preview)}>{previewIsStale ? 'Preview stale — compare sources' : previewVerified ? adoptionLabel : 'Rechecking preview…'}</button></div><details className="chat-draft-provenance"><summary>Preview version details</summary><dl><div><dt>Preview</dt><dd>{preview.id}</dd></div><div><dt>Digest</dt><dd>{preview.digest}</dd></div></dl></details><ChatAdoptionEffects effects={preview.effects} targets={preview.targets} />{preview.targets.map(target => {
-      // The preview target is the ordinary destination document. The draft
-      // identity lives in the immutable draft reference, so never resolve it
-      // from target.documentId (which is intentionally a different ID).
-      const targetDraft = drafts.find(draft => draft.document.head.documentId === target.draft.head.documentId);
-      const context = targetDraft ? reviewContext?.[targetDraft.originRunId] : undefined;
-      return <article key={target.documentId}><h4>{target.title}</h4><DraftReviewDiff before={target.before} after={target.body} title={target.title} mode="summary" /><ReviewContext context={context} /><AffectedDocuments target={target} /><BeforeAfter before={target.before} after={null} afterBody={target.body} title={target.title} /><DraftReviewDiff before={target.before} after={target.body} title={target.title} mode="details" /></article>;
-    })}{previewIsStale && <section className="chat-stale-preview-actions" aria-label="Stale preview recovery"><h4>Source changed since this preview</h4><p className="chat-prose">The immutable preview remains available. Compare current saved heads before preparing a new preview.</p>{onCompareStalePreview && <button type="button" disabled={comparisonBusy} onClick={() => void compareStalePreview()}>{comparisonBusy ? 'Loading current heads…' : 'Compare sources/current heads'}</button>}{!onCompareStalePreview && !comparison && <p className="chat-draft-warning">Current heads are not loaded. Ask the project surface to compare them before preparing again.</p>}{comparison && <StalePreviewSources preview={preview} comparison={comparison} drafts={drafts} onPrepareAgainstCurrent={onPrepareAgainstCurrent ? (draft) => prepareAgainstCurrent(draft) : undefined} />}{comparison && comparison.sourceEpoch && comparison.currentSourceEpoch && comparison.sourceEpoch !== comparison.currentSourceEpoch && <p className="chat-draft-warning">The story source epoch changed ({comparison.sourceEpoch} → {comparison.currentSourceEpoch}); a draft marked stale must be refreshed with the assistant.</p>}{comparison && comparison.policyEpoch && comparison.currentPolicyEpoch && comparison.policyEpoch !== comparison.currentPolicyEpoch && <p className="chat-draft-warning">The project policy changed ({comparison.policyEpoch} → {comparison.currentPolicyEpoch}); review the retained preview before preparing again.</p>}{comparisonError && <p className="chat-draft-warning" role="alert">{comparisonError}</p>}</section>}{previewError && <p className="chat-draft-warning" role="alert">{previewError} The old preview remains available; compare current sources and prepare a fresh preview explicitly.</p>}</section>}
-    <div className="chat-draft-list" ref={draftList}>
+  const prepareReview = async (items: AssistantDraft[]) => {
+    try {
+      if (activeSession.current) await activeSession.current.flush();
+      await onPrepareAdoption(items);
+    } catch {
+      // DocumentSession keeps its local error/reconciliation state visible.
+      // A failed flush must not dispatch a preparation for an unsaved buffer.
+    }
+  };
+  const activePreviewTarget = preview?.targets.find(target => target.draft.head.documentId === activeDraft.document.head.documentId);
+  const activeStatus = activeDraft.disposition === 'adopted' ? 'Adopted' : activeDraft.disposition === 'rejected' || activeDraft.disposition === 'superseded' ? 'Closed' : activeDraft.stale ? 'Stale' : 'Not adopted';
+  const prepareFooterLabel = selectedDrafts.length > 1 ? `Prepare grouped review · ${selectedDrafts.length} drafts` : selectedDrafts.length === 1 ? `Prepare review · ${selectedDrafts[0].document.title} draft v${selectedDrafts[0].document.head.version}` : 'Select a draft to prepare review';
+  return <section className="chat-draft-review coauthor-review-panel" aria-labelledby="chat-draft-review-title">
+    <header className="coauthor-review-header">
+      <div><h2 id="chat-draft-review-title">Drafts to review</h2></div>
+      <span className="coauthor-review-count">{reviewable.length} pending</span>
+    </header>
+    <nav className="coauthor-review-draft-tabs" role="tablist" aria-label="Available drafts">
       {drafts.map(draft => {
         const id = draft.document.head.documentId;
-        const stale = draft.stale;
-        const adopted = draft.disposition === 'adopted';
-        const rejected = draft.disposition === 'rejected' || draft.disposition === 'superseded';
-        return <article className={`chat-draft-card ${stale ? 'is-stale' : ''}`} key={`${id}:${draft.initialRevisionId}`} data-draft-id={id} tabIndex={-1}>
-          <header><div><h3>{draft.document.title}</h3><p>{draft.document.kind} · version {draft.document.head.version} · {adopted ? 'Adopted' : rejected ? 'Closed' : stale ? 'Stale' : 'Not adopted'}</p></div>
-            {(onOpenDraft || onOpenDocument) && <button type="button" onClick={() => onOpenDraft ? void onOpenDraft(draft) : void onOpenDocument?.(draft.document)}>Open draft</button>}</header>
-          <DraftChangeSummary draft={draft} /><ReviewContext context={reviewContext?.[draft.originRunId]} /><AffectedDocuments draft={draft} /><BeforeAfter before={undefined} after={draft} />{draft.predecessorDocumentId && <p className="chat-muted">Revision of an earlier assistant draft{drafts.some(item => item.document.head.documentId === draft.predecessorDocumentId) && onOpenDraft ? <> · <button type="button" onClick={() => { const previous = drafts.find(item => item.document.head.documentId === draft.predecessorDocumentId); if (previous) void onOpenDraft(previous); }}>Open earlier draft</button></> : ` · ${draft.predecessorDocumentId}`}. Both drafts retain their own review decisions.</p>}
-          <details className="chat-draft-provenance"><summary>Source and generation details</summary><dl><div><dt>Source target</dt><dd>{draft.target ? `${draft.target.documentId} · v${draft.target.version}` : 'Project context'}</dd></div><div><dt>Source body hash</dt><dd>{draft.target?.bodyHash ?? 'Not target-bound'}</dd></div><div><dt>Context packet</dt><dd>{draft.packetId}</dd></div><div><dt>Origin run</dt><dd>{draft.originRunId}</dd></div><div><dt>Initial revision</dt><dd>{draft.initialRevisionId}</dd></div></dl><details className="chat-draft-context"><summary>Inspect supplied context</summary><ContextInspector access={project.access} packetId={draft.packetId} delivered refreshKey={`${draft.packetId}:${draft.initialRevisionId}`} /></details></details>
-          {!adopted && !rejected && <>
-            {editingId === id ? <DraftEditor draft={draft} project={project} autoFocus={focusEditingId === id} onSession={session => { activeSession.current = session; }} onAccessChanged={onAccessChanged} onSaved={(savedDraft, head) => onDraftSaved?.(savedDraft, head)} /> : <button type="button" className="chat-draft-edit" onClick={() => void beginEdit(id)}>Edit this draft</button>}
-            <div className="chat-draft-actions">
-              <label><input type="checkbox" checked={selected.includes(id)} disabled={stale} onChange={event => setSelected(value => event.target.checked ? [...value, id] : value.filter(item => item !== id))} /> Include in this adoption</label>
-              <button type="button" disabled={stale || !selectedDrafts.some(item => item.document.head.documentId === id)} onClick={() => void onPrepareAdoption([draft])}>Prepare adoption preview</button>
-              {onRevise && <button type="button" onClick={() => void onRevise(draft)}>{stale ? 'Refresh with assistant' : 'Revise with assistant'}</button>}
-              <button type="button" onClick={() => void onReject(draft)}>Reject</button>
-            </div>
-          </>}
-          {stale && <p className="chat-draft-warning" role="alert">This draft was based on an older source. Refresh it in the conversation before adopting.</p>}
-          {rejected && onReconsider && <button type="button" onClick={() => void onReconsider(draft)}>Reconsider in a new review</button>}
-        </article>;
+        const status = draft.disposition === 'adopted' ? 'Adopted' : draft.disposition === 'rejected' || draft.disposition === 'superseded' ? 'Closed' : draft.stale ? 'Stale' : 'Not adopted';
+        return <button key={`${id}:${draft.initialRevisionId}`} type="button" role="tab" data-draft-id={id} aria-selected={activeDraft.document.head.documentId === id} aria-controls={`coauthor-read-${id}`} onClick={() => void switchDraft(id)}>
+          <span className="coauthor-review-tab-title">{draft.document.title}</span><span className="coauthor-review-tab-meta">{draft.document.kind} · v{draft.document.head.version} · {status}</span>
+        </button>;
       })}
+    </nav>
+    <fieldset className="coauthor-review-selection" aria-label="Drafts included in this review">
+      <legend>Review together</legend>
+      {reviewable.map(draft => <label key={`selection:${draft.document.head.documentId}`}><input type="checkbox" data-draft-id={draft.document.head.documentId} aria-label={`Include ${draft.document.title} in this adoption`} checked={selected.includes(draft.document.head.documentId)} disabled={draft.stale} onChange={event => setSelected(value => event.target.checked ? [...value, draft.document.head.documentId] : value.filter(item => item !== draft.document.head.documentId))} /><span>{draft.document.title}</span>{draft.stale && <small>stale</small>}</label>)}
+    </fieldset>
+    <div className="coauthor-review-document-header">
+      <div><h3>{activeDraft.document.title}</h3><p>{activeDraft.document.kind} · Draft {activeDraft.document.head.version} · <strong>{activeStatus}</strong></p></div>
+      {(onOpenDraft || onOpenDocument) && <button type="button" onClick={() => onOpenDraft ? void onOpenDraft(activeDraft) : void onOpenDocument?.(activeDraft.document)}>Open draft</button>}
     </div>
-    {selectedDrafts.length > 1 && <div className="chat-draft-group-actions"><span>{selectedDrafts.length} non-chapter drafts selected</span><button type="button" onClick={() => void onPrepareAdoption(selectedDrafts)}>Prepare grouped preview</button></div>}
+    <nav className="coauthor-review-presentation-tabs" role="tablist" aria-label={`Review ${activeDraft.document.title}`}>
+      <button type="button" role="tab" aria-selected={activePresentation === 'read'} aria-controls={`coauthor-read-${activeDraft.document.head.documentId}`} onClick={() => setActivePresentation('read')}>Read</button>
+      <button type="button" role="tab" aria-selected={activePresentation === 'changes'} aria-controls={`coauthor-changes-${activeDraft.document.head.documentId}`} onClick={() => setActivePresentation('changes')}>Changes</button>
+    </nav>
+    <div className="coauthor-review-document-surface" ref={draftList}>
+      <div className="coauthor-review-tabpanel coauthor-review-changes" role="tabpanel" id={`coauthor-changes-${activeDraft.document.head.documentId}`} hidden={activePresentation !== 'changes'}>
+        {preview && <section className="chat-adoption-preview" aria-label="Exact adoption preview"><div className="chat-panel-heading"><div><h3>Exact adoption preview</h3><p>{preview.targets.length} document{preview.targets.length === 1 ? '' : 's'} ready for your review</p></div></div><details className="chat-draft-provenance"><summary>Preview version details</summary><dl><div><dt>Preview</dt><dd>{preview.id}</dd></div><div><dt>Digest</dt><dd>{preview.digest}</dd></div></dl></details><details className="coauthor-review-effects" open={!!preview.effects?.proposedRelationships.length}><summary>Relationships, protected content and other effects</summary><ChatAdoptionEffects effects={preview.effects} targets={preview.targets} /></details>{preview.targets.map(target => {
+          // The preview target is the ordinary destination document. The draft
+          // identity lives in the immutable draft reference, so never resolve it
+          // from target.documentId (which is intentionally a different ID).
+          const targetDraft = drafts.find(draft => draft.document.head.documentId === target.draft.head.documentId);
+          const context = targetDraft ? reviewContext?.[targetDraft.originRunId] : undefined;
+          return <article key={target.documentId}><h4>{target.title}</h4><DraftReviewDiff before={target.before} after={target.body} title={target.title} mode="summary" /><ReviewContext context={context} /><AffectedDocuments target={target} /><BeforeAfter before={target.before} after={null} afterBody={target.body} title={target.title} /><DraftReviewDiff before={target.before} after={target.body} title={target.title} mode="details" /></article>;
+        })}{previewIsStale && <section className="chat-stale-preview-actions" aria-label="Stale preview recovery"><h4>Source changed since this preview</h4><p className="chat-prose">The immutable preview remains available. Compare current saved heads before preparing a new preview.</p>{onCompareStalePreview && <button type="button" disabled={comparisonBusy} onClick={() => void compareStalePreview()}>{comparisonBusy ? 'Loading current heads…' : 'Compare sources/current heads'}</button>}{!onCompareStalePreview && !comparison && <p className="chat-draft-warning">Current heads are not loaded. Ask the project surface to compare them before preparing again.</p>}{comparison && <StalePreviewSources preview={preview} comparison={comparison} drafts={drafts} onPrepareAgainstCurrent={onPrepareAgainstCurrent ? (draft) => prepareAgainstCurrent(draft) : undefined} />}{comparison && comparison.sourceEpoch && comparison.currentSourceEpoch && comparison.sourceEpoch !== comparison.currentSourceEpoch && <p className="chat-draft-warning">The story source epoch changed ({comparison.sourceEpoch} → {comparison.currentSourceEpoch}); a draft marked stale must be refreshed with the assistant.</p>}{comparison && comparison.policyEpoch && comparison.currentPolicyEpoch && comparison.policyEpoch !== comparison.currentPolicyEpoch && <p className="chat-draft-warning">The project policy changed ({comparison.policyEpoch} → {comparison.currentPolicyEpoch}); review the retained preview before preparing again.</p>}{comparisonError && <p className="chat-draft-warning" role="alert">{comparisonError}</p>}</section>}{previewError && <p className="chat-draft-warning" role="alert">{previewError} The old preview remains available; compare current sources and prepare a fresh preview explicitly.</p>}</section>}
+        {!preview && <><DraftChangeSummary draft={activeDraft} /><BeforeAfter before={undefined} after={activeDraft} /><DraftReviewDiff before={(activeDraft.target ? project.documents.find(document => document.head.documentId === activeDraft.target?.documentId) : undefined) ?? null} after={activeDraft.document.body} title={activeDraft.document.title} mode="all" /></>}
+        {activePreviewTarget && !preview && <p className="coauthor-review-note">This draft is bound to the prepared preview target above.</p>}
+      </div>
+      <div className="coauthor-review-tabpanel coauthor-review-read" role="tabpanel" id={`coauthor-read-${activeDraft.document.head.documentId}`} data-draft-id={activeDraft.document.head.documentId} tabIndex={-1} hidden={activePresentation !== 'read'}>
+        {editingId === activeDraft.document.head.documentId ? <DraftEditor key={activeDraft.document.head.documentId} draft={activeDraft} project={project} autoFocus={focusEditingId === activeDraft.document.head.documentId} onSession={session => { activeSession.current = session; }} onAccessChanged={onAccessChanged} onSaved={(savedDraft, head) => onDraftSaved?.(savedDraft, head)} /> : <RenderedDocument document={activeDraft.document.body} />}
+        <details className="coauthor-review-disclosure">
+          <summary>Request, assumptions and provenance</summary>
+          <ReviewContext context={reviewContext?.[activeDraft.originRunId]} />
+          <AffectedDocuments draft={activeDraft} />
+          {activeDraft.predecessorDocumentId && <p className="chat-muted">Revision of an earlier assistant draft{drafts.some(item => item.document.head.documentId === activeDraft.predecessorDocumentId) && onOpenDraft ? <> · <button type="button" onClick={() => { const previous = drafts.find(item => item.document.head.documentId === activeDraft.predecessorDocumentId); if (previous) void onOpenDraft(previous); }}>Open earlier draft</button></> : ` · ${activeDraft.predecessorDocumentId}`}. Both drafts retain their own review decisions.</p>}
+          <details className="chat-draft-provenance" open><summary>Source and generation details</summary><dl><div><dt>Source target</dt><dd>{activeDraft.target ? `${activeDraft.target.documentId} · v${activeDraft.target.version}` : 'Project context'}</dd></div><div><dt>Source body hash</dt><dd>{activeDraft.target?.bodyHash ?? 'Not target-bound'}</dd></div><div><dt>Context packet</dt><dd>{activeDraft.packetId}</dd></div><div><dt>Origin run</dt><dd>{activeDraft.originRunId}</dd></div><div><dt>Initial revision</dt><dd>{activeDraft.initialRevisionId}</dd></div></dl><details className="chat-draft-context"><summary>Inspect supplied context</summary><ContextInspector access={project.access} packetId={activeDraft.packetId} delivered refreshKey={`${activeDraft.packetId}:${activeDraft.initialRevisionId}`} /></details></details>
+        </details>
+        {!activeDraft.disposition || activeDraft.disposition === 'pending' ? <>
+          {editingId !== activeDraft.document.head.documentId && <button type="button" className="chat-draft-edit coauthor-review-edit" onClick={() => void beginEdit(activeDraft.document.head.documentId)}>Edit this draft</button>}
+          <div className="chat-draft-actions coauthor-review-actions">
+            <button type="button" disabled={activeDraft.stale || !selectedDrafts.some(item => item.document.head.documentId === activeDraft.document.head.documentId)} onClick={() => void prepareReview([activeDraft])}>Prepare adoption preview</button>
+            {onRevise && <button type="button" onClick={() => void onRevise(activeDraft)}>{activeDraft.stale ? 'Refresh with assistant' : 'Revise with assistant'}</button>}
+            <button type="button" onClick={() => void onReject(activeDraft)}>Reject</button>
+          </div>
+          {activeDraft.stale && <p className="chat-draft-warning" role="alert">This draft was based on an older source. Refresh it in the conversation before adopting.</p>}
+        </> : activeDraft.disposition === 'rejected' || activeDraft.disposition === 'superseded' ? onReconsider && <button type="button" onClick={() => void onReconsider(activeDraft)}>Reconsider in a new review</button> : null}
+      </div>
+    </div>
+    <footer className="coauthor-review-footer" aria-label="Draft review action">
+      <div><strong>{preview ? `${preview.targets.length} draft${preview.targets.length === 1 ? '' : 's'} prepared` : `${selectedDrafts.length} draft${selectedDrafts.length === 1 ? '' : 's'} selected`}</strong><span>{preview ? 'Exact versions are ready for your decision.' : 'Choose drafts to prepare an exact review.'}</span></div>
+      {preview ? <button type="button" className="coauthor-review-primary" aria-label={previewIsStale ? 'Preview is stale; compare current sources before preparing again' : adoptionAccessibleLabel} disabled={!previewVerified || previewIsStale} onClick={() => void onApplyPreview(preview)}>{previewIsStale ? 'Preview stale — compare sources' : previewVerified ? adoptionLabel : 'Rechecking preview…'}</button> : <button type="button" className="coauthor-review-primary" disabled={!selectedDrafts.length} onClick={() => void prepareReview(selectedDrafts)}>{prepareFooterLabel}</button>}
+    </footer>
   </section>;
 });

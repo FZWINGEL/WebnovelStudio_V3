@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WnsDocument } from '../editor/document';
 import type { AssistantDraft } from '../ipc/projectChat';
 import type { DocumentRecord, OpenedProject, ProjectAccess } from '../ipc/projects';
+import { DocumentSession } from '../editor/session';
 vi.mock('../assistant/ContextInspector', () => ({ ContextInspector: () => null }));
 import { DraftReviewPanel, type DraftReviewPanelHandle, type StalePreviewComparison } from './DraftReviewPanel';
 import type { ChatAdoptionPreview } from '../ipc/projectChat';
@@ -32,7 +33,7 @@ describe('DraftReviewPanel editor lifecycle', () => {
     let handle: DraftReviewPanelHandle | null = null;
     await act(async () => root.render(<DraftReviewPanel ref={value => { handle = value; }} project={project} drafts={[{ ...draft, disposition: 'rejected' }]} onPrepareAdoption={() => {}} onApplyPreview={() => {}} onReject={() => {}} />));
     await act(async () => handle?.openDraft('draft-1'));
-    expect(document.activeElement).toBe(host.querySelector('[data-draft-id="draft-1"]'));
+    expect(document.activeElement).toBe(host.querySelector('.coauthor-review-tabpanel[data-draft-id="draft-1"]'));
     expect(host.querySelector('.ProseMirror')).toBeNull();
   });
 
@@ -76,6 +77,7 @@ describe('DraftReviewPanel editor lifecycle', () => {
     const revise = vi.fn(); const reconsider = vi.fn();
     await act(async () => root.render(<DraftReviewPanel project={project} drafts={[draft, { ...draft, disposition: 'rejected', document: { ...draft.document, head: { ...draft.document.head, documentId: 'draft-2' } } }]} onPrepareAdoption={() => {}} onApplyPreview={() => {}} onReject={() => {}} onRevise={revise} onReconsider={reconsider} />));
     await act(async () => { (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Revise with assistant') as HTMLButtonElement).click(); });
+    await act(async () => { (host.querySelectorAll('[role="tab"]')[1] as HTMLButtonElement).click(); });
     await act(async () => { (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Reconsider in a new review') as HTMLButtonElement).click(); });
     expect(revise).toHaveBeenCalledTimes(1);
     expect(reconsider).toHaveBeenCalledTimes(1);
@@ -91,6 +93,59 @@ describe('DraftReviewPanel editor lifecycle', () => {
     expect(host.querySelector('.ProseMirror')).not.toBeNull();
     expect(focus).toHaveBeenCalled();
     focus.mockRestore();
+  });
+
+  it('provides named draft tabs and flushes the active editor before switching', async () => {
+    const second: AssistantDraft = {
+      ...draft,
+      document: { ...draft.document, title: 'Character sketch', kind: 'character', head: { ...draft.document.head, documentId: 'draft-2' } },
+      initialRevisionId: 'revision-2',
+    };
+    const flush = vi.spyOn(DocumentSession.prototype, 'flush').mockResolvedValue();
+    await act(async () => root.render(<DraftReviewPanel project={project} viewKey="tabs-flush-test" drafts={[draft, second]} onPrepareAdoption={() => {}} onApplyPreview={() => {}} onReject={() => {}} />));
+    const tabs = [...host.querySelectorAll('[role="tab"]')];
+    expect(tabs.map(tab => tab.textContent)).toEqual(expect.arrayContaining(['World draftworld · v1 · Not adopted', 'Character sketchcharacter · v1 · Not adopted']));
+    await act(async () => { (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Edit this draft') as HTMLButtonElement).click(); });
+    await act(async () => { (tabs[1] as HTMLButtonElement).click(); });
+    expect(flush).toHaveBeenCalled();
+    expect((tabs[1] as HTMLButtonElement).getAttribute('aria-selected')).toBe('true');
+    expect(host.querySelector('.coauthor-review-document-header h3')?.textContent).toBe('Character sketch');
+    flush.mockRestore();
+  });
+
+  it('opens a second draft in its own editor session rather than reusing the previous draft buffer', async () => {
+    let handle: DraftReviewPanelHandle | null = null;
+    const second: AssistantDraft = { ...draft, document: { ...draft.document, title: 'Another draft', head: { ...head, documentId: 'draft-2' }, body: afterBody } };
+    const flush = vi.spyOn(DocumentSession.prototype, 'flush').mockResolvedValue();
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(() => {});
+    try {
+      await act(async () => root.render(<DraftReviewPanel ref={value => { handle = value; }} project={project} viewKey="distinct-editor-sessions" drafts={[draft, second]} onPrepareAdoption={() => {}} onApplyPreview={() => {}} onReject={() => {}} />));
+      await act(async () => { await handle?.openDraft('draft-1'); });
+      const firstEditor = host.querySelector('.ProseMirror');
+      await act(async () => { await handle?.openDraft('draft-2'); });
+      expect(flush).toHaveBeenCalled();
+      expect(host.querySelectorAll('.ProseMirror')).toHaveLength(1);
+      expect(host.querySelector('.ProseMirror')).not.toBe(firstEditor);
+      expect(host.querySelector('.ProseMirror')?.textContent).toContain('A revised draft after review.');
+    } finally { flush.mockRestore(); focus.mockRestore(); }
+  });
+
+  it('keeps the complete exact preview available from Changes and pins its adoption action', async () => {
+    const preview = {
+      id: 'preview-tabs', version: '1', digest: 'p'.repeat(64), projectId: access.projectId,
+      operationNamespace: access.operationNamespace, conversationId: 'conversation-1', sourceEpoch: '1', policyEpoch: '1', workshopVersion: '1',
+      targets: [{ draft: { head: { ...head, version: '4' }, dispositionVersion: '1' }, draftRevisionId: 'revision-4', documentId: 'target-1', title: 'World draft', kind: 'world', before: { ...draftDocument, head: { ...head, documentId: 'target-1' }, body: beforeBody }, body: afterBody }],
+    } as ChatAdoptionPreview;
+    await act(async () => root.render(<DraftReviewPanel project={project} drafts={[draft]} onPrepareAdoption={() => {}} onApplyPreview={() => {}} onReject={() => {}} />));
+    expect(host.querySelector('.coauthor-review-changes')?.hasAttribute('hidden')).toBe(true);
+    await act(async () => root.render(<DraftReviewPanel project={project} drafts={[draft]} preview={preview} onPrepareAdoption={() => {}} onApplyPreview={() => {}} onReject={() => {}} />));
+    expect(host.querySelector('.coauthor-review-changes')?.hasAttribute('hidden')).toBe(false);
+    const changes = Array.from(host.querySelectorAll('[role="tab"]')).find(tab => tab.textContent === 'Changes') as HTMLButtonElement;
+    await act(async () => changes.click());
+    expect(host.querySelector('.coauthor-review-changes')?.hasAttribute('hidden')).toBe(false);
+    expect(host.querySelector('[aria-label="Before paragraph/block 1"] p')?.textContent).toContain('A draft before review.');
+    expect(host.querySelector('[aria-label="After paragraph/block 1"] p')?.textContent).toContain('A revised draft after review.');
+    expect(host.querySelector('.coauthor-review-footer .coauthor-review-primary')?.textContent).toBe('Adopt World draft draft v4');
   });
 
   it('labels the adoption action with the exact draft title and version', async () => {

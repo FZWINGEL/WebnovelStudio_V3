@@ -83,6 +83,30 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe('ProjectConversation context inspection', () => {
+  it('keeps the captured chapter task visible while sources and details collapse', async () => {
+    const view = await readProjectConversation();
+    view.composer.body.chapter = {
+      target: head,
+      intent: 'continue',
+      basis: 'working',
+      scope: { kind: 'passage', start: null, end: null, quote: 'the final exchange', sourceBodyHash: head.bodyHash },
+      safeBrief: null,
+    };
+    readProjectConversation.mockResolvedValue(view);
+    await act(async () => root.render(<ProjectConversation project={project} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    const chapterContext = host.querySelector<HTMLElement>('.chat-chapter-context')!;
+    const details = host.querySelector<HTMLDetailsElement>('.coauthor-composer-details')!;
+    expect(chapterContext.closest('details')).toBeNull();
+    expect(chapterContext.textContent).toContain('the final exchange');
+    expect(details.open).toBe(false);
+    const summary = details.querySelector('summary')!;
+    await act(async () => summary.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(details.open).toBe(true);
+    await act(async () => summary.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(details.open).toBe(false);
+    expect(chapterContext.isConnected).toBe(true);
+  });
+
   it('invalidates a pending brief approval when chapter basis changes even if it changes back', async () => {
     const view = await readProjectConversation();
     const brief = { text: 'Preserve the hopeful ending.', originMessageId: null, confirmed: false };
@@ -179,6 +203,61 @@ describe('ProjectConversation context inspection', () => {
     await act(async () => [...surfaces.querySelectorAll('button')].find(button => button.textContent === 'Chapter')!.click());
     expect(host.querySelector('.chat-document-view')?.classList.contains('is-hidden')).toBe(false);
     expect(host.querySelector('.chat-document-surface')?.classList.contains('chat-mobile-chapter')).toBe(true);
+  });
+
+  it('opens the latest pending drafts in review when no ordinary document is active', async () => {
+    const view = await readProjectConversation();
+    const draft = {
+      document: { ...chapterDocument, head: { ...head, documentId: 'draft-latest' }, title: 'Latest world note', kind: 'world', role: 'assistantDraft' },
+      conversationId: 'conversation-1', originRunId: 'run-1', packetId: 'packet-exact', initialRevisionId: 'revision-latest',
+      target: null, disposition: 'pending', dispositionVersion: '1', stale: false,
+    };
+    readProjectConversation.mockResolvedValue({ ...view, drafts: [draft] });
+    await act(async () => root.render(<ProjectConversation project={project} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    expect(host.querySelector('.chat-review-view')?.classList.contains('is-hidden')).toBe(false);
+    expect(host.textContent).toContain('Latest world note');
+    expect(host.textContent).toContain('Drafts to review');
+    const documentTab = [...host.querySelectorAll<HTMLButtonElement>('.chat-right-mode-tabs button')].find(button => button.textContent === 'Document')!;
+    await act(async () => documentTab.click());
+    expect(host.querySelector('.chat-document-view')?.classList.contains('is-hidden')).toBe(false);
+    expect(host.querySelector('.chat-review-view')?.classList.contains('is-hidden')).toBe(true);
+  });
+
+  it('keeps document mode and the mounted editor when an ordinary document is active', async () => {
+    const view = await readProjectConversation();
+    const draft = {
+      document: { ...chapterDocument, head: { ...head, documentId: 'draft-background' }, title: 'Background candidate', kind: 'world', role: 'assistantDraft' },
+      conversationId: 'conversation-1', originRunId: 'run-1', packetId: 'packet-exact', initialRevisionId: 'revision-background',
+      target: null, disposition: 'pending', dispositionVersion: '1', stale: false,
+    };
+    readProjectConversation.mockResolvedValue({ ...view, drafts: [draft] });
+    await act(async () => root.render(<ProjectConversation project={project} activeDocument={chapterDocument} documentEditor={<div data-testid="mounted-editor">Working text stays mounted.</div>} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    expect(host.querySelector('.chat-document-view')?.classList.contains('is-hidden')).toBe(false);
+    expect(host.querySelector('.chat-review-view')?.classList.contains('is-hidden')).toBe(true);
+    expect(host.querySelector('[data-testid="mounted-editor"]')?.textContent).toBe('Working text stays mounted.');
+    const reviewTab = [...host.querySelectorAll<HTMLButtonElement>('.chat-right-mode-tabs button')].find(button => button.textContent?.startsWith('Review drafts'))!;
+    await act(async () => reviewTab.click());
+    expect(host.querySelector('.chat-review-view')?.classList.contains('is-hidden')).toBe(false);
+    expect(host.querySelector('[data-testid="mounted-editor"]')).not.toBeNull();
+  });
+
+  it('links materialized drafts inline to the isolated review surface', async () => {
+    const view = await readProjectConversation();
+    const draft = {
+      document: { ...chapterDocument, head: { ...head, documentId: 'draft-inline' }, title: 'Inline world draft', kind: 'world', role: 'assistantDraft' },
+      conversationId: 'conversation-1', originRunId: 'run-1', packetId: 'packet-exact', initialRevisionId: 'revision-inline',
+      target: null, disposition: 'pending', dispositionVersion: '1', stale: false,
+    };
+    const materialization = { id: 'materialized-1', sequence: '2', kind: 'materializeChatResult', referenceId: 'run-1', payload: { outputValid: true, draftRefs: [{ ordinal: 0, documentId: 'draft-inline' }] }, createdAt: '2026-09-09T00:01:00.000Z' };
+    readProjectConversation.mockResolvedValue({ ...view, drafts: [draft], items: [...view.items, materialization] });
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(() => {});
+    await act(async () => root.render(<ProjectConversation project={project} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    const link = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Inline world draft'))!;
+    expect(link).toBeDefined();
+    await act(async () => link.click());
+    expect(host.querySelector('.chat-review-view')?.classList.contains('is-hidden')).toBe(false);
+    expect(host.querySelector('[data-draft-id="draft-inline"]')).not.toBeNull();
+    focus.mockRestore();
   });
 
   it('passes the immutable run packet id to the existing ContextInspector', async () => {

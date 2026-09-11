@@ -101,7 +101,7 @@ vi.mock('./ExportDialog', () => ({ ExportDialog: () => null }));
 vi.mock('./V2ImportDialog', () => ({ V2ImportDialog: () => null }));
 vi.mock('../chat/ProjectConversation', () => ({
   ProjectConversation: forwardRef(function MockProjectConversation({ project, documentEditor, onBeforeAdoption, onAdoptionFailure, onDocumentsChanged, onCreateNote }: any, ref) {
-    useImperativeHandle(ref, () => ({ flush: async () => {}, stageChapter: async () => {}, attachSource: async () => {} }), []);
+    useImperativeHandle(ref, () => ({ flush: async () => { mocks.events.push('chat:flush'); }, stageChapter: async () => {}, attachSource: async () => {} }), []);
     const document = project.documents[0];
     const target = document ? {
       draft: { head: document.head, dispositionVersion: '0' },
@@ -354,6 +354,58 @@ describe('Workspace project tabs', () => {
 });
 
 describe('Workspace chat lifecycle fencing', () => {
+  it('opens story material from the conversation rail only after saving the current work', async () => {
+    const chapter = record('chapter-1', 'chapter', 'Chapter one');
+    const world = record('world-1', 'world', 'The world');
+    currentProject = opened('project', [chapter, world]);
+    await renderWorkspace(); await openCurrentProject(); await openChat();
+    mocks.events.length = 0;
+    const material = [...host.querySelectorAll<HTMLButtonElement>('.coauthor-materials button')].find(item => item.textContent?.startsWith('Worldbuilding'))!;
+    await act(async () => material.click());
+    await waitFor(() => expect(host.querySelector('[data-testid="writer"]')?.textContent).toContain('The world'));
+    expect(mocks.events).toEqual(['chat:flush', 'detach:start:chapter-1', 'flush:chapter-1', 'read:world-1', 'detach:end:chapter-1']);
+    expect(host.querySelector('[data-testid="project-conversation"]')).toBeNull();
+    expect(tab('Worldbuilding').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('keeps the conversation and editor mounted when new-project creation is cancelled', async () => {
+    currentProject = opened('project', [record('chapter-1', 'chapter', 'Chapter one')]);
+    await renderWorkspace(); await openCurrentProject(); await openChat();
+    const session = mocks.sessions.at(-1);
+    session.detachAfter.mockClear();
+    mocks.libraryOpen.mockClear();
+    await act(async () => button('New project').click());
+    expect(host.querySelector('#coauthor-project-title')).not.toBeNull();
+    await act(async () => button('Cancel').click());
+    expect(host.querySelector('#coauthor-project-title')).toBeNull();
+    expect(host.querySelector('[data-testid="project-conversation"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="writer"]')?.textContent).toContain('Chapter one');
+    expect(session.detachAfter).not.toHaveBeenCalled();
+    expect(mocks.libraryOpen).not.toHaveBeenCalled();
+  });
+
+  it('opens the Chapters desk from the rail even when Chapters was already the last writing tab', async () => {
+    currentProject = opened('project', [record('chapter-1', 'chapter', 'Chapter one')]);
+    await renderWorkspace(); await openCurrentProject(); await openChat();
+    const chapters = [...host.querySelectorAll<HTMLButtonElement>('.coauthor-materials button')].find(item => item.textContent?.startsWith('Chapters'))!;
+    await act(async () => chapters.click());
+    await waitFor(() => expect(host.querySelector('[data-testid="project-conversation"]')).toBeNull());
+    expect(host.querySelector('[data-testid="writer"]')?.textContent).toContain('Chapter one');
+    expect(tab('Chapters').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('keeps the conversation visible when saving blocks a material navigation', async () => {
+    currentProject = opened('project', [record('chapter-1', 'chapter', 'Chapter one'), record('world-1', 'world', 'The world')]);
+    await renderWorkspace(); await openCurrentProject(); await openChat();
+    mocks.sessions.at(-1).flush.mockRejectedValueOnce(new Error('Save needs reconciliation.'));
+    mocks.readDocument.mockClear();
+    const material = [...host.querySelectorAll<HTMLButtonElement>('.coauthor-materials button')].find(item => item.textContent?.startsWith('Worldbuilding'))!;
+    await act(async () => material.click());
+    await waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Save needs reconciliation.'));
+    expect(host.querySelector('[data-testid="project-conversation"]')).not.toBeNull();
+    expect(mocks.readDocument).not.toHaveBeenCalled();
+  });
+
   it('shows already-open project activity from the library without opening a project', async () => {
     mocks.readProjectActivity.mockResolvedValue([{ projectId: 'project', operationNamespace: 'namespace', activeWorkCount: 1, pendingDrafts: 2 }]);
     await renderWorkspace();
@@ -435,7 +487,7 @@ describe('Workspace chat lifecycle fencing', () => {
     await act(async () => button('Complete adoption').click());
 
     currentProject = opened('project-b', [second], 'Second project');
-    await act(async () => button('All projects').click());
+    await act(async () => button('Your library').click());
     await waitFor(() => expect(host.textContent).toContain('Your stories'));
     await openCurrentProject();
     await waitFor(() => expect(host.querySelector('[data-testid="writer"]')?.textContent).toContain('Second project chapter'));

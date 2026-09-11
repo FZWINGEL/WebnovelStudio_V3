@@ -20,6 +20,29 @@ afterEach(async () => {
 });
 
 describe('RequestStatus local recovery actions', () => {
+  it('keeps failure, chapter target, and scope visible while technical request data stays collapsed', async () => {
+    const run = {
+      id: 'run-failed', operationId: 'operation-failed', packetId: 'packet-failed', payloadHash: 'p'.repeat(64),
+      target: { documentId: 'chapter-2', version: '9', bodyHash: 'h'.repeat(64) }, status: 'failed',
+      providerBinding: { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'max', serviceTier: 'flex' },
+      providerResult: { reportedModel: 'gpt-5.6-luna', effectiveIdentity: 'codex-account-2', delivery: { bodyHash: 'd'.repeat(64) } },
+    } as unknown as import('../ipc/discussions').DiscussionRun;
+    await act(async () => root.render(<RequestStatus
+      status="failed"
+      run={run}
+      error="The provider stopped before a usable response was saved."
+      requestContext={{ surface: 'chapterWriting', targetLabel: 'Chapter · The bridge', scopeLabel: 'Captured selection · “the final exchange”', selection: { providerId: 'mock', modelId: 'mock-story-context', reasoning: null, serviceTier: null } }}
+      freshness={{ status: 'stale', frozenSourceEpoch: '1', frozenPolicyEpoch: '1', detail: 'The chapter source changed after this request.' }}
+    />));
+    expect(host.querySelector('.chat-request-status-failed')?.textContent).toContain('Request needs attention');
+    expect(host.textContent).toContain('Chapter · The bridge');
+    expect(host.textContent).toContain('Captured selection');
+    expect(host.textContent).toContain('The provider stopped before a usable response was saved.');
+    expect(host.textContent).toContain('Based on older sources');
+    expect(host.querySelector('summary')?.textContent).toBe('Request details');
+    expect(host.querySelector('.chat-request-details')?.hasAttribute('open')).toBe(false);
+  });
+
   it('shows the frozen request settings separately from the provider report and stale context warning', async () => {
     const run = {
       id: 'run-1', operationId: 'operation-1', target: { documentId: 'chapter-1', version: '7', bodyHash: 'hash' },

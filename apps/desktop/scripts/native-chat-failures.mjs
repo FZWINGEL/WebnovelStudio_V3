@@ -198,16 +198,18 @@ export async function qualifyChatFailures({ page, projectDatabasePath, outputDir
       .filter(draft => draft.origin_run_id === materializationRun.id)
       .map(draft => draft.document_id));
     assert.equal(latestDraftIds.size, 2, 'The grouped adoption fixture must have exactly two latest-run drafts.');
-    const cards = page.locator('.chat-draft-card');
+    const draftTabs = page.getByRole('tablist', { name: 'Available drafts', exact: true }).getByRole('tab');
     let selectedLatestDrafts = 0;
-    for (const card of await cards.all()) {
-      const provenance = card.locator('details.chat-draft-provenance');
-      await provenance.locator(':scope > summary').click();
-      const originRunText = await provenance.innerText();
-      const checkbox = card.getByRole('checkbox', { name: 'Include in this adoption', exact: true });
+    for (const draftTab of await draftTabs.all()) {
+      await draftTab.click();
+      const draftId = await draftTab.getAttribute('data-draft-id');
+      const checkbox = page.locator(`.coauthor-review-selection input[data-draft-id="${draftId}"]`);
       if (!(await checkbox.count())) continue;
-      const isLatest = originRunText.includes(materializationRun.id);
+      const isLatest = latestDraftIds.has(draftId);
       if (isLatest) {
+        const provenance = page.locator('.coauthor-review-read .coauthor-review-disclosure');
+        if (await provenance.getAttribute('open') === null) await provenance.locator(':scope > summary').click();
+        assert((await provenance.innerText()).includes(materializationRun.id), 'The selected draft must expose its exact originating request.');
         selectedLatestDrafts += 1;
         if (!(await checkbox.isChecked())) await checkbox.check();
       } else if (await checkbox.isChecked()) {
@@ -215,10 +217,10 @@ export async function qualifyChatFailures({ page, projectDatabasePath, outputDir
       }
     }
     assert.equal(selectedLatestDrafts, 2, 'The grouped preview must select only the latest run drafts.');
-    await page.getByRole('button', { name: 'Prepare grouped preview', exact: true }).click();
+    await page.getByRole('button', { name: /^Prepare grouped review/ }).click();
     const previewRegion = page.getByRole('region', { name: 'Exact adoption preview', exact: true });
     await previewRegion.waitFor({ timeout: 30_000 });
-    const adoptionButton = previewRegion.getByRole('button', { name: /^Adopt all 2 documents:/ });
+    const adoptionButton = page.locator('.coauthor-review-footer').getByRole('button', { name: /^Adopt all 2 documents:/ });
     await adoptionButton.waitFor({ timeout: 30_000 });
     const ordinaryBeforeAdoption = Number(database.prepare("SELECT COUNT(*) AS n FROM documents WHERE role='ordinary' AND trashed=0").get().n);
     const epochBeforeAdoption = Number(database.prepare('SELECT context_source_epoch AS n FROM project').get().n);
@@ -234,7 +236,7 @@ export async function qualifyChatFailures({ page, projectDatabasePath, outputDir
     assert.equal(Number(database.prepare('SELECT context_source_epoch AS n FROM project').get().n), epochBeforeAdoption + 1);
     assert.equal(runRows(database).length, runsBeforeAdoption, 'Adoption must not dispatch another model run.');
     await page.getByText('Adoption needs confirmation.', { exact: true }).waitFor({ timeout: 30_000 });
-    const retryAdoptionButton = previewRegion.getByRole('button', { name: /^Adopt all 2 documents:/ });
+    const retryAdoptionButton = page.locator('.coauthor-review-footer').getByRole('button', { name: /^Adopt all 2 documents:/ });
     await retryAdoptionButton.click();
     await previewRegion.waitFor({ state: 'detached', timeout: 30_000 });
     assert.equal(Number(database.prepare("SELECT COUNT(*) AS n FROM documents WHERE role='ordinary' AND trashed=0").get().n), ordinaryBeforeAdoption + 2);

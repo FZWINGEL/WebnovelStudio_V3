@@ -63,7 +63,15 @@ export function RequestStatus({ status, run, error, uncertainOperationId, worker
   const reportedModel = run?.providerResult?.reportedModel;
   const effectiveIdentity = run?.providerResult?.effectiveIdentity;
   const basis = run && requestContext?.run ? requestContext.run : requestContext;
-  const technicalDetails = [run?.operationId ? `Operation ${run.operationId}` : '', effectiveIdentity ? `Provider identity ${effectiveIdentity}` : '', uncertainOperationId ? `Reconcile operation ${uncertainOperationId}` : ''].filter(Boolean);
+  const technicalDetails = [
+    run?.operationId ? `Operation ${run.operationId}` : '',
+    run?.packetId ? `Context packet ${run.packetId}` : '',
+    run?.payloadHash ? `Request hash ${run.payloadHash}` : '',
+    run?.target ? `Target head ${run.target.documentId} · v${run.target.version} · ${run.target.bodyHash}` : '',
+    run?.providerResult?.delivery?.bodyHash ? `Delivered body hash ${run.providerResult.delivery.bodyHash}` : '',
+    effectiveIdentity ? `Provider identity ${effectiveIdentity}` : '',
+    uncertainOperationId ? `Reconcile operation ${uncertainOperationId}` : '',
+  ].filter(Boolean);
   return <section className={`chat-request-status chat-request-status-${status}`} aria-live="polite" aria-atomic="true">
     <div className="chat-request-status-copy">
       <strong>{label(status)}</strong>
@@ -71,14 +79,19 @@ export function RequestStatus({ status, run, error, uncertainOperationId, worker
       {uncertainOperationId && <span>Request needs reconciliation; its exact operation is retained.</span>}
       {error && <span role={failed || uncertain ? 'alert' : undefined}>{error}</span>}
       {workerIssues.map(issue => <span key={issue.runId} role="alert">Local save issue: {issue.detail}</span>)}
-      {requestContext && basis && <div className="chat-request-context" aria-label="Request basis and model settings">
+      {requestContext && basis && <div className="chat-request-context" aria-label="Request basis">
         <span><strong>{modeLabel(basis.surface)}</strong> · Target: {run && basis.surface === 'chapterWriting' ? `${basis.targetLabel} · v${run.target.version}` : basis.targetLabel} · Scope: {basis.scopeLabel}</span>
-        {binding && <span><strong>Requested</strong> · {selectionText(binding)} · {run ? 'frozen for this request' : 'applies to the next request'}</span>}
-        {!binding && <span><strong>Requested settings</strong> · {run ? 'Not recorded for this run' : 'No model selected; choose one before sending.'}</span>}
-        {run && requestContext.selection && <span><strong>Next request</strong> · {selectionText(requestContext.selection)} · picker changes apply here</span>}
-        {run && <span><strong>Provider report</strong> · model {reportedModel ?? 'not reported'} · identity {effectiveIdentity ? 'available' : 'not reported'}</span>}
       </div>}
-      {technicalDetails.length > 0 && <details className="chat-request-technical"><summary>Technical details</summary><span>{technicalDetails.join(' · ')}</span></details>}
+      {(binding || requestContext?.selection || run || technicalDetails.length > 0) && <details className="chat-request-details">
+        <summary>Request details</summary>
+        <div className="chat-request-details-body">
+          {binding && <span><strong>Requested</strong> · {selectionText(binding)} · {run ? 'frozen for this request' : 'applies to the next request'}</span>}
+          {!binding && <span><strong>Requested settings</strong> · {run ? 'Not recorded for this run' : 'No model selected; choose one before sending.'}</span>}
+          {run && requestContext?.selection && <span><strong>Next request</strong> · {selectionText(requestContext.selection)} · picker changes apply here</span>}
+          {run && <span><strong>Provider report</strong> · model {reportedModel ?? 'not reported'} · identity {effectiveIdentity ? 'available' : 'not reported'}</span>}
+          {technicalDetails.length > 0 && <span className="chat-request-technical">Technical details · {technicalDetails.join(' · ')}</span>}
+        </div>
+      </details>}
       {freshness?.status === 'stale' && <div className="chat-request-freshness chat-request-freshness-stale" role="status">
         <strong>Based on older sources</strong>
         <span>{freshness.detail ?? 'Story sources or disclosure policy changed after this request.'} Generation continues; this does not stop the request.</span>

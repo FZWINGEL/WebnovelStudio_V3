@@ -545,18 +545,20 @@ async function runGroupedTrial() {
   const captured = await verifyGroupedRun(run.id, 1, sharedDetail);
   check('The grouped trial has exactly one explicit provider run with no fallback or hidden retry.', count('SELECT COUNT(*) AS n FROM discussion_runs') === 1, { runId: run.id });
 
-  const cards = page.locator('.chat-draft-card');
+  const draftTabs = page.getByRole('tablist', { name: 'Available drafts', exact: true }).getByRole('tab');
   await page.getByRole('button', { name: /^Review drafts/ }).click();
-  await cards.first().waitFor({ timeout: 30_000 });
+  await draftTabs.first().waitFor({ timeout: 30_000 });
   let selected = 0;
-  for (const card of await cards.all()) {
-    const checkbox = card.getByRole('checkbox', { name: 'Include in this adoption', exact: true });
+  for (const draftTab of await draftTabs.all()) {
+    await draftTab.click();
+    const draftId = await draftTab.getAttribute('data-draft-id');
+    const checkbox = page.locator(`.coauthor-review-selection input[data-draft-id="${draftId}"]`);
     if (!(await checkbox.count())) continue;
     if (!(await checkbox.isChecked())) await checkbox.check();
     selected += 1;
   }
   assert.equal(selected, 2, 'The grouped live response must expose exactly two selectable drafts.');
-  await page.getByRole('button', { name: 'Prepare grouped preview', exact: true }).click();
+  await page.getByRole('button', { name: /^Prepare grouped review/ }).click();
   const previewRegion = page.getByRole('region', { name: 'Exact adoption preview', exact: true });
   await previewRegion.waitFor({ timeout: 30_000 });
   const relationshipSection = previewRegion.getByRole('region', { name: 'Proposed relationships', exact: true });
@@ -565,7 +567,7 @@ async function runGroupedTrial() {
   check('The exact grouped preview exposes the proposed relationship before the author adopts either document.',
     (await relationshipSection.textContent())?.includes(relationshipDescription) === true,
     { relationshipDescription });
-  const adoptionButton = previewRegion.getByRole('button', { name: /^Adopt all 2 documents:/ });
+  const adoptionButton = page.locator('.coauthor-review-footer').getByRole('button', { name: /^Adopt all 2 documents:/ });
   await adoptionButton.waitFor({ timeout: 30_000 });
   const ordinaryBefore = ordinary();
   const epochBefore = Number(database.prepare('SELECT context_source_epoch AS n FROM project').get().n);

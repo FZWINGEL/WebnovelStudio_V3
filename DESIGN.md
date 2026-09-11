@@ -1,5 +1,22 @@
 # WebnovelStudio workspace design
 
+## Coauthor Desk — selected direction, 9 September 2026
+
+The author selected the first visual concept, **Let's build your story**, for
+the opt-in project conversation. Its central activity is a conversation that
+develops reviewable story material. See the [surface record](docs/COAUTHOR_DESK_DESIGN.md)
+for the visual target, interaction boundaries, and qualification evidence.
+
+The conversation workspace puts the library, recent projects, new-project
+creation, and story-material navigation in a slate left rail. The active model
+and its traits remain in the header. The conversation sits beside a readable
+draft with named tabs and Read/Changes views. Request metadata is disclosed on
+demand; failures, stale sources, scope, Stop, and reconciliation remain visible.
+The author still explicitly prepares and adopts an exact preview. Small windows
+use a compact project-navigation disclosure and the existing single-surface
+chat navigation. Developing and writing remain available through the existing
+workspace controls.
+
 ## AI writing workspace
 
 The persistent workspace operates as a native desktop writing studio. The
