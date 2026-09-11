@@ -19,12 +19,18 @@ use std::path::{Path, PathBuf};
 pub const LAYERS: &[(&str, &str, u32)] = &[
     ("wns-kernel", "crates/kernel", 0),
     ("wns-storage", "crates/storage", 1),
-    ("wns-documents", "crates/documents", 1),
     ("wns-providers", "crates/providers", 1),
-    ("wns-context", "crates/context", 2),
-    ("wns-story", "crates/story", 3),
-    ("wns-conversation", "crates/conversation", 4),
-    ("wns-workshop", "crates/workshop", 4),
+    // Raised from L1 to L2 when document revision history moved here: history
+    // reads and writes document rows, so it depends on the layer that owns the
+    // schema. `wns-context` already depended on `wns-documents`, so this shifted
+    // every layer above documents up one ordinal. The relative order is exactly
+    // what it was: these are ordinals in a partial order, and no edge in the
+    // graph changed direction except the one that was added.
+    ("wns-documents", "crates/documents", 2),
+    ("wns-context", "crates/context", 3),
+    ("wns-story", "crates/story", 4),
+    ("wns-conversation", "crates/conversation", 5),
+    ("wns-workshop", "crates/workshop", 5),
     ("wns-transfer", "crates/transfer", 5),
     ("wns-library", "crates/library", 5),
 ];

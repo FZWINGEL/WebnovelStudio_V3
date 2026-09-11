@@ -5211,10 +5211,12 @@ dependencies = [
 name = "wns-documents"
 version = "3.0.0"
 dependencies = [
+ "rusqlite",
  "serde",
  "serde_json",
  "unicode-segmentation",
  "wns-kernel",
+ "wns-storage",
 ]
 
 [[package]]

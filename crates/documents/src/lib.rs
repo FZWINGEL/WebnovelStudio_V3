@@ -1,13 +1,17 @@
-//! L1 — canonical document and proposal-scope contracts.
+//! L2 — canonical document and proposal-scope contracts, and document lifecycle.
 //!
 //! W1's scope validator lives here so it can be used by the durable core without
 //! importing Tauri, ProseMirror, or a provider runtime. The W0 snapshot validator
 //! it builds on lives one layer down, in `wns-kernel`.
 //!
 //! Extracted from `webnovel-core`, where document semantics and database schema
-//! evolution changed for unrelated reasons in the same crate. This crate depends
-//! on `wns-kernel` only.
+//! evolution changed for unrelated reasons in the same crate.
+//!
+//! Raised from L1 to L2 when [`history`] moved here. Revision history reads and
+//! writes document rows, so it depends on `wns-storage`, which owns the schema;
+//! the edge points strictly downward, so the layering rule is unchanged.
 
+pub mod history;
 pub mod scope;
 pub mod structured;
 

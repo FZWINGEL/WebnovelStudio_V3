@@ -107,7 +107,11 @@ fn the_rule_can_actually_fail() {
         parsed.contains_key(LEGACY_CRATE),
         "the fixture's legacy dependency must be parsed, got {parsed:?}"
     );
-    assert_eq!(layer_of("wns-story"), Some(3));
+    // Pinned as "resolves" rather than to an ordinal: the layers are ordinals in
+    // a partial order and are renumbered whenever a crate's dependencies change
+    // (documents moved L1→L2, which shifted every layer above it). Only kernel's
+    // 0 is structural — nothing may sit below it.
+    assert!(layer_of("wns-story").is_some());
     assert_eq!(layer_of("wns-kernel"), Some(0));
     assert_eq!(layer_of("ends-with-kernel"), None);
 }
