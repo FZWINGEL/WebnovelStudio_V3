@@ -566,7 +566,8 @@ pub fn apply_proposal(host: &mut impl StoryHost, request: ApplyProposal) -> Core
     };
     let document = read_document(&tx, &request.expected.document_id)?;
     tx.commit().map_err(CoreError::uncertain)?;
-    #[cfg(test)]
+    // No #[cfg(test)] here: this call is in a non-test crate now, where that
+    // attribute would delete it. The gate lives on the StoryHost method.
     host.hold_context_after_commit_before_ack(&request.operation_id);
     Ok(ApplyAck {
         access: request.access,
