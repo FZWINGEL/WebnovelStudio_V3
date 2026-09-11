@@ -320,7 +320,7 @@ pub fn evaluate_sources(
 /// generation. It may revise only the current author-only working document;
 /// restricted chapter writing and continuation continue to use their existing
 /// disclosure boundary.
-pub(crate) fn author_room_structured_revision_allowed(
+pub fn author_room_structured_revision_allowed(
     snapshot: &StorySnapshot,
     policy: &InformationPolicy,
     purpose: ContextPurpose,

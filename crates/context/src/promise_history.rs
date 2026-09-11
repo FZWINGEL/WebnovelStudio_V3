@@ -7,8 +7,8 @@
 
 use super::reviewed_promises::{ReviewedPromiseSet, validate_frozen_promise_set};
 use super::{SourceDescriptor, SourceRef};
-use crate::projects::story_context::FrozenContext;
-use crate::projects::story_records::{
+use crate::frozen::FrozenContext;
+use crate::story_records::{
     EvidenceAnchor, EvidenceAudience, PossessionTiming, PromisePhase, StoryEntityRef,
 };
 use wns_kernel::{CoreError, CoreResult};

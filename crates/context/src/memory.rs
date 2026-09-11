@@ -3,8 +3,8 @@
 //! This module validates a bounded evidence-linked response. It does not infer
 //! semantic truth, install a generated view, or authorize manuscript edits.
 
-use crate::context::{CoverageLabel, SourceKind, SourceRef};
-use crate::projects::story_context::{SourcePassage, SourceRead};
+use crate::{CoverageLabel, SourceKind, SourceRef};
+use crate::frozen::{SourcePassage, SourceRead};
 use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -236,7 +236,7 @@ fn validate_trusted_source(trusted: &SourceRead) -> CoreResult<Vec<SourcePassage
             format!("The trusted source body cannot be serialized: {error}"),
         )
     })?;
-    let receipt = crate::validate_snapshot_json(&encoded).map_err(|error| {
+    let receipt = wns_kernel::validate_snapshot_json(&encoded).map_err(|error| {
         memory_error(
             "MemoryBodyMismatch",
             format!("The trusted source body is not a valid canonical snapshot: {error}"),

@@ -750,6 +750,17 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    The second is the one worth remembering. A reproduction path is invisible to a
    type-driven change: the code compiles, the field has a value, and only a test that actually
    starts a workshop notices that the value is *wrong* rather than absent.
+
+   **Step 6 done.** With that last dependency inverted, all eighteen context modules moved —
+   9,166 lines into `wns-context`, which now owns `packet.rs`, the eligibility kernel, the
+   contracts, and the vocabulary the inversion pulled down (`frozen`, `story_records`,
+   `chat_vocabulary`, `response_contracts`, `reviewed_summary`, `reviewed_prefix`). `frozen.rs`
+   was carved out of `story_context.rs` with `search_saved_passages` and `literal_spans`;
+   `ProjectAccess` went to the kernel; `crates/core/src/context/` no longer exists and
+   `webnovel-core` re-exports the crate as `context`, so not one call site changed.
+
+   The whole thing is one commit because it could not be anything else — which is the finding
+   two aborted attempts paid for.
 2. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)**, then `wns-transfer` and
    `wns-library` (step 8), then `wns-app` (step 9). `wns-library` was blocked on step 5 and no
    longer is — `library.rs` now reaches `ProjectSession::documents()` and `project()` instead

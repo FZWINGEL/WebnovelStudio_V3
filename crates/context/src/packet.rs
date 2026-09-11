@@ -44,17 +44,17 @@ use super::reviewed_promises::{
 use super::reviewed_summaries::{
     self, ReviewedSummaryOmission, ReviewedSummaryOmissionReason, ReviewedSummarySet,
 };
-use crate::documents::{Endpoint, ScopeGrant, ScopeKind, ScopeValidationRequest, validate_scope};
+use wns_documents::{Endpoint, ScopeGrant, ScopeKind, ScopeValidationRequest, validate_scope};
 // Imported from wns-context, not from `projects` — this is the inversion. The
 // response vocabulary is the compiler's input, so it lives at the compiler's
 // layer; reaching up to `projects` for it is what section 3.4 corrects.
-use wns_context::response_contracts::{
+use crate::response_contracts::{
     CHAPTER_DISCUSSION_RESPONSE_CONTRACT, CHAPTER_DISCUSSION_RESPONSE_INSTRUCTION,
     PROJECT_CHAT_RESPONSE_CONTRACT, project_chat_response_instruction,
 };
-use crate::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
-use crate::projects::workshop_generation::WORKSHOP_RESPONSE_CONTRACT;
-use crate::validate_snapshot_json;
+use crate::frozen::{FrozenContext, SourcePassage, SourceRead};
+use crate::response_contracts::WORKSHOP_RESPONSE_CONTRACT;
+use wns_kernel::validate_snapshot_json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -64,7 +64,7 @@ use std::fmt;
 // Provider contract vocabulary moved down to `wns-providers` (L1). It lived
 // here while the provider adapters reached *up* into this module for
 // `ProviderBinding`, which was a real cycle between the two layers. It is
-// re-exported at its historical paths so `crate::context::packet::ProviderBinding`
+// re-exported at its historical paths so `crate::packet::ProviderBinding`
 // and every other existing reference resolves unchanged — and so no packet's
 // serialized shape changes.
 pub use wns_providers::vocabulary::{
@@ -83,8 +83,8 @@ pub use wns_providers::vocabulary::{
 /// Stable envelope identifiers. Version 1 is retained solely for validating
 /// packets persisted before author-room source labels were added. New packets
 /// use version 2 through [`compile_packet`].
-pub(crate) const CONTEXT_PACKET_SCHEMA_V1: &str = "webnovelstudio.context.packet.v1";
-pub(crate) const CONTEXT_PACKET_SCHEMA_V2: &str = "webnovelstudio.context.packet.v2";
+pub const CONTEXT_PACKET_SCHEMA_V1: &str = "webnovelstudio.context.packet.v1";
+pub const CONTEXT_PACKET_SCHEMA_V2: &str = "webnovelstudio.context.packet.v2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PacketSchemaVersion {
@@ -109,7 +109,7 @@ impl PacketSchemaVersion {
 /// The value is versioned so a future response shape can coexist with old
 /// packets without changing their historical input hash.
 pub const PROPOSAL_RESPONSE_CONTRACT: &str = "proposal-output.v1";
-pub use crate::documents::STRUCTURED_PROPOSAL_RESPONSE_CONTRACT;
+pub use wns_documents::STRUCTURED_PROPOSAL_RESPONSE_CONTRACT;
 pub const MEMORY_RESPONSE_CONTRACT: &str = "navigation-digest.v1";
 pub const LOOKUP_RESPONSE_CONTRACT: &str = "story-lookup.v1";
 const WORKSHOP_RESPONSE_INSTRUCTION: &str = r#"Response contract: story-workshop-output.v1. The final user message contains a frozen JSON.workshop envelope. Treat its lens and depth as the requested steering focus (world, people, themes, possibilities, or overview; sketch, develop, or document). If outsideDirection is false, stay within the saved direction; if true, alternatives may test a different direction while preserving fixed details. Honor its non-neutral saved preferences, hard constraints, fixed selected details, and chosen alternatives; non-fixed selected details are editable evidence that may be combined or changed according to the author instruction. Neutral preferences are context only and never instructions. Respect every saved question disposition: do not reopen NotNow or NotRelevant questions; KeepMysterious questions remain deliberately unresolved, and unknownTo records whether that uncertainty belongs to the author, reader, or both. storyPossibilities are tentative author questions and future author intentions only; they are not established events or canon, and archived possibilities are excluded. originalNotes is exact author material intentionally brought into this exploration; use it as evidence without inventing a recap. Return only one JSON object with this exact top-level shape: {"schemaVersion":"story-workshop-output.v1","requestKind":"directions|refinement","question":"...","questionReason":"...","dimension":"...","interpretation":{"youSaid":"...","possibleDirection":"...","stillOpen":"..."},"candidates":[{"id":"","title":"...","content":"...","dimensionValue":"...","implications":[{"text":"...","basis":"...","assumption":"..."}],"assumptions":["..."],"affectedTargets":[{"documentId":"...","reason":"..."}],"preservedDetails":["..."],"changedDetails":["..."]}]}. For a directions action return exactly three meaningfully different candidates with distinct dimensionValue values. For a voiceGuidance action return exactly three style treatments. For a moment action return two or three treatments of the same situation, each meaningfully different in its declared dimension. For other refinement actions return one to three candidates. Candidate id is assigned by Rust; return an empty string. The selected scope is editable: candidate content may replace the selected passage. Preserve fixed literals that fall inside the editable scope exactly in candidate content; fixed facts outside a scoped replacement remain context constraints for the surrounding working text and are not semantic guarantees for the replacement alone. List preservedDetails/changedDetails honestly. Keep implications conditional: each must state its basis and assumption. A Try a moment response is noncanon and must remain an alternative. Do not return Markdown fences, prose outside the JSON object, edits, adoption decisions, or extra keys."#;
@@ -323,7 +323,7 @@ struct ContextEnvelope {
     schema: &'static str,
     snapshot_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    project_chat: Option<crate::projects::project_chat_context::FrozenProjectChat>,
+    project_chat: Option<crate::chat_vocabulary::FrozenProjectChat>,
     purpose: ContextPurpose,
     audience: Audience,
     reader_frontier: Option<String>,
@@ -398,13 +398,13 @@ struct ReviewedEvidencePacketSet {
     projection_hash: String,
     source_handle: String,
     source: SourceRef,
-    records: Vec<crate::projects::story_records::PossessionRecord>,
+    records: Vec<crate::story_records::PossessionRecord>,
 }
 
 #[derive(Debug, Clone)]
 struct PackedReviewedEvidence {
     set: ReviewedEvidenceSet,
-    records: Vec<crate::projects::story_records::PossessionRecord>,
+    records: Vec<crate::story_records::PossessionRecord>,
     /// Hash of the complete policy-eligible projection before budget packing.
     projection_hash: String,
 }
@@ -435,13 +435,13 @@ struct ReviewedPromisePacketSet {
     /// original chapter body is omitted by layered packing.
     #[serde(skip_serializing_if = "Option::is_none")]
     source_display_name: Option<String>,
-    records: Vec<crate::projects::story_records::PromiseRecord>,
+    records: Vec<crate::story_records::PromiseRecord>,
 }
 
 #[derive(Debug, Clone)]
 struct PackedReviewedPromises {
     set: ReviewedPromiseSet,
-    records: Vec<crate::projects::story_records::PromiseRecord>,
+    records: Vec<crate::story_records::PromiseRecord>,
     projection_hash: String,
 }
 
@@ -471,13 +471,13 @@ struct ReviewedKnowledgePacketSet {
     /// original chapter body is omitted by layered packing.
     #[serde(skip_serializing_if = "Option::is_none")]
     source_display_name: Option<String>,
-    records: Vec<crate::projects::story_records::KnowledgeRecord>,
+    records: Vec<crate::story_records::KnowledgeRecord>,
 }
 
 #[derive(Debug, Clone)]
 struct PackedReviewedKnowledge {
     set: ReviewedKnowledgeSet,
-    records: Vec<crate::projects::story_records::KnowledgeRecord>,
+    records: Vec<crate::story_records::KnowledgeRecord>,
     projection_hash: String,
 }
 
@@ -506,7 +506,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
 /// Recompile a historical packet using the original v1 envelope shape. This
 /// is crate-visible so persistence validation can reproduce stored bytes;
 /// callers creating new packets must use [`compile_packet`].
-pub(crate) fn compile_packet_legacy(
+pub fn compile_packet_legacy(
     request: &PacketRequest,
 ) -> Result<CompiledPacket, PacketError> {
     compile_packet_with_schema(request, PacketSchemaVersion::V1)
@@ -1869,7 +1869,7 @@ fn validate_lookup_evidence(
                         "Lookup search coverage does not match its frozen request.",
                     ));
                 }
-                let expected = crate::projects::story_context::search_saved_passages(
+                let expected = crate::frozen::search_saved_passages(
                     &request.frozen,
                     query.trim(),
                     *mode,
@@ -1880,7 +1880,7 @@ fn validate_lookup_evidence(
                             .find(|read| read.read.descriptor.handle == handle)
                             .map(|read| read.passages.clone())
                             .ok_or_else(|| {
-                                crate::projects::CoreError::new(
+                                wns_kernel::CoreError::new(
                                     "InvalidLookupEvidence",
                                     "A frozen search source is missing.",
                                 )
@@ -2077,7 +2077,7 @@ fn validate_reviewed_evidence(
                 handle: Some(set.source_handle.clone()),
             }
         })?;
-        let records: Vec<crate::projects::story_records::PossessionRecord> =
+        let records: Vec<crate::story_records::PossessionRecord> =
             eligible_records(&set.records, request.frozen.policy.audience)
                 .into_iter()
                 .cloned()

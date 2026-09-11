@@ -3,8 +3,8 @@ use super::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, InformationPolicy, SourceKind,
     StorySnapshot,
 };
-use crate::projects::reviewed_summary::SummaryAudience;
-use crate::projects::reviewed_summary::SummaryRevision;
+use crate::reviewed_summary::SummaryAudience;
+use crate::reviewed_summary::SummaryRevision;
 use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -72,10 +72,10 @@ pub fn validate_frozen_set(
             "The accepted summary identity does not match this project.",
         ));
     }
-    if crate::projects::reviewed_summary::summary_hash(&set.summary)? != set.summary_hash {
+    if crate::reviewed_summary::summary_hash(&set.summary)? != set.summary_hash {
         return Err(invalid("The accepted summary fingerprint is invalid."));
     }
-    crate::projects::reviewed_summary::validate_summary_text(&set.summary.text)?;
+    crate::reviewed_summary::validate_summary_text(&set.summary.text)?;
     let descriptor = snapshot
         .sources
         .iter()

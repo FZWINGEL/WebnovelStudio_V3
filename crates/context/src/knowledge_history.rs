@@ -9,8 +9,8 @@ use super::reviewed_knowledge::{
     ReviewedKnowledgeSet, eligible_records, validate_frozen_knowledge_set,
 };
 use super::{SourceRef, StorySnapshot};
-use crate::projects::story_context::FrozenContext;
-use crate::projects::story_records::{
+use crate::frozen::FrozenContext;
+use crate::story_records::{
     EvidenceAnchor, EvidenceAudience, KnowledgeAttitude, KnowledgeRecord, PossessionTiming,
     StoryEntityRef,
 };

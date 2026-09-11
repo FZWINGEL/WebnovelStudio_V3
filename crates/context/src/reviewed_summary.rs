@@ -4,10 +4,9 @@
 //! replacement for the reviewed chapter revision and it is never mutable in
 //! place: a new author decision creates a new immutable summary revision.
 
-use super::reviewed_story::ReviewPrefixItem;
-use super::{CoreError, CoreResult, check_id};
-use crate::context::SourceRef;
-use crate::sha256_hex;
+use crate::reviewed_prefix::ReviewPrefixItem;
+use wns_kernel::{CoreError, CoreResult, check_id, sha256_hex};
+use crate::SourceRef;
 use serde::{Deserialize, Serialize};
 
 pub const MAX_SUMMARY_BYTES: usize = 16 * 1024;
@@ -44,7 +43,7 @@ pub struct SummaryRevision {
     pub dependencies: Vec<ReviewPrefixItem>,
 }
 
-pub(crate) fn validate_summary_text(text: &str) -> CoreResult<()> {
+pub fn validate_summary_text(text: &str) -> CoreResult<()> {
     if text.trim().is_empty() {
         return Err(CoreError::new(
             "InvalidReviewedSummary",
@@ -69,7 +68,7 @@ pub(crate) fn validate_summary_text(text: &str) -> CoreResult<()> {
     Ok(())
 }
 
-pub(crate) fn validate_summary_binding(
+pub fn validate_summary_binding(
     summary: &SummaryRevision,
     expected_project_id: &str,
     expected_source: &SourceRef,
@@ -92,10 +91,10 @@ pub(crate) fn validate_summary_binding(
     Ok(())
 }
 
-pub(crate) fn canonical_summary_json(summary: &SummaryRevision) -> CoreResult<String> {
+pub fn canonical_summary_json(summary: &SummaryRevision) -> CoreResult<String> {
     serde_json::to_string(summary).map_err(CoreError::from)
 }
 
-pub(crate) fn summary_hash(summary: &SummaryRevision) -> CoreResult<String> {
+pub fn summary_hash(summary: &SummaryRevision) -> CoreResult<String> {
     Ok(sha256_hex(canonical_summary_json(summary)?.as_bytes()))
 }

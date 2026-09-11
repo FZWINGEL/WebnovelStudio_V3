@@ -1,23 +1,30 @@
 //! Frozen, project-owned evidence. Revisions remain the only text authority;
 //! passage projections can be deleted without losing story material.
-use super::project_chat_context::{FrozenProjectChat, ProjectChatFreeze};
+// The frozen-context vocabulary moved to wns-context (L2) — the compiler
+// consumes it, so it cannot sit above the compiler. Re-exported here so the
+// many `crate::projects::story_context::{…}` imports keep resolving.
+pub use wns_context::frozen::{
+    FrozenContext, SearchHit, SearchMode, SearchResult, SearchStory, SourcePassage, SourceRead,
+    search_saved_passages,
+};
+use super::project_chat_context::ProjectChatFreeze;
 use super::*;
-use crate::context::conversation::{FrozenConversation, validate_conversation};
-use crate::context::guidance::{FrozenGuidance, validate_frozen_guidance};
+use crate::context::conversation::validate_conversation;
+use crate::context::guidance::validate_frozen_guidance;
 use crate::context::navigation::{
     FrozenNavigationView, MAX_FROZEN_NAVIGATION_VIEWS, NavigationViewRef, navigation_content_hash,
     validate_frozen_navigation_views, validate_navigation_view_payload,
 };
 use crate::context::reviewed_evidence::{
-    ReviewedEvidenceSet, from_storage_parts, validate_evidence_payload,
+    from_storage_parts, validate_evidence_payload,
     validate_frozen_evidence_set,
 };
 use crate::context::reviewed_knowledge::{
-    ReviewedKnowledgeSet, from_storage_parts as knowledge_from_storage_parts,
+    from_storage_parts as knowledge_from_storage_parts,
     validate_frozen_knowledge_set, validate_knowledge_payload,
 };
 use crate::context::reviewed_promises::{
-    ReviewedPromiseSet, from_storage_parts as promise_from_storage_parts,
+    from_storage_parts as promise_from_storage_parts,
     validate_frozen_promise_set, validate_promise_payload,
 };
 use crate::context::reviewed_summaries::{
@@ -68,97 +75,6 @@ pub struct FreezeReviewedContinuation {
     pub policy: InformationPolicy,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct FrozenContext {
-    pub snapshot: StorySnapshot,
-    pub policy: InformationPolicy,
-    pub purpose: ContextPurpose,
-    pub aliases: BTreeMap<String, Vec<String>>,
-    /// No titles or text from excluded material are exposed to a writing packet.
-    pub excluded_source_count: u32,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub guidance: Vec<FrozenGuidance>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conversation: Option<FrozenConversation>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub navigation_views: Vec<FrozenNavigationView>,
-    /// Complete author-reviewed record sets selected from immutable bundles.
-    /// Empty legacy snapshots omit this field and retain their original JSON.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_evidence: Vec<ReviewedEvidenceSet>,
-    /// Complete author-reviewed promise sets selected from immutable bundles.
-    /// Empty legacy snapshots omit this field and retain their original JSON.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_promises: Vec<ReviewedPromiseSet>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_knowledge: Vec<ReviewedKnowledgeSet>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_summaries: Vec<ReviewedSummarySet>,
-    /// Present only for a project-level author-room discussion. Ordinary
-    /// snapshots omit this field so their historical manifest bytes remain
-    /// stable.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project_chat: Option<FrozenProjectChat>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SourcePassage {
-    pub handle: String,
-    pub source: SourceRef,
-    pub block_id: String,
-    pub block_order: u32,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SourceRead {
-    pub descriptor: SourceDescriptor,
-    pub passages: Vec<SourcePassage>,
-    pub body: Value,
-    pub used_validated_projection: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SearchMode {
-    Literal,
-    Lexical,
-    ExactAlias,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SearchStory {
-    pub access: ProjectAccess,
-    pub snapshot_id: String,
-    pub query: String,
-    pub mode: SearchMode,
-    pub limit: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SearchHit {
-    pub passage: SourcePassage,
-    pub start_utf16: u32,
-    pub end_utf16: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SearchResult {
-    pub snapshot_id: String,
-    pub hits: Vec<SearchHit>,
-    /// Alias/title matches identify a source, not an occurrence in its prose.
-    pub source_matches: Vec<SourceDescriptor>,
-    pub searched_sources: u32,
-    pub has_more: bool,
-    /// Retrieval reports where it looked, never that an event did not happen.
-    pub coverage: String,
-}
 
 pub(crate) enum ContextCommand {
     Epochs(ProjectAccess, Reply<ContextEpochs>),
@@ -2185,95 +2101,6 @@ pub(super) fn search_frozen(
 }
 
 /// Deterministic search over caller-validated frozen evidence. Packet
-/// validation uses the same matcher without opening a database or granting
-/// access to additional sources.
-pub(crate) fn search_saved_passages(
-    frozen: &FrozenContext,
-    query: &str,
-    mode: SearchMode,
-    limit: u32,
-    mut passages: impl FnMut(&str) -> CoreResult<Vec<SourcePassage>>,
-) -> CoreResult<SearchResult> {
-    if query.trim().is_empty() || !(1..=100).contains(&limit) {
-        return Err(CoreError::new(
-            "InvalidSearch",
-            "A bounded nonempty search is required.",
-        ));
-    }
-    let mut hits = Vec::new();
-    let mut source_matches = Vec::new();
-    let normalized = query.to_lowercase();
-    let mut has_more = false;
-    for source in &frozen.snapshot.sources {
-        let alias = source.display_name.to_lowercase() == normalized
-            || frozen
-                .aliases
-                .get(&source.handle)
-                .is_some_and(|names| names.iter().any(|name| name.to_lowercase() == normalized));
-        if matches!(mode, SearchMode::ExactAlias) {
-            if alias {
-                if source_matches.len() == limit as usize {
-                    has_more = true;
-                } else {
-                    source_matches.push(source.clone());
-                }
-            }
-            continue;
-        }
-        for passage in passages(&source.handle)? {
-            let spans = match mode {
-                SearchMode::ExactAlias => {
-                    unreachable!("alias matching returns source descriptors")
-                }
-                SearchMode::Literal => literal_spans(&passage.text, &normalized),
-                SearchMode::Lexical => {
-                    let terms: Vec<_> = normalized.split_whitespace().collect();
-                    if terms
-                        .iter()
-                        .all(|term| passage.text.to_lowercase().contains(term))
-                    {
-                        literal_spans(&passage.text, terms[0])
-                    } else {
-                        Vec::new()
-                    }
-                }
-            };
-            for (start_utf16, end_utf16) in spans {
-                if hits.len() == limit as usize {
-                    has_more = true;
-                    break;
-                }
-                hits.push(SearchHit {
-                    passage: passage.clone(),
-                    start_utf16,
-                    end_utf16,
-                });
-            }
-        }
-    }
-    Ok(SearchResult { snapshot_id: frozen.snapshot.snapshot_id.clone(), hits, source_matches, searched_sources: frozen.snapshot.sources.len() as u32, has_more, coverage: "Exact eligible saved sources; a missing match does not establish that an event never happened.".into() })
-}
-
-/// Unicode lowercase can expand a character, so retain an original UTF-16 map
-/// instead of treating normalized UTF-8 byte positions as editor offsets.
-fn literal_spans(text: &str, query: &str) -> Vec<(u32, u32)> {
-    let mut normalized = String::new();
-    let mut starts = Vec::new();
-    let mut ends = Vec::new();
-    let mut offset = 0;
-    for character in text.chars() {
-        let next = offset + character.len_utf16() as u32;
-        let lowered: String = character.to_lowercase().collect();
-        starts.extend(std::iter::repeat_n(offset, lowered.len()));
-        ends.extend(std::iter::repeat_n(next, lowered.len()));
-        normalized.push_str(&lowered);
-        offset = next;
-    }
-    normalized
-        .match_indices(query)
-        .map(|(at, matched)| (starts[at], ends[at + matched.len() - 1]))
-        .collect()
-}
 
 /// Transfer validation keeps historical namespaces intact while verifying all
 /// immutable manifests and revision pins before installing an independent copy.

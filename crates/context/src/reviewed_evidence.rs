@@ -10,10 +10,10 @@ use super::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, InformationPolicy, SourceKind, SourceRef,
     StorySnapshot,
 };
-use crate::projects::story_context::SourceRead;
-use crate::projects::story_records::{EvidenceAudience, PossessionRecord};
+use crate::frozen::SourceRead;
+use crate::story_records::{EvidenceAudience, PossessionRecord};
 use wns_kernel::{CoreError, CoreResult};
-use crate::sha256_hex;
+use wns_kernel::sha256_hex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 

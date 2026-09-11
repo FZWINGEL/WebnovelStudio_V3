@@ -6,11 +6,11 @@
 //! owner remains responsible for authorization, snapshot identity, budgets,
 //! and execution of each requested read.
 
-use crate::context::SourceRef;
-use crate::context::evidence_history::EvidenceHistory;
-use crate::context::knowledge_history::KnowledgeHistory;
-use crate::context::promise_history::PromiseHistory;
-use crate::projects::story_context::{FrozenContext, SearchMode, SearchResult, SourcePassage};
+use crate::SourceRef;
+use crate::evidence_history::EvidenceHistory;
+use crate::knowledge_history::KnowledgeHistory;
+use crate::promise_history::PromiseHistory;
+use crate::frozen::{FrozenContext, SearchMode, SearchResult, SourcePassage};
 use wns_kernel::{CoreError, CoreResult};
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -105,7 +105,7 @@ pub enum MemoryEntityKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryEntityEntry {
-    pub entity: crate::projects::story_records::StoryEntityRef,
+    pub entity: crate::story_records::StoryEntityRef,
     pub label_variants: Vec<String>,
     pub source_handle: String,
     pub source: SourceRef,

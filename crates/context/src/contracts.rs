@@ -254,7 +254,7 @@ pub struct PacketReceipt {
     /// Exact read requests/results supplied separately from ordinary packing.
     /// Historical packets without lookups retain their original representation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lookup: Option<crate::context::lookup::LookupPacketInput>,
+    pub lookup: Option<crate::lookup::LookupPacketInput>,
     pub packet_id: String,
     pub session_id: String,
     pub snapshot_id: String,
@@ -278,39 +278,39 @@ pub struct PacketReceipt {
     /// Frozen generated navigation views delivered in a separate derived-view
     /// envelope. Original source handles above remain original-text coverage.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub navigation_views: Vec<crate::context::navigation::NavigationViewRef>,
+    pub navigation_views: Vec<crate::navigation::NavigationViewRef>,
     /// Available frozen views that were not delivered, with an explicit reason
     /// kept separate from original-source omissions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub navigation_omissions: Vec<crate::context::navigation::NavigationViewOmission>,
+    pub navigation_omissions: Vec<crate::navigation::NavigationViewOmission>,
     /// Accepted reviewed story records delivered as a separate evidence
     /// envelope. Empty legacy receipts omit this field entirely.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_evidence: Vec<crate::context::reviewed_evidence::ReviewedEvidenceCoverage>,
+    pub reviewed_evidence: Vec<crate::reviewed_evidence::ReviewedEvidenceCoverage>,
     /// Record-level omissions remain distinct from source and navigation
     /// omissions so partial evidence cannot be mistaken for full coverage.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_evidence_omissions:
-        Vec<crate::context::reviewed_evidence::ReviewedEvidenceOmission>,
+        Vec<crate::reviewed_evidence::ReviewedEvidenceOmission>,
     /// Author-reviewed promise observations delivered as a separate evidence
     /// envelope. Empty legacy receipts omit this field entirely.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_promises: Vec<crate::context::reviewed_promises::ReviewedPromiseCoverage>,
+    pub reviewed_promises: Vec<crate::reviewed_promises::ReviewedPromiseCoverage>,
     /// Promise observations omitted by disclosure or budget remain distinct
     /// from source omissions and from possession evidence omissions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_promise_omissions: Vec<crate::context::reviewed_promises::ReviewedPromiseOmission>,
+    pub reviewed_promise_omissions: Vec<crate::reviewed_promises::ReviewedPromiseOmission>,
     /// Author-reviewed mental-state observations, distinct from world truth.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_knowledge: Vec<crate::context::reviewed_knowledge::ReviewedKnowledgeCoverage>,
+    pub reviewed_knowledge: Vec<crate::reviewed_knowledge::ReviewedKnowledgeCoverage>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_knowledge_omissions:
-        Vec<crate::context::reviewed_knowledge::ReviewedKnowledgeOmission>,
+        Vec<crate::reviewed_knowledge::ReviewedKnowledgeOmission>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_summaries: Vec<crate::context::reviewed_summaries::ReviewedSummaryCoverage>,
+    pub reviewed_summaries: Vec<crate::reviewed_summaries::ReviewedSummaryCoverage>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_summary_omissions:
-        Vec<crate::context::reviewed_summaries::ReviewedSummaryOmission>,
+        Vec<crate::reviewed_summaries::ReviewedSummaryOmission>,
     pub input_hash: String,
     pub input_tokens: String,
     pub token_accounting_method: String,

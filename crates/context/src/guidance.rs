@@ -34,7 +34,7 @@ pub struct FrozenGuidance {
     pub version: GuidanceVersion,
 }
 
-pub(crate) fn validate_frozen_guidance(
+pub fn validate_frozen_guidance(
     records: &[FrozenGuidance],
     project_id: &str,
     document_id: &str,
@@ -58,7 +58,7 @@ pub(crate) fn validate_frozen_guidance(
             || version.version_id.is_empty()
             || version.text.trim().is_empty()
             || version.text.len() > 16_384
-            || crate::sha256_hex(version.text.as_bytes()) != version.text_hash
+            || wns_kernel::sha256_hex(version.text.as_bytes()) != version.text_hash
         {
             return Err(
                 "The frozen author guidance has an invalid identity, version, or text hash.".into(),

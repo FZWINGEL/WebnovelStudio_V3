@@ -16,8 +16,8 @@ use super::promise_history::query_promise_history;
 use super::reviewed_evidence::{ReviewedEvidenceSet, validate_frozen_evidence_set};
 use super::reviewed_knowledge::{ReviewedKnowledgeSet, validate_frozen_knowledge_set};
 use super::reviewed_promises::{ReviewedPromiseSet, validate_frozen_promise_set};
-use crate::projects::story_context::FrozenContext;
-use crate::projects::story_records::StoryEntityRef;
+use crate::frozen::FrozenContext;
+use crate::story_records::StoryEntityRef;
 use wns_kernel::{CoreError, CoreResult};
 use std::collections::HashMap;
 
@@ -173,7 +173,7 @@ fn collect_entities(
         let source_index = source_for_set(frozen, set)?;
         for (record_order, record) in set.records.iter().enumerate().filter(|(_, record)| {
             frozen.policy.audience != super::Audience::RestrictedWriting
-                || record.audience == crate::projects::story_records::EvidenceAudience::Reader
+                || record.audience == crate::story_records::EvidenceAudience::Reader
         }) {
             let entity = match kind {
                 MemoryEntityKind::Character => record.holder.as_ref(),
@@ -198,7 +198,7 @@ fn collect_entities(
         let source_index = source_for_set(frozen, set)?;
         for (record_order, record) in set.records.iter().enumerate().filter(|(_, record)| {
             frozen.policy.audience != super::Audience::RestrictedWriting
-                || record.audience == crate::projects::story_records::EvidenceAudience::Reader
+                || record.audience == crate::story_records::EvidenceAudience::Reader
         }) {
             let entity = match kind {
                 MemoryEntityKind::Character => &record.character,
@@ -221,7 +221,7 @@ fn collect_entities(
         let source_index = source_for_set(frozen, set)?;
         for (record_order, record) in set.records.iter().enumerate().filter(|(_, record)| {
             frozen.policy.audience != super::Audience::RestrictedWriting
-                || record.audience == crate::projects::story_records::EvidenceAudience::Reader
+                || record.audience == crate::story_records::EvidenceAudience::Reader
         }) {
             let entity = match kind {
                 MemoryEntityKind::Promise => &record.promise,
@@ -371,13 +371,13 @@ fn invalid_memory(detail: impl Into<String>) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::reviewed_evidence::ReviewedEvidenceSet;
-    use crate::context::reviewed_knowledge::records_hash;
-    use crate::context::{
+    use crate::reviewed_evidence::ReviewedEvidenceSet;
+    use crate::reviewed_knowledge::records_hash;
+    use crate::{
         Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
         SourceDescriptor, SourceKind, StorySnapshot,
     };
-    use crate::projects::story_records::{
+    use crate::story_records::{
         EvidenceAnchor, EvidenceAudience, KnowledgeAttitude, KnowledgeRecord, PossessionRecord,
         PossessionTiming,
     };
@@ -564,7 +564,7 @@ mod tests {
         assert_eq!(history.observations.len(), 1);
         assert_eq!(history.label_variants, vec!["Mei"]);
         assert!(history.uncertainty.contains(
-            &crate::context::knowledge_history::KnowledgeHistoryUncertainty::MultipleRecordedAttitudes
+            &crate::knowledge_history::KnowledgeHistoryUncertainty::MultipleRecordedAttitudes
         ));
         assert_eq!(total_observations, 2);
         assert_eq!(next_offset, Some(1));
@@ -612,7 +612,7 @@ mod tests {
             },
         };
         let records_hash =
-            crate::context::reviewed_evidence::records_hash(std::slice::from_ref(&possession))
+            crate::reviewed_evidence::records_hash(std::slice::from_ref(&possession))
                 .expect("hash possession");
         frozen.reviewed_evidence.push(ReviewedEvidenceSet {
             project_id: "project".into(),

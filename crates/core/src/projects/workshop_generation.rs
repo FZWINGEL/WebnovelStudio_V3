@@ -19,7 +19,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
-pub const WORKSHOP_RESPONSE_CONTRACT: &str = "story-workshop-output.v1";
+// Moved to wns-context (L2): the compiler embeds this contract name, so it
+// cannot sit above the compiler. Re-exported at the historical path.
+pub use wns_context::response_contracts::WORKSHOP_RESPONSE_CONTRACT;
 pub const WORKSHOP_SCHEMA_VERSION: &str = "story-workshop-output.v1";
 const MAX_TEXT_BYTES: usize = 32 * 1024;
 const MAX_DETAIL_BYTES: usize = 8 * 1024;

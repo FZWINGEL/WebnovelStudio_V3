@@ -46,15 +46,9 @@ pub struct MarkReady {
     pub stage_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ReviewPrefixItem {
-    pub document_id: String,
-    pub title: String,
-    pub bundle_id: String,
-    pub revision_id: String,
-    pub head: Head,
-}
+// Moved to wns-context (L2) with reviewed_summary, which embeds it. Re-exported
+// at the historical path.
+pub use wns_context::reviewed_prefix::ReviewPrefixItem;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

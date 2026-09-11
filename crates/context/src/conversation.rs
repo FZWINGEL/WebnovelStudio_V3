@@ -1,7 +1,7 @@
 //! Exact prior discussion turns. These are contextual evidence, not guidance
 //! or accepted story facts. The first selector deliberately uses recency only.
 use super::{Audience, ContextPurpose};
-use crate::documents::ScopeGrant;
+use wns_documents::ScopeGrant;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -46,7 +46,7 @@ pub struct FrozenConversation {
     pub omitted_turns: u32,
 }
 
-pub(crate) fn validate_conversation(
+pub fn validate_conversation(
     conversation: Option<&FrozenConversation>,
     project_id: &str,
     document_id: &str,

@@ -16,6 +16,11 @@ use std::sync::OnceLock;
 
 /// Versioned response contract used by project-level conversations.
 pub const PROJECT_CHAT_RESPONSE_CONTRACT: &str = "project-assistant-output.v1";
+
+/// The Workshop's response envelope. The compiler embeds this name, so it lives
+/// here rather than in `projects`, whose `workshop_generation` module now
+/// re-exports it.
+pub const WORKSHOP_RESPONSE_CONTRACT: &str = "story-workshop-output.v1";
 /// Versioned response contract for an unscoped chapter discussion.  It is
 /// intentionally separate from the project-chat envelope: a chapter answer
 /// may suggest a passage, but it cannot grant itself edit authority.

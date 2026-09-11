@@ -27,7 +27,8 @@ pub(crate) mod project_chat_context;
 pub mod project_chat_output;
 pub mod proposals;
 pub mod reviewed_story;
-pub mod reviewed_summary;
+// Moved to wns-context (L2): a summary is vocabulary a compiled packet carries.
+pub use wns_context::reviewed_summary;
 pub mod source_pins;
 pub mod story_context;
 pub mod workshop;
@@ -60,7 +61,7 @@ pub use workshop_api::*;
 // existing `webnovel_core::projects::{CoreError, CoreResult, Head}` import,
 // including the `use super::*` globs in this crate's own submodules, keeps
 // resolving unchanged.
-pub use wns_kernel::{CoreError, CoreResult, Head, Revision, check_id};
+pub use wns_kernel::{CoreError, CoreResult, Head, ProjectAccess, Revision, check_id};
 
 // L2 vocabulary that the packet compiler consumes. `story_records` is the set of
 // shapes a compiled packet carries, so it lives at or below the compiler rather

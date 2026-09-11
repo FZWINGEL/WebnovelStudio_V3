@@ -17,7 +17,9 @@ pub use wns_kernel::{
     validate_snapshot_json,
 };
 
-pub mod context;
+// L2 — extracted to `wns-context`. Re-exported at this path so every existing
+// `crate::context::*` reference resolves unchanged.
+pub use wns_context as context;
 // L1 — extracted to `wns-documents`. Aliased at this path so every existing
 // `crate::documents::*` reference resolves unchanged.
 pub use wns_documents as documents;

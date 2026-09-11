@@ -17,16 +17,8 @@ use serde_json::Value;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use wns_kernel::{CoreError, CoreResult, Head};
+use wns_kernel::{CoreError, CoreResult, Head, ProjectAccess};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProjectAccess {
-    pub project_id: String,
-    pub session: String,
-    pub writer_lease: String,
-    pub operation_namespace: String,
-}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectInfo {

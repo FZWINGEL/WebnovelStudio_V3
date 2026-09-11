@@ -106,6 +106,20 @@ pub fn check_id(id: &str) -> CoreResult<()> {
     Ok(())
 }
 
+/// One renderer's explicit lease on an open project.
+///
+/// Moved down from `projects/records.rs` because the packet vocabulary embeds
+/// it — `SearchStory` and `FreezeStory` carry an `access` — so it has to sit at
+/// or below the compiler. It is four strings and no behaviour.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectAccess {
+    pub project_id: String,
+    pub session: String,
+    pub writer_lease: String,
+    pub operation_namespace: String,
+}
+
 /// One immutable saved revision of a document.
 ///
 /// Moved down from `projects/records.rs` so the packet compiler's input
