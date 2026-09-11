@@ -34,7 +34,12 @@ use crate::documents::{
 use crate::projects::context_packets::PrepareContext;
 use crate::projects::discussion_lookup;
 use crate::projects::story_context::{FreezeReviewedContinuation, FreezeStory, FrozenContext};
-use crate::projects::workshop_generation::WORKSHOP_RESPONSE_CONTRACT;
+// The workshop contract and its parser both live below this module now — the
+// contract at L3, the parser in `wns-story` beside the metadata types. Naming
+// them here rather than through `workshop_generation` is what removes the
+// L5→L5 edge this module used to have with `wns-workshop`.
+use wns_context::response_contracts::WORKSHOP_RESPONSE_CONTRACT;
+use wns_story::workshop_metadata::{metadata_from_instruction, metadata_value};
 use crate::providers::http_request::prepare_request as prepare_http_request;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -968,7 +973,7 @@ impl OwnedProject {
         // immutable live binding. It is never accepted from the renderer, so
         // old mock packets and old live packets remain contract-free.
         if request.intent == FeedbackIntent::WorkshopExplore {
-            crate::projects::workshop_generation::metadata_from_instruction(&request.instruction)?;
+            metadata_from_instruction(&request.instruction)?;
         }
         let response_contract = if chat.is_some() {
             Some(crate::projects::project_chat_output::PROJECT_CHAT_RESPONSE_CONTRACT.to_owned())
@@ -1003,8 +1008,8 @@ impl OwnedProject {
         // validation cluster.
         let workshop_metadata = if response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT)
         {
-            let metadata = workshop_generation::metadata_from_instruction(&instruction)?;
-            Some(workshop_generation::metadata_value(&metadata)?)
+            let metadata = metadata_from_instruction(&instruction)?;
+            Some(metadata_value(&metadata)?)
         } else {
             None
         };
@@ -2569,7 +2574,7 @@ pub(super) fn validate_start(request: &StartDiscussion) -> CoreResult<()> {
                 "Workshop exploration cannot resume or use writing-only request features.",
             ));
         }
-        crate::projects::workshop_generation::metadata_from_instruction(&request.instruction)?;
+        metadata_from_instruction(&request.instruction)?;
     }
     Ok(())
 }
