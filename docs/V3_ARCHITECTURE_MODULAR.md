@@ -882,6 +882,26 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    variants rather than at the file's imports — and it is the number that decides whether a
    module is a step-7 unit or a step-7 project.
 
+   **And every module has this shape, which is the real conclusion about step 7.** The pattern is
+   identical in `discussions`, `evidence_queries`, `exports`, `source_pins`, `background_work`,
+   `guidance`, `history`, `proposals`, `reviewed_story`, `workshop` and the rest: each file holds
+   an `impl ProjectSession` that constructs its own `Command` variant, an `impl OwnedProject`
+   whose bodies do the work, and the vocabulary those two share. The session half must stay with
+   the `Command` enum in `webnovel-core`; the other two travel. So **the unit of step 7 is one
+   module's vocabulary plus its actor-side logic, and the session half is a permanent resident of
+   `webnovel-core` until the `Command` enum itself is replaced.**
+
+   Measured on `memory.rs` (2,436 lines), the largest of the group: the actor-side impl calls
+   `check_access`, `db_mut`, `fence_uncertain` on the actor, and outside itself reaches
+   `compile_packet` (already in `wns-context`), `freeze_memory_story_at` and `read_source`
+   (in `story_context`, which moves with it), `persist_compiled_packet_at` (in
+   `context_packets`), plus `new_id` and `sha256_hex` (kernel). A host of six or seven methods,
+   and a vocabulary of ten types.
+
+   That is a session's work per two or three modules, not a turn's — and it is the last thing
+   this document can usefully measure. What remains is execution against a pattern that is now
+   fully characterised rather than partly guessed.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
