@@ -1320,6 +1320,34 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    workshop metadata type graph is the next unit, and it is now known to be a graph rather than
    a function list.
 
+   **And the graph is now measured, which is what the last attempt lacked.** Followed to
+   completion rather than until the compiler stopped complaining:
+
+   | | Lines | Where |
+   |---|---|---|
+   | the parser, its validators, `WorkshopPacketMetadata` | 204 | `workshop_generation.rs` |
+   | the metadata type graph it reaches | ~130 | `workshop_generation.rs` |
+   | the workshop types *those* reach | ~120 | `workshop.rs` |
+
+   The third row is the one that was invisible. `WorkshopPacketMetadata` holds
+   `Vec<StoryPossibility>`, `Option<WorkshopVoiceGuidance>`, `Option<WorkshopRelationship>`;
+   `StoryPossibility` holds `StoryPossibilityKind`; `WorkshopQuestion` holds
+   `WorkshopQuestionStatus` and `UnknownTo`; `WorkshopPreference` holds three more enums. Each is
+   an enum of five or six variants, so each looked like nothing on its own — and the union is
+   sixteen types out of the forty-three that `workshop.rs` declares, 328 lines in total.
+
+   So the unit is ~450 lines rather than the 204 that were attempted. It is two moves, not one:
+   the workshop vocabulary to a layer below both `workshop.rs` (L5) and `context_packets` (L4),
+   then the parser beside it.
+
+   The alternative is the inversion §3.4 keeps proposing — have `context_packets` receive
+   already-parsed metadata rather than parsing it, which deletes the edge instead of moving it.
+   That is a call-site change across the workshop start path rather than an extraction, and it is
+   the smaller of the two if the call sites cooperate.
+
+   Either way the next attempt starts from a number instead of a guess, which is the one thing
+   every previous attempt in this step could not say.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
