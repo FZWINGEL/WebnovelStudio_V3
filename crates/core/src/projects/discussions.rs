@@ -1097,12 +1097,24 @@ impl OwnedProject {
                 _ => None,
             }
         };
+        let instruction = packet_instruction(request, response_contract.as_deref())?;
+        // Parsed here, where the instruction is authored, and passed down. The
+        // compiler used to parse it out of `instruction` itself, which made it
+        // reach up into this crate for the workshop vocabulary and its
+        // validation cluster.
+        let workshop_metadata = if response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT)
+        {
+            let metadata = workshop_generation::metadata_from_instruction(&instruction)?;
+            Some(workshop_generation::metadata_value(&metadata)?)
+        } else {
+            None
+        };
         let packet = compile_packet(&PacketRequest {
             packet_id: new_id(),
             session_id: new_id(),
             invocation_ordinal: "0".into(),
             frozen: frozen_context.clone(),
-            instruction: packet_instruction(request, response_contract.as_deref())?,
+            instruction,
             sources: source_reads,
             mandatory_handles: mandatory_handles.clone(),
             scope: scope.clone(),
@@ -1121,6 +1133,7 @@ impl OwnedProject {
                 }
             }),
             response_contract: response_contract.clone(),
+            workshop_metadata,
         })
         .map_err(packet_error)?;
         insert_packet(
@@ -1710,6 +1723,7 @@ impl OwnedProject {
             budget: prepare.budget.clone(),
             provider_binding: prepare.provider_binding.clone(),
             response_contract: Some(LOOKUP_RESPONSE_CONTRACT.to_owned()),
+            workshop_metadata: None,
             lookup: prepare.lookup.clone(),
         };
         let child_packet = compile_packet(&packet_request).map_err(packet_error)?;

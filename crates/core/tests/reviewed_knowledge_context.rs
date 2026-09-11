@@ -508,6 +508,7 @@ fn invalid_private_knowledge_fails_before_budget_rejection_even_with_recomputed_
         budget: MockContextBudget::new("1", "1", "1"),
         provider_binding: None,
         response_contract: None,
+        workshop_metadata: None,
         lookup: None,
     };
     let error = compile_packet(&request).unwrap_err();

@@ -503,6 +503,7 @@ impl OwnedProject {
             budget: request.budget.clone(),
             provider_binding: request.provider_binding.clone(),
             response_contract: Some(MEMORY_RESPONSE_CONTRACT.to_owned()),
+            workshop_metadata: None,
         };
         let packet = compile_packet(&packet_request).map_err(packet_error)?;
         context_packets::persist_compiled_packet_at(&tx, &prepare, &packet)?;

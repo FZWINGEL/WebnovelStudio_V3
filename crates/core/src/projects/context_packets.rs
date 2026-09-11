@@ -185,6 +185,20 @@ impl OwnedProject {
             budget: request.budget.clone(),
             provider_binding: request.provider_binding.clone(),
             response_contract: request.response_contract.clone(),
+            // Parsed here, where the instruction is authored, and passed down.
+            // The compiler used to parse it out of `instruction` itself, which
+            // made it reach up into this crate for the workshop vocabulary and
+            // its validation cluster. The builder is the only code that can
+            // build a valid workshop instruction, so it owns proving this.
+            workshop_metadata: if request.response_contract.as_deref()
+                == Some(workshop_generation::WORKSHOP_RESPONSE_CONTRACT)
+            {
+                let metadata =
+                    workshop_generation::metadata_from_instruction(&request.instruction)?;
+                Some(workshop_generation::metadata_value(&metadata)?)
+            } else {
+                None
+            },
             lookup: request.lookup.clone(),
         };
         let packet = match compile_packet(&compile_request) {
@@ -396,6 +410,16 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
         .iter()
         .map(|source| story_context::read_source(db, &frozen, &source.handle))
         .collect::<CoreResult<Vec<_>>>()?;
+    // Reproduction must supply what the original compile was given, or it
+    // verifies a packet against a request that no longer matches it.
+    let workshop_metadata = if request.response_contract.as_deref()
+        == Some(workshop_generation::WORKSHOP_RESPONSE_CONTRACT)
+    {
+        let metadata = workshop_generation::metadata_from_instruction(&request.instruction)?;
+        Some(workshop_generation::metadata_value(&metadata)?)
+    } else {
+        None
+    };
     let mut expected = compile(&PacketRequest {
         packet_id: receipt.packet_id.clone(),
         session_id: receipt.session_id.clone(),
@@ -409,6 +433,7 @@ fn validate_packet_row(db: &Connection, stored: &PacketRow) -> CoreResult<Compil
         budget: request.budget,
         provider_binding: request.provider_binding,
         response_contract: request.response_contract,
+        workshop_metadata,
         lookup: request.lookup,
     })
     .map_err(|error| {

@@ -132,6 +132,7 @@ fn valid_request(text: &str) -> PacketRequest {
         budget: MockContextBudget::new("100000", "100", "100"),
         provider_binding: None,
         response_contract: Some(MEMORY_RESPONSE_CONTRACT.into()),
+        workshop_metadata: None,
     }
 }
 

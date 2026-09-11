@@ -152,6 +152,7 @@ fn request(frozen: FrozenContext, reads: Vec<SourceRead>) -> PacketRequest {
         budget: MockContextBudget::new("100000", "100", "100"),
         provider_binding: None,
         response_contract: None,
+        workshop_metadata: None,
     }
 }
 

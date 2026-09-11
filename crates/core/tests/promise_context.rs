@@ -466,6 +466,7 @@ fn promise_absence_keeps_legacy_packet_and_context_bytes() {
         budget: MockContextBudget::new("100000", "100", "100"),
         provider_binding: None,
         response_contract: None,
+        workshop_metadata: None,
     };
     let packet = compile_packet(&request).unwrap();
     let serialized_packet = serde_json::to_string(&packet).unwrap();
@@ -527,6 +528,7 @@ fn author_packet_delivers_promise_envelope_and_receipt_identity() {
         budget: MockContextBudget::new("100000", "100", "100"),
         provider_binding: None,
         response_contract: None,
+        workshop_metadata: None,
     };
     let packet = compile_packet(&request).unwrap();
     assert_eq!(packet.receipt.reviewed_promises.len(), 1);
@@ -603,6 +605,7 @@ fn layered_author_packet_keeps_frozen_names_for_promise_evidence() {
         budget: MockContextBudget::new("8000", "100", "100"),
         provider_binding: None,
         response_contract: None,
+        workshop_metadata: None,
     };
     let packet = compile_packet(&request).expect("layered packet should compile");
     let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
@@ -711,6 +714,7 @@ fn restricted_packet_omits_frozen_source_titles() {
         budget: MockContextBudget::new("100000", "100", "100"),
         provider_binding: None,
         response_contract: None,
+        workshop_metadata: None,
     };
     let packet = compile_packet(&request).expect("restricted packet should compile");
     let envelope: Value = serde_json::from_str(&packet.messages[1].content).unwrap();
@@ -754,6 +758,7 @@ fn frozen_source_label_tampering_is_rejected_before_packet_packing() {
         budget: MockContextBudget::new("100000", "100", "100"),
         provider_binding: None,
         response_contract: None,
+        workshop_metadata: None,
     };
     request.frozen.snapshot.sources[0].display_name = "Mutable current title".into();
     let error = compile_packet(&request).expect_err("frozen label tampering must fail closed");

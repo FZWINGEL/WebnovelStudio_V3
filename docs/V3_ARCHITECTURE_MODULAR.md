@@ -719,9 +719,37 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
 
    The attempt was reverted after that, cleanly, because finishing it means deciding whether the
    workshop packet-metadata vocabulary belongs at L2 with the compiler or whether the compiler
-   should *receive* the parsed metadata instead of parsing it itself — and the second is the
-   better answer, since it is the same "receive materialised inputs" principle §3.4 already
-   names. That decision is the remaining design question of step 6, not a mechanical step.
+   should *receive* the parsed metadata instead of parsing it itself.
+
+   **Decided and done: the compiler receives it.** `impl WorkshopPacketMetadata` is not a
+   record — `from_context` validates against `WorkshopContext`, `validate_exploration`,
+   `validate_text` and `validate_id`, which is workshop *domain* logic, so moving the type down
+   would have dragged a validation cluster with it. Instead `PacketRequest` gained
+   `workshop_metadata: Option<Value>`, `context_packets.rs` — the one place a workshop
+   instruction is authored, and therefore the only code that can prove one valid — parses and
+   validates it and passes the value down, and `packet.rs` consumes it. The compiler's
+   `metadata_from_instruction` call became a presence check, and its second call, which
+   discarded its result and existed only as validation, is gone.
+
+   That is the §3.4 principle applied literally: *the compiler should receive materialised
+   inputs rather than assemble them*. It also removed the last thing `packet.rs` reached up into
+   `projects` for, leaving `context/` free to move.
+
+   **There are three builders, not one, and the tests found the other two.** Making the compiler
+   *receive* an input moves a burden onto every caller, and the first pass supplied it at one
+   site. Eleven workshop tests failed with *"The stored request cannot reproduce its packet"*,
+   which located the rest precisely:
+
+   - `discussions.rs` builds its own `PacketRequest` for a workshop start; the generic
+     `context_packets.rs` path is not the only entry.
+   - `context_packets.rs`'s **reproduction check** recompiles a stored request to prove the
+     stored packet still matches it. That path must supply exactly what the original compile was
+     given, or it verifies a packet against a request that no longer matches — a silent
+     integrity check that would have passed while checking the wrong thing.
+
+   The second is the one worth remembering. A reproduction path is invisible to a
+   type-driven change: the code compiles, the field has a value, and only a test that actually
+   starts a workshop notices that the value is *wrong* rather than absent.
 2. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)**, then `wns-transfer` and
    `wns-library` (step 8), then `wns-app` (step 9). `wns-library` was blocked on step 5 and no
    longer is — `library.rs` now reaches `ProjectSession::documents()` and `project()` instead

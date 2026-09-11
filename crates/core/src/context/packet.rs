@@ -53,9 +53,7 @@ use wns_context::response_contracts::{
     PROJECT_CHAT_RESPONSE_CONTRACT, project_chat_response_instruction,
 };
 use crate::projects::story_context::{FrozenContext, SourcePassage, SourceRead};
-use crate::projects::workshop_generation::{
-    WORKSHOP_RESPONSE_CONTRACT, metadata_from_instruction, metadata_value,
-};
+use crate::projects::workshop_generation::WORKSHOP_RESPONSE_CONTRACT;
 use crate::validate_snapshot_json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -179,6 +177,16 @@ pub struct PacketRequest {
     pub provider_binding: Option<ProviderBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_contract: Option<String>,
+    /// Parsed workshop packet metadata, supplied by whoever built the
+    /// instruction.
+    ///
+    /// The compiler used to parse this out of `instruction` itself, which meant
+    /// importing the workshop metadata vocabulary and its validation cluster
+    /// from `projects` — reaching upward for its own input. The builder already
+    /// holds the `WorkshopPacketMetadata` it serialised into the instruction, so
+    /// it passes the value down and the compiler consumes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workshop_metadata: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lookup: Option<LookupPacketInput>,
 }
@@ -2518,21 +2526,18 @@ fn build_serialized(
         .iter()
         .flat_map(|turn| [turn.user.id.clone(), turn.assistant.id.clone()])
         .collect();
-    let workshop_metadata =
-        if request.response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT) {
-            let metadata = metadata_from_instruction(&request.instruction).map_err(|error| {
-                PacketError::InvalidRequest {
-                    message: error.detail,
-                }
-            })?;
-            Some(
-                metadata_value(&metadata).map_err(|error| PacketError::InvalidRequest {
-                    message: error.detail,
-                })?,
-            )
-        } else {
-            None
-        };
+    let workshop_metadata = if request.response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT)
+    {
+        // Received, not parsed. The builder validated and serialised this; the
+        // compiler only checks that a workshop request actually carries it.
+        Some(request.workshop_metadata.clone().ok_or_else(|| {
+            PacketError::InvalidRequest {
+                message: "The workshop response contract requires parsed packet metadata.".to_owned(),
+            }
+        })?)
+    } else {
+        None
+    };
     let envelope = ContextEnvelope {
         schema: packing.schema.envelope_schema(),
         snapshot_id: request.frozen.snapshot.snapshot_id.clone(),
@@ -2867,11 +2872,14 @@ fn validate_response_contract(request: &PacketRequest) -> Result<(), PacketError
                 message: "The workshop response contract requires a Working AuthorRoom story question without an edit scope.".to_owned(),
             });
         }
-        metadata_from_instruction(&request.instruction).map_err(|error| {
-            PacketError::InvalidRequest {
-                message: error.detail,
-            }
-        })?;
+        // Presence, not a re-parse: the builder owns parsing and validation of
+        // its own instruction, and a workshop contract that arrives without
+        // parsed metadata was not built by the workshop path.
+        if request.workshop_metadata.is_none() {
+            return Err(PacketError::InvalidRequest {
+                message: "The workshop response contract requires parsed packet metadata.".to_owned(),
+            });
+        }
         return Ok(());
     }
     let Some(contract) = request.response_contract.as_deref() else {

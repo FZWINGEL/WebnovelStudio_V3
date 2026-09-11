@@ -238,6 +238,7 @@ fn request_with_sources(
         budget: MockContextBudget::new(budget.to_string(), "0", "0"),
         provider_binding: None,
         response_contract: None,
+        workshop_metadata: None,
     }
 }
 
