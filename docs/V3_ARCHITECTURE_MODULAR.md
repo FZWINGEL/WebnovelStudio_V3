@@ -119,25 +119,35 @@ L6  wns-app           Tauri shell: thin command modules, one per feature
                       ────────────────────────────────────────────────────────
 L5  wns-transfer      backup · recover · duplicate · export · v2-import · recovery copy
     wns-library       library index + app preferences (CAS on revision)
-                      ────────────────────────────────────────────────────────
-L4  wns-conversation  discussions · project chat · proposals · guidance · adoption
+    wns-conversation  discussions · project chat · proposals · guidance · adoption
     wns-workshop      six-lens Workshop, typed candidates, generation
                       ────────────────────────────────────────────────────────
-L3  wns-story         memory · reviewed story · story context · evidence/promise history
+L4  wns-story         memory · reviewed story · story context · evidence/promise history
                       · accepted summaries · character knowledge
                       ────────────────────────────────────────────────────────
-L2  wns-context       packet compiler · eligibility · lookup · receipts · inspector
+L3  wns-context       packet compiler · eligibility · lookup · receipts · inspector
+                      ────────────────────────────────────────────────────────
+L2  wns-documents     document model · scope · structured blocks · editor contract
+                      · revision history and restore
                       ────────────────────────────────────────────────────────
 L1  wns-storage       SQLite · the 40 migrations · durability · backups-before-upgrade
-    wns-documents     snapshot validation · scope · structured blocks · editor contract
+                      · typed row access (documents, revisions, receipts)
     wns-providers     Provider port + codex-exec / app-server / claude / http / mock
                       ────────────────────────────────────────────────────────
 L0  wns-kernel        CoreError/CoreResult · sha256 · canonical JSON · W0 snapshot validator
+                      · record vocabulary · ids · head/hash predicates
 ```
 
 **The arrow rule:** a crate may depend only on strictly lower layers. `wns-app` depends on
-everything; nothing depends on `wns-app`. Siblings at one layer must not depend on each
-other — `wns-storage`, `wns-documents` and `wns-providers` are mutually independent.
+everything; nothing depends on `wns-app`. Siblings at one layer must not depend on each other —
+at L1, `wns-storage` and `wns-providers` are mutually independent, and `wns-documents` is no
+longer their sibling: it rose to L2 when revision history moved into it.
+
+**The layer numbers are ordinals in a partial order, not a fixed taxonomy.** They were
+renumbered once already, when `wns-documents` gained its dependency on `wns-storage` and every
+layer above it shifted up one. What must hold is the relative order and the absence of sideways
+edges; `crates/architecture` enforces exactly that, and it caught the renumbering this section
+describes by failing on the new L2→L2 edge by name.
 
 ### 3.2 Why these boundaries
 
@@ -655,6 +665,9 @@ attempt.
 
 **Delivered, in order.** Skeleton (0) · `wns-kernel` (1) · `wns-storage` (2) ·
 `wns-documents` (3) · `wns-providers` (4) · `projects.rs` split (D3 prerequisite) ·
+the five per-concern facades — `ProjectSession` from 28 public methods to 8 (5) ·
+the `context/` move and the vocabulary inversion it needed (6) · the shared primitive
+layer to L0/L1 and the first two of the twenty-one `projects/` modules (7, in progress) ·
 frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed: the
 `ADR_0022` reader-floor drift, and a correction to this document's own test-tree audit.
 
@@ -932,10 +945,71 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    does, those modules are its predecessors in the ordering, and extracting it first fails at
    the end rather than the beginning.
 
-   The comfortable reading of this step is that it is twenty-one identical moves. It is not. It
-   is a partial order: a module can move when everything its actor side reaches is already below
-   it, and the only way to find that order is to try, because the dependency is visible in the
-   bodies rather than in the imports.
+   **That criterion is incomplete, and the way it failed is the finding.** Reading the whole of
+   `projects/` for cross-module calls — the count of `other_module::` references per file —
+   turns up exactly two modules that call nobody: `history` and `reviewed_story`. So `history`
+   was attempted next, and it was not self-contained either. Its actor side reached **eight
+   crate-private free functions that live in `projects.rs`**:
+
+   ```
+   read_document · read_document_with_role · read_revision · checkpoint_at
+   existing_receipt · insert_receipt · valid_hash · require_head
+   ```
+
+   Those eight had **240 call sites across the twelve files under `projects/`** — every
+   remaining module's actor side calls the same ones. A grep for cross-module calls cannot see
+   them, because they are not calls *into a module*; they are calls into the file every module
+   already sits inside. That is why the criterion said "clean" about a module that was not.
+
+   **So the real gate on step 7 was never the host trait. It was the primitive layer.** The doc
+   above says "the shared vocabulary moves before the modules do" and reads that as being about
+   types — `Reply`, `parse_version`. It is about helpers too, and the helpers were the bigger
+   gate: while eight functions with 240 call sites lived above the schema they read, no module
+   could travel, no matter how narrow its host trait.
+
+   **Done, in one commit.** The cut is by layer rather than by module:
+
+   | To | What | Why there |
+   |---|---|---|
+   | L0 `wns-kernel` | `DocumentRecord`, `DocumentRole`, `StoredResult`, `RestoredDecision`, `AppliedDecision`, `new_id`, `valid_hash`, `require_head` | vocabulary — the records, and the two leaf types `StoredResult` names |
+   | L1 `wns-storage` | `read_document`, `read_document_with_role`, `read_revision`, `checkpoint_at`, `existing_receipt`, `insert_receipt` | they query the tables this crate's migrations create |
+
+   `StoredResult` naming `history::RestoredDecision` and `proposals::AppliedDecision` looked like
+   a cascade back into two modules, which is what it was: the receipt type could not reach L0
+   until its two leaf types did. Both are strings-only structs, so the cascade stopped there.
+   `DocumentRole::storage_name` and `::from_storage` became `pub` because the row readers now
+   decode with them across a crate boundary. All eleven items are re-exported at their historical
+   paths, so all 240 call sites are unchanged.
+
+   **And `history` moved next, which is what proves the point.** `wnsd-documents` owns the
+   vocabulary and the actor-side logic as free functions over a four-method `HistoryHost`;
+   `webnovel-core` keeps the three `impl ProjectSession` methods, because `Command::History` is
+   a variant of the actor's own enum. The move was mechanical — once the primitives were below
+   it.
+
+   Two things surfaced in that second move that the first did not:
+
+   - **`history` had a coupling no import check finds: a test hook.** Its restore path calls
+     `super::tests::hold_after_commit_before_ack`, the crash-injection point for
+     `kill_after_commit_before_ack_recovers_once`. Two modules use it and both are moving.
+     The resolution is a `HistoryHost` method declared unconditionally — so the trait compiles
+     in a non-test build of the crate — whose implementation in core compiles the real hook only
+     into core's test binary. Production behaviour is untouched and the hook does not become
+     reachable from a released library.
+   - **The layering guard caught a second-order effect rather than letting it through.** Document
+     history reads and writes document rows, so `wns-documents` must depend on `wns-storage` and
+     rises from L1 to L2. But `wns-context` already depended on `wns-documents`, so the move
+     produced a sideways L2→L2 edge — and the test failed with exactly that, by name. Every layer
+     above documents shifted up one ordinal: context 3, story 4, conversation/workshop 5. The
+     **relative** order is unchanged; these are ordinals in a partial order, and no existing edge
+     changed direction. That is the layering test earning its keep on a change that was not
+     about layering at all.
+
+   The comfortable reading of this step is that it is twenty-one identical moves. It is not, and
+   the corrected reading is sharper than the one it replaces: **a module can move when everything
+   its actor side reaches is already below it** — the domain modules it calls, the crate-private
+   helpers its bodies use, and the test hooks its crash paths reach. None of the three is visible
+   in the imports, which is why the only way to find the order is to try.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
