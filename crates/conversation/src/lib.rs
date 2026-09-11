@@ -29,9 +29,9 @@
 //! siblings, and the `workshop.rs:9` edge into `discussions` must be inverted
 //! before either can move.
 
-/// Validation for the project-chat assistant response contract.
-///
-/// The first step-7 module that was a pure move: no `impl` blocks, no
-/// `ProjectSession` half, no command vocabulary, so no host trait. Its callers
-/// are `discussions` and the seven files under `project_chat/`.
-pub mod project_chat_output;
+// `project_chat_output` lived here briefly and moved on to `wns-context` (L3).
+// Its lowest consumer decides its layer: `collect_project_chat_dispositions`,
+// which had to reach L3 for the frozen-snapshot split, parses assistant output
+// through it. `wns-conversation` reaches down for it, and so does every other
+// caller — `discussions` and the seven files under `project_chat/` — through
+// `webnovel-core`'s shim, which now points at `wns-context`.

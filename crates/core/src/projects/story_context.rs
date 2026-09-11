@@ -13,7 +13,14 @@ pub use wns_context::frozen::{
 // `memory`, `project_chat/*` and `project_chat_context`.
 pub(crate) use wns_context::frozen::decode_snapshot;
 use wns_context::frozen::{eligibility, eligibility_error};
-use super::project_chat_context::ProjectChatFreeze;
+// `validate_frozen_project_chat` moved to `wns-context::frozen` and
+// `ProjectChatFreeze` was already in `wns-context::chat_vocabulary`, so both are
+// named at the crate that owns them. That leaves one edge from this module into
+// `project_chat_context`: `augment_frozen_chat`, which is half of a direct
+// function-level cycle with `freeze_project_chat_at` below and has to travel
+// with whichever half moves.
+use wns_context::chat_vocabulary::ProjectChatFreeze;
+use wns_context::frozen::validate_frozen_project_chat;
 use super::*;
 use crate::context::navigation::{
     FrozenNavigationView, MAX_FROZEN_NAVIGATION_VIEWS, NavigationViewRef, navigation_content_hash,
@@ -1563,7 +1570,7 @@ fn validate_pins(
     frozen: &FrozenContext,
     snapshot_namespace: &str,
 ) -> CoreResult<()> {
-    project_chat_context::validate_frozen_project_chat(db, frozen, snapshot_namespace)?;
+    validate_frozen_project_chat(db, frozen, snapshot_namespace)?;
     let mut review_validation = reviewed_story::ReviewValidationContext::new(db);
     let mut summary_handles = HashSet::new();
     for summary in &frozen.reviewed_summaries {

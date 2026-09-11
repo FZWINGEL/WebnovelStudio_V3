@@ -9,6 +9,8 @@ wns-kernel = { path = "../kernel" }
 wns-storage = { path = "../storage" }
 wns-documents = { path = "../documents" }
 wns-providers = { path = "../providers" }
+# The project-chat response parsers mint ids for the blocks they materialise.
+uuid = { version = "=1.26.0", features = ["v4"] }
 # The frozen half of guidance reads and writes its own tables at a snapshot.
 rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
 serde = { version = "=1.0.229", features = ["derive"] }

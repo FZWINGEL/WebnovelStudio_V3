@@ -35,6 +35,7 @@ pub mod continuation;
 pub mod conversation;
 pub mod evidence_history;
 pub mod guidance;
+pub mod project_chat_output;
 pub mod knowledge_history;
 pub mod lookup;
 pub mod memory;

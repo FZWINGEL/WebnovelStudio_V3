@@ -11,4 +11,4 @@
 //! resolves for `discussions` and the seven files under `project_chat/` that
 //! call into it, exactly as it did before the move.
 
-pub use wns_conversation::project_chat_output::*;
+pub use wns_context::project_chat_output::*;

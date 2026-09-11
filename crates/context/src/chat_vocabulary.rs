@@ -131,3 +131,23 @@ pub struct FrozenProjectChatDisposition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unknown_to: Option<ChatUnknownTo>,
 }
+
+/// Exact ordinary heads explicitly attached to a project-chat request.
+///
+/// Moved down from `projects/project_chat_context.rs` with the rest of the
+/// project-chat vocabulary. `story_context` builds one while freezing a
+/// snapshot and `project_chat_context` builds one while dispatching a request,
+/// so it can sit in neither of the two modules that name it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectChatFreeze {
+    pub conversation_id: String,
+    #[serde(default)]
+    pub source_refs: Vec<Head>,
+    #[serde(default)]
+    pub task_draft_refs: Vec<ProjectChatDraftRef>,
+    /// New project-chat accepts freeze the response-prompt recipe explicitly.
+    /// Historical snapshots omit this field and reproduce the legacy recipe.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_recipe_version: Option<String>,
+}

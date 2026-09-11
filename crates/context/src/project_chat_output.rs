@@ -18,7 +18,7 @@ use uuid::Uuid;
 // what the compiler puts INTO a packet, so they cannot sit above it. The
 // response parsers and validation stay here — that split is the inversion.
 // Re-exported at the historical path for the parsers and the test module.
-pub use wns_context::response_contracts::{
+pub use crate::response_contracts::{
     CHAPTER_DISCUSSION_RESPONSE_CONTRACT, CHAPTER_DISCUSSION_RESPONSE_INSTRUCTION,
     PROJECT_CHAT_PROMPT_RECIPE_V2, PROJECT_CHAT_PROMPT_RECIPE_V3, PROJECT_CHAT_RESPONSE_CONTRACT,
     PROJECT_CHAT_RESPONSE_INSTRUCTION, PROJECT_CHAT_RESPONSE_INSTRUCTION_LEGACY,

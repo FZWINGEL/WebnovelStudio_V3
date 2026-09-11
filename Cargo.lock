@@ -5189,6 +5189,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "unicode-segmentation",
+ "uuid",
  "wns-documents",
  "wns-kernel",
  "wns-providers",
