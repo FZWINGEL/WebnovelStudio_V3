@@ -35,3 +35,9 @@
 // through it. `wns-conversation` reaches down for it, and so does every other
 // caller — `discussions` and the seven files under `project_chat/` — through
 // `webnovel-core`'s shim, which now points at `wns-context`.
+
+/// Durable author guidance: the authoring half, behind `StoryHost`.
+///
+/// The frozen half it used to share a file with sits at L3 in `wns-context`,
+/// which is what discharged the cycle this module had with `story_context`.
+pub mod guidance;

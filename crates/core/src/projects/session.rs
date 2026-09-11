@@ -211,7 +211,9 @@ impl ProjectSession {
                                 crate::projects::story_context::handle_context(&mut project, *command)
                             }
                             Command::Discussion(command) => project.handle_discussion(*command),
-                            Command::Guidance(command) => project.handle_guidance(*command),
+                            Command::Guidance(command) => {
+                                wns_conversation::guidance::handle_guidance(&mut project, *command)
+                            }
                             Command::History(command) => project.handle_history(*command),
                             Command::Proposal(command) => project.handle_proposal(*command),
                             Command::Review(command) => project.handle_review(*command),
