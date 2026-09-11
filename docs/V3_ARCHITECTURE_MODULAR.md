@@ -1348,6 +1348,36 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    Either way the next attempt starts from a number instead of a guess, which is the one thing
    every previous attempt in this step could not say.
 
+   **Step one is done.** The fifteen workshop types moved to `wns-story` (one commit, green):
+   `Lens`, `WorkshopDepth`, `CandidateChoiceStatus`, `WorkshopPreference` and its three enums,
+   `WorkshopQuestion` and its two, `StoryPossibility` and its two, `WorkshopRelationship` and
+   its one. `workshop.rs` went 4,135 → 4,011 and re-exports them all at the historical paths.
+
+   Two mechanical lessons came out of the attempt that preceded it, and both are about
+   position rather than content:
+
+   > A type's `#[derive]` and `#[serde]` lines sit above the line the type is *found* on, so
+   > extracting from the declaration down loses them — and the failure reads "cannot find
+   > attribute `serde`", never anything about the struct.
+
+   > A `use` block prepended to a file lands above its `//!` module doc, which is a parse error.
+
+   **Step two is not done, and its blocker is a name collision rather than a closure.** The
+   parser came out cleanly — `metadata_from_instruction`, its four validators, the six metadata
+   types, 323 lines — but `workshop.rs` and `workshop_generation.rs` each declare a
+   **`validate_text` with a different signature**, and `validate_story_possibilities` (which
+   travels with the parser) calls the one from `workshop.rs` while `head_to_version`-style code
+   in the parser calls the other. Extraction by line range put both in one file and the
+   argument count was the only thing that noticed.
+
+   That is the same shape as `stop_memory` matching `interrupt_memory_claim` two commits ago:
+   **a name is not an identity**, and the sixth time this migration has been bitten by a
+   same-name collision the compiler caught by argument count rather than by name.
+
+   So step two needs the two `validate_text`s disambiguated first — a rename, not an extraction
+   — and then it is the 323 lines again. Step one's commit stands; step two was reverted
+   rather than pushed through, and the branch is green at `378fddb`.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
