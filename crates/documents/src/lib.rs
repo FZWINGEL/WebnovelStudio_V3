@@ -12,8 +12,19 @@
 //! the edge points strictly downward, so the layering rule is unchanged.
 
 pub mod history;
+pub mod material_adoption;
 pub mod scope;
 pub mod structured;
+
+/// A new, empty W0 document.
+///
+/// Moved down from `webnovel-core::projects`, where it sat beside the actor
+/// despite being nothing but document vocabulary: one paragraph with a fresh
+/// id. `webnovel-core` re-exports it, so `webnovel_core::projects::blank_document`
+/// and the integration tests that call it are unchanged.
+pub fn blank_document() -> serde_json::Value {
+    serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":wns_kernel::new_id()}}]}})
+}
 
 pub use scope::{
     Endpoint, ScopeGrant, ScopeKind, ScopeReceipt, ScopeValidationError, ScopeValidationRequest,

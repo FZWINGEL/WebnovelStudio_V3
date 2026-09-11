@@ -1037,9 +1037,10 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    helpers its bodies use, and the test hooks its crash paths reach. None of the three is visible
    in the imports, which is why the only way to find the order is to try.
 
-   Four of the twenty-one have moved: `source_pins`, `history`, `reviewed_story`,
-   `project_chat_output` — chosen in that order not for size but for reachability, and the
-   later ones' ease is the return on the primitive-layer commit that made them possible.
+   Five of the twenty-one have moved: `source_pins`, `history`, `reviewed_story`,
+   `project_chat_output`, `material_adoption` — chosen in that order not for size but for
+   reachability, and the later ones' ease is the return on the primitive-layer commit that
+   made them possible.
 
    **And there is a fourth category of module, which the three before it hid.**
    `project_chat_output` (1,113 lines) has **no `impl` blocks at all**: no `ProjectSession`
@@ -1049,10 +1050,34 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    like, and it appeared only after three modules taught the pattern that made it findable.
    Its 11 tests moved with it, so the workspace total is conserved exactly.
 
-   That reframes the remaining seventeen. Some are pure vocabulary like this one; some are
+   That reframes the remaining sixteen. Some are pure vocabulary like this one; some are
    `history`-shaped, needing four host methods; some carry a command enum of their own. The
    work is not uniform, and the doc can now name which kind a given module is *before* it is
-   attempted, which is the whole of what three modules bought.
+   attempted, which is the whole of what four modules bought.
+
+   **`material_adoption` moved fifth, and it is the one that shows a fifth constraint.**
+   It is pure like `project_chat_output` — no `impl` blocks, no host trait — but it has two
+   consumers, `project_chat/adoption.rs` and `workshop.rs`, and those are **siblings at L5**.
+   A helper that two siblings both need cannot live in either of them, so it went to
+   `wns-documents` (L2): below both, and the right home on the merits, since it takes a
+   caller-owned transaction and writes a document body with a before/after checkpoint pair.
+
+   That is a rule the first four moves could not have revealed, because all four had exactly
+   one consumer or none:
+
+   > A shared helper's layer is set by its **lowest** consumer, not by the module it was
+   > extracted from.
+
+   The fifth move also carried `blank_document` down with it — one paragraph with a fresh id,
+   which had sat beside the actor for no reason except that it was written there first.
+
+   **Surveying the rest with the criterion now costs one command.** For each remaining module:
+   does it have a `ProjectSession` half, an actor-side half, a test hook, and which siblings
+   does it call? That table is what picked `material_adoption` and what rules out the rest —
+   `exports` is blocked on step 8 (`crate::transfer` is still in core), `import` likewise, and
+   everything else waits on `story_context` or `discussions`. The next real unit of work is
+   the `story_context` group, measured at 7,397 lines across five modules plus `project_chat`,
+   which is the "session's work" this document predicted rather than a turn's.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too

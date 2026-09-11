@@ -74,6 +74,10 @@ pub use wns_kernel::{
 // Vocabulary went to L0, row access to L1, and both are re-exported at their
 // historical paths so not one of the 240 call sites changed.
 pub use wns_kernel::{AppliedDecision, DocumentRecord, DocumentRole, RestoredDecision, StoredResult};
+// Document vocabulary, moved to L2 beside the model it describes. Re-exported
+// here so `webnovel_core::projects::blank_document` and the integration tests
+// that build fixtures with it are unchanged.
+pub use wns_documents::blank_document;
 pub(crate) use wns_kernel::{new_id, require_head, valid_hash, validate_title};
 pub(crate) use wns_storage::{
     checkpoint_at, existing_receipt, insert_receipt, read_document, read_document_with_role,
@@ -1027,9 +1031,6 @@ fn write_project_marker(path: &Path, info: &ProjectInfo) -> CoreResult<()> {
         let _ = std::fs::remove_file(&temporary);
     }
     result
-}
-pub fn blank_document() -> Value {
-    json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":new_id()}}]}})
 }
 pub(crate) fn read_view_state(connection: &Connection) -> CoreResult<Option<ViewState>> {
     let row: Option<(String, i64, String, String, i64, String, i64)> = connection
