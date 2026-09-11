@@ -308,6 +308,21 @@ pub fn valid_hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+/// A title is at most 512 bytes, non-blank and free of control characters.
+///
+/// A ninth helper of the same kind as [`valid_hash`], found the same way —
+/// by a module moving and the compiler naming what it could no longer see.
+/// Nine callers, and none of them a reason for it to live above the schema.
+pub fn validate_title(title: &str) -> CoreResult<()> {
+    if title.trim().is_empty() || title.len() > 512 || title.chars().any(char::is_control) {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "Enter a title of at most 512 bytes without control characters.",
+        ));
+    }
+    Ok(())
+}
+
 /// Require a document to be exactly at an expected head, or report a conflict
 /// carrying the head the caller actually found.
 ///

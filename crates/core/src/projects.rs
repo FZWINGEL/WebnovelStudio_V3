@@ -74,7 +74,7 @@ pub use wns_kernel::{
 // Vocabulary went to L0, row access to L1, and both are re-exported at their
 // historical paths so not one of the 240 call sites changed.
 pub use wns_kernel::{AppliedDecision, DocumentRecord, DocumentRole, RestoredDecision, StoredResult};
-pub(crate) use wns_kernel::{new_id, require_head, valid_hash};
+pub(crate) use wns_kernel::{new_id, require_head, valid_hash, validate_title};
 pub(crate) use wns_storage::{
     checkpoint_at, existing_receipt, insert_receipt, read_document, read_document_with_role,
     read_revision,
@@ -975,15 +975,6 @@ impl OwnedProject {
     }
 }
 
-fn validate_title(title: &str) -> CoreResult<()> {
-    if title.trim().is_empty() || title.len() > 512 || title.chars().any(char::is_control) {
-        return Err(CoreError::new(
-            "InvalidRequest",
-            "Enter a title of at most 512 bytes without control characters.",
-        ));
-    }
-    Ok(())
-}
 fn write_project_marker(path: &Path, info: &ProjectInfo) -> CoreResult<()> {
     let marker = path.join("project.wns.json");
     let temporary = path.join(format!(".project.wns.json-{}", new_id()));

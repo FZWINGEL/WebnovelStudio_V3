@@ -80,7 +80,9 @@ impl OwnedProject {
                 respond!(
                     reply,
                     self.check_access(&access)
-                        .and_then(|()| { self.resolve_reviewed_export_source(&access, &expected) })
+                        .and_then(|()| {
+                            reviewed_story::resolve_reviewed_export_source(self, &access, &expected)
+                        })
                 );
             }
             ExportCommand::Install(access, preview, target, basename, reply) => {
@@ -118,7 +120,7 @@ impl OwnedProject {
         // is being installed, so a duplicate cannot create a second output.
         let source = if let Some(review_bundle_id) = preview.review_bundle_id.as_deref() {
             let (resolved_bundle_id, revision) =
-                self.resolve_reviewed_export_source(&access, &preview.source_head)?;
+                reviewed_story::resolve_reviewed_export_source(self, &access, &preview.source_head)?;
             if resolved_bundle_id != review_bundle_id
                 || revision.id != preview.revision_id
                 || revision.head != preview.source_head

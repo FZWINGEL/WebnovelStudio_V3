@@ -1005,11 +1005,41 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
      changed direction. That is the layering test earning its keep on a change that was not
      about layering at all.
 
+   **`reviewed_story` moved third, and it is the one that proves the ordering matters.** At 3,133
+   lines it is the largest module to move so far, and the first that other modules call *into* —
+   `evidence_queries`, `exports`, `story_context` and `transfer` all reach for its functions,
+   which is exactly why it precedes them. It went to `wns-story`, its namesake crate, and needed
+   no new graph edges at all: its only outside dependencies were `wns-context` types, already
+   below it.
+
+   It was also the cleanest move of the three, and the reason is the ordering rather than the
+   module. It has no test hook, no sibling `projects/` call, and its actor side reaches the same
+   eight helpers `history` did — all of which were already at L0 and L1 by the time it moved.
+   `ReviewedStoryHost` is four methods, with no crash hook, because four methods is all it needs.
+
+   Two things still had to be found rather than planned, both by the compiler:
+
+   - **A ninth shared helper, `validate_title`,** nine callers. Same class as `valid_hash`: a
+     pure predicate with no reason to live above the schema, surfaced only because a module that
+     used it left.
+   - **The internal cross-calls.** The module's own methods call each other, and once the
+     receivers became host parameters those calls had to become free-function calls —
+     `host.chapter_review_status(…)` → `chapter_review_status(host, …)`, seven sites. A
+     mechanical rewrite that moves `self.` to `host.` will not find them, because they are the
+     right shape for the *old* code and the wrong shape for the new.
+
+   And once more the measurement trap: two `self\n.db_mut()` calls, chained across a newline,
+   escaped the rewrite. That is the fourth time this migration has hit that exact pattern.
+
    The comfortable reading of this step is that it is twenty-one identical moves. It is not, and
    the corrected reading is sharper than the one it replaces: **a module can move when everything
    its actor side reaches is already below it** — the domain modules it calls, the crate-private
    helpers its bodies use, and the test hooks its crash paths reach. None of the three is visible
    in the imports, which is why the only way to find the order is to try.
+
+   Three of the twenty-one have moved: `source_pins`, `history`, `reviewed_story` — chosen in
+   that order not for size but for reachability, and the third one's ease is the return on the
+   primitive-layer commit that made it possible.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too

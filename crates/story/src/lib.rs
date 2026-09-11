@@ -1,9 +1,4 @@
-//! L3 — story memory and the reviewed-story boundary.
-//!
-//! **Skeleton.** Nothing has been ported yet; this crate declares the boundary
-//! and the dependency edge so the layering rule is checked from the first commit.
-//!
-//! # Why this boundary
+//! L4 — story memory and the reviewed-story boundary.
 //!
 //! This is where the product's spine lives. Documents and immutable revisions are
 //! story *authority*; digests, summaries, lookup results, guidance and chat
@@ -21,11 +16,24 @@
 //! * `context/reviewed_*.rs`, `context/*_history.rs`, `context/continuation.rs`,
 //!   `context/navigation.rs`
 //!
+//! Note that `reviewed_summary.rs` and `story_records.rs` arrived early, in
+//! `wns-context`: they are the record shapes a compiled packet *carries*, so the
+//! compiler could not stop reaching upward for its own input vocabulary until
+//! they sat below it. The two crates are siblings in spirit — reviewed story is
+//! the L4 concern, the record shapes it exchanges are L3 vocabulary.
+//!
 //! # Dependency rule
 //!
-//! L3. May depend on L0–L2. Must not depend on `wns-conversation`,
+//! L4. May depend on L0–L3. Must not depend on `wns-conversation`,
 //! `wns-workshop` or above.
 
 /// Durable AuthorRoom source preferences: vocabulary and actor-side logic,
 /// behind a host trait the actor implements. See the module.
 pub mod source_pins;
+
+/// Author-only reviewed prose basis: the reviewed-story boundary itself.
+///
+/// The third module to move in step 7 and the first that other modules call
+/// *into* — `evidence_queries`, `exports`, `story_context` and `transfer` all
+/// reach for its functions, which is why it precedes them in the step-7 order.
+pub mod reviewed_story;
