@@ -4,9 +4,14 @@
 //! and their immutable revisions remain the only story authority.  Workshop
 //! rows retain exploration state, exact previews, and receipts so a lost IPC
 //! acknowledgment can be reconciled without replaying a mutation.
-
-use super::*;
+pub use wns_story::workshop_vocabulary::{
+    CandidateChoiceStatus, Lens, PreferencePolarity, PreferenceScope, PreferenceStrength,
+    StoryPossibility, StoryPossibilityKind, StoryPossibilityStatus, UnknownTo, WorkshopDepth,
+    WorkshopPreference, WorkshopQuestion, WorkshopQuestionStatus, WorkshopRelationship,
+    WorkshopRelationshipStatus,
+};
 use crate::projects::discussions::DiscussionRun;
+use super::*;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -35,16 +40,6 @@ fn storage_valid_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Lens {
-    Overview,
-    World,
-    People,
-    Themes,
-    Possibilities,
-    Notebook,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,61 +48,12 @@ pub enum WorkshopBranchKind {
     WhatIf,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkshopDepth {
-    Sketch,
-    Develop,
-    Document,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum PreferencePolarity {
-    Neutral,
-    Want,
-    Avoid,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum PreferenceStrength {
-    Soft,
-    Hard,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum PreferenceScope {
-    Project,
-    Element,
-    Exploration,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum CandidateChoiceStatus {
-    Saved,
-    Rejected,
-    Archived,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkshopQuestionStatus {
-    Open,
-    NotNow,
-    NotRelevant,
-    KeepMysterious,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum UnknownTo {
-    Author,
-    Reader,
-    Both,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,13 +63,6 @@ pub enum WorkshopDecisionStatus {
     Superseded,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkshopRelationshipStatus {
-    Tentative,
-    Chosen,
-    Archived,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -142,21 +81,6 @@ pub enum WorkshopImpactStatus {
     Intentional,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopPreference {
-    pub id: String,
-    pub label: String,
-    pub family: String,
-    pub meaning: String,
-    pub examples: String,
-    pub timing: String,
-    pub polarity: PreferencePolarity,
-    pub strength: PreferenceStrength,
-    pub scope: PreferenceScope,
-    pub target_id: Option<String>,
-    pub confirmed: bool,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -176,39 +100,9 @@ pub struct CandidateChoice {
     pub include_in_context: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopQuestion {
-    pub id: String,
-    pub text: String,
-    pub reason: String,
-    pub status: WorkshopQuestionStatus,
-    pub unknown_to: UnknownTo,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum StoryPossibilityKind {
-    UnresolvedQuestion,
-    IntendedPayoff,
-    PossibleArc,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum StoryPossibilityStatus {
-    Open,
-    Archived,
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StoryPossibility {
-    pub id: String,
-    pub kind: StoryPossibilityKind,
-    pub text: String,
-    pub status: StoryPossibilityStatus,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -262,19 +156,6 @@ pub struct WorkshopDecision {
     pub supersedes_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopRelationship {
-    pub id: String,
-    pub from_document_id: String,
-    pub to_document_id: String,
-    #[serde(rename = "type")]
-    pub relationship_type: String,
-    pub description: String,
-    pub uncertainty: String,
-    pub status: WorkshopRelationshipStatus,
-    pub source_heads: Vec<Head>,
-}
 
 /// A relationship proposed as part of an atomic adoption.  This remains a
 /// request shape until the adoption commits the exact endpoint heads into a

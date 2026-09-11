@@ -38,3 +38,4 @@ pub mod source_pins;
 /// reach for its functions, which is why it precedes them in the step-7 order.
 pub mod host;
 pub mod reviewed_story;
+pub mod workshop_vocabulary;
