@@ -1297,6 +1297,29 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    they are one unit and, unlike the two cycles just broken, they need no splitting at all. They
    simply move together.
 
+   **And the unit is now converted; only the move is left.** The three actor sides run on a single
+   `StoryHost` trait — five methods, four of which `SourcePinHost`, `HistoryHost` and
+   `ReviewedStoryHost` already declare — while still living in `webnovel-core`, with the suite
+   green. That is the point of converting before moving: an inherent impl must live in the crate
+   that owns the type, which is what made the unit look atomic; a free function over a trait need
+   not, so the conversion is checkable on its own and the move that follows is mechanical.
+
+   **The move was then attempted and reverted, and the reason is the same measurement error a
+   fifth time.** `context_packets` reads workshop packet metadata while preparing a packet, so
+   that closure had to come down first. It was measured at 204 lines — the parser, its four
+   validators, the metadata struct — and moved. Then the compiler asked for `WorkshopExploration`,
+   then `Lens`, `WorkshopDepth`, `WorkshopLiteral`, `WorkshopQuestion`, `WorkshopVoiceGuidance`,
+   `WorkshopRelationship`. The 204 lines were the *functions*; the struct's **field types** are a
+   type graph, and it had not been measured at all.
+
+   > Measure a move's closure as the union of what its functions reach **and what its types
+   > contain**. A struct is not a leaf because it is short.
+
+   The attempt was reverted rather than pushed through, so the branch stays green at
+   `f95b36b` — 934 tests, zero warnings. The conversion is committed; the extraction of the
+   workshop metadata type graph is the next unit, and it is now known to be a graph rather than
+   a function list.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
