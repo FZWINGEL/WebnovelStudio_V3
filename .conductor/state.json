@@ -1,0 +1,281 @@
+{
+  "version": 1,
+  "active": null,
+  "epics": [
+    {
+      "id": "coauthor-desk-land",
+      "title": "Land the Coauthor Desk presentation slice",
+      "priority": "P0",
+      "status": "archived",
+      "role": "epic",
+      "lane": "claude-code",
+      "links": [],
+      "reconcileNeeded": false,
+      "specPath": "docs/COAUTHOR_DESK_DESIGN.md",
+      "description": "The Coauthor Desk presentation refactor is finished and wired in the working tree (CoauthorSidebar rendered at Workspace.tsx:1135, four test suites updated, schema untouched, gated behind CHAT_FIRST_TRIAL_ENABLED). It is uncommitted and tangled with untracked agent tooling.",
+      "stories": [
+        {
+          "title": "Separate the Coauthor Desk slice from untracked agent tooling/config in the working tree",
+          "done": true
+        },
+        {
+          "title": "Commit the slice and attribute the commit to this epic",
+          "done": true
+        },
+        {
+          "title": "Rerun the updated live-provider harness (native-chat-live.mjs) - selectors changed, never rerun",
+          "done": true
+        },
+        {
+          "title": "Record the landing evidence in the chat-first and implementation status docs",
+          "done": true
+        }
+      ],
+      "attributedCommits": [
+        "e902532cad5758b04b28b5cee97d47257db768ef",
+        "16ce8454123468d1adf090bc679a986eaf60688a"
+      ],
+      "createdAt": "2026-09-11T10:53:30.866Z",
+      "startedAt": "2026-09-11T10:53:30.867Z",
+      "touchedAt": "2026-09-11T11:04:02.808Z",
+      "notes": [
+        {
+          "at": "2026-09-11T10:53:36.842Z",
+          "actor": "agent",
+          "text": "lane: claude-code not openspec - already-built code; landing is a commit plus an unqualified harness rerun, no spec delta."
+        }
+      ],
+      "disposition": {
+        "outcome": "delivered",
+        "recordedAt": "2026-09-11T11:04:02.807Z",
+        "reason": "Slice committed at e902532 and evidence recorded at 16ce845; tsc clean, 713 tests across 74 files, and 27 live Codex Exec checks passed on the current binary."
+      },
+      "deferralAssertion": {
+        "assertedAt": "2026-09-11T11:04:02.806Z",
+        "deferrals": [],
+        "declined": []
+      },
+      "completedAt": "2026-09-11T11:04:02.807Z"
+    },
+    {
+      "id": "chat-first-cf6",
+      "title": "Chat-first CF6 - qualification and default rollout",
+      "priority": "P1",
+      "status": "queued",
+      "role": "epic",
+      "lane": "openspec",
+      "links": [
+        {
+          "type": "depends-on",
+          "epic": "coauthor-desk-land",
+          "reason": "CF6 qualifies the chat-first surface; the surface's latest slice must be landed first"
+        }
+      ],
+      "reconcileNeeded": false,
+      "specPath": "V3_CHAT_FIRST_UX_SPEC.md",
+      "description": "The only chat-first work package the status doc leaves unimplemented. Covers accessibility, installed-package qualification, the unexecuted human author trial, and default-on rollout with rollback.",
+      "stories": [
+        {
+          "title": "Author the OpenSpec change for CF6 (qualification, accessibility, rollout)",
+          "done": false
+        },
+        {
+          "title": "Screen-reader and physical-input qualification",
+          "done": false
+        },
+        {
+          "title": "Run the prepared human author trial (CHAT_FIRST_AUTHOR_TRIAL.md - protocol exists, unexecuted)",
+          "done": false
+        },
+        {
+          "title": "Installed-package qualification in a clean Windows account/VM (fail-closed harness)",
+          "done": false
+        },
+        {
+          "title": "Default-on rollout with a working rollback",
+          "done": false
+        }
+      ],
+      "attributedCommits": [],
+      "createdAt": "2026-09-11T10:53:30.867Z",
+      "touchedAt": "2026-09-11T10:54:21.907Z",
+      "notes": [
+        {
+          "at": "2026-09-11T10:53:36.968Z",
+          "actor": "agent",
+          "text": "lane: openspec (new work). First story is authoring the change; until it exists PROJECT.md reports no change on disk."
+        }
+      ]
+    },
+    {
+      "id": "workshop-acceptance",
+      "title": "Story Workshop - full specification acceptance and author study",
+      "priority": "P2",
+      "status": "queued",
+      "role": "epic",
+      "lane": "claude-code",
+      "links": [],
+      "reconcileNeeded": false,
+      "specPath": "docs/V3_STORY_WORKSHOP_UX_SPEC.md",
+      "description": "Workshop is implemented; acceptance is not. The expanded native harness has 20 intended check groups and has not run on current source, and the prepared author study is unexecuted.",
+      "stories": [
+        {
+          "title": "Run the expanded native Workshop harness (20 intended check groups) on current source",
+          "done": false
+        },
+        {
+          "title": "Execute the names/aliases native checks already present in the harness",
+          "done": false
+        },
+        {
+          "title": "Build a fresh installer from current source",
+          "done": false
+        },
+        {
+          "title": "Run the prepared formative author study (unexecuted)",
+          "done": false
+        },
+        {
+          "title": "Record the full specification acceptance verdict",
+          "done": false
+        }
+      ],
+      "attributedCommits": [],
+      "createdAt": "2026-09-11T10:53:30.867Z",
+      "touchedAt": "2026-09-11T10:53:37.094Z",
+      "notes": [
+        {
+          "at": "2026-09-11T10:53:37.093Z",
+          "actor": "agent",
+          "text": "lane: claude-code not openspec - verification against an existing spec, producing evidence rather than a spec delta."
+        }
+      ]
+    },
+    {
+      "id": "testing-ci-qualification",
+      "title": "Testing and CI performance qualification",
+      "priority": "P2",
+      "status": "queued",
+      "role": "epic",
+      "lane": "claude-code",
+      "links": [],
+      "reconcileNeeded": false,
+      "description": "Latest hosted runs execute no steps at all due to GitHub billing admission. Full native/hosted performance qualification is incomplete and several experiments remain deferred.",
+      "stories": [
+        {
+          "title": "Resolve the GitHub billing-admission block so hosted runs execute steps",
+          "done": false
+        },
+        {
+          "title": "Fresh native interruption recovery/termination qualification",
+          "done": false
+        },
+        {
+          "title": "Timing instrumentation across the remaining suites",
+          "done": false
+        },
+        {
+          "title": "Five comparable hosted runs per candidate",
+          "done": false
+        },
+        {
+          "title": "Adopt or formally drop the deferred build-once fan-out, nextest and sccache experiments",
+          "done": false
+        }
+      ],
+      "attributedCommits": [],
+      "createdAt": "2026-09-11T10:53:30.867Z",
+      "touchedAt": "2026-09-11T10:53:37.221Z",
+      "notes": [
+        {
+          "at": "2026-09-11T10:53:37.219Z",
+          "actor": "agent",
+          "text": "lane: claude-code not openspec - build tooling, no product spec delta. Partly blocked on an external account condition."
+        }
+      ]
+    },
+    {
+      "id": "chatfirst-vocab-reconcile",
+      "title": "Reconcile the three decompositions of the chat-first work",
+      "priority": "P3",
+      "status": "later",
+      "role": "epic",
+      "lane": "claude-code",
+      "links": [],
+      "reconcileNeeded": false,
+      "description": "The plan document uses Phase 0-4 with Checkpoints A-D, the status doc uses work packages CF0-CF6, and IMPLEMENTATION_STATUS uses release gates W0-W8/F1-F5/C0-C6. No document cross-references another, so what is left has three different answers.",
+      "stories": [
+        {
+          "title": "Map plan Phase 0-4 (+ Checkpoints A-D) onto status CF0-CF6",
+          "done": false
+        },
+        {
+          "title": "Cross-reference both against the W/F/C release-gate ledger",
+          "done": false
+        },
+        {
+          "title": "Record the mapping in one place and link it from both documents",
+          "done": false
+        }
+      ],
+      "attributedCommits": [],
+      "createdAt": "2026-09-11T10:53:30.867Z",
+      "touchedAt": "2026-09-11T10:53:37.348Z",
+      "notes": [
+        {
+          "at": "2026-09-11T10:53:37.346Z",
+          "actor": "agent",
+          "text": "lane: claude-code - docs-only housekeeping."
+        }
+      ]
+    },
+    {
+      "id": "agent-tooling-baseline",
+      "title": "Commit the agent tooling and OpenSpec baseline",
+      "priority": "P2",
+      "status": "queued",
+      "role": "epic",
+      "lane": "claude-code",
+      "links": [],
+      "reconcileNeeded": false,
+      "stories": [
+        {
+          "title": "Decide and record which paths are committed vs gitignored (.codegraph/ is a generated index cache)",
+          "done": false
+        },
+        {
+          "title": "Commit the OpenSpec install: openspec/, .agents/, .cursor/, .gemini/, .opencode/",
+          "done": false
+        },
+        {
+          "title": "Commit the agent configs: .mcp.json, CLAUDE.md, GEMINI.md",
+          "done": false
+        },
+        {
+          "title": "Commit the pm conductor index (.conductor/state.json, PROJECT.md) and the add-many bug report",
+          "done": false
+        },
+        {
+          "title": "Commit the Codex transport latency research note",
+          "done": false
+        }
+      ],
+      "description": "The OpenSpec install and the per-agent configs are untracked, so none of it survives a fresh clone. Includes openspec/, the .agents/.cursor/.gemini/.opencode skill installs, .mcp.json, CLAUDE.md and GEMINI.md, the pm conductor index, and the Codex transport latency research note. The .codegraph/ index is a generated cache and should not be committed.",
+      "attributedCommits": [],
+      "createdAt": "2026-09-11T11:04:03.023Z",
+      "touchedAt": "2026-09-11T11:04:10.092Z",
+      "notes": [
+        {
+          "at": "2026-09-11T11:04:10.090Z",
+          "actor": "agent",
+          "text": "lane: claude-code - repository config and tooling baseline, no product spec delta."
+        }
+      ]
+    }
+  ],
+  "detourStack": [],
+  "revision": 28,
+  "archiveBackfilledAt": "2026-09-11T10:49:26.887Z",
+  "pmVersion": "0.41.0",
+  "platform": "claude-code"
+}
