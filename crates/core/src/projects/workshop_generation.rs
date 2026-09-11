@@ -190,19 +190,19 @@ impl WorkshopPacketMetadata {
             &context.focus_question,
             &context.focus_reason,
         ] {
-            validate_text(text, MAX_TEXT_BYTES, "workshop context")?;
+            validate_workshop_text(text, MAX_TEXT_BYTES, "workshop context")?;
         }
-        validate_text(&context.original_notes, MAX_TEXT_BYTES, "original notes")?;
+        validate_workshop_text(&context.original_notes, MAX_TEXT_BYTES, "original notes")?;
         if let Some(brief) = &context.author_brief {
-            validate_text(brief, MAX_TEXT_BYTES, "author brief")?;
+            validate_workshop_text(brief, MAX_TEXT_BYTES, "author brief")?;
         }
         if context.questions.len() > 256 {
             return Err(invalid("The workshop question list is too large."));
         }
         for question in &context.questions {
             validate_id(&question.id, "workshop question ID")?;
-            validate_text(&question.text, MAX_DETAIL_BYTES, "workshop question")?;
-            validate_text(
+            validate_workshop_text(&question.text, MAX_DETAIL_BYTES, "workshop question")?;
+            validate_workshop_text(
                 &question.reason,
                 MAX_DETAIL_BYTES,
                 "workshop question reason",
@@ -233,7 +233,7 @@ impl WorkshopPacketMetadata {
             "rejection rationales",
         )?;
         for detail in &context.selected_details {
-            validate_text(&detail.text, MAX_DETAIL_BYTES, "selected detail")?;
+            validate_workshop_text(&detail.text, MAX_DETAIL_BYTES, "selected detail")?;
         }
         if let Some(relationship) = &context.relationship {
             validate_relationship_metadata(relationship)?;
@@ -616,7 +616,7 @@ pub fn metadata_from_instruction(instruction: &str) -> CoreResult<WorkshopPacket
         let brief = brief
             .as_str()
             .ok_or_else(|| invalid("The workshop author brief must be text."))?;
-        validate_text(brief, MAX_TEXT_BYTES, "author brief")?;
+        validate_workshop_text(brief, MAX_TEXT_BYTES, "author brief")?;
     }
     let metadata = value
         .get("workshop")
@@ -731,16 +731,16 @@ pub fn validate_workshop_output(
             "The workshop response is missing a required question field.",
         ));
     }
-    validate_text(&output.request_kind, 256, "request kind")?;
-    validate_text(&output.question, MAX_TEXT_BYTES, "question")?;
-    validate_text(&output.question_reason, MAX_TEXT_BYTES, "question reason")?;
-    validate_text(&output.dimension, 256, "dimension")?;
+    validate_workshop_text(&output.request_kind, 256, "request kind")?;
+    validate_workshop_text(&output.question, MAX_TEXT_BYTES, "question")?;
+    validate_workshop_text(&output.question_reason, MAX_TEXT_BYTES, "question reason")?;
+    validate_workshop_text(&output.dimension, 256, "dimension")?;
     for text in [
         &output.interpretation.you_said,
         &output.interpretation.possible_direction,
         &output.interpretation.still_open,
     ] {
-        validate_text(text, MAX_TEXT_BYTES, "interpretation")?;
+        validate_workshop_text(text, MAX_TEXT_BYTES, "interpretation")?;
     }
     let (expected, cardinality_message) = if is_direction_action(&metadata.exploration.action)
         || is_voice_guidance_action(&metadata.exploration.action)
@@ -803,7 +803,7 @@ fn validate_candidate(
         (&candidate.content, "candidate content", MAX_TEXT_BYTES),
         (&candidate.dimension_value, "candidate dimension", 512),
     ] {
-        validate_text(value, limit, label)?;
+        validate_workshop_text(value, limit, label)?;
         if value.trim().is_empty() {
             return Err(invalid(&format!("The {label} is empty.")));
         }
@@ -837,7 +837,7 @@ fn validate_candidate(
             (&implication.basis, "implication basis"),
             (&implication.assumption, "implication assumption"),
         ] {
-            validate_text(value, MAX_DETAIL_BYTES, label)?;
+            validate_workshop_text(value, MAX_DETAIL_BYTES, label)?;
             if value.trim().is_empty() {
                 return Err(invalid(&format!("The {label} is empty.")));
             }
@@ -845,7 +845,7 @@ fn validate_candidate(
     }
     for target in &candidate.affected_targets {
         validate_id(&target.document_id, "affected document ID")?;
-        validate_text(&target.reason, MAX_DETAIL_BYTES, "affected target reason")?;
+        validate_workshop_text(&target.reason, MAX_DETAIL_BYTES, "affected target reason")?;
     }
     // Voice guidance describes style; it does not rewrite the selected sample
     // or working story, so protected story literals remain context constraints
@@ -1041,11 +1041,11 @@ fn validate_exploration(exploration: &WorkshopExploration) -> CoreResult<()> {
     if exploration.action.trim().is_empty() {
         return Err(invalid("The workshop action is empty."));
     }
-    validate_text(&exploration.action, 128, "workshop action")?;
+    validate_workshop_text(&exploration.action, 128, "workshop action")?;
     if !is_supported_action(&exploration.action) {
         return Err(invalid("The workshop action is unsupported."));
     }
-    validate_text(
+    validate_workshop_text(
         &exploration.instruction,
         MAX_TEXT_BYTES,
         "workshop instruction",
@@ -1053,8 +1053,8 @@ fn validate_exploration(exploration: &WorkshopExploration) -> CoreResult<()> {
     if exploration.instruction.trim().is_empty() {
         return Err(invalid("The workshop instruction is empty."));
     }
-    validate_text(&exploration.selected_scope, 256, "selected scope")?;
-    validate_text(
+    validate_workshop_text(&exploration.selected_scope, 256, "selected scope")?;
+    validate_workshop_text(
         &exploration.selected_text,
         MAX_DETAIL_BYTES,
         "selected text",
@@ -1069,7 +1069,7 @@ fn validate_exploration(exploration: &WorkshopExploration) -> CoreResult<()> {
         ));
     }
     if let Some(selection) = &exploration.working_selection {
-        validate_text(&selection.text, MAX_DETAIL_BYTES, "working selection")?;
+        validate_workshop_text(&selection.text, MAX_DETAIL_BYTES, "working selection")?;
         if selection.from > selection.to {
             return Err(invalid("The workshop working selection range is inverted."));
         }
@@ -1125,12 +1125,12 @@ fn validate_string_list(values: &[String], limit: usize, label: &str) -> CoreRes
         return Err(invalid(&format!("The {label} list is too large.")));
     }
     for value in values {
-        validate_text(value, limit, label)?;
+        validate_workshop_text(value, limit, label)?;
     }
     Ok(())
 }
 
-fn validate_text(value: &str, limit: usize, label: &str) -> CoreResult<()> {
+fn validate_workshop_text(value: &str, limit: usize, label: &str) -> CoreResult<()> {
     if value.len() > limit
         || value
             .chars()
@@ -1172,17 +1172,17 @@ fn validate_relationship_metadata(relationship: &WorkshopRelationship) -> CoreRe
     if relationship.from_document_id == relationship.to_document_id {
         return Err(invalid("A relationship must have different endpoints."));
     }
-    validate_text(
+    validate_workshop_text(
         &relationship.relationship_type,
         MAX_DETAIL_BYTES,
         "relationship type",
     )?;
-    validate_text(
+    validate_workshop_text(
         &relationship.description,
         MAX_TEXT_BYTES,
         "relationship description",
     )?;
-    validate_text(
+    validate_workshop_text(
         &relationship.uncertainty,
         MAX_DETAIL_BYTES,
         "relationship uncertainty",
