@@ -5184,6 +5184,7 @@ version = "3.0.0"
 name = "wns-context"
 version = "3.0.0"
 dependencies = [
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.11.0",

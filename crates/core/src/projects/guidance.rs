@@ -5,13 +5,22 @@
 //! manuscript body or creates canon. Request-scoped guidance is consumed only
 //! when a later request successfully binds it to a frozen snapshot.
 use super::*;
-use crate::context::guidance::{FrozenGuidance, GuidanceScope, GuidanceVersion};
+// The frozen half of guidance — row conversion, reads, and selection at a
+// snapshot — moved down to wns-context (L3), which is what lets `story_context`
+// reach it without an upward call. The authoring half below still uses the
+// conversion helpers, which is a legal downward edge.
+use crate::context::guidance::{
+    FrozenGuidance, GuidanceHead, GuidanceScope, GuidanceVersion, ensure_snapshot, head_to_version,
+    parse_scope, read_guidance, read_version, target_document_id, valid_guidance_hash,
+    validate_text, validate_version_for_project,
+};
+// Re-exported rather than privately imported: `story_context` pins guidance into
+// every snapshot it freezes and calls these three by path.
+pub(crate) use crate::context::guidance::{
+    pin_guidance_at, select_guidance_at, validate_guidance_at,
+};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashSet;
-
-const MAX_GUIDANCE_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -174,20 +183,6 @@ impl OwnedProject {
     }
 }
 
-#[derive(Debug, Clone)]
-struct GuidanceHead {
-    guidance_id: String,
-    version_id: String,
-    version: i64,
-    scope: GuidanceScope,
-    document_id: Option<String>,
-    text: String,
-    text_hash: String,
-    active: bool,
-    origin_message_id: Option<String>,
-    created_at: String,
-}
-
 type GuidanceRow = (
     String,
     String,
@@ -201,17 +196,6 @@ type GuidanceRow = (
     Option<String>,
     String,
 );
-
-fn validate_text(text: &str) -> CoreResult<()> {
-    if text.trim().is_empty() || text.len() > MAX_GUIDANCE_BYTES {
-        return Err(CoreError::new(
-            "InvalidRequest",
-            "Guidance must be nonempty and at most 16 KiB of UTF-8 text.",
-        ));
-    }
-    Ok(())
-}
-
 fn validate_scope(db: &Connection, request: &SaveGuidance) -> CoreResult<()> {
     match request.scope {
         GuidanceScope::Project => {
@@ -285,66 +269,6 @@ fn scope_as_str(scope: GuidanceScope) -> &'static str {
         GuidanceScope::Document => "document",
         GuidanceScope::Project => "project",
     }
-}
-
-fn parse_scope(value: &str) -> CoreResult<GuidanceScope> {
-    match value {
-        "request" => Ok(GuidanceScope::Request),
-        "document" => Ok(GuidanceScope::Document),
-        "project" => Ok(GuidanceScope::Project),
-        _ => Err(CoreError::new(
-            "InvalidProject",
-            "The project contains an invalid guidance scope.",
-        )),
-    }
-}
-
-fn head_to_version(head: GuidanceHead) -> CoreResult<GuidanceVersion> {
-    check_id(&head.guidance_id)?;
-    check_id(&head.version_id)?;
-    if head.version < 1 || !valid_guidance_hash(&head.text_hash) {
-        return Err(CoreError::new(
-            "InvalidProject",
-            "The project contains invalid guidance version metadata.",
-        ));
-    }
-    validate_text(&head.text)?;
-    if super::sha256_hex(head.text.as_bytes()) != head.text_hash {
-        return Err(CoreError::new(
-            "InvalidProject",
-            "The guidance text does not match its fingerprint.",
-        ));
-    }
-    match head.scope {
-        GuidanceScope::Project if head.document_id.is_some() => {
-            return Err(CoreError::new(
-                "InvalidProject",
-                "Project guidance contains a document target.",
-            ));
-        }
-        GuidanceScope::Document | GuidanceScope::Request if head.document_id.is_none() => {
-            return Err(CoreError::new(
-                "InvalidProject",
-                "Document guidance is missing its target.",
-            ));
-        }
-        _ => {}
-    }
-    for id in head.document_id.iter().chain(head.origin_message_id.iter()) {
-        check_id(id)?;
-    }
-    Ok(GuidanceVersion {
-        guidance_id: head.guidance_id,
-        version_id: head.version_id,
-        version: head.version.to_string(),
-        scope: head.scope,
-        document_id: head.document_id,
-        text: head.text,
-        text_hash: head.text_hash,
-        active: head.active,
-        origin_message_id: head.origin_message_id,
-        created_at: head.created_at,
-    })
 }
 
 fn read_head(db: &Connection, guidance_id: &str) -> CoreResult<Option<GuidanceHead>> {
@@ -485,141 +409,6 @@ fn insert_receipt(
     Ok(())
 }
 
-fn valid_guidance_hash(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn read_version(db: &Connection, version_id: &str) -> CoreResult<GuidanceVersion> {
-    check_id(version_id)?;
-    let head = db.query_row(
-        "SELECT guidance_id,version_id,version,scope,document_id,text,text_hash,active,origin_message_id,created_at
-         FROM author_guidance_versions WHERE version_id=?",
-        [version_id],
-        |row| {
-            Ok(GuidanceHead {
-                guidance_id: row.get(0)?,
-                version_id: row.get(1)?,
-                version: row.get(2)?,
-                scope: parse_scope(&row.get::<_, String>(3)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                document_id: row.get(4)?,
-                text: row.get(5)?,
-                text_hash: row.get(6)?,
-                active: row.get::<_, i64>(7)? != 0,
-                origin_message_id: row.get(8)?,
-                created_at: row.get(9)?,
-            })
-        },
-    )?;
-    head_to_version(head)
-}
-
-fn read_guidance(
-    db: &Connection,
-    project_id: &str,
-    document_id: &str,
-) -> CoreResult<Vec<GuidanceVersion>> {
-    check_id(project_id)?;
-    check_id(document_id)?;
-    let mut statement = db.prepare(
-        "SELECT h.guidance_id,v.version_id,v.guidance_id,v.version,v.scope,
-                v.document_id,v.text,v.text_hash,v.active,v.origin_message_id,v.created_at
-         FROM author_guidance_heads h JOIN author_guidance_versions v ON v.version_id=h.current_version_id
-         WHERE h.guidance_id=v.guidance_id AND v.active=1
-           AND ((v.scope='project' AND v.document_id IS NULL)
-             OR (v.scope IN ('document','request') AND v.document_id=?
-                 AND NOT (v.scope='request' AND EXISTS(SELECT 1 FROM guidance_request_uses u WHERE u.version_id=v.version_id))))
-         ORDER BY CASE v.scope WHEN 'project' THEN 0 WHEN 'document' THEN 1 ELSE 2 END,
-                  h.guidance_id",
-    )?;
-    let rows = statement.query_map([document_id], |row| {
-        Ok(GuidanceHead {
-            guidance_id: row.get(0)?,
-            version_id: row.get(1)?,
-            version: row.get(3)?,
-            scope: parse_scope(&row.get::<_, String>(4)?)
-                .map_err(|_| rusqlite::Error::InvalidQuery)?,
-            document_id: row.get(5)?,
-            text: row.get(6)?,
-            text_hash: row.get(7)?,
-            active: row.get::<_, i64>(8)? != 0,
-            origin_message_id: row.get(9)?,
-            created_at: row.get(10)?,
-        })
-    })?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(head_to_version(row?)?);
-    }
-    Ok(result)
-}
-
-fn target_document_id(db: &Connection, snapshot_id: &str) -> CoreResult<String> {
-    let manifest: String = db.query_row(
-        "SELECT manifest_json FROM story_snapshots WHERE id=?",
-        [snapshot_id],
-        |row| row.get(0),
-    )?;
-    let value: Value = serde_json::from_str(&manifest)?;
-    value
-        .pointer("/snapshot/target/documentId")
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| CoreError::new("InvalidContext", "The snapshot has no target document."))
-}
-
-fn ensure_snapshot(
-    db: &Connection,
-    snapshot_id: &str,
-    project_id: Option<&str>,
-) -> CoreResult<String> {
-    check_id(snapshot_id)?;
-    let owner: Option<(String, String)> = db
-        .query_row(
-            "SELECT project_id,operation_namespace FROM story_snapshots WHERE id=?",
-            [snapshot_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?;
-    let Some((owner, _)) = owner else {
-        return Err(CoreError::new(
-            "ContextNotFound",
-            "The story snapshot is not available.",
-        ));
-    };
-    if let Some(project_id) = project_id
-        && owner != project_id
-    {
-        return Err(CoreError::new(
-            "ContextProjectMismatch",
-            "The guidance snapshot belongs to another project.",
-        ));
-    }
-    Ok(owner)
-}
-
-/// Select the currently applicable guidance for a frozen target. Request
-/// guidance is returned only until a successful request consumes it.
-pub(super) fn select_guidance_at(
-    db: &Connection,
-    project_id: &str,
-    document_id: &str,
-    include_request: bool,
-) -> CoreResult<Vec<FrozenGuidance>> {
-    let rows = read_guidance(db, project_id, document_id)?;
-    let mut records = Vec::with_capacity(rows.len());
-    for version in rows {
-        if !include_request && version.scope == GuidanceScope::Request {
-            continue;
-        }
-        records.push(FrozenGuidance {
-            handle: format!("guidance-{}", version.version_id),
-            project_id: project_id.to_owned(),
-            version,
-        });
-    }
-    Ok(records)
-}
-
 /// Reuse only exact, still-active one-use instructions from the validated
 /// preceding attempt. New request guidance stays available for the next new
 /// request. The original consumption receipt remains the single use record.
@@ -663,38 +452,6 @@ pub(super) fn retry_request_guidance_at(
     }
     Ok(reused)
 }
-
-/// Persist the exact selected guidance beside a frozen story snapshot. This
-/// does not consume request guidance; callers do that after packet compile.
-pub(super) fn pin_guidance_at(
-    db: &Connection,
-    snapshot_id: &str,
-    records: &[FrozenGuidance],
-) -> CoreResult<()> {
-    let project_id = ensure_snapshot(db, snapshot_id, None)?;
-    let target_document = target_document_id(db, snapshot_id)?;
-    let mut handles = HashSet::new();
-    let mut versions = HashSet::new();
-    for record in records {
-        if record.project_id != project_id
-            || record.handle != format!("guidance-{}", record.version.version_id)
-            || !handles.insert(record.handle.clone())
-            || !versions.insert(record.version.version_id.clone())
-        {
-            return Err(CoreError::new(
-                "InvalidContext",
-                "The selected guidance contains a duplicate or foreign record.",
-            ));
-        }
-        validate_version_for_project(db, &project_id, &target_document, &record.version)?;
-        db.execute(
-            "INSERT INTO snapshot_guidance(snapshot_id,version_id,handle,text_hash) VALUES(?,?,?,?)",
-            params![snapshot_id, record.version.version_id, record.handle, record.version.text_hash],
-        )?;
-    }
-    Ok(())
-}
-
 pub(super) fn consume_request_guidance_at(
     db: &Connection,
     snapshot_id: &str,
@@ -750,59 +507,6 @@ fn consume_one(
             "GuidanceAlreadyUsed",
             "This request guidance was already consumed by another request.",
         ));
-    }
-    Ok(())
-}
-
-/// Verify that the supplied historical guidance records exactly match the
-/// snapshot pins and the immutable source rows. This is used before reading a
-/// packet or presenting a context inspector.
-pub(super) fn validate_guidance_at(
-    db: &Connection,
-    snapshot_id: &str,
-    project_id: &str,
-    records: &[FrozenGuidance],
-) -> CoreResult<()> {
-    ensure_snapshot(db, snapshot_id, Some(project_id))?;
-    let count: i64 = db.query_row(
-        "SELECT COUNT(*) FROM snapshot_guidance WHERE snapshot_id=?",
-        [snapshot_id],
-        |row| row.get(0),
-    )?;
-    if count != records.len() as i64 {
-        return Err(CoreError::new(
-            "InvalidContext",
-            "The frozen guidance pin set is incomplete.",
-        ));
-    }
-    let mut seen = HashSet::new();
-    let target = target_document_id(db, snapshot_id)?;
-    for record in records {
-        if record.project_id != project_id || !seen.insert(record.handle.clone()) {
-            return Err(CoreError::new(
-                "InvalidContext",
-                "The guidance pin set contains a foreign record or duplicates.",
-            ));
-        }
-        validate_version_for_project(db, project_id, &target, &record.version)?;
-        let expected: Option<(String, String)> = db
-            .query_row(
-                "SELECT version_id,text_hash FROM snapshot_guidance WHERE snapshot_id=? AND handle=?",
-                params![snapshot_id, record.handle],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        if expected
-            != Some((
-                record.version.version_id.clone(),
-                record.version.text_hash.clone(),
-            ))
-        {
-            return Err(CoreError::new(
-                "InvalidContext",
-                "A frozen guidance record does not match its snapshot pin.",
-            ));
-        }
     }
     Ok(())
 }
@@ -990,45 +694,6 @@ pub(crate) fn validate_guidance_storage(db: &Connection) -> CoreResult<()> {
                 "A request guidance use points to an unknown snapshot.",
             ));
         }
-    }
-    Ok(())
-}
-
-fn validate_version_for_project(
-    db: &Connection,
-    _project_id: &str,
-    target_document: &str,
-    expected: &GuidanceVersion,
-) -> CoreResult<()> {
-    let actual = db
-        .query_row(
-            "SELECT guidance_id,version_id,version,scope,document_id,text,text_hash,active,origin_message_id,created_at
-             FROM author_guidance_versions WHERE version_id=?",
-            [expected.version_id.as_str()],
-            |row| Ok(GuidanceHead {
-                guidance_id: row.get(0)?, version_id: row.get(1)?, version: row.get(2)?,
-                scope: parse_scope(&row.get::<_, String>(3)?).map_err(|_| rusqlite::Error::InvalidQuery)?, document_id: row.get(4)?,
-                text: row.get(5)?, text_hash: row.get(6)?, active: row.get::<_, i64>(7)? != 0, origin_message_id: row.get(8)?, created_at: row.get(9)?,
-            }),
-        )
-        .optional()?
-        .ok_or_else(|| CoreError::new("InvalidContext", "A pinned guidance version is unavailable."))?;
-    let actual = head_to_version(actual)?;
-    if actual != *expected {
-        return Err(CoreError::new(
-            "InvalidContext",
-            "A pinned guidance version failed its exact identity check.",
-        ));
-    }
-    if matches!(
-        expected.scope,
-        GuidanceScope::Document | GuidanceScope::Request
-    ) && expected.document_id.as_deref() != Some(target_document)
-    {
-        return Err(CoreError::new(
-            "GuidanceTargetMismatch",
-            "The guidance target does not match the snapshot document.",
-        ));
     }
     Ok(())
 }

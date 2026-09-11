@@ -1075,9 +1075,44 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    does it have a `ProjectSession` half, an actor-side half, a test hook, and which siblings
    does it call? That table is what picked `material_adoption` and what rules out the rest —
    `exports` is blocked on step 8 (`crate::transfer` is still in core), `import` likewise, and
-   everything else waits on `story_context` or `discussions`. The next real unit of work is
-   the `story_context` group, measured at 7,397 lines across five modules plus `project_chat`,
-   which is the "session's work" this document predicted rather than a turn's.
+   everything else waits on `story_context` or `discussions`.
+
+   **Then the `story_context` group, and the cycle inside it.** `story_context` is the next
+   bottleneck — `guidance`, `evidence_queries`, `context_packets`, `discussion_lookup`, `memory`
+   and `workshop` all wait on it — but it and `guidance` call each other: `story_context` pins
+   guidance into every snapshot it freezes, and `guidance`'s `retry_request_guidance_at` takes a
+   `story_context::FrozenContext`. Under the ordering rule that means they move *together*, into
+   whichever crate can hold both.
+
+   They cannot. `story_context` is `wns-story` (L4) and guidance authoring is `wns-conversation`
+   (L5), and the call direction differs by half: `story_context` → guidance-selection is an
+   L4→L5 *upward* call and illegal, while `guidance` → `FrozenContext` is L5→L4 and fine.
+
+   **So the fix is not to move both. It is to move one half of the cycle down** — and the halving
+   is already there in the file, because `wns_context::guidance` has held `FrozenGuidance`,
+   `GuidanceVersion` and `GuidanceScope` since step 6. The *frozen* half — row conversion, the
+   reads, and `select`/`pin`/`validate` at a snapshot — moved to L3. The *authoring* half — heads,
+   immutable versions, receipts, and the commands that append them — stays in core, bound for
+   `wns-conversation`.
+
+   Eleven items moved, and the authoring half still reaches down for five of them
+   (`GuidanceHead`, `parse_scope`, `head_to_version`, `valid_guidance_hash`, `validate_text`),
+   which is a legal downward edge from either core or L5. The upward call is gone and the
+   downward one is unchanged.
+
+   The general lesson is worth stating, because it is the first time this migration has needed
+   it:
+
+   > When two modules are mutually dependent but belong at different layers, move the **half
+   > that the higher-layer module calls** down to the seam between them — not both modules to
+   > one crate. A cycle is an ordering constraint, and it can be discharged from either end.
+
+   Moving both would have put guidance in a crate whose stated concern is the conversation that
+   *authors* it, which is a worse boundary than the one this produced.
+
+   With guidance resolved, the remaining `story_context` group is `story_context` +
+   `conversation_context` + `memory` + `project_chat_context`, measured at 6,363 lines — still
+   entangled with each other, and still the "session's work" this document predicted.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
