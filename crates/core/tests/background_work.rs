@@ -162,7 +162,7 @@ fn census_and_exact_stop_cover_discussion_and_memory_without_document_mutation()
         .begin_memory(memory_running.owner.clone())
         .expect("begin running memory");
 
-    let census = project.background_work().expect("read active census");
+    let census = project.work().census().expect("read active census");
     assert_eq!(census.errors.len(), 0);
     assert_eq!(census.items.len(), 4);
     assert_eq!(
@@ -188,7 +188,7 @@ fn census_and_exact_stop_cover_discussion_and_memory_without_document_mutation()
     // set. This is the close-admission race the native supervisor fences.
     let later = discussion(&project, &access, &first, "discussion-later");
     let stopped = project
-        .stop_background_work(census.clone())
+        .work().stop(census.clone())
         .expect("stop captured jobs");
     assert!(stopped.errors.is_empty());
     assert_eq!(stopped.items.len(), 4);
@@ -220,7 +220,7 @@ fn census_and_exact_stop_cover_discussion_and_memory_without_document_mutation()
     );
 
     let current = project
-        .background_work()
+        .work().census()
         .expect("read remaining active work");
     assert_eq!(current.items.len(), 3);
     assert_eq!(
@@ -305,14 +305,14 @@ fn interrupt_exact_census_preserves_partial_output_and_leaves_new_jobs_alive() {
         .unwrap();
     let memory_job = memory(&project, &access, &second, "memory-running");
     project.begin_memory(memory_job.owner.clone()).unwrap();
-    let census = project.background_work().unwrap();
+    let census = project.work().census().unwrap();
     assert_eq!(census.items.len(), 2);
 
     let mut wrong_namespace = census.clone();
     wrong_namespace.items[0].project_id = "foreign-project".into();
     assert_eq!(
         project
-            .interrupt_background_work(wrong_namespace)
+            .work().interrupt(wrong_namespace)
             .unwrap_err()
             .code,
         "WrongProjectSession"
@@ -320,7 +320,7 @@ fn interrupt_exact_census_preserves_partial_output_and_leaves_new_jobs_alive() {
 
     let later = discussion(&project, &access, &first, "discussion-after-census");
     let interrupted = project
-        .interrupt_background_work(census)
+        .work().interrupt(census)
         .expect("interrupt exact orphan census");
     assert!(interrupted.errors.is_empty());
     assert_eq!(interrupted.items.len(), 2);
@@ -346,7 +346,7 @@ fn interrupt_exact_census_preserves_partial_output_and_leaves_new_jobs_alive() {
             .contains("partial output before close")
     );
 
-    let remaining = project.background_work().unwrap();
+    let remaining = project.work().census().unwrap();
     assert_eq!(remaining.items.len(), 1);
     assert_eq!(remaining.items[0].id, later.id);
     assert_eq!(remaining.items[0].status, BackgroundWorkStatus::Queued);
@@ -380,7 +380,7 @@ fn stop_keeps_partial_errors_inspectable_and_rejects_bad_census_items() {
     let good = discussion(&project, &access, &first, "discussion-good");
     let bad = discussion(&project, &access, &second, "discussion-bad");
     let memory_job = memory(&project, &access, &first, "memory-for-corruption");
-    let census = project.background_work().unwrap();
+    let census = project.work().census().unwrap();
 
     let duplicate = BackgroundWork {
         items: census
@@ -392,7 +392,7 @@ fn stop_keeps_partial_errors_inspectable_and_rejects_bad_census_items() {
         errors: Vec::new(),
     };
     assert_eq!(
-        project.stop_background_work(duplicate).unwrap_err().code,
+        project.work().stop(duplicate).unwrap_err().code,
         "InvalidRequest"
     );
 
@@ -401,7 +401,7 @@ fn stop_keeps_partial_errors_inspectable_and_rejects_bad_census_items() {
         BackgroundWorkKind::Discussion => BackgroundWorkKind::Memory,
         BackgroundWorkKind::Memory => BackgroundWorkKind::Discussion,
     };
-    assert!(project.stop_background_work(wrong_kind).is_err());
+    assert!(project.work().stop(wrong_kind).is_err());
 
     // Keep all IDs and document ownership valid, but make the second
     // discussion point at a valid memory packet. Its Stop path then fails
@@ -416,7 +416,7 @@ fn stop_keeps_partial_errors_inspectable_and_rejects_bad_census_items() {
         .unwrap();
     drop(connection);
 
-    let stopped = project.stop_background_work(census).unwrap();
+    let stopped = project.work().stop(census).unwrap();
     assert_eq!(stopped.items.len(), 2);
     assert_eq!(stopped.errors.len(), 1);
     assert_eq!(stopped.errors[0].item.id, bad.id);
@@ -438,7 +438,7 @@ fn stop_keeps_partial_errors_inspectable_and_rejects_bad_census_items() {
             .status,
         BackgroundWorkStatus::Stopped
     );
-    let remaining = project.background_work().unwrap();
+    let remaining = project.work().census().unwrap();
     assert_eq!(remaining.items.len(), 1);
     assert_eq!(remaining.items[0].id, bad.id);
 }
@@ -457,7 +457,7 @@ fn recovery_copy_filters_historical_namespace_and_unattached_session_requires_re
         "create-source",
     );
     let source_run = discussion(&source, &source_access, &source_doc, "source-discussion");
-    let source_census = source.background_work().unwrap();
+    let source_census = source.work().census().unwrap();
     assert_eq!(source_census.items.len(), 1);
 
     let backup = temp.child("source.wnsbackup");
@@ -469,11 +469,11 @@ fn recovery_copy_filters_historical_namespace_and_unattached_session_requires_re
         source.info.operation_namespace
     );
     assert_eq!(
-        recovered.background_work().unwrap_err().code,
+        recovered.work().census().unwrap_err().code,
         "RecoveryRequired"
     );
     let recovered_access = recovered.attach("recovered-session".into()).unwrap();
-    assert!(recovered.background_work().unwrap().items.is_empty());
+    assert!(recovered.work().census().unwrap().items.is_empty());
 
     // Make a retained historical row look active under the source identity;
     // the recovered project's current namespace must still exclude it.
@@ -485,7 +485,7 @@ fn recovery_copy_filters_historical_namespace_and_unattached_session_requires_re
         )
         .unwrap();
     drop(connection);
-    assert!(recovered.background_work().unwrap().items.is_empty());
+    assert!(recovered.work().census().unwrap().items.is_empty());
     assert_eq!(
         recovered
             .document(recovered_access, "chapter".into())

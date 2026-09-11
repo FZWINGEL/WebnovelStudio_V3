@@ -42,9 +42,11 @@ pub mod workshop_generation;
 // them could move until they were separated.
 mod records;
 mod session;
+mod work_api;
 mod workshop_api;
 pub use records::*;
 pub use session::*;
+pub use work_api::*;
 pub use workshop_api::*;
 
 // Moved to wns-kernel (L0) so that wns-storage can be extracted without

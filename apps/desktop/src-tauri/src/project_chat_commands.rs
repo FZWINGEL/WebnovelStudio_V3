@@ -29,7 +29,7 @@ fn collect_project_activity(
     let mut snapshots = projects
         .into_iter()
         .map(|project| {
-            let active_work_count = project.background_work()?.items.len();
+            let active_work_count = project.work().census()?.items.len();
             let pending_drafts = project.project_chat_activity()?.pending_drafts;
             Ok(ProjectActivitySnapshot {
                 project_id: project.info.project_id.clone(),
@@ -798,6 +798,6 @@ mod tests {
         let after = fixture.conversation();
         assert_eq!(after.items.len(), before.items.len());
         assert_eq!(after.drafts.len(), before.drafts.len());
-        assert_eq!(fixture.project().background_work().unwrap().items.len(), 1);
+        assert_eq!(fixture.project().work().census().unwrap().items.len(), 1);
     }
 }

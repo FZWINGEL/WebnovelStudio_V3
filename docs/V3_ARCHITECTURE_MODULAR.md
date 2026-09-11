@@ -475,6 +475,21 @@ Accurate counts, all targets included:
 Widening `Handle`, its `queue` field, `Command` and `Reply` to `pub(crate)` is what a facade
 costs. That is the honest price of D2 and it does not shrink until the last group moves.
 
+**The WorkApi facade** (`projects/work_api.rs`) followed: three methods — `census`, `stop`,
+`interrupt` — for the background-work census, which is read on two unrelated paths (the
+project-chat write path and the app-close sequence) that each need three operations out of 28.
+
+**Two mistakes were made doing this, and they are the same mistake twice.** The first count of
+Workshop call sites forgot the test tree is a caller. The next one ran a blanket
+`find crates apps -exec sed` for the Work methods, which also rewrote the actor's own dispatch
+block in `session.rs` — where `project.background_work()` is a method on `OwnedProject`, a
+*different type* that happens to share the name. The compiler caught both.
+
+The shared cause is worth naming: **a method name does not identify a type.** Every enumeration
+of call sites in this migration has to answer two questions, not one — which receivers exist,
+and what type each one is. Grepping a method name gets you the first and silently guesses the
+second, and the guess is invisible until something compiles or does not.
+
 **Enforcement.** `crates/architecture` asserts, in CI-able tests: every layered crate exists
 with a manifest; every layered crate is a workspace member; no crate depends on a sibling or a
 higher layer; and no layered crate depends on `webnovel-core`. It ships a deliberately

@@ -208,8 +208,8 @@ fn status_counts_jobs_across_documents_and_projects_and_finish_waits_for_work() 
     assert_eq!(status.active_workers, 0);
     assert_eq!(status.pending_results, 0);
     assert!(!status.ready);
-    assert_eq!(first.background_work().unwrap().items.len(), 2);
-    assert_eq!(second.background_work().unwrap().items.len(), 1);
+    assert_eq!(first.work().census().unwrap().items.len(), 2);
+    assert_eq!(second.work().census().unwrap().items.len(), 1);
     assert_eq!(
         close.finish("status-count").unwrap_err().code,
         "CloseNotReady"
@@ -269,7 +269,7 @@ fn stop_persists_successes_and_cancels_http_workers_after_partial_database_failu
     assert!(!error.code.is_empty());
     assert!(good_signal.is_cancelled());
     assert!(bad_signal.is_cancelled());
-    let remaining = project.background_work().unwrap();
+    let remaining = project.work().census().unwrap();
     assert_eq!(remaining.items.len(), 1);
     assert_eq!(remaining.items[0].id, bad.id);
     let view = project
@@ -346,7 +346,7 @@ fn retained_discussion_and_memory_results_block_finish_and_orphan_settlement() {
         .unwrap();
     assert_eq!(view.runs[0].status, DiscussionRunStatus::Running);
     assert!(view.runs[0].output_text.contains("retained prefix"));
-    assert_eq!(project.background_work().unwrap().items.len(), 2);
+    assert_eq!(project.work().census().unwrap().items.len(), 2);
     runtime.cancel_close("retained-results").unwrap();
 }
 
@@ -382,7 +382,7 @@ fn stop_without_registered_workers_interrupts_orphan_and_preserves_prefix() {
         .unwrap();
     assert_eq!(view.runs[0].status, DiscussionRunStatus::Interrupted);
     assert!(view.runs[0].output_text.contains("retained prefix"));
-    assert_eq!(project.background_work().unwrap().items.len(), 0);
+    assert_eq!(project.work().census().unwrap().items.len(), 0);
     assert_eq!(
         project.document(access, "chapter".into()).unwrap().head,
         original_head

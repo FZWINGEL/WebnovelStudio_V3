@@ -37,7 +37,7 @@ impl CloseCoordinator {
             .all_open()?
             .into_iter()
             .map(|project| {
-                let work = project.background_work()?;
+                let work = project.work().census()?;
                 Ok((project, work))
             })
             .collect()
@@ -70,7 +70,7 @@ impl CloseCoordinator {
             // jobs; a cancelled close cannot target a subsequently created job.
             for (project, work) in captured {
                 self.runtime.close_activity(close_id)?;
-                let result = project.interrupt_background_work(work)?;
+                let result = project.work().interrupt(work)?;
                 if let Some(error) = result.errors.into_iter().next() {
                     return Err(error.error);
                 }
@@ -98,7 +98,7 @@ impl CloseCoordinator {
             let mut first_error = None;
             for (project, work) in captured {
                 self.runtime.close_activity(close_id)?;
-                match project.stop_background_work(work) {
+                match project.work().stop(work) {
                     Ok(result) => {
                         if first_error.is_none() {
                             first_error = result.errors.into_iter().next().map(|error| error.error);

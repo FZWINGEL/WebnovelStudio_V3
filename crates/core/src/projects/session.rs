@@ -434,27 +434,11 @@ impl ProjectSession {
     /// current operation namespace. The actor's current renderer access is
     /// used internally; callers cannot supply or rotate a lease for this
     /// inspection.
-    pub fn background_work(&self) -> CoreResult<background_work::BackgroundWork> {
-        self.request(Command::BackgroundWork)
-    }
-    /// Persist stop intent for the exact active-work census supplied by the
-    /// caller. Queued jobs become terminal stopped; running jobs become
-    /// stopping until their local workers settle. A later request is never
-    /// swept into this stop operation.
-    pub fn stop_background_work(
-        &self,
-        expected: background_work::BackgroundWork,
-    ) -> CoreResult<background_work::BackgroundWork> {
-        self.request(|reply| Command::StopBackgroundWork(expected, reply))
-    }
-    /// Settle orphaned durable jobs from the exact captured census after the
-    /// native supervisor has proved that its workers and pending results are
-    /// gone. Newer jobs are never swept into this settlement.
-    pub fn interrupt_background_work(
-        &self,
-        expected: background_work::BackgroundWork,
-    ) -> CoreResult<background_work::BackgroundWork> {
-        self.request(|reply| Command::InterruptBackgroundWork(expected, reply))
+    /// Narrow interface to the background-work concern: three methods that read
+    /// the active-work census, persist a stop intent, or interrupt. See
+    /// [`WorkApi`].
+    pub fn work(&self) -> WorkApi {
+        WorkApi::new(Arc::clone(&self.handle))
     }
 }
 
