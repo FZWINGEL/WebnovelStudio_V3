@@ -17,5 +17,5 @@
 //! `project_chat_context`.
 
 pub(crate) use wns_context::conversation::{
-    select_conversation_at, select_project_conversation_at, validate_conversation_at,
+    select_conversation_at, validate_conversation_at,
 };

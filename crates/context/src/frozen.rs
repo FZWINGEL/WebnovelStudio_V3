@@ -13,7 +13,7 @@
 
 use crate::chat_vocabulary::{
     ChatDispositionScope, ChatDispositionScopeKind, ChatUnknownTo, FrozenProjectChat,
-    FrozenProjectChatDisposition,
+    FrozenProjectChatDisposition, ProjectChatFreeze,
 };
 use crate::conversation::FrozenConversation;
 use crate::guidance::FrozenGuidance;
@@ -31,17 +31,19 @@ use crate::reviewed_knowledge::validate_frozen_knowledge_set;
 use crate::reviewed_promises::validate_frozen_promise_set;
 use crate::reviewed_summaries::validate_frozen_set as validate_frozen_summary;
 use crate::{
-    Audience, ContextPurpose, InformationPolicy, SourceDescriptor, SourceRef, StorySnapshot,
+    Audience, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy, SourceDescriptor,
+    SourceRef, StorySnapshot,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use wns_kernel::{
-    CoreError, CoreResult, DocumentRecord, DocumentRole, ProjectAccess, check_id, parse_version,
+    CoreError, CoreResult, DocumentRecord, DocumentRole, Head, ProjectAccess, check_id,
+    parse_version,
     sha256_hex,
 };
-use wns_storage::{read_document, read_document_with_role};
+use wns_storage::{checkpoint_at, read_document, read_document_with_role};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1099,4 +1101,213 @@ pub fn require_blank_anchor(db: &Connection, document_id: &str) -> CoreResult<Do
         ));
     }
     Ok(document)
+}
+
+// ---------------------------------------------------------------------------
+// The project-chat freeze.
+//
+// Moved down from `projects/story_context.rs` and
+// `projects/project_chat_context.rs`. This is the last half of a cycle that ran
+// three deep:
+//
+//   project_chat_context::freeze_project_chat_at
+//     -> story_context::freeze_project_chat_at
+//          -> project_chat_context::augment_frozen_chat
+//
+// `FreezeStory` moved first because `augment_frozen_chat` takes it, and it is
+// pure vocabulary: ProjectAccess and Head from the kernel, BasisKind,
+// ContextPurpose and InformationPolicy already here. No field of it needed
+// anything above L3, which is the whole reason the cycle can be discharged.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FreezeStory {
+    pub access: ProjectAccess,
+    pub operation_id: String,
+    pub expected: Head,
+    pub basis: BasisKind,
+    pub purpose: ContextPurpose,
+    pub policy: InformationPolicy,
+}
+
+pub fn augment_frozen_chat(
+    tx: &Connection,
+    request: &FreezeStory,
+    frozen: &mut FrozenContext,
+    chat: &ProjectChatFreeze,
+) -> CoreResult<()> {
+    check_id(&chat.conversation_id)?;
+    let (project, namespace, anchor): (String, String, String) = tx
+        .query_row(
+            "SELECT project_id,operation_namespace,anchor_document_id FROM project_conversations WHERE id=?",
+            [&chat.conversation_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            CoreError::new(
+                "ProjectConversationNotFound",
+                "The project conversation is not available in this project.",
+            )
+        })?;
+    if project != request.access.project_id || namespace != request.access.operation_namespace {
+        return Err(CoreError::new(
+            "ProjectConversationMismatch",
+            "The project conversation belongs to another project or operation namespace.",
+        ));
+    }
+    let _anchor_document = require_blank_anchor(tx, &anchor)?;
+
+    let mut seen_sources = HashSet::new();
+    for head in &chat.source_refs {
+        let document = read_document_with_role(tx, &head.document_id, DocumentRole::Ordinary)?;
+        if document.head != *head {
+            return Err(CoreError::new(
+                "SourceChanged",
+                "A project-chat source head is no longer current.",
+            ));
+        }
+        if !seen_sources.insert(head.document_id.clone()) {
+            return Err(CoreError::new(
+                "DuplicateSource",
+                "A project-chat source was attached more than once.",
+            ));
+        }
+        let exists = frozen.snapshot.sources.iter().any(|source| {
+            source.source.document_id == head.document_id
+                && source.source.body_hash == head.body_hash
+        });
+        if !exists {
+            return Err(CoreError::new(
+                "SourceOutsideFrozenContext",
+                "A project-chat source is not present in the frozen working context.",
+            ));
+        }
+    }
+
+    let mut seen_drafts = HashSet::new();
+    for draft_ref in &chat.task_draft_refs {
+        check_id(&draft_ref.head.document_id)?;
+        let requested_version = parse_version(&draft_ref.disposition_version)?;
+        if !seen_drafts.insert(draft_ref.head.document_id.clone()) {
+            return Err(CoreError::new(
+                "DuplicateDraft",
+                "A project-chat draft was attached more than once.",
+            ));
+        }
+        let row: Option<(String, String, String, i64)> = tx
+            .query_row(
+                "SELECT project_id,operation_namespace,disposition,disposition_version FROM assistant_drafts WHERE document_id=?",
+                [&draft_ref.head.document_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()?;
+        let Some((draft_project, draft_namespace, disposition, stored_version)) = row else {
+            return Err(CoreError::new(
+                "DraftNotFound",
+                "The selected project-chat draft is not available.",
+            ));
+        };
+        if draft_project != request.access.project_id
+            || draft_namespace != request.access.operation_namespace
+            || disposition != "pending"
+            || stored_version != requested_version
+        {
+            return Err(CoreError::new(
+                "DraftChanged",
+                "The selected draft is no longer pending at the requested disposition version.",
+            ));
+        }
+        let draft = read_document_with_role(
+            tx,
+            &draft_ref.head.document_id,
+            DocumentRole::AssistantDraft,
+        )?;
+        if draft.head != draft_ref.head {
+            return Err(CoreError::new(
+                "DraftChanged",
+                "The selected project-chat draft head is no longer current.",
+            ));
+        }
+        let revision = checkpoint_at(tx, &draft, "projectChatContext")?;
+        let source = SourceRef {
+            project_id: request.access.project_id.clone(),
+            document_id: revision.head.document_id.clone(),
+            revision_id: revision.id.clone(),
+            body_hash: revision.head.body_hash.clone(),
+        };
+        let descriptor = SourceDescriptor {
+            handle: revision.id,
+            source,
+            display_name: draft.title,
+            kind: SourceKind::AssistantDraft,
+            current: true,
+            coverage: CoverageLabel::Verbatim,
+            disclosure: Disclosure {
+                reader_position: None,
+                visible_to_characters: Vec::new(),
+                author_only: true,
+                future_private: false,
+            },
+            story_time: None,
+            dependencies: Vec::new(),
+        };
+        if frozen
+            .snapshot
+            .sources
+            .iter()
+            .any(|source| source.source == descriptor.source)
+        {
+            return Err(CoreError::new(
+                "DuplicateSource",
+                "A project-chat draft duplicates an existing frozen source.",
+            ));
+        }
+        frozen.snapshot.sources.push(descriptor);
+    }
+
+    frozen.project_chat = Some(FrozenProjectChat {
+        conversation_id: chat.conversation_id.clone(),
+        anchor_document_id: anchor.clone(),
+        operation_namespace: namespace.clone(),
+        source_refs: chat.source_refs.clone(),
+        task_draft_refs: chat.task_draft_refs.clone(),
+        prompt_recipe_version: chat.prompt_recipe_version.clone(),
+        dispositions: Vec::new(),
+    });
+    if frozen.snapshot.target.document_id != anchor
+        || !frozen.snapshot.sources.iter().any(|source| {
+            source.source == frozen.snapshot.target
+                && source.kind == SourceKind::ConversationControl
+        })
+    {
+        return Err(CoreError::new(
+            "InvalidProjectChatContext",
+            "Project chat must freeze its blank conversation anchor as the structural target.",
+        ));
+    }
+    frozen.conversation = crate::conversation::select_project_conversation_at(
+        tx,
+        &request.access,
+        &chat.conversation_id,
+        &anchor,
+        &request.policy.version,
+    )?;
+    let dispositions = collect_project_chat_dispositions(tx, frozen)?;
+    frozen
+        .project_chat
+        .as_mut()
+        .expect("project-chat metadata was just installed")
+        .dispositions = dispositions;
+
+    let handles: Vec<String> = frozen
+        .snapshot
+        .sources
+        .iter()
+        .map(|source| source.handle.clone())
+        .collect();
+    evaluate_sources(&frozen.snapshot, &frozen.policy, frozen.purpose, &handles)
+        .map_err(|error| CoreError::new("ContextSourceDisallowed", &error.to_string()))?;
+    Ok(())
 }

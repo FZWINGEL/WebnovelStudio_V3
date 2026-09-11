@@ -6,28 +6,20 @@
 //! needed to keep an ordinary working snapshot, an explicitly selected
 //! unadopted draft, and the conversation projection distinct.
 
-use super::conversation_context;
 use super::story_context::FrozenContext;
 // Moved to wns-context (L2); see project_chat.rs for why. Re-exported at the
 // historical path so `crate::projects::project_chat_context::{…}` resolves.
 pub use wns_context::chat_vocabulary::{
-    FrozenProjectChat, ProjectChatDraftRef, ProjectChatFreeze,
+    ProjectChatDraftRef, ProjectChatFreeze,
 };
-// The frozen validation half moved to `wns-context::frozen` (L3). It had to:
-// `story_context` calls `validate_frozen_project_chat` from `validate_pins`, so
-// at L5 it was an upward call blocking `story_context` from reaching
-// `wns-story`. Re-exported here for the freeze side above it, and for
-// `discussions` and `project_chat/store`.
-pub use wns_context::frozen::{
-    collect_project_chat_dispositions, project_chat_basis_is_current, require_blank_anchor,
-};
+// The frozen half moved to `wns-context::frozen` (L3): the validators, the
+// disposition projection, `augment_frozen_chat`, and `project_chat_basis_is_current`.
+// It had to, because `story_context` calls into all of them and at L5 those were
+// upward calls blocking `story_context` from reaching `wns-story`. What is left
+// here is the dispatch that wraps `story_context::freeze_project_chat_at`.
+pub use wns_context::frozen::project_chat_basis_is_current;
 use super::*;
-use crate::context::{
-    Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, SourceDescriptor, SourceKind,
-    SourceRef, evaluate_sources,
-};
-use rusqlite::OptionalExtension;
-use std::collections::HashSet;
+use crate::context::{Audience, BasisKind, ContextPurpose};
 
 
 /// Freeze a project-level discussion on top of the ordinary working context.
@@ -53,199 +45,18 @@ pub(crate) fn freeze_project_chat_at(
     super::story_context::freeze_project_chat_at(tx, request, payload_hash, chat)
 }
 
-/// Decorate an already-built working context before its immutable snapshot is
-/// persisted.  Kept separate so the normal freeze path remains byte-stable.
-pub(crate) fn augment_frozen_chat(
-    tx: &Connection,
-    request: &crate::projects::story_context::FreezeStory,
-    frozen: &mut FrozenContext,
-    chat: &ProjectChatFreeze,
-) -> CoreResult<()> {
-    check_id(&chat.conversation_id)?;
-    let (project, namespace, anchor): (String, String, String) = tx
-        .query_row(
-            "SELECT project_id,operation_namespace,anchor_document_id FROM project_conversations WHERE id=?",
-            [&chat.conversation_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()?
-        .ok_or_else(|| {
-            CoreError::new(
-                "ProjectConversationNotFound",
-                "The project conversation is not available in this project.",
-            )
-        })?;
-    if project != request.access.project_id || namespace != request.access.operation_namespace {
-        return Err(CoreError::new(
-            "ProjectConversationMismatch",
-            "The project conversation belongs to another project or operation namespace.",
-        ));
-    }
-    let _anchor_document = require_blank_anchor(tx, &anchor)?;
-
-    let mut seen_sources = HashSet::new();
-    for head in &chat.source_refs {
-        let document = read_document_with_role(tx, &head.document_id, DocumentRole::Ordinary)?;
-        if document.head != *head {
-            return Err(CoreError::new(
-                "SourceChanged",
-                "A project-chat source head is no longer current.",
-            ));
-        }
-        if !seen_sources.insert(head.document_id.clone()) {
-            return Err(CoreError::new(
-                "DuplicateSource",
-                "A project-chat source was attached more than once.",
-            ));
-        }
-        let exists = frozen.snapshot.sources.iter().any(|source| {
-            source.source.document_id == head.document_id
-                && source.source.body_hash == head.body_hash
-        });
-        if !exists {
-            return Err(CoreError::new(
-                "SourceOutsideFrozenContext",
-                "A project-chat source is not present in the frozen working context.",
-            ));
-        }
-    }
-
-    let mut seen_drafts = HashSet::new();
-    for draft_ref in &chat.task_draft_refs {
-        check_id(&draft_ref.head.document_id)?;
-        let requested_version = parse_version(&draft_ref.disposition_version)?;
-        if !seen_drafts.insert(draft_ref.head.document_id.clone()) {
-            return Err(CoreError::new(
-                "DuplicateDraft",
-                "A project-chat draft was attached more than once.",
-            ));
-        }
-        let row: Option<(String, String, String, i64)> = tx
-            .query_row(
-                "SELECT project_id,operation_namespace,disposition,disposition_version FROM assistant_drafts WHERE document_id=?",
-                [&draft_ref.head.document_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .optional()?;
-        let Some((draft_project, draft_namespace, disposition, stored_version)) = row else {
-            return Err(CoreError::new(
-                "DraftNotFound",
-                "The selected project-chat draft is not available.",
-            ));
-        };
-        if draft_project != request.access.project_id
-            || draft_namespace != request.access.operation_namespace
-            || disposition != "pending"
-            || stored_version != requested_version
-        {
-            return Err(CoreError::new(
-                "DraftChanged",
-                "The selected draft is no longer pending at the requested disposition version.",
-            ));
-        }
-        let draft = read_document_with_role(
-            tx,
-            &draft_ref.head.document_id,
-            DocumentRole::AssistantDraft,
-        )?;
-        if draft.head != draft_ref.head {
-            return Err(CoreError::new(
-                "DraftChanged",
-                "The selected project-chat draft head is no longer current.",
-            ));
-        }
-        let revision = checkpoint_at(tx, &draft, "projectChatContext")?;
-        let source = SourceRef {
-            project_id: request.access.project_id.clone(),
-            document_id: revision.head.document_id.clone(),
-            revision_id: revision.id.clone(),
-            body_hash: revision.head.body_hash.clone(),
-        };
-        let descriptor = SourceDescriptor {
-            handle: revision.id,
-            source,
-            display_name: draft.title,
-            kind: SourceKind::AssistantDraft,
-            current: true,
-            coverage: CoverageLabel::Verbatim,
-            disclosure: Disclosure {
-                reader_position: None,
-                visible_to_characters: Vec::new(),
-                author_only: true,
-                future_private: false,
-            },
-            story_time: None,
-            dependencies: Vec::new(),
-        };
-        if frozen
-            .snapshot
-            .sources
-            .iter()
-            .any(|source| source.source == descriptor.source)
-        {
-            return Err(CoreError::new(
-                "DuplicateSource",
-                "A project-chat draft duplicates an existing frozen source.",
-            ));
-        }
-        frozen.snapshot.sources.push(descriptor);
-    }
-
-    frozen.project_chat = Some(FrozenProjectChat {
-        conversation_id: chat.conversation_id.clone(),
-        anchor_document_id: anchor.clone(),
-        operation_namespace: namespace.clone(),
-        source_refs: chat.source_refs.clone(),
-        task_draft_refs: chat.task_draft_refs.clone(),
-        prompt_recipe_version: chat.prompt_recipe_version.clone(),
-        dispositions: Vec::new(),
-    });
-    if frozen.snapshot.target.document_id != anchor
-        || !frozen.snapshot.sources.iter().any(|source| {
-            source.source == frozen.snapshot.target
-                && source.kind == SourceKind::ConversationControl
-        })
-    {
-        return Err(CoreError::new(
-            "InvalidProjectChatContext",
-            "Project chat must freeze its blank conversation anchor as the structural target.",
-        ));
-    }
-    frozen.conversation = conversation_context::select_project_conversation_at(
-        tx,
-        &request.access,
-        &chat.conversation_id,
-        &anchor,
-        &request.policy.version,
-    )?;
-    let dispositions = collect_project_chat_dispositions(tx, frozen)?;
-    frozen
-        .project_chat
-        .as_mut()
-        .expect("project-chat metadata was just installed")
-        .dispositions = dispositions;
-
-    let handles: Vec<String> = frozen
-        .snapshot
-        .sources
-        .iter()
-        .map(|source| source.handle.clone())
-        .collect();
-    evaluate_sources(&frozen.snapshot, &frozen.policy, frozen.purpose, &handles)
-        .map_err(|error| CoreError::new("ContextSourceDisallowed", &error.to_string()))?;
-    Ok(())
-}
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    // Named at the crate that owns it — the module itself no longer calls it.
-    use wns_context::frozen::validate_frozen_project_chat;
+    // Named at the crates that own them — the module itself no longer calls them.
+    use wns_context::chat_vocabulary::FrozenProjectChat;
+    use wns_context::frozen::{augment_frozen_chat, require_blank_anchor, validate_frozen_project_chat};
+    use crate::context::evaluate_sources;
     use crate::context::{
         Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, EligibilityErrorCode,
-        InformationPolicy, StorySnapshot,
+        InformationPolicy, SourceDescriptor, SourceRef, StorySnapshot,
     };
+    use crate::context::SourceKind;
     use rusqlite::Connection;
     use serde_json::json;
     use std::collections::BTreeMap;

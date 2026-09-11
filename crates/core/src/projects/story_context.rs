@@ -4,8 +4,8 @@
 // consumes it, so it cannot sit above the compiler. Re-exported here so the
 // many `crate::projects::story_context::{…}` imports keep resolving.
 pub use wns_context::frozen::{
-    FrozenContext, SearchHit, SearchMode, SearchResult, SearchStory, SourcePassage, SourceRead,
-    search_saved_passages,
+    FreezeStory, FrozenContext, SearchHit, SearchMode, SearchResult, SearchStory, SourcePassage,
+    SourceRead, search_saved_passages,
 };
 // The decoder and the eligibility check moved down to `wns-context::frozen` with
 // the type they construct and the receipt they return. `decode_snapshot` is
@@ -20,7 +20,10 @@ use wns_context::frozen::{eligibility, eligibility_error};
 // function-level cycle with `freeze_project_chat_at` below and has to travel
 // with whichever half moves.
 use wns_context::chat_vocabulary::ProjectChatFreeze;
-use wns_context::frozen::validate_frozen_project_chat;
+// Named at the owning crate rather than through `project_chat_context`'s
+// re-export. The re-export resolves, but a re-export is not an edge — and this
+// was the last one standing between `story_context` and `wns-story`.
+use wns_context::frozen::{augment_frozen_chat, validate_frozen_project_chat};
 use super::*;
 use crate::context::navigation::{
     FrozenNavigationView, MAX_FROZEN_NAVIGATION_VIEWS, NavigationViewRef, navigation_content_hash,
@@ -61,17 +64,6 @@ pub struct DocumentAliases {
     pub document_id: String,
     pub aliases: Vec<String>,
     pub source_epoch: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct FreezeStory {
-    pub access: ProjectAccess,
-    pub operation_id: String,
-    pub expected: Head,
-    pub basis: BasisKind,
-    pub purpose: ContextPurpose,
-    pub policy: InformationPolicy,
 }
 
 /// Explicit reviewed-story continuation preparation. The target is the
@@ -1249,7 +1241,7 @@ fn freeze_story_impl(
         validate_frozen_summary(summary, &frozen.snapshot, &frozen.policy, frozen.purpose)?;
     }
     if let Some(chat) = chat {
-        project_chat_context::augment_frozen_chat(tx, request, &mut frozen, chat)?;
+        augment_frozen_chat(tx, request, &mut frozen, chat)?;
     }
     validate_frozen_navigation_views(
         &frozen.navigation_views,
