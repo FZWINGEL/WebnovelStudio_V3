@@ -4702,6 +4702,7 @@ dependencies = [
  "wns-providers",
  "wns-storage",
  "wns-story",
+ "wns-workshop",
  "zip",
 ]
 

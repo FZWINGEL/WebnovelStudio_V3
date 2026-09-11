@@ -16,7 +16,9 @@ pub use wns_story::workshop_vocabulary::{
 };
 // The run vocabulary now lives below both conversation crates; naming it there
 // is what will let this module move to `wns-workshop` without an L5→L5 edge.
+use wns_story::discussion_vocabulary::StartDiscussion;
 use wns_story::run_vocabulary::{DiscussionRun, DiscussionRunStatus, DiscussionStart};
+use wns_workshop::host::WorkshopHost;
 use super::*;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -2828,831 +2830,833 @@ fn resolve_workshop_relationship(
     Ok(Some(relationship))
 }
 
-impl OwnedProject {
-    /// Start is kept on the project actor so the workshop CAS, first-anchor
-    /// creation, frozen packet, and discussion run all use one serialized
-    /// project boundary. A durable workshop receipt is checked before reading
-    /// the current workshop version: retrying a lost acknowledgment must
-    /// replay the original run even when the editor has since advanced.
-    pub(super) fn start_workshop(
-        &mut self,
-        request: crate::projects::workshop_generation::StartWorkshop,
-    ) -> CoreResult<DiscussionStart> {
-        self.check_access(&request.access)?;
-        check_id(&request.operation_id)?;
-        let payload_hash = operation_payload(&request)?;
-        if let Some(value) = existing_workshop_receipt(
-            self.db()?,
-            &request.access.operation_namespace,
-            &request.operation_id,
-            "startWorkshop",
-            &payload_hash,
-        )? {
-            let started = serde_json::from_value(value).map_err(|error| {
-                CoreError::new(
-                    "InvalidProject",
-                    &format!("The workshop start receipt is invalid: {error}"),
-                )
-            })?;
-            return Ok(started);
-        }
 
-        // A process loss can occur after the discussion transaction commits but
-        // before the workshop receipt is written. In that narrow recovery
-        // window, the immutable discussion row is still the authoritative
-        // operation result. Match the frozen Workshop envelope and binding
-        // before replaying it; a different request remains an operation-ID
-        // collision.
-        if let Some(run_id) = self.existing_workshop_run(&request.access, &request.operation_id)? {
-            let started = crate::projects::discussions::read_start(self.db()?, &run_id)?;
-            let metadata = started
-                .packet
-                .messages
-                .iter()
-                .rev()
-                .find(|message| message.role == "user")
-                .map(|message| {
-                    crate::projects::workshop_generation::metadata_from_instruction(
-                        &message.content,
-                    )
-                })
-                .transpose()?;
-            let prepared_budget_json: String = self.db()?.query_row(
-                "SELECT request_json FROM context_packets WHERE id=?",
-                [&started.run.packet_id],
-                |row| row.get(0),
-            )?;
-            let prepared: crate::projects::context_packets::PrepareContext =
-                serde_json::from_str(&prepared_budget_json)?;
-            let budget_matches = prepared.budget.model_id == request.budget.model_id
-                && prepared.budget.context_window_tokens == request.budget.context_window_tokens
-                && prepared.budget.reserved_output_tokens == request.budget.reserved_output_tokens
-                && prepared.budget.reserved_protocol_tokens
-                    == request.budget.reserved_protocol_tokens;
-            let access_matches = prepared.access.project_id == request.access.project_id
-                && prepared.access.operation_namespace == request.access.operation_namespace
-                && prepared.operation_id == request.operation_id;
-            let matches = started.run.intent
-                == wns_story::discussion_vocabulary::FeedbackIntent::WorkshopExplore
-                && metadata.is_some_and(|metadata| metadata.exploration == request.exploration)
-                && started.packet.options.provider_binding == request.provider_binding
-                && budget_matches
-                && access_matches;
-            if !matches {
-                return Err(CoreError::new(
-                    "OperationIdReusedWithDifferentPayload",
-                    "This operation ID was already used for a different workshop request.",
-                ));
-            }
-            return Ok(started);
-        }
+// Actor-side logic, as free functions over `WorkshopHost`.
 
-        let (version, state) = read_state(self.db()?)?;
-        let expected_version = parse_version(&request.exploration.expected_version)?;
-        if version != expected_version {
-            return Err(CoreError::new(
-                "VersionConflict",
-                "The workshop changed; reload it before generating.",
-            ));
-        }
-        let session = state
-            .sessions
-            .iter()
-            .find(|session| session.id == request.exploration.session_id)
-            .cloned()
-            .ok_or_else(|| {
-                CoreError::new("InvalidWorkshop", "The workshop session does not exist.")
-            })?;
-        if session.working_generation != request.exploration.working_generation {
-            return Err(CoreError::new(
-                "InvalidWorkshop",
-                "The workshop working version changed before generation.",
-            ));
-        }
-        let relationship = resolve_workshop_relationship(self.db()?, &state, &session)?;
-        let anchor = self.ensure_workshop_anchor(&session)?;
-        let source_epoch = current_context_epoch(self.db()?)?;
-        let candidates = workshop_candidate_records(
-            self.db()?,
-            &self.info.project_id,
-            &request.access.operation_namespace,
-            Some(&source_epoch),
-        )?;
-        let mut included_alternatives = Vec::new();
-        for choice in session.choices.iter().filter(|choice| {
-            choice.status == CandidateChoiceStatus::Saved && choice.include_in_context
-        }) {
-            let Some((candidate_session_id, content, candidate_relationship)) =
-                candidates.get(&choice.candidate_id)
-            else {
-                return Err(CoreError::new(
-                    "InvalidWorkshopCandidate",
-                    "A selected workshop candidate is stale; generate a fresh result before continuing.",
-                ));
-            };
-            if !session_is_ancestor(&state, &session.id, candidate_session_id) {
-                return Err(CoreError::new(
-                    "InvalidWorkshopCandidate",
-                    "A selected workshop candidate belongs to another exploration branch.",
-                ));
-            }
-            if !candidate_relationship_matches_session(
-                &state,
-                &session.id,
-                candidate_relationship.as_ref(),
-            ) {
-                return Err(CoreError::new(
-                    "InvalidWorkshopCandidate",
-                    "A selected workshop candidate belongs to a different relationship scope.",
-                ));
-            }
-            included_alternatives.push(content.clone());
-        }
-        let mut chosen_details = Vec::new();
-        let mut fixed_details = Vec::new();
-        for decision in &state.decisions {
-            let in_lineage = decision.status == WorkshopDecisionStatus::Chosen
-                && session_is_ancestor(&state, &session.id, &decision.session_id);
-            let relevant_fixed = decision.fixed
-                && fixed_decision_is_relevant(&state, &session, decision, relationship.as_ref());
-            let needs_full_protected_body = relevant_fixed && decision.protected_text.is_empty();
-            if !in_lineage && !needs_full_protected_body {
-                continue;
-            }
-            // Resolve the exact saved revision only for chosen lineage
-            // material or a relevant fixed decision whose protection is a
-            // whole source body. Unrelated fixed decisions stay out of the
-            // packet entirely.
-            let revision = read_revision(self.db()?, &decision.revision_id)?;
-            let body = body_text(&revision.body);
-            if in_lineage {
-                chosen_details.push(format!(
-                    "{}: {}\nAuthor rationale: {}",
-                    decision.title, body, decision.rationale
-                ));
-            }
-            if needs_full_protected_body {
-                fixed_details.push(body);
-            }
-        }
-        let generation = crate::projects::workshop_generation::from_session_with_material(
-            request.clone(),
-            &session,
-            &state,
-            anchor.head,
-            crate::projects::workshop_generation::WorkshopResolvedMaterial {
-                chosen_details,
-                included_alternatives,
-                fixed_details,
-                relationship,
-            },
-        )?;
-        let (discussion, _metadata) = generation.into_discussion()?;
-        let started = self.start_discussion(discussion)?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute(
-            "INSERT INTO workshop_receipts(operation_namespace,operation_id,operation_kind,payload_hash,result_json) VALUES(?,?,?,?,?)",
-            params![
-                request.access.operation_namespace,
-                request.operation_id,
-                "startWorkshop",
-                payload_hash,
-                serde_json::to_string(&started)?
-            ],
-        )?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(started)
-    }
-
-    fn existing_workshop_run(
-        &self,
-        access: &ProjectAccess,
-        operation_id: &str,
-    ) -> CoreResult<Option<String>> {
-        self.db()?
-            .query_row(
-                "SELECT id FROM discussion_runs WHERE project_id=? AND operation_namespace=? AND operation_id=?",
-                params![access.project_id, access.operation_namespace, operation_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(CoreError::from)
-    }
-
-    fn ensure_workshop_anchor(&mut self, session: &WorkshopSession) -> CoreResult<DocumentRecord> {
-        let document_id = session.anchor_document_id.as_deref().ok_or_else(|| {
+/// Start is kept on the project actor so the workshop CAS, first-anchor
+/// creation, frozen packet, and discussion run all use one serialized
+/// project boundary. A durable workshop receipt is checked before reading
+/// the current workshop version: retrying a lost acknowledgment must
+/// replay the original run even when the editor has since advanced.
+pub fn start_workshop(
+    host: &mut impl WorkshopHost,
+    request: crate::projects::workshop_generation::StartWorkshop,
+) -> CoreResult<DiscussionStart> {
+    host.check_access(&request.access)?;
+    check_id(&request.operation_id)?;
+    let payload_hash = operation_payload(&request)?;
+    if let Some(value) = existing_workshop_receipt(
+        host.db()?,
+        &request.access.operation_namespace,
+        &request.operation_id,
+        "startWorkshop",
+        &payload_hash,
+    )? {
+        let started = serde_json::from_value(value).map_err(|error| {
             CoreError::new(
-                "InvalidWorkshop",
-                "The workshop session has no anchor document for generation.",
+                "InvalidProject",
+                &format!("The workshop start receipt is invalid: {error}"),
             )
         })?;
-        match read_document(self.db()?, document_id) {
-            Ok(document) => return Ok(document),
-            Err(error)
-                if error.code == "DocumentNotFound" && document_id.starts_with("workshop-") => {}
-            Err(error) => return Err(error),
-        }
-        let body = json!({
-            "schemaVersion": 1,
-            "body": {
-                "type": "doc",
-                "content": [{"type":"paragraph","attrs":{"id":document_id},"content":[]}]
-            }
-        });
-        let (canonical, hash) = canonical_body(&body)?;
-        let title = if session.working_title.trim().is_empty() {
-            if session.title.trim().is_empty() {
-                "Workshop anchor"
-            } else {
-                &session.title
-            }
-        } else {
-            &session.working_title
-        };
-        validate_title(title)?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let inserted = tx.execute(
-            "INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash) VALUES(?,?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM documents WHERE role='ordinary'),0,1,?,?) ON CONFLICT(id) DO NOTHING",
-            params![document_id, "note", title, serde_json::to_string(&canonical)?, hash],
+        return Ok(started);
+    }
+
+    // A process loss can occur after the discussion transaction commits but
+    // before the workshop receipt is written. In that narrow recovery
+    // window, the immutable discussion row is still the authoritative
+    // operation result. Match the frozen Workshop envelope and binding
+    // before replaying it; a different request remains an operation-ID
+    // collision.
+    if let Some(run_id) = existing_workshop_run(host, &request.access, &request.operation_id)? {
+        let started = host.read_start(&run_id)?;
+        let metadata = started
+            .packet
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == "user")
+            .map(|message| {
+                crate::projects::workshop_generation::metadata_from_instruction(
+                    &message.content,
+                )
+            })
+            .transpose()?;
+        let prepared_budget_json: String = host.db()?.query_row(
+            "SELECT request_json FROM context_packets WHERE id=?",
+            [&started.run.packet_id],
+            |row| row.get(0),
         )?;
-        if inserted == 1 {
-            tx.execute(
-                "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
-                [],
-            )?;
+        let prepared: crate::projects::context_packets::PrepareContext =
+            serde_json::from_str(&prepared_budget_json)?;
+        let budget_matches = prepared.budget.model_id == request.budget.model_id
+            && prepared.budget.context_window_tokens == request.budget.context_window_tokens
+            && prepared.budget.reserved_output_tokens == request.budget.reserved_output_tokens
+            && prepared.budget.reserved_protocol_tokens
+                == request.budget.reserved_protocol_tokens;
+        let access_matches = prepared.access.project_id == request.access.project_id
+            && prepared.access.operation_namespace == request.access.operation_namespace
+            && prepared.operation_id == request.operation_id;
+        let matches = started.run.intent
+            == wns_story::discussion_vocabulary::FeedbackIntent::WorkshopExplore
+            && metadata.is_some_and(|metadata| metadata.exploration == request.exploration)
+            && started.packet.options.provider_binding == request.provider_binding
+            && budget_matches
+            && access_matches;
+        if !matches {
+            return Err(CoreError::new(
+                "OperationIdReusedWithDifferentPayload",
+                "This operation ID was already used for a different workshop request.",
+            ));
         }
+        return Ok(started);
+    }
+
+    let (version, state) = read_state(host.db()?)?;
+    let expected_version = parse_version(&request.exploration.expected_version)?;
+    if version != expected_version {
+        return Err(CoreError::new(
+            "VersionConflict",
+            "The workshop changed; reload it before generating.",
+        ));
+    }
+    let session = state
+        .sessions
+        .iter()
+        .find(|session| session.id == request.exploration.session_id)
+        .cloned()
+        .ok_or_else(|| {
+            CoreError::new("InvalidWorkshop", "The workshop session does not exist.")
+        })?;
+    if session.working_generation != request.exploration.working_generation {
+        return Err(CoreError::new(
+            "InvalidWorkshop",
+            "The workshop working version changed before generation.",
+        ));
+    }
+    let relationship = resolve_workshop_relationship(host.db()?, &state, &session)?;
+    let anchor = ensure_workshop_anchor(host, &session)?;
+    let source_epoch = current_context_epoch(host.db()?)?;
+    let candidates = workshop_candidate_records(
+        host.db()?,
+        &host.info().project_id,
+        &request.access.operation_namespace,
+        Some(&source_epoch),
+    )?;
+    let mut included_alternatives = Vec::new();
+    for choice in session.choices.iter().filter(|choice| {
+        choice.status == CandidateChoiceStatus::Saved && choice.include_in_context
+    }) {
+        let Some((candidate_session_id, content, candidate_relationship)) =
+            candidates.get(&choice.candidate_id)
+        else {
+            return Err(CoreError::new(
+                "InvalidWorkshopCandidate",
+                "A selected workshop candidate is stale; generate a fresh result before continuing.",
+            ));
+        };
+        if !session_is_ancestor(&state, &session.id, candidate_session_id) {
+            return Err(CoreError::new(
+                "InvalidWorkshopCandidate",
+                "A selected workshop candidate belongs to another exploration branch.",
+            ));
+        }
+        if !candidate_relationship_matches_session(
+            &state,
+            &session.id,
+            candidate_relationship.as_ref(),
+        ) {
+            return Err(CoreError::new(
+                "InvalidWorkshopCandidate",
+                "A selected workshop candidate belongs to a different relationship scope.",
+            ));
+        }
+        included_alternatives.push(content.clone());
+    }
+    let mut chosen_details = Vec::new();
+    let mut fixed_details = Vec::new();
+    for decision in &state.decisions {
+        let in_lineage = decision.status == WorkshopDecisionStatus::Chosen
+            && session_is_ancestor(&state, &session.id, &decision.session_id);
+        let relevant_fixed = decision.fixed
+            && fixed_decision_is_relevant(&state, &session, decision, relationship.as_ref());
+        let needs_full_protected_body = relevant_fixed && decision.protected_text.is_empty();
+        if !in_lineage && !needs_full_protected_body {
+            continue;
+        }
+        // Resolve the exact saved revision only for chosen lineage
+        // material or a relevant fixed decision whose protection is a
+        // whole source body. Unrelated fixed decisions stay out of the
+        // packet entirely.
+        let revision = read_revision(host.db()?, &decision.revision_id)?;
+        let body = body_text(&revision.body);
+        if in_lineage {
+            chosen_details.push(format!(
+                "{}: {}\nAuthor rationale: {}",
+                decision.title, body, decision.rationale
+            ));
+        }
+        if needs_full_protected_body {
+            fixed_details.push(body);
+        }
+    }
+    let generation = crate::projects::workshop_generation::from_session_with_material(
+        request.clone(),
+        &session,
+        &state,
+        anchor.head,
+        crate::projects::workshop_generation::WorkshopResolvedMaterial {
+            chosen_details,
+            included_alternatives,
+            fixed_details,
+            relationship,
+        },
+    )?;
+    let (discussion, _metadata) = generation.into_discussion()?;
+    let started = host.start_discussion(discussion)?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    tx.execute(
+        "INSERT INTO workshop_receipts(operation_namespace,operation_id,operation_kind,payload_hash,result_json) VALUES(?,?,?,?,?)",
+        params![
+            request.access.operation_namespace,
+            request.operation_id,
+            "startWorkshop",
+            payload_hash,
+            serde_json::to_string(&started)?
+        ],
+    )?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(started)
+}
+
+pub fn existing_workshop_run(
+    host: &impl WorkshopHost,
+    access: &ProjectAccess,
+    operation_id: &str,
+) -> CoreResult<Option<String>> {
+    host.db()?
+        .query_row(
+            "SELECT id FROM discussion_runs WHERE project_id=? AND operation_namespace=? AND operation_id=?",
+            params![access.project_id, access.operation_namespace, operation_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(CoreError::from)
+}
+
+pub fn ensure_workshop_anchor(host: &mut impl WorkshopHost, session: &WorkshopSession) -> CoreResult<DocumentRecord> {
+    let document_id = session.anchor_document_id.as_deref().ok_or_else(|| {
+        CoreError::new(
+            "InvalidWorkshop",
+            "The workshop session has no anchor document for generation.",
+        )
+    })?;
+    match read_document(host.db()?, document_id) {
+        Ok(document) => return Ok(document),
+        Err(error)
+            if error.code == "DocumentNotFound" && document_id.starts_with("workshop-") => {}
+        Err(error) => return Err(error),
+    }
+    let body = json!({
+        "schemaVersion": 1,
+        "body": {
+            "type": "doc",
+            "content": [{"type":"paragraph","attrs":{"id":document_id},"content":[]}]
+        }
+    });
+    let (canonical, hash) = canonical_body(&body)?;
+    let title = if session.working_title.trim().is_empty() {
+        if session.title.trim().is_empty() {
+            "Workshop anchor"
+        } else {
+            &session.title
+        }
+    } else {
+        &session.working_title
+    };
+    validate_title(title)?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let inserted = tx.execute(
+        "INSERT INTO documents(id,kind,title,position,working_version,schema_version,body_json,body_hash) VALUES(?,?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM documents WHERE role='ordinary'),0,1,?,?) ON CONFLICT(id) DO NOTHING",
+        params![document_id, "note", title, serde_json::to_string(&canonical)?, hash],
+    )?;
+    if inserted == 1 {
+        tx.execute(
+            "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
+            [],
+        )?;
+    }
+    tx.commit().map_err(CoreError::uncertain)?;
+    read_document(host.db()?, document_id)
+}
+
+pub fn read_workshop(host: &impl WorkshopHost, access: ProjectAccess) -> CoreResult<WorkshopView> {
+    host.check_access(&access)?;
+    let (version, state) = read_state(host.db()?)?;
+    validate_session_relationship_references(&state)?;
+    let source_epoch = current_context_epoch(host.db()?)?;
+    Ok(WorkshopView {
+        version: parse_stored_version(version)?,
+        results: read_workshop_results(
+            host.db()?,
+            &state,
+            &host.info().project_id,
+            &access.operation_namespace,
+            &source_epoch,
+        )?,
+        state,
+    })
+}
+
+pub fn save_workshop(host: &mut impl WorkshopHost, request: SaveWorkshop) -> CoreResult<WorkshopSnapshot> {
+    host.check_access(&request.access)?;
+    check_id(&request.operation_id)?;
+    let expected = parse_version(&request.expected_version)?;
+    let payload_hash = operation_payload(&request)?;
+    let current_project_id = host.info().project_id.clone();
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if let Some(result) = existing_workshop_receipt(
+        &tx,
+        &request.access.operation_namespace,
+        &request.operation_id,
+        "saveWorkshop",
+        &payload_hash,
+    )? {
+        let snapshot: WorkshopSnapshot = serde_json::from_value(result)?;
         tx.commit().map_err(CoreError::uncertain)?;
-        read_document(self.db()?, document_id)
+        return Ok(snapshot);
     }
-
-    pub(super) fn read_workshop(&self, access: ProjectAccess) -> CoreResult<WorkshopView> {
-        self.check_access(&access)?;
-        let (version, state) = read_state(self.db()?)?;
-        validate_session_relationship_references(&state)?;
-        let source_epoch = current_context_epoch(self.db()?)?;
-        Ok(WorkshopView {
-            version: parse_stored_version(version)?,
-            results: read_workshop_results(
-                self.db()?,
-                &state,
-                &self.info.project_id,
-                &access.operation_namespace,
-                &source_epoch,
-            )?,
-            state,
-        })
+    let (current_version, current_state) = read_state(&tx)?;
+    validate_state_references(&tx, &request.state, Some(&current_state), &HashSet::new())?;
+    validate_relationship_freshness(&tx, &request.state, Some(&current_state))?;
+    let source_epoch = current_context_epoch(&tx)?;
+    validate_candidate_provenance(
+        &tx,
+        &request.state,
+        &current_project_id,
+        &request.access.operation_namespace,
+        &source_epoch,
+        None,
+        &[],
+    )?;
+    if current_version != expected {
+        return Err(CoreError::new(
+            "VersionConflict",
+            "The workshop changed; reload it before saving.",
+        ));
     }
-
-    pub(super) fn save_workshop(&mut self, request: SaveWorkshop) -> CoreResult<WorkshopSnapshot> {
-        self.check_access(&request.access)?;
-        check_id(&request.operation_id)?;
-        let expected = parse_version(&request.expected_version)?;
-        let payload_hash = operation_payload(&request)?;
-        let current_project_id = self.info.project_id.clone();
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(result) = existing_workshop_receipt(
+    let changed = request.state != current_state;
+    let version = if changed {
+        expected.checked_add(1).ok_or_else(|| {
+            CoreError::new("VersionLimit", "The workshop version limit was reached.")
+        })?
+    } else {
+        expected
+    };
+    if changed {
+        store_state(&tx, version, &request.state)?;
+        insert_snapshot(
             &tx,
+            &current_project_id,
             &request.access.operation_namespace,
             &request.operation_id,
-            "saveWorkshop",
+            version,
             &payload_hash,
-        )? {
-            let snapshot: WorkshopSnapshot = serde_json::from_value(result)?;
-            tx.commit().map_err(CoreError::uncertain)?;
-            return Ok(snapshot);
-        }
-        let (current_version, current_state) = read_state(&tx)?;
-        validate_state_references(&tx, &request.state, Some(&current_state), &HashSet::new())?;
-        validate_relationship_freshness(&tx, &request.state, Some(&current_state))?;
-        let source_epoch = current_context_epoch(&tx)?;
-        validate_candidate_provenance(
-            &tx,
             &request.state,
-            &current_project_id,
-            &request.access.operation_namespace,
-            &source_epoch,
-            None,
-            &[],
         )?;
-        if current_version != expected {
-            return Err(CoreError::new(
-                "VersionConflict",
-                "The workshop changed; reload it before saving.",
-            ));
-        }
-        let changed = request.state != current_state;
-        let version = if changed {
-            expected.checked_add(1).ok_or_else(|| {
-                CoreError::new("VersionLimit", "The workshop version limit was reached.")
-            })?
-        } else {
-            expected
-        };
-        if changed {
-            store_state(&tx, version, &request.state)?;
-            insert_snapshot(
-                &tx,
-                &current_project_id,
-                &request.access.operation_namespace,
-                &request.operation_id,
+    }
+    let snapshot = workshop_snapshot(version, request.state.clone())?;
+    tx.execute(
+        "INSERT INTO workshop_receipts(operation_namespace,operation_id,operation_kind,payload_hash,result_json) VALUES(?,?,?,?,?)",
+        params![request.access.operation_namespace, request.operation_id, "saveWorkshop", payload_hash, serde_json::to_string(&snapshot)?],
+    )?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(snapshot)
+}
+
+pub fn workshop_history(
+    host: &impl WorkshopHost,
+    access: ProjectAccess,
+) -> CoreResult<Vec<WorkshopSnapshot>> {
+    host.check_access(&access)?;
+    let db = host.db()?;
+    let mut statement = db.prepare(
+        "SELECT project_id,operation_namespace,operation_id,version,payload_hash,state_json,state_hash FROM workshop_snapshots ORDER BY version DESC,id DESC",
+    )?;
+    let mut output = Vec::new();
+    for row in statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, String>(6)?,
+        ))
+    })? {
+        let (project_id, namespace, operation, version, payload, state, hash) = row?;
+        let parsed = validate_snapshot_authority(
+            db,
+            WorkshopSnapshotOrigin {
+                project_id: &project_id,
+                namespace: &namespace,
+                operation: &operation,
                 version,
-                &payload_hash,
-                &request.state,
-            )?;
-        }
-        let snapshot = workshop_snapshot(version, request.state.clone())?;
-        tx.execute(
-            "INSERT INTO workshop_receipts(operation_namespace,operation_id,operation_kind,payload_hash,result_json) VALUES(?,?,?,?,?)",
-            params![request.access.operation_namespace, request.operation_id, "saveWorkshop", payload_hash, serde_json::to_string(&snapshot)?],
+                payload_hash: &payload,
+            },
+            &state,
+            &hash,
         )?;
+        output.push(workshop_snapshot(version, parsed)?);
+    }
+    Ok(output)
+}
+
+pub fn preview_workshop_adoption(
+    host: &mut impl WorkshopHost,
+    request: PreviewWorkshopAdoption,
+) -> CoreResult<WorkshopAdoptionPreview> {
+    host.check_access(&request.access)?;
+    check_id(&request.session_id)?;
+    let expected = parse_version(&request.expected_version)?;
+    validate_id_list(&request.candidate_ids, "adoption candidates")?;
+    validate_text(&request.rationale, "adoption rationale", MAX_TEXT_BYTES)?;
+    for text in &request.protected_text {
+        validate_text(text, "protected text", MAX_DETAIL_BYTES)?;
+    }
+    let (version, state) = read_state(host.db()?)?;
+    if version != expected {
+        return Err(CoreError::new(
+            "VersionConflict",
+            "The workshop changed; reload before previewing adoption.",
+        ));
+    }
+    if !state
+        .sessions
+        .iter()
+        .any(|session| session.id == request.session_id)
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The adoption session does not exist.",
+        ));
+    }
+    let mut targets = request.targets.clone();
+    let before =
+        validate_adoption_targets(host.db()?, &state, &request.session_id, &mut targets)?;
+    let target_ids = targets
+        .iter()
+        .map(|target| target.document_id.clone())
+        .collect::<HashSet<_>>();
+    validate_state_references(host.db()?, &state, None, &target_ids)?;
+    let source_epoch = current_context_epoch(host.db()?)?;
+    validate_candidate_provenance(
+        host.db()?,
+        &state,
+        &host.info().project_id,
+        &request.access.operation_namespace,
+        &source_epoch,
+        Some(&request.session_id),
+        &request.candidate_ids,
+    )?;
+    let relationships =
+        validate_relationship_drafts(host.db()?, &state, &targets, &request.relationships)?;
+    let impacts = build_adoption_impacts(
+        host.db()?,
+        &host.info().project_id,
+        &request.access.operation_namespace,
+        &source_epoch,
+        &request.candidate_ids,
+        &targets,
+        &request.impact_drafts,
+    )?;
+    let endpoint_sources = relationship_endpoint_sources(host.db()?, &request.relationships)?;
+    validate_protected_texts_for_targets(
+        host.db()?,
+        &state,
+        &request.session_id,
+        &before,
+        &targets,
+        &request.protected_text,
+    )?;
+    validate_target_dependencies(&state, &targets, host.db()?)?;
+    let request_json =
+        serde_json::to_string(&crate::canonicalize_value(serde_json::to_value(&request)?))?;
+    let preview = WorkshopAdoptionPreview {
+        id: new_id(),
+        session_id: request.session_id,
+        expected_version: request.expected_version,
+        targets,
+        before,
+        rationale: request.rationale,
+        protected_text: request.protected_text,
+        candidate_ids: request.candidate_ids.clone(),
+        relationships,
+        endpoint_sources,
+        impacts,
+    };
+    let preview_json =
+        serde_json::to_string(&crate::canonicalize_value(serde_json::to_value(&preview)?))?;
+    let preview_hash = sha256_hex(preview_json.as_bytes());
+    let current_project_id = host.info().project_id.clone();
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    tx.execute(
+        "INSERT INTO workshop_adoption_previews(id,project_id,operation_namespace,session_id,expected_version,payload_hash,request_json,preview_json,preview_hash) VALUES(?,?,?,?,?,?,?,?,?)",
+        params![preview.id, current_project_id, request.access.operation_namespace, preview.session_id, expected, sha256_hex(request_json.as_bytes()), request_json, preview_json, preview_hash],
+    )?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(preview)
+}
+
+pub fn adopt_workshop(
+    host: &mut impl WorkshopHost,
+    access: ProjectAccess,
+    operation_id: String,
+    preview_id: String,
+) -> CoreResult<WorkshopAdoptionAck> {
+    host.check_access(&access)?;
+    check_id(&operation_id)?;
+    check_id(&preview_id)?;
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct AdoptRequest<'a> {
+        access: &'a ProjectAccess,
+        operation_id: &'a str,
+        preview_id: &'a str,
+    }
+    let payload_hash = operation_payload(&AdoptRequest {
+        access: &access,
+        operation_id: &operation_id,
+        preview_id: &preview_id,
+    })?;
+    let current_project_id = host.info().project_id.clone();
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if let Some(result) = existing_workshop_receipt(
+        &tx,
+        &access.operation_namespace,
+        &operation_id,
+        "adoptWorkshop",
+        &payload_hash,
+    )? {
+        let ack: WorkshopAdoptionAck = serde_json::from_value(result)?;
         tx.commit().map_err(CoreError::uncertain)?;
-        Ok(snapshot)
+        return Ok(ack);
     }
-
-    pub(super) fn workshop_history(
-        &self,
-        access: ProjectAccess,
-    ) -> CoreResult<Vec<WorkshopSnapshot>> {
-        self.check_access(&access)?;
-        let db = self.db()?;
-        let mut statement = db.prepare(
-            "SELECT project_id,operation_namespace,operation_id,version,payload_hash,state_json,state_hash FROM workshop_snapshots ORDER BY version DESC,id DESC",
-        )?;
-        let mut output = Vec::new();
-        for row in statement.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-            ))
-        })? {
-            let (project_id, namespace, operation, version, payload, state, hash) = row?;
-            let parsed = validate_snapshot_authority(
-                db,
-                WorkshopSnapshotOrigin {
-                    project_id: &project_id,
-                    namespace: &namespace,
-                    operation: &operation,
-                    version,
-                    payload_hash: &payload,
-                },
-                &state,
-                &hash,
-            )?;
-            output.push(workshop_snapshot(version, parsed)?);
-        }
-        Ok(output)
+    let preview_row: Option<WorkshopAdoptionPreviewRecord> = tx
+        .query_row(
+            "SELECT project_id,operation_namespace,session_id,expected_version,payload_hash,request_json,preview_json,preview_hash FROM workshop_adoption_previews WHERE id=?",
+            [preview_id.as_str()],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)),
+        )
+        .optional()?;
+    let (
+        preview_project_id,
+        namespace,
+        session_id,
+        expected,
+        request_payload_hash,
+        request_json,
+        preview_json,
+        preview_hash,
+    ) = preview_row.ok_or_else(|| {
+        CoreError::new("PreviewNotFound", "The adoption preview no longer exists.")
+    })?;
+    if preview_project_id != current_project_id || namespace != access.operation_namespace {
+        return Err(CoreError::new(
+            "WrongProjectSession",
+            "This adoption preview belongs to another project identity.",
+        ));
     }
-
-    pub(super) fn preview_workshop_adoption(
-        &mut self,
-        request: PreviewWorkshopAdoption,
-    ) -> CoreResult<WorkshopAdoptionPreview> {
-        self.check_access(&request.access)?;
-        check_id(&request.session_id)?;
-        let expected = parse_version(&request.expected_version)?;
-        validate_id_list(&request.candidate_ids, "adoption candidates")?;
-        validate_text(&request.rationale, "adoption rationale", MAX_TEXT_BYTES)?;
-        for text in &request.protected_text {
-            validate_text(text, "protected text", MAX_DETAIL_BYTES)?;
-        }
-        let (version, state) = read_state(self.db()?)?;
-        if version != expected {
-            return Err(CoreError::new(
-                "VersionConflict",
-                "The workshop changed; reload before previewing adoption.",
-            ));
-        }
-        if !state
-            .sessions
-            .iter()
-            .any(|session| session.id == request.session_id)
-        {
-            return Err(CoreError::new(
-                "InvalidRequest",
-                "The adoption session does not exist.",
-            ));
-        }
-        let mut targets = request.targets.clone();
-        let before =
-            validate_adoption_targets(self.db()?, &state, &request.session_id, &mut targets)?;
-        let target_ids = targets
-            .iter()
-            .map(|target| target.document_id.clone())
-            .collect::<HashSet<_>>();
-        validate_state_references(self.db()?, &state, None, &target_ids)?;
-        let source_epoch = current_context_epoch(self.db()?)?;
-        validate_candidate_provenance(
-            self.db()?,
-            &state,
-            &self.info.project_id,
-            &request.access.operation_namespace,
-            &source_epoch,
-            Some(&request.session_id),
-            &request.candidate_ids,
-        )?;
-        let relationships =
-            validate_relationship_drafts(self.db()?, &state, &targets, &request.relationships)?;
-        let impacts = build_adoption_impacts(
-            self.db()?,
-            &self.info.project_id,
-            &request.access.operation_namespace,
-            &source_epoch,
-            &request.candidate_ids,
-            &targets,
-            &request.impact_drafts,
-        )?;
-        let endpoint_sources = relationship_endpoint_sources(self.db()?, &request.relationships)?;
-        validate_protected_texts_for_targets(
-            self.db()?,
-            &state,
-            &request.session_id,
-            &before,
-            &targets,
-            &request.protected_text,
-        )?;
-        validate_target_dependencies(&state, &targets, self.db()?)?;
-        let request_json =
-            serde_json::to_string(&crate::canonicalize_value(serde_json::to_value(&request)?))?;
-        let preview = WorkshopAdoptionPreview {
-            id: new_id(),
-            session_id: request.session_id,
-            expected_version: request.expected_version,
-            targets,
-            before,
-            rationale: request.rationale,
-            protected_text: request.protected_text,
-            candidate_ids: request.candidate_ids.clone(),
-            relationships,
-            endpoint_sources,
-            impacts,
-        };
-        let preview_json =
-            serde_json::to_string(&crate::canonicalize_value(serde_json::to_value(&preview)?))?;
-        let preview_hash = sha256_hex(preview_json.as_bytes());
-        let current_project_id = self.info.project_id.clone();
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute(
-            "INSERT INTO workshop_adoption_previews(id,project_id,operation_namespace,session_id,expected_version,payload_hash,request_json,preview_json,preview_hash) VALUES(?,?,?,?,?,?,?,?,?)",
-            params![preview.id, current_project_id, request.access.operation_namespace, preview.session_id, expected, sha256_hex(request_json.as_bytes()), request_json, preview_json, preview_hash],
-        )?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(preview)
+    let preview: WorkshopAdoptionPreview = serde_json::from_str(&preview_json)?;
+    let canonical_preview =
+        serde_json::to_string(&crate::canonicalize_value(serde_json::to_value(&preview)?))?;
+    if preview.id != preview_id || sha256_hex(canonical_preview.as_bytes()) != preview_hash {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The adoption preview failed its fingerprint check.",
+        ));
     }
+    let stored_request: PreviewWorkshopAdoption = serde_json::from_str(&request_json)?;
+    let canonical_request = serde_json::to_string(&crate::canonicalize_value(
+        serde_json::to_value(&stored_request)?,
+    ))?;
+    if sha256_hex(canonical_request.as_bytes()) != request_payload_hash {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The adoption preview request failed its fingerprint check.",
+        ));
+    }
+    if stored_request.session_id != session_id
+        || stored_request.expected_version != expected.to_string()
+        || stored_request.access.project_id != preview_project_id
+        || stored_request.access.operation_namespace != namespace
+    {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The adoption preview provenance is invalid.",
+        ));
+    }
+    let (current_version, mut state) = read_state(&tx)?;
+    if current_version != expected {
+        return Err(CoreError::new(
+            "VersionConflict",
+            "The workshop changed after this preview was created.",
+        ));
+    }
+    if preview.expected_version != expected.to_string() || preview.session_id != session_id {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The adoption preview version is invalid.",
+        ));
+    }
+    let mut request_targets = stored_request.targets.clone();
+    validate_adoption_targets(
+        &tx,
+        &state,
+        &stored_request.session_id,
+        &mut request_targets,
+    )?;
+    if request_targets != preview.targets {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The adoption preview targets no longer match its frozen request.",
+        ));
+    }
+    let mut targets = preview.targets.clone();
+    let target_ids = targets
+        .iter()
+        .map(|target| target.document_id.clone())
+        .collect::<HashSet<_>>();
+    let before = validate_adoption_targets(&tx, &state, &preview.session_id, &mut targets)?;
+    validate_state_references(&tx, &state, None, &target_ids)?;
+    let source_epoch = current_context_epoch(&tx)?;
+    validate_candidate_provenance(
+        &tx,
+        &state,
+        &current_project_id,
+        &access.operation_namespace,
+        &source_epoch,
+        Some(&preview.session_id),
+        &preview.candidate_ids,
+    )?;
+    let expected_relationships =
+        validate_relationship_drafts(&tx, &state, &targets, &stored_request.relationships)?;
+    let expected_impacts = build_adoption_impacts(
+        &tx,
+        &current_project_id,
+        &access.operation_namespace,
+        &source_epoch,
+        &preview.candidate_ids,
+        &targets,
+        &stored_request.impact_drafts,
+    )?;
+    if expected_relationships != preview.relationships || expected_impacts != preview.impacts {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The adoption preview relationship or impact provenance changed.",
+        ));
+    }
+    if !same_document_records(&before, &preview.before) {
+        return Err(CoreError::new(
+            "VersionConflict",
+            "A preview source changed before adoption.",
+        ));
+    }
+    validate_protected_texts_for_targets(
+        &tx,
+        &state,
+        &preview.session_id,
+        &before,
+        &targets,
+        &preview.protected_text,
+    )?;
+    validate_target_dependencies(&state, &targets, &tx)?;
 
-    pub(super) fn adopt_workshop(
-        &mut self,
-        access: ProjectAccess,
-        operation_id: String,
-        preview_id: String,
-    ) -> CoreResult<WorkshopAdoptionAck> {
-        self.check_access(&access)?;
-        check_id(&operation_id)?;
-        check_id(&preview_id)?;
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct AdoptRequest<'a> {
-            access: &'a ProjectAccess,
-            operation_id: &'a str,
-            preview_id: &'a str,
-        }
-        let payload_hash = operation_payload(&AdoptRequest {
-            access: &access,
-            operation_id: &operation_id,
-            preview_id: &preview_id,
-        })?;
-        let current_project_id = self.info.project_id.clone();
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(result) = existing_workshop_receipt(
+    let mut resulting_documents = Vec::new();
+    let mut decisions = Vec::new();
+    let mut changed_heads: HashMap<String, Head> = HashMap::new();
+    for target in &targets {
+        let record = crate::projects::material_adoption::write_material_target_at(
             &tx,
-            &access.operation_namespace,
-            &operation_id,
-            "adoptWorkshop",
-            &payload_hash,
-        )? {
-            let ack: WorkshopAdoptionAck = serde_json::from_value(result)?;
-            tx.commit().map_err(CoreError::uncertain)?;
-            return Ok(ack);
-        }
-        let preview_row: Option<WorkshopAdoptionPreviewRecord> = tx
-            .query_row(
-                "SELECT project_id,operation_namespace,session_id,expected_version,payload_hash,request_json,preview_json,preview_hash FROM workshop_adoption_previews WHERE id=?",
-                [preview_id.as_str()],
-                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)),
-            )
-            .optional()?;
-        let (
-            preview_project_id,
-            namespace,
-            session_id,
-            expected,
-            request_payload_hash,
-            request_json,
-            preview_json,
-            preview_hash,
-        ) = preview_row.ok_or_else(|| {
-            CoreError::new("PreviewNotFound", "The adoption preview no longer exists.")
-        })?;
-        if preview_project_id != current_project_id || namespace != access.operation_namespace {
-            return Err(CoreError::new(
-                "WrongProjectSession",
-                "This adoption preview belongs to another project identity.",
-            ));
-        }
-        let preview: WorkshopAdoptionPreview = serde_json::from_str(&preview_json)?;
-        let canonical_preview =
-            serde_json::to_string(&crate::canonicalize_value(serde_json::to_value(&preview)?))?;
-        if preview.id != preview_id || sha256_hex(canonical_preview.as_bytes()) != preview_hash {
-            return Err(CoreError::new(
-                "InvalidProject",
-                "The adoption preview failed its fingerprint check.",
-            ));
-        }
-        let stored_request: PreviewWorkshopAdoption = serde_json::from_str(&request_json)?;
-        let canonical_request = serde_json::to_string(&crate::canonicalize_value(
-            serde_json::to_value(&stored_request)?,
-        ))?;
-        if sha256_hex(canonical_request.as_bytes()) != request_payload_hash {
-            return Err(CoreError::new(
-                "InvalidProject",
-                "The adoption preview request failed its fingerprint check.",
-            ));
-        }
-        if stored_request.session_id != session_id
-            || stored_request.expected_version != expected.to_string()
-            || stored_request.access.project_id != preview_project_id
-            || stored_request.access.operation_namespace != namespace
-        {
-            return Err(CoreError::new(
-                "InvalidProject",
-                "The adoption preview provenance is invalid.",
-            ));
-        }
-        let (current_version, mut state) = read_state(&tx)?;
-        if current_version != expected {
-            return Err(CoreError::new(
-                "VersionConflict",
-                "The workshop changed after this preview was created.",
-            ));
-        }
-        if preview.expected_version != expected.to_string() || preview.session_id != session_id {
-            return Err(CoreError::new(
-                "InvalidProject",
-                "The adoption preview version is invalid.",
-            ));
-        }
-        let mut request_targets = stored_request.targets.clone();
-        validate_adoption_targets(
-            &tx,
-            &state,
-            &stored_request.session_id,
-            &mut request_targets,
-        )?;
-        if request_targets != preview.targets {
-            return Err(CoreError::new(
-                "InvalidProject",
-                "The adoption preview targets no longer match its frozen request.",
-            ));
-        }
-        let mut targets = preview.targets.clone();
-        let target_ids = targets
-            .iter()
-            .map(|target| target.document_id.clone())
-            .collect::<HashSet<_>>();
-        let before = validate_adoption_targets(&tx, &state, &preview.session_id, &mut targets)?;
-        validate_state_references(&tx, &state, None, &target_ids)?;
-        let source_epoch = current_context_epoch(&tx)?;
-        validate_candidate_provenance(
-            &tx,
-            &state,
-            &current_project_id,
-            &access.operation_namespace,
-            &source_epoch,
-            Some(&preview.session_id),
-            &preview.candidate_ids,
-        )?;
-        let expected_relationships =
-            validate_relationship_drafts(&tx, &state, &targets, &stored_request.relationships)?;
-        let expected_impacts = build_adoption_impacts(
-            &tx,
-            &current_project_id,
-            &access.operation_namespace,
-            &source_epoch,
-            &preview.candidate_ids,
-            &targets,
-            &stored_request.impact_drafts,
-        )?;
-        if expected_relationships != preview.relationships || expected_impacts != preview.impacts {
-            return Err(CoreError::new(
-                "InvalidProject",
-                "The adoption preview relationship or impact provenance changed.",
-            ));
-        }
-        if !same_document_records(&before, &preview.before) {
-            return Err(CoreError::new(
-                "VersionConflict",
-                "A preview source changed before adoption.",
-            ));
-        }
-        validate_protected_texts_for_targets(
-            &tx,
-            &state,
-            &preview.session_id,
-            &before,
-            &targets,
-            &preview.protected_text,
-        )?;
-        validate_target_dependencies(&state, &targets, &tx)?;
-
-        let mut resulting_documents = Vec::new();
-        let mut decisions = Vec::new();
-        let mut changed_heads: HashMap<String, Head> = HashMap::new();
-        for target in &targets {
-            let record = crate::projects::material_adoption::write_material_target_at(
-                &tx,
-                &crate::projects::material_adoption::MaterialTarget {
-                    document_id: target.document_id.clone(),
-                    title: target.title.clone(),
-                    kind: target.kind.clone(),
-                    body: target.body.clone(),
-                    expected: target.expected.clone(),
-                },
-                "beforeWorkshopAdoption",
-                "workshopAdoption",
-            )?;
-            changed_heads.insert(target.document_id.clone(), record.head.clone());
-            let supersedes = state
-                .decisions
-                .iter()
-                .rev()
-                .find(|decision| {
-                    decision.document_id == target.document_id
-                        && decision.status == WorkshopDecisionStatus::Chosen
-                })
-                .map(|decision| decision.id.clone());
-            let decision = WorkshopDecision {
-                id: new_id(),
-                session_id: preview.session_id.clone(),
-                title: target.title.clone(),
+            &crate::projects::material_adoption::MaterialTarget {
                 document_id: target.document_id.clone(),
-                revision_id: record.last_checkpoint_id.clone().ok_or_else(|| {
-                    CoreError::new(
-                        "PersistenceUnavailable",
-                        "Adoption revision was not created.",
-                    )
-                })?,
-                head: record.head.clone(),
-                candidate_ids: preview.candidate_ids.clone(),
-                rationale: preview.rationale.clone(),
-                status: WorkshopDecisionStatus::Chosen,
-                fixed: !preview.protected_text.is_empty(),
-                protected_text: preview.protected_text.clone(),
-                access: "authorRoom".into(),
-                supersedes_id: supersedes,
-            };
-            decisions.push(decision);
-            resulting_documents.push(record);
-        }
-        let mut committed_heads = changed_heads.clone();
-        for relationship in &expected_relationships {
-            for document_id in [&relationship.from_document_id, &relationship.to_document_id] {
-                if !committed_heads.contains_key(document_id) {
-                    committed_heads
-                        .insert(document_id.clone(), read_document(&tx, document_id)?.head);
-                }
-            }
-        }
-        let committed_relationships =
-            materialize_relationship_drafts(&stored_request.relationships, &committed_heads)?;
-        if committed_relationships != expected_relationships {
-            return Err(CoreError::new(
-                "VersionConflict",
-                "A relationship endpoint changed while the adoption was being committed.",
-            ));
-        }
-        if !changed_heads.is_empty() {
-            tx.execute(
-                "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
-                [],
-            )?;
-        }
-        let decision_ids: Vec<String> = decisions
+                title: target.title.clone(),
+                kind: target.kind.clone(),
+                body: target.body.clone(),
+                expected: target.expected.clone(),
+            },
+            "beforeWorkshopAdoption",
+            "workshopAdoption",
+        )?;
+        changed_heads.insert(target.document_id.clone(), record.head.clone());
+        let supersedes = state
+            .decisions
             .iter()
-            .map(|decision| decision.id.clone())
-            .collect();
-        // A document has one current chosen workshop decision. Preserve the
-        // immutable history, but retire the prior projection before adding
-        // the new adoption so Story Bible consumers cannot see two competing
-        // chosen revisions for the same target.
-        for previous in &mut state.decisions {
-            if previous.status == WorkshopDecisionStatus::Chosen
-                && decisions
-                    .iter()
-                    .any(|next| next.document_id == previous.document_id)
-            {
-                previous.status = WorkshopDecisionStatus::Superseded;
+            .rev()
+            .find(|decision| {
+                decision.document_id == target.document_id
+                    && decision.status == WorkshopDecisionStatus::Chosen
+            })
+            .map(|decision| decision.id.clone());
+        let decision = WorkshopDecision {
+            id: new_id(),
+            session_id: preview.session_id.clone(),
+            title: target.title.clone(),
+            document_id: target.document_id.clone(),
+            revision_id: record.last_checkpoint_id.clone().ok_or_else(|| {
+                CoreError::new(
+                    "PersistenceUnavailable",
+                    "Adoption revision was not created.",
+                )
+            })?,
+            head: record.head.clone(),
+            candidate_ids: preview.candidate_ids.clone(),
+            rationale: preview.rationale.clone(),
+            status: WorkshopDecisionStatus::Chosen,
+            fixed: !preview.protected_text.is_empty(),
+            protected_text: preview.protected_text.clone(),
+            access: "authorRoom".into(),
+            supersedes_id: supersedes,
+        };
+        decisions.push(decision);
+        resulting_documents.push(record);
+    }
+    let mut committed_heads = changed_heads.clone();
+    for relationship in &expected_relationships {
+        for document_id in [&relationship.from_document_id, &relationship.to_document_id] {
+            if !committed_heads.contains_key(document_id) {
+                committed_heads
+                    .insert(document_id.clone(), read_document(&tx, document_id)?.head);
             }
         }
-        state.current_session_id = Some(preview.session_id.clone());
-        state.decisions.extend(decisions.clone());
-        let existing_relationships = state.relationships.clone();
-        state.relationships.extend(committed_relationships);
-        for relationship in &existing_relationships {
-            for source in relationship
-                .source_heads
+    }
+    let committed_relationships =
+        materialize_relationship_drafts(&stored_request.relationships, &committed_heads)?;
+    if committed_relationships != expected_relationships {
+        return Err(CoreError::new(
+            "VersionConflict",
+            "A relationship endpoint changed while the adoption was being committed.",
+        ));
+    }
+    if !changed_heads.is_empty() {
+        tx.execute(
+            "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
+            [],
+        )?;
+    }
+    let decision_ids: Vec<String> = decisions
+        .iter()
+        .map(|decision| decision.id.clone())
+        .collect();
+    // A document has one current chosen workshop decision. Preserve the
+    // immutable history, but retire the prior projection before adding
+    // the new adoption so Story Bible consumers cannot see two competing
+    // chosen revisions for the same target.
+    for previous in &mut state.decisions {
+        if previous.status == WorkshopDecisionStatus::Chosen
+            && decisions
                 .iter()
-                .filter(|head| changed_heads.contains_key(&head.document_id))
-            {
-                let decision_id = decisions
-                    .iter()
-                    .find(|decision| decision.document_id == source.document_id)
-                    .map(|decision| decision.id.clone())
-                    .ok_or_else(|| {
-                        CoreError::new(
-                            "InvalidRequest",
-                            "A relationship impact has no adoption decision for its changed source.",
-                        )
-                    })?;
-                state.impacts.push(WorkshopImpact {
-                    id: new_id(),
-                    decision_id,
-                    document_id: source.document_id.clone(),
-                    kind: WorkshopImpactKind::PossibleTension,
-                    reason: format!(
-                        "Relationship {} uses changed source {}; review whether it still holds.",
-                        relationship.id, source.document_id
-                    ),
-                    status: WorkshopImpactStatus::NeedsReview,
-                    candidate_id: None,
-                    relationship_id: Some(relationship.id.clone()),
-                });
-            }
+                .any(|next| next.document_id == previous.document_id)
+        {
+            previous.status = WorkshopDecisionStatus::Superseded;
         }
-        for impact in expected_impacts {
+    }
+    state.current_session_id = Some(preview.session_id.clone());
+    state.decisions.extend(decisions.clone());
+    let existing_relationships = state.relationships.clone();
+    state.relationships.extend(committed_relationships);
+    for relationship in &existing_relationships {
+        for source in relationship
+            .source_heads
+            .iter()
+            .filter(|head| changed_heads.contains_key(&head.document_id))
+        {
             let decision_id = decisions
                 .iter()
-                .find(|decision| decision.document_id == impact.document_id)
-                .or_else(|| decisions.first())
+                .find(|decision| decision.document_id == source.document_id)
                 .map(|decision| decision.id.clone())
                 .ok_or_else(|| {
                     CoreError::new(
                         "InvalidRequest",
-                        "A candidate impact has no adoption decision.",
+                        "A relationship impact has no adoption decision for its changed source.",
                     )
                 })?;
             state.impacts.push(WorkshopImpact {
                 id: new_id(),
                 decision_id,
-                document_id: impact.document_id,
-                kind: impact.kind,
-                reason: impact.reason,
+                document_id: source.document_id.clone(),
+                kind: WorkshopImpactKind::PossibleTension,
+                reason: format!(
+                    "Relationship {} uses changed source {}; review whether it still holds.",
+                    relationship.id, source.document_id
+                ),
                 status: WorkshopImpactStatus::NeedsReview,
-                candidate_id: Some(impact.candidate_id),
-                relationship_id: None,
+                candidate_id: None,
+                relationship_id: Some(relationship.id.clone()),
             });
         }
-        let next_version = expected.checked_add(1).ok_or_else(|| {
-            CoreError::new("VersionLimit", "The workshop version limit was reached.")
-        })?;
-        validate_state_shape(&state)?;
-        store_state(&tx, next_version, &state)?;
-        insert_snapshot(
-            &tx,
-            &current_project_id,
-            &access.operation_namespace,
-            &operation_id,
-            next_version,
-            &payload_hash,
-            &state,
-        )?;
-        let snapshot = workshop_snapshot(next_version, state)?;
-        let ack = WorkshopAdoptionAck {
-            snapshot,
-            documents: resulting_documents,
-            decision_ids,
-        };
-        tx.execute(
-            "INSERT INTO workshop_receipts(operation_namespace,operation_id,operation_kind,payload_hash,result_json) VALUES(?,?,?,?,?)",
-            params![access.operation_namespace, operation_id, "adoptWorkshop", payload_hash, serde_json::to_string(&ack)?],
-        )?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(ack)
     }
+    for impact in expected_impacts {
+        let decision_id = decisions
+            .iter()
+            .find(|decision| decision.document_id == impact.document_id)
+            .or_else(|| decisions.first())
+            .map(|decision| decision.id.clone())
+            .ok_or_else(|| {
+                CoreError::new(
+                    "InvalidRequest",
+                    "A candidate impact has no adoption decision.",
+                )
+            })?;
+        state.impacts.push(WorkshopImpact {
+            id: new_id(),
+            decision_id,
+            document_id: impact.document_id,
+            kind: impact.kind,
+            reason: impact.reason,
+            status: WorkshopImpactStatus::NeedsReview,
+            candidate_id: Some(impact.candidate_id),
+            relationship_id: None,
+        });
+    }
+    let next_version = expected.checked_add(1).ok_or_else(|| {
+        CoreError::new("VersionLimit", "The workshop version limit was reached.")
+    })?;
+    validate_state_shape(&state)?;
+    store_state(&tx, next_version, &state)?;
+    insert_snapshot(
+        &tx,
+        &current_project_id,
+        &access.operation_namespace,
+        &operation_id,
+        next_version,
+        &payload_hash,
+        &state,
+    )?;
+    let snapshot = workshop_snapshot(next_version, state)?;
+    let ack = WorkshopAdoptionAck {
+        snapshot,
+        documents: resulting_documents,
+        decision_ids,
+    };
+    tx.execute(
+        "INSERT INTO workshop_receipts(operation_namespace,operation_id,operation_kind,payload_hash,result_json) VALUES(?,?,?,?,?)",
+        params![access.operation_namespace, operation_id, "adoptWorkshop", payload_hash, serde_json::to_string(&ack)?],
+    )?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(ack)
 }
+
 
 fn validate_protected_texts_for_targets(
     connection: &Connection,
@@ -3978,4 +3982,29 @@ pub(crate) fn validate_storage(connection: &Connection) -> CoreResult<()> {
         }
     }
     Ok(())
+}
+
+// The actor implements the host, beside the module that will become its caller.
+impl wns_workshop::host::WorkshopHost for OwnedProject {
+    fn check_access(&self, access: &ProjectAccess) -> CoreResult<()> {
+        OwnedProject::check_access(self, access)
+    }
+    fn db(&self) -> CoreResult<&Connection> {
+        OwnedProject::db(self)
+    }
+    fn db_mut(&mut self) -> CoreResult<&mut Connection> {
+        OwnedProject::db_mut(self)
+    }
+    fn fence_uncertain<T>(&mut self, result: &CoreResult<T>) {
+        OwnedProject::fence_uncertain(self, result)
+    }
+    fn start_discussion(&mut self, request: StartDiscussion) -> CoreResult<DiscussionStart> {
+        OwnedProject::start_discussion(self, request)
+    }
+    fn read_start(&self, run_id: &str) -> CoreResult<DiscussionStart> {
+        crate::projects::discussions::read_start(self.db()?, run_id)
+    }
+    fn info(&self) -> &ProjectInfo {
+        &self.info
+    }
 }

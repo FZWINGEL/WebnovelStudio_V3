@@ -226,27 +226,27 @@ impl ProjectSession {
                             Command::Export(command) => project.handle_export(*command),
                             Command::SourcePins(command) => project.handle_source_pins(*command),
                             Command::WorkshopStart(request, reply) => {
-                                let result = project.start_workshop(*request);
+                                let result = crate::projects::workshop::start_workshop(&mut project, *request);
                                 project.fence_uncertain(&result);
                                 let _ = reply.send(result);
                             }
                             Command::WorkshopRead(access, reply) => {
-                                let _ = reply.send(project.read_workshop(access));
+                                let _ = reply.send(crate::projects::workshop::read_workshop(&project, access));
                             }
                             Command::WorkshopSave(request, reply) => {
-                                let result = project.save_workshop(request);
+                                let result = crate::projects::workshop::save_workshop(&mut project, request);
                                 project.fence_uncertain(&result);
                                 let _ = reply.send(result);
                             }
                             Command::WorkshopHistory(access, reply) => {
-                                let _ = reply.send(project.workshop_history(access));
+                                let _ = reply.send(crate::projects::workshop::workshop_history(&project, access));
                             }
                             Command::WorkshopPreview(request, reply) => {
-                                let _ = reply.send(project.preview_workshop_adoption(request));
+                                let _ = reply.send(crate::projects::workshop::preview_workshop_adoption(&mut project, request));
                             }
                             Command::WorkshopAdopt(access, operation_id, preview_id, reply) => {
                                 let result =
-                                    project.adopt_workshop(access, operation_id, preview_id);
+                                    crate::projects::workshop::adopt_workshop(&mut project, access, operation_id, preview_id);
                                 project.fence_uncertain(&result);
                                 let _ = reply.send(result);
                             }
