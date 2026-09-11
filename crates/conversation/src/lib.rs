@@ -44,3 +44,6 @@ pub mod guidance;
 
 /// Project-chat context ownership and the freeze dispatch it wraps.
 pub mod project_chat_context;
+
+/// Durable state for the bounded, request-scoped discussion lookup loop.
+pub mod discussion_lookup;
