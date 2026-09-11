@@ -1097,6 +1097,28 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    rather than the reader, and the extraction becomes the same bounded move the other
    vocabulary extractions were.
 
+   **Done, and the remaining workshop edge is now two calls.** The twelve run types moved to
+   `wns-story` with the readers left behind, and workshop's four type references were repointed
+   at the crate that owns them. What is left is measured exactly:
+
+   | | |
+   |---|---|
+   | `workshop` → `discussions`, type references | **0** |
+   | `workshop` → `discussions`, reader calls | **2** — `read_run`, `read_start` |
+
+   `read_start` is inside an actor method and becomes a `WorkshopHost` method, as
+   `hold_context_after_commit_before_ack` and `context_source_epoch` already are. `read_run` is
+   called from inside `read_workshop_results`, a free function taking an explicit `&Connection`,
+   so that one wants the signature change rather than the trait — the same
+   already-materialised-input inversion §3.4 names, applied at a function boundary instead of a
+   crate one.
+
+   **And workshop's own conversion is now characterised too**, which it was not: `impl
+   OwnedProject` spans 2,831–3,655, 825 lines and **eight** methods. Besides `check_access`,
+   `db` and its own three helpers, it calls `discussions::start_discussion` — a ninth
+   actor-side call, and the fourth to need the host rather than a move. That is the next unit,
+   and unlike the four before it, its size is known before the first edit.
+
    The alternative worth weighing when it is attempted: `workshop`'s need is a *run*, not a
    run's *reader*. If the workshop side received an already-read run instead of calling
    `read_run` itself, neither function would travel — the inversion §3.4 keeps proposing,
