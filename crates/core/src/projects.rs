@@ -61,7 +61,10 @@ pub use workshop_api::*;
 // existing `webnovel_core::projects::{CoreError, CoreResult, Head}` import,
 // including the `use super::*` globs in this crate's own submodules, keeps
 // resolving unchanged.
-pub use wns_kernel::{CoreError, CoreResult, Head, ProjectAccess, Revision, check_id};
+pub use wns_kernel::{
+    CoreError, CoreResult, Head, ProjectAccess, Revision, check_id, logical_hash, parse_stored_version,
+    parse_version,
+};
 
 // L2 vocabulary that the packet compiler consumes. `story_records` is the set of
 // shapes a compiled packet carries, so it lives at or below the compiler rather
@@ -1026,29 +1029,6 @@ fn write_project_marker(path: &Path, info: &ProjectInfo) -> CoreResult<()> {
 pub fn blank_document() -> Value {
     json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":new_id()}}]}})
 }
-fn parse_version(value: &str) -> CoreResult<i64> {
-    if value.is_empty()
-        || (value.len() > 1 && value.starts_with('0'))
-        || !value.bytes().all(|b| b.is_ascii_digit())
-    {
-        return Err(CoreError::new(
-            "InvalidRequest",
-            "Versions must be canonical nonnegative decimal strings.",
-        ));
-    }
-    value
-        .parse()
-        .map_err(|_| CoreError::new("InvalidRequest", "Version exceeds the supported range."))
-}
-fn parse_stored_version(value: i64) -> CoreResult<String> {
-    if value < 0 {
-        return Err(CoreError::new(
-            "InvalidProject",
-            "The project contains a negative metadata version.",
-        ));
-    }
-    Ok(value.to_string())
-}
 fn valid_hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
@@ -1214,16 +1194,6 @@ fn validate_endpoint(body: &Value, endpoint: &Endpoint) -> CoreResult<()> {
         ));
     }
     Ok(())
-}
-fn logical_hash<T: Serialize>(request: &T) -> CoreResult<String> {
-    let mut value = serde_json::to_value(request)?;
-    if let Some(access) = value.get_mut("access").and_then(Value::as_object_mut) {
-        access.remove("session");
-        access.remove("writerLease");
-    }
-    Ok(sha256_hex(
-        serde_json::to_string(&crate::canonicalize_value(value))?.as_bytes(),
-    ))
 }
 #[test]
 fn save_receipt_matches_shared_literal_fixture() {

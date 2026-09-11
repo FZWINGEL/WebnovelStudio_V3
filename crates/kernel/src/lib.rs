@@ -120,6 +120,52 @@ pub struct ProjectAccess {
     pub operation_namespace: String,
 }
 
+/// Parse a canonical nonnegative decimal version string.
+///
+/// Moved down from `projects.rs` with its two siblings below. All three are used
+/// by eleven to twenty modules apiece, which is what makes them foundation
+/// rather than project logic: a module cannot leave the crate while the helpers
+/// its bodies call stay behind.
+pub fn parse_version(value: &str) -> CoreResult<i64> {
+    if value.is_empty()
+        || (value.len() > 1 && value.starts_with('0'))
+        || !value.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "Versions must be canonical nonnegative decimal strings.",
+        ));
+    }
+    value
+        .parse()
+        .map_err(|_| CoreError::new("InvalidRequest", "Version exceeds the supported range."))
+}
+
+/// Render a stored integer version as its canonical decimal string.
+pub fn parse_stored_version(value: i64) -> CoreResult<String> {
+    if value < 0 {
+        return Err(CoreError::new(
+            "InvalidProject",
+            "The project contains a negative metadata version.",
+        ));
+    }
+    Ok(value.to_string())
+}
+
+/// The hash a request is deduplicated on: its canonical JSON with the renderer
+/// lease fields removed, so the same logical request from a new session hashes
+/// the same.
+pub fn logical_hash<T: Serialize>(request: &T) -> CoreResult<String> {
+    let mut value = serde_json::to_value(request)?;
+    if let Some(access) = value.get_mut("access").and_then(Value::as_object_mut) {
+        access.remove("session");
+        access.remove("writerLease");
+    }
+    Ok(sha256_hex(
+        serde_json::to_string(&canonicalize_value(value))?.as_bytes(),
+    ))
+}
+
 /// One immutable saved revision of a document.
 ///
 /// Moved down from `projects/records.rs` so the packet compiler's input
