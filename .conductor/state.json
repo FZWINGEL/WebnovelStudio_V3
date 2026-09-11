@@ -233,7 +233,7 @@
       "id": "agent-tooling-baseline",
       "title": "Commit the agent tooling and OpenSpec baseline",
       "priority": "P2",
-      "status": "queued",
+      "status": "archived",
       "role": "epic",
       "lane": "claude-code",
       "links": [],
@@ -241,40 +241,60 @@
       "stories": [
         {
           "title": "Decide and record which paths are committed vs gitignored (.codegraph/ is a generated index cache)",
-          "done": false
+          "done": true
         },
         {
           "title": "Commit the OpenSpec install: openspec/, .agents/, .cursor/, .gemini/, .opencode/",
-          "done": false
+          "done": true
         },
         {
           "title": "Commit the agent configs: .mcp.json, CLAUDE.md, GEMINI.md",
-          "done": false
+          "done": true
         },
         {
           "title": "Commit the pm conductor index (.conductor/state.json, PROJECT.md) and the add-many bug report",
-          "done": false
+          "done": true
         },
         {
           "title": "Commit the Codex transport latency research note",
-          "done": false
+          "done": true
         }
       ],
       "description": "The OpenSpec install and the per-agent configs are untracked, so none of it survives a fresh clone. Includes openspec/, the .agents/.cursor/.gemini/.opencode skill installs, .mcp.json, CLAUDE.md and GEMINI.md, the pm conductor index, and the Codex transport latency research note. The .codegraph/ index is a generated cache and should not be committed.",
-      "attributedCommits": [],
+      "attributedCommits": [
+        "47c9b9c",
+        "02b0cf3",
+        "799b0d9"
+      ],
       "createdAt": "2026-09-11T11:04:03.023Z",
-      "touchedAt": "2026-09-11T11:04:10.092Z",
+      "touchedAt": "2026-09-11T11:14:46.534Z",
       "notes": [
         {
           "at": "2026-09-11T11:04:10.090Z",
           "actor": "agent",
           "text": "lane: claude-code - repository config and tooling baseline, no product spec delta."
+        },
+        {
+          "at": "2026-09-11T11:14:34.706Z",
+          "actor": "agent",
+          "text": "Decision (committed vs ignored): COMMITTED - openspec/ store; the .agents/.claude/.cursor/.gemini/.opencode skill installs; codegraph MCP config (.mcp.json, .cursor/mcp.json, .gemini/settings.json, opencode.jsonc); CLAUDE.md and GEMINI.md mirroring the tracked AGENTS.md; .codegraph/.gitignore (self-ignoring by design); the conductor index and its feedback report; the research note. IGNORED - codegraph's index database, daemon pid/socket/logs (covered twice: .codegraph/.gitignore and the root *.db / *.log rules), and the conductor's runtime logs. Note .claude/settings.json installs a UserPromptSubmit codegraph hook for every session in this repo."
         }
-      ]
+      ],
+      "disposition": {
+        "outcome": "delivered",
+        "recordedAt": "2026-09-11T11:14:46.533Z",
+        "reason": "Untracked baseline committed in three commits (47c9b9c, 02b0cf3, 799b0d9): OpenSpec store, per-tool skill installs, codegraph MCP config, instruction files, conductor index and research note. Working tree is clean."
+      },
+      "deferralAssertion": {
+        "assertedAt": "2026-09-11T11:14:46.532Z",
+        "deferrals": [],
+        "declined": []
+      },
+      "completedAt": "2026-09-11T11:14:46.533Z"
     }
   ],
   "detourStack": [],
-  "revision": 28,
+  "revision": 36,
   "archiveBackfilledAt": "2026-09-11T10:49:26.887Z",
   "pmVersion": "0.41.0",
   "platform": "claude-code"
