@@ -47,3 +47,6 @@ pub mod project_chat_context;
 
 /// Durable state for the bounded, request-scoped discussion lookup loop.
 pub mod discussion_lookup;
+
+/// Explicit review and atomic author decisions over immutable source passages.
+pub mod proposals;

@@ -215,7 +215,9 @@ impl ProjectSession {
                                 wns_conversation::guidance::handle_guidance(&mut project, *command)
                             }
                             Command::History(command) => project.handle_history(*command),
-                            Command::Proposal(command) => project.handle_proposal(*command),
+                            Command::Proposal(command) => {
+                                wns_conversation::proposals::handle_proposal(&mut project, *command)
+                            }
                             Command::Review(command) => project.handle_review(*command),
                             Command::EvidenceQuery(command) => {
                                 crate::projects::evidence_queries::handle_evidence_query(
