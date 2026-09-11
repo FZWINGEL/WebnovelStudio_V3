@@ -1091,7 +1091,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
         .view_state(access.clone())
         .expect("read source view state")
         .expect("view state exists");
-    let epoch = project.context_source_epoch().expect("read source epoch");
+    let epoch = project.context().source_epoch().expect("read source epoch");
     drop(project);
     downgrade_to_schema2(&path);
     assert_eq!(schema_version(&path.join("project.sqlite3")), 2);
@@ -1100,7 +1100,7 @@ fn schema2_upgrade_preserves_documents_view_state_epoch_and_durable_pre_upgrade_
     assert_eq!(schema_version(&path.join("project.sqlite3")), 40);
     assert_eq!(
         upgraded
-            .context_source_epoch()
+            .context().source_epoch()
             .expect("read upgraded epoch"),
         epoch
     );
@@ -1392,7 +1392,7 @@ fn schema2_upgrade_failure_rolls_back_and_retains_durable_backup() {
     let temp = TempDir::new("upgrade-failure");
     let path = temp.child("legacy");
     let (project, _access, _document, saved) = setup_project(&path);
-    let epoch = project.context_source_epoch().expect("read source epoch");
+    let epoch = project.context().source_epoch().expect("read source epoch");
     drop(project);
     downgrade_to_schema2(&path);
     let connection = Connection::open(path.join("project.sqlite3")).expect("open schema2 database");
@@ -1466,7 +1466,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
         .view_state(access.clone())
         .expect("read source view")
         .expect("source view exists");
-    let epoch = project.context_source_epoch().expect("read source epoch");
+    let epoch = project.context().source_epoch().expect("read source epoch");
     let current_archive = temp.child("current.wnsbackup");
     let current_manifest =
         create_backup(&project, &current_archive).expect("capture current manifest");
@@ -1485,7 +1485,7 @@ fn schema2_backup_recovers_forward_with_document_view_and_epoch() {
     assert_eq!(schema_version(&target.join("project.sqlite3")), 40);
     assert_eq!(
         recovered
-            .context_source_epoch()
+            .context().source_epoch()
             .expect("read recovered epoch"),
         epoch
     );

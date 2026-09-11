@@ -284,7 +284,7 @@ fn view_state_round_trips_unicode_endpoints_and_keeps_exact_historic_head() {
         )
         .expect("save view state");
     assert_eq!(state.head, document.head);
-    assert_eq!(project.context_source_epoch().expect("read epoch"), "1");
+    assert_eq!(project.context().source_epoch().expect("read epoch"), "1");
     let later = project
         .save(SaveSnapshot {
             access: access.clone(),
@@ -333,7 +333,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
     assert_eq!(renamed.project.title, "Renamed project");
     assert_eq!(
         project
-            .context_source_epoch()
+            .context().source_epoch()
             .expect("epoch after project rename"),
         "2"
     );
@@ -355,7 +355,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
     assert_eq!(doc_renamed.metadata_version, "1");
     assert_eq!(
         project
-            .context_source_epoch()
+            .context().source_epoch()
             .expect("epoch after document rename"),
         "3"
     );
@@ -371,7 +371,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
         .expect("noop save");
     assert_eq!(noop.head, document.head);
     assert_eq!(
-        project.context_source_epoch().expect("epoch after noop"),
+        project.context().source_epoch().expect("epoch after noop"),
         "3"
     );
     let changed = project
@@ -385,7 +385,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
         })
         .expect("body save");
     assert_eq!(
-        project.context_source_epoch().expect("epoch after body"),
+        project.context().source_epoch().expect("epoch after body"),
         "4"
     );
     let mut undo = SaveSnapshot {
@@ -398,7 +398,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
     };
     let undone = project.save(undo.clone()).expect("undo save");
     assert_eq!(
-        project.context_source_epoch().expect("epoch after undo"),
+        project.context().source_epoch().expect("epoch after undo"),
         "5"
     );
     let checkpoint = project
@@ -411,7 +411,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
     assert!(!checkpoint.id.is_empty());
     assert_eq!(
         project
-            .context_source_epoch()
+            .context().source_epoch()
             .expect("epoch after checkpoint"),
         "5"
     );
@@ -425,7 +425,7 @@ fn metadata_cas_and_context_epoch_distinguish_changes_from_noops() {
     drop(connection);
     assert_eq!(
         project
-            .context_source_epoch()
+            .context().source_epoch()
             .expect("epoch after failed save"),
         "5"
     );

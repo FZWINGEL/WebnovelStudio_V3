@@ -490,6 +490,14 @@ of call sites in this migration has to answer two questions, not one — which r
 and what type each one is. Grepping a method name gets you the first and silently guesses the
 second, and the guess is invisible until something compiles or does not.
 
+**The ContextApi facade** (`projects/context_api.rs`) is where that lesson was applied rather
+than learned: `OwnedProject` also has `context_source_epoch`, called as
+`self.context_source_epoch()` in `context_packets.rs` and `discussions.rs`, textually identical
+to the session's. Those three files were named as excluded *before* the rewrite and verified
+unchanged after it. The two are genuinely different operations — one runs on the actor thread
+against the live connection, the other asks the actor over the channel — and the facade doc
+says so, because the next person to grep for that name will hit the same fork.
+
 **Enforcement.** `crates/architecture` asserts, in CI-able tests: every layered crate exists
 with a manifest; every layered crate is a workspace member; no crate depends on a sibling or a
 higher layer; and no layered crate depends on `webnovel-core`. It ships a deliberately

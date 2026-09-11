@@ -99,7 +99,7 @@ fn guidance_versions_are_immutable_cas_and_epoch_bound() {
     let temp = TempDir::new("lifecycle");
     let (project, access, document) = setup(&temp.child("project"));
 
-    let before = project.context_source_epoch().expect("read epoch");
+    let before = project.context().source_epoch().expect("read epoch");
     let first = project
         .save_guidance(request(
             &access,
@@ -114,7 +114,7 @@ fn guidance_versions_are_immutable_cas_and_epoch_bound() {
         .expect("create guidance");
     assert_eq!(first.version, "1");
     assert!(!first.version_id.is_empty());
-    assert_ne!(project.context_source_epoch().expect("read epoch"), before);
+    assert_ne!(project.context().source_epoch().expect("read epoch"), before);
     assert_eq!(
         project
             .guidance(access.clone(), document.head.document_id.clone())
@@ -122,7 +122,7 @@ fn guidance_versions_are_immutable_cas_and_epoch_bound() {
         vec![first.clone()]
     );
 
-    let after_create = project.context_source_epoch().expect("read epoch");
+    let after_create = project.context().source_epoch().expect("read epoch");
     let second = project
         .save_guidance(request(
             &access,
@@ -137,9 +137,9 @@ fn guidance_versions_are_immutable_cas_and_epoch_bound() {
         .expect("edit guidance");
     assert_eq!(second.version, "2");
     assert_ne!(second.version_id, first.version_id);
-    assert!(project.context_source_epoch().expect("read epoch") > after_create);
+    assert!(project.context().source_epoch().expect("read epoch") > after_create);
 
-    let after_edit = project.context_source_epoch().expect("read epoch");
+    let after_edit = project.context().source_epoch().expect("read epoch");
     let replay = project
         .save_guidance(request(
             &access,
@@ -154,7 +154,7 @@ fn guidance_versions_are_immutable_cas_and_epoch_bound() {
         .expect("replay guidance edit");
     assert_eq!(replay, second);
     assert_eq!(
-        project.context_source_epoch().expect("read epoch"),
+        project.context().source_epoch().expect("read epoch"),
         after_edit
     );
 
@@ -189,7 +189,7 @@ fn guidance_versions_are_immutable_cas_and_epoch_bound() {
         .expect("exact no-op");
     assert_eq!(noop, second);
     assert_eq!(
-        project.context_source_epoch().expect("read epoch"),
+        project.context().source_epoch().expect("read epoch"),
         after_edit
     );
 

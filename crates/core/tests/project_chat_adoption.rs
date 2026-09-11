@@ -408,7 +408,7 @@ fn grouped_adoption_is_one_epoch_and_replay_returns_the_same_result() {
         serde_json::to_value(&replayed_preview).expect("replayed preview json")
     );
 
-    let epoch_before = project.context_source_epoch().expect("read source epoch");
+    let epoch_before = project.context().source_epoch().expect("read source epoch");
     let ack = adopt(
         &project,
         &access,
@@ -418,7 +418,7 @@ fn grouped_adoption_is_one_epoch_and_replay_returns_the_same_result() {
     );
     assert_eq!(ack.documents.len(), 3);
     assert_eq!(
-        project.context_source_epoch().expect("read source epoch"),
+        project.context().source_epoch().expect("read source epoch"),
         (epoch_before.parse::<u64>().expect("epoch") + 1).to_string()
     );
     let replayed_ack = adopt(
@@ -471,7 +471,7 @@ fn grouped_adoption_rolls_back_when_the_second_material_write_fails() {
         "rollback-prepare",
         draft_refs(&project, &access),
     );
-    let epoch_before = project.context_source_epoch().expect("read source epoch");
+    let epoch_before = project.context().source_epoch().expect("read source epoch");
     let db = Connection::open(temp.project_path().join("project.sqlite3")).expect("open db");
     db.execute_batch(
         "CREATE TRIGGER fail_second_chat_material_write

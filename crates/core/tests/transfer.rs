@@ -201,7 +201,7 @@ fn recover_creates_new_identity_and_old_receipts_are_historical() {
             },
         )
         .expect("save source view state");
-    let source_epoch = project.context_source_epoch().expect("source epoch");
+    let source_epoch = project.context().source_epoch().expect("source epoch");
     let backup = temp.child("project.wnsbackup");
     create_backup(&project, &backup).expect("create backup");
     let source_marker = fs::read(project.path.join("project.wns.json")).expect("source marker");
@@ -221,7 +221,7 @@ fn recover_creates_new_identity_and_old_receipts_are_historical() {
         .attach("recovered-session".into())
         .expect("attach recovered");
     assert_eq!(
-        recovered.context_source_epoch().expect("recovered epoch"),
+        recovered.context().source_epoch().expect("recovered epoch"),
         source_epoch
     );
     assert!(
@@ -405,7 +405,7 @@ fn duplicate_expected_basis_rejects_a_changed_epoch_or_head_before_install() {
     let basis = DuplicateBasis {
         project_id: metadata.project.project_id,
         operation_namespace: metadata.project.operation_namespace,
-        context_source_epoch: project.context_source_epoch().expect("read source epoch"),
+        context_source_epoch: project.context().source_epoch().expect("read source epoch"),
         document_heads: vec![saved.head.clone()],
     };
     let duplicate =
@@ -1267,7 +1267,7 @@ fn schema1_backup_is_migrated_during_recovery_and_keeps_empty_view_defaults() {
         .expect("recover schema one backup");
     assert_eq!(
         recovered
-            .context_source_epoch()
+            .context().source_epoch()
             .expect("read migrated epoch"),
         "0"
     );

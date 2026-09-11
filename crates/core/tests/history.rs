@@ -357,7 +357,7 @@ fn restore_failures_roll_back_every_mutation_stage() {
         let (access, initial) = setup(&project);
         let source = checkpoint(&project, &access, &initial.head);
         let current = save(&project, &access, &initial.head, "fault-current", "newer");
-        let epoch = project.context_source_epoch().expect("source epoch");
+        let epoch = project.context().source_epoch().expect("source epoch");
         let request = RestoreRevision {
             access: access.clone(),
             operation_id: "restore-fault".into(),
@@ -382,7 +382,7 @@ fn restore_failures_roll_back_every_mutation_stage() {
         assert_eq!(unchanged.head, current.head, "{point}");
         assert_eq!(unchanged.body, body("newer", "p1"), "{point}");
         assert_eq!(
-            project.context_source_epoch().expect("source epoch"),
+            project.context().source_epoch().expect("source epoch"),
             epoch,
             "{point}"
         );

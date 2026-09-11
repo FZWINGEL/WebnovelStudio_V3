@@ -171,7 +171,7 @@ pub fn capture_duplicate_basis(
     Ok(DuplicateBasis {
         project_id: metadata.project.project_id,
         operation_namespace: metadata.project.operation_namespace,
-        context_source_epoch: project.context_source_epoch()?,
+        context_source_epoch: project.context().source_epoch()?,
         document_heads,
     })
 }

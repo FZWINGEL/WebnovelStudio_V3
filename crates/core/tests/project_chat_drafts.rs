@@ -239,7 +239,7 @@ fn packet_id_for_run(project: &ProjectSession, run_id: &str) -> String {
 #[test]
 fn materialization_is_local_idempotent_and_draft_save_does_not_advance_story_epoch() {
     let (_temp, project, access) = setup();
-    let before_epoch = project.context_source_epoch().expect("epoch");
+    let before_epoch = project.context().source_epoch().expect("epoch");
     let (conversation_id, owner) = finish_chat(
         &project,
         &access,
@@ -257,7 +257,7 @@ fn materialization_is_local_idempotent_and_draft_save_does_not_advance_story_epo
     assert_eq!(first, second);
     assert!(first.output_valid);
     assert_eq!(first.draft_ids.len(), 1);
-    assert_eq!(project.context_source_epoch().expect("epoch"), before_epoch);
+    assert_eq!(project.context().source_epoch().expect("epoch"), before_epoch);
 
     let view = project
         .read_project_conversation(ReadProjectConversation {
@@ -282,7 +282,7 @@ fn materialization_is_local_idempotent_and_draft_save_does_not_advance_story_epo
         })
         .expect("save isolated draft");
     assert_eq!(ack.head.version, "1");
-    assert_eq!(project.context_source_epoch().expect("epoch"), before_epoch);
+    assert_eq!(project.context().source_epoch().expect("epoch"), before_epoch);
 }
 
 #[test]

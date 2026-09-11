@@ -97,7 +97,7 @@ fn scopes_are_sorted_versioned_cas_safe_and_reopenable() {
     let temp = TempDir::new();
     let path = temp.child("project");
     let (project, access, chapter) = setup(&path);
-    let before = project.context_source_epoch().expect("epoch");
+    let before = project.context().source_epoch().expect("epoch");
     let saved = save_on(
         &project,
         &access,
@@ -111,11 +111,11 @@ fn scopes_are_sorted_versioned_cas_safe_and_reopenable() {
     assert_eq!(saved.source_document_ids, vec!["note-one"]);
     assert_eq!(saved.target_document_id, None);
     assert_eq!(
-        project.context_source_epoch().unwrap(),
+        project.context().source_epoch().unwrap(),
         (before.parse::<u64>().unwrap() + 1).to_string()
     );
 
-    let noop_epoch = project.context_source_epoch().unwrap();
+    let noop_epoch = project.context().source_epoch().unwrap();
     let replay = save_on(
         &project,
         &access,
@@ -126,7 +126,7 @@ fn scopes_are_sorted_versioned_cas_safe_and_reopenable() {
         &["note-one"],
     );
     assert_eq!(replay, saved);
-    assert_eq!(project.context_source_epoch().unwrap(), noop_epoch);
+    assert_eq!(project.context().source_epoch().unwrap(), noop_epoch);
 
     let stale = project
         .save_source_pins(SaveSourcePins {

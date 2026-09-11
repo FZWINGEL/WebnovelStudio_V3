@@ -392,7 +392,7 @@ fn recent_complete_turns_are_exact_capped_and_frozen_across_retry_and_restart() 
     project
         .stop_discussion(access.clone(), partial.run.id)
         .unwrap();
-    let source_epoch = project.context_source_epoch().unwrap();
+    let source_epoch = project.context().source_epoch().unwrap();
     let result = completed_turn(
         &project,
         &access,
@@ -425,7 +425,7 @@ fn recent_complete_turns_are_exact_capped_and_frozen_across_retry_and_restart() 
         start(&project, &access, &document, "follow-up").packet,
         result.packet
     );
-    assert_eq!(project.context_source_epoch().unwrap(), source_epoch);
+    assert_eq!(project.context().source_epoch().unwrap(), source_epoch);
     assert_eq!(
         project
             .document(access, document.head.document_id.clone())
@@ -834,10 +834,10 @@ fn next_request_guidance_is_consumed_once_only_after_a_successful_atomic_start()
             .unwrap()
             .is_empty()
     );
-    let epoch = project.context_source_epoch().unwrap();
+    let epoch = project.context().source_epoch().unwrap();
     let retry = start(&project, &access, &document, "guidance-first");
     assert_eq!(retry.packet, first.packet);
-    assert_eq!(project.context_source_epoch().unwrap(), epoch);
+    assert_eq!(project.context().source_epoch().unwrap(), epoch);
     let next = start(&project, &access, &document, "guidance-second");
     assert!(next.packet.receipt.guidance_handles.is_empty());
     assert_eq!(

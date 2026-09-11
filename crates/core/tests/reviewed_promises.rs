@@ -230,7 +230,7 @@ fn promise_only_replacement_advances_epoch_and_fences_pending_later_review() {
         "stage-pending-later-again",
         None,
     );
-    let epoch_before = project.context_source_epoch().unwrap();
+    let epoch_before = project.context().source_epoch().unwrap();
 
     let replacement = promise(
         "The bell will ring again.",
@@ -251,7 +251,7 @@ fn promise_only_replacement_advances_epoch_and_fences_pending_later_review() {
             stage_id: replacement_stage.id,
         })
         .unwrap();
-    assert_ne!(project.context_source_epoch().unwrap(), epoch_before);
+    assert_ne!(project.context().source_epoch().unwrap(), epoch_before);
     assert_eq!(
         first.head.body_hash,
         project

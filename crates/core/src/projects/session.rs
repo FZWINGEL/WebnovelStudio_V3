@@ -417,8 +417,13 @@ impl ProjectSession {
     ) -> CoreResult<ViewState> {
         self.request(|r| Command::SaveViewState(access, head, anchor, focus, r))
     }
-    pub fn context_source_epoch(&self) -> CoreResult<String> {
-        self.request(Command::ContextSourceEpoch)
+    /// Narrow interface to the context-freshness concern. See [`ContextApi`].
+    ///
+    /// Distinct from the actor's own `context_source_epoch`, which runs on the
+    /// actor thread against the live connection. This one asks the actor over
+    /// the channel.
+    pub fn context(&self) -> ContextApi {
+        ContextApi::new(Arc::clone(&self.handle))
     }
     pub fn storage_info(&self) -> CoreResult<StorageInfo> {
         self.request(Command::StorageInfo)

@@ -40,10 +40,12 @@ pub mod workshop_generation;
 // file was a namespace rather than a module: it held the record types, the
 // actor, the session façade and the persistence helpers together, and none of
 // them could move until they were separated.
+mod context_api;
 mod records;
 mod session;
 mod work_api;
 mod workshop_api;
+pub use context_api::*;
 pub use records::*;
 pub use session::*;
 pub use work_api::*;

@@ -25,7 +25,7 @@ fn manual_save_recap_uses_receipts_survives_reopen_and_does_not_create_chat_even
     let ack = project.save(request.clone()).unwrap();
     project.save(request).unwrap();
     let checkpoint = project.checkpoint(CheckpointRequest { access: access.clone(), expected: ack.head.clone(), reason: CheckpointReason::Manual }).unwrap();
-    let epoch = project.context_source_epoch().unwrap();
+    let epoch = project.context().source_epoch().unwrap();
     let view = read(&project, &access);
     assert_eq!(view.document_saves.len(), 1);
     assert_eq!(view.document_saves[0].head, ack.head);
@@ -33,7 +33,7 @@ fn manual_save_recap_uses_receipts_survives_reopen_and_does_not_create_chat_even
     assert_eq!(view.document_saves[0].operation_id, "recap-save");
     assert_eq!(view.items.len(), initial.items.len());
     assert_eq!(view.composer.version, initial.composer.version);
-    assert_eq!(project.context_source_epoch().unwrap(), epoch);
+    assert_eq!(project.context().source_epoch().unwrap(), epoch);
     let mut wrong = access.clone(); wrong.operation_namespace = "wrong-namespace".into();
     assert!(project.read_project_conversation(ReadProjectConversation { access: wrong, before: None, limit: 40 }).is_err());
     let (_other_temp, other, other_access) = setup();
@@ -60,7 +60,7 @@ fn start(access:&ProjectAccess,composer:ProjectComposerSnapshot)->StartProjectCh
 fn activity_counts_pending_drafts_without_mutation_or_namespace_leak() {
     let (_temp,project,access)=setup();
     let initial=read(&project,&access);
-    let epoch=project.context_source_epoch().unwrap();
+    let epoch=project.context().source_epoch().unwrap();
     let composer=ProjectComposer{text:"Develop a provisional world note.".into(),..ProjectComposer::default()};
     let saved=project.save_project_composer(SaveProjectComposer{access:access.clone(),operation_id:"activity-save".into(),conversation_id:initial.id.clone(),expected_version:initial.composer.version,body:composer.clone()}).unwrap();
     let started=project.start_project_chat(StartProjectChat{access:access.clone(),operation_id:"activity-start".into(),conversation_id:initial.id.clone(),expected_composer_version:saved.version,composer,budget:MockContextBudget::new("100000","8192","100"),provider_binding:None}).unwrap();
@@ -79,7 +79,7 @@ fn activity_counts_pending_drafts_without_mutation_or_namespace_leak() {
     let before=read(&project,&access);
     let snapshot=project.project_chat_activity().unwrap();
     assert_eq!(snapshot.pending_drafts,1);
-    assert_eq!(project.context_source_epoch().unwrap(),epoch);
+    assert_eq!(project.context().source_epoch().unwrap(),epoch);
     let after=read(&project,&access);
     assert_eq!(after.composer.version,before.composer.version);
     assert_eq!(after.items.len(),before.items.len());
@@ -93,20 +93,20 @@ fn activity_counts_pending_drafts_without_mutation_or_namespace_leak() {
 
 #[test]
 fn blank_project_has_one_conversation_without_a_story_document_or_source_change() {
-    let (_temp,project,access)=setup();let epoch=project.context_source_epoch().unwrap();
+    let (_temp,project,access)=setup();let epoch=project.context().source_epoch().unwrap();
     let first=read(&project,&access);let second=read(&project,&access);
     assert_eq!(first.id,second.id);assert!(first.items.is_empty());assert!(first.composer.body.text.is_empty());
-    assert!(project.documents(access).unwrap().is_empty());assert_eq!(project.context_source_epoch().unwrap(),epoch);
+    assert!(project.documents(access).unwrap().is_empty());assert_eq!(project.context().source_epoch().unwrap(),epoch);
 }
 
 #[test]
 fn composer_is_versioned_recoverable_and_does_not_change_story_context() {
-    let (temp,project,access)=setup();let view=read(&project,&access);let epoch=project.context_source_epoch().unwrap();
+    let (temp,project,access)=setup();let view=read(&project,&access);let epoch=project.context().source_epoch().unwrap();
     let request=SaveProjectComposer{access:access.clone(),operation_id:"save-one".into(),conversation_id:view.id.clone(),expected_version:"0".into(),body:ProjectComposer{text:"A city where people trade memories.".into(),..Default::default()}};
     let first=project.save_project_composer(request.clone()).unwrap();assert_eq!(first.version,"1");
     assert_eq!(project.save_project_composer(request.clone()).unwrap().version,first.version);
     let mut stale=request;stale.operation_id="save-two".into();stale.body.text="Unsent newer buffer".into();
-    assert_eq!(project.save_project_composer(stale).unwrap_err().code,"VersionConflict");assert_eq!(project.context_source_epoch().unwrap(),epoch);
+    assert_eq!(project.save_project_composer(stale).unwrap_err().code,"VersionConflict");assert_eq!(project.context().source_epoch().unwrap(),epoch);
     drop(project);let reopened=ProjectSession::open(temp.0.join("project")).unwrap();let access=reopened.attach("reopened".into()).unwrap();
     assert_eq!(read(&reopened,&access).composer.body.text,"A city where people trade memories.");
 }

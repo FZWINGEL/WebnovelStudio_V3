@@ -391,7 +391,7 @@ fn draft_only_effects_resolve_to_ordinary_targets_and_replay_once() {
     assert!(!draft_ids.contains(&proposed.to_document_id));
     assert!(preview.targets.iter().all(|target| target.before.is_none()));
 
-    let epoch_before = project.context_source_epoch().expect("read source epoch");
+    let epoch_before = project.context().source_epoch().expect("read source epoch");
     let ack = adopt(
         &project,
         &access,
@@ -427,7 +427,7 @@ fn draft_only_effects_resolve_to_ordinary_targets_and_replay_once() {
         .iter()
         .all(|document| { document.role == webnovel_core::projects::DocumentRole::Ordinary }));
     assert_eq!(
-        project.context_source_epoch().expect("read source epoch"),
+        project.context().source_epoch().expect("read source epoch"),
         (epoch_before.parse::<u64>().expect("epoch") + 1).to_string()
     );
 
@@ -443,7 +443,7 @@ fn draft_only_effects_resolve_to_ordinary_targets_and_replay_once() {
         serde_json::to_value(&ack).expect("ack json")
     );
     assert_eq!(
-        project.context_source_epoch().expect("read source epoch"),
+        project.context().source_epoch().expect("read source epoch"),
         "1"
     );
     assert_eq!(
@@ -483,7 +483,7 @@ fn excluding_an_effect_endpoint_refuses_before_any_write() {
     assert_eq!(error.code, "InvalidRequest");
     assert_no_material_targets(&project, &access);
     assert_eq!(
-        project.context_source_epoch().expect("read source epoch"),
+        project.context().source_epoch().expect("read source epoch"),
         "0"
     );
     let db = Connection::open(temp.project_path().join("project.sqlite3")).expect("open db");
@@ -767,7 +767,7 @@ fn relationship_write_failure_rolls_back_materialization_and_allows_same_operati
         None,
     );
     assert!(materialization.output_valid);
-    let epoch_before = project.context_source_epoch().expect("read source epoch");
+    let epoch_before = project.context().source_epoch().expect("read source epoch");
     let db = Connection::open(temp.project_path().join("project.sqlite3")).expect("open db");
     db.execute_batch(
         "CREATE TRIGGER fail_chat_relationship_state_insert
@@ -893,7 +893,7 @@ fn unsupported_grouped_effect_categories_refuse_before_any_write() {
         assert_eq!(error.code, "InvalidRequest");
         assert_no_material_targets(&project, &access);
         assert_eq!(
-            project.context_source_epoch().expect("read source epoch"),
+            project.context().source_epoch().expect("read source epoch"),
             "0"
         );
         let db = Connection::open(temp.project_path().join("project.sqlite3")).expect("open db");
@@ -1023,7 +1023,7 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
             cause: SaveCause::Typing,
         })
         .expect("change unselected relationship endpoint");
-    let epoch_after_drift = project.context_source_epoch().expect("read drift epoch");
+    let epoch_after_drift = project.context().source_epoch().expect("read drift epoch");
     let workshop_after_drift = project
         .workshop().read(access.clone())
         .expect("read workshop after endpoint drift");
@@ -1062,7 +1062,7 @@ fn existing_relationship_endpoint_drift_refuses_without_partial_adoption() {
     );
     assert_eq!(
         project
-            .context_source_epoch()
+            .context().source_epoch()
             .expect("read epoch after rejection"),
         epoch_after_drift
     );
@@ -1134,7 +1134,7 @@ fn rejected_selected_group_member_refuses_without_partial_adoption() {
             unknown_to: None,
         })
         .expect("reject selected grouped member");
-    let epoch_before_adoption = project.context_source_epoch().expect("read epoch");
+    let epoch_before_adoption = project.context().source_epoch().expect("read epoch");
     let workshop_before_adoption = project
         .workshop().read(access.clone())
         .expect("read workshop");
@@ -1152,7 +1152,7 @@ fn rejected_selected_group_member_refuses_without_partial_adoption() {
     assert_no_material_targets(&project, &access);
     assert_eq!(
         project
-            .context_source_epoch()
+            .context().source_epoch()
             .expect("read epoch after rejection"),
         epoch_before_adoption
     );
