@@ -7,6 +7,9 @@
 //! output methods below are the small durable boundary a later supervisor can
 //! drive with deterministic or live events.
 
+pub use wns_story::discussion_vocabulary::{
+    DiscussionScopeInput, FeedbackIntent, StartDiscussion, skip_default_feedback_intent,
+};
 use super::*;
 // The provider delivery vocabulary moved to `wns-providers::vocabulary` (L1),
 // below both this module (bound for `wns-conversation`, L5) and `memory`
@@ -21,14 +24,14 @@ use crate::context::continuation::CONTINUATION_RESPONSE_CONTRACT;
 use crate::context::lookup::LookupAllowance;
 use crate::context::packet::{
     CODEX_INPUT_LIMIT_BYTES, CODEX_OUTPUT_LIMIT_BYTES, CompiledPacket, LOOKUP_RESPONSE_CONTRACT,
-    MockContextBudget, PROPOSAL_RESPONSE_CONTRACT, PacketError, PacketRequest, ProviderBinding,
+    PROPOSAL_RESPONSE_CONTRACT, PacketError, PacketRequest, ProviderBinding,
     STRUCTURED_PROPOSAL_RESPONSE_CONTRACT, compile_packet, serialized_input,
 };
 use crate::context::{
     Audience, BasisKind, ContextPurpose, InformationPolicy, MAX_SAFE_BRIEF_BYTES,
 };
 use crate::documents::{
-    Endpoint, ScopeGrant, ScopeKind, ScopeValidationRequest, capture_append_scope, capture_scope,
+    ScopeGrant, ScopeKind, ScopeValidationRequest, capture_append_scope, capture_scope,
     validate_scope,
 };
 use crate::projects::context_packets::PrepareContext;
@@ -61,105 +64,6 @@ const STOP_SETTLED_MESSAGE: &str =
 const STOP_UNRESOLVED_MESSAGE: &str =
     "This response was interrupted. Any partial text shown here is saved.";
 
-/// The two author-room actions supported by a discussion request.  `Discuss`
-/// is intentionally the wire default so older clients produce the same
-/// request hash they did before intent was added to the contract.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub enum FeedbackIntent {
-    #[default]
-    Discuss,
-    ProposeEdits,
-    Continue,
-    WorkshopExplore,
-}
-
-impl FeedbackIntent {
-    fn is_discuss(self) -> bool {
-        self == Self::Discuss
-    }
-
-    fn purpose(self) -> ContextPurpose {
-        match self {
-            Self::Discuss => ContextPurpose::Discuss,
-            Self::ProposeEdits => ContextPurpose::Revise,
-            Self::Continue => ContextPurpose::Continue,
-            Self::WorkshopExplore => ContextPurpose::StoryQuestion,
-        }
-    }
-
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Discuss => "discuss",
-            Self::ProposeEdits => "proposeEdits",
-            Self::Continue => "continue",
-            Self::WorkshopExplore => "workshopExplore",
-        }
-    }
-
-    fn parse(value: &str) -> CoreResult<Self> {
-        match value {
-            "discuss" => Ok(Self::Discuss),
-            "proposeEdits" => Ok(Self::ProposeEdits),
-            "continue" => Ok(Self::Continue),
-            "workshopExplore" => Ok(Self::WorkshopExplore),
-            _ => Err(CoreError::new(
-                "InvalidProject",
-                "The saved discussion draft has an unknown intent.",
-            )),
-        }
-    }
-
-    fn from_purpose(purpose: ContextPurpose) -> CoreResult<Self> {
-        match purpose {
-            ContextPurpose::Discuss => Ok(Self::Discuss),
-            ContextPurpose::Revise => Ok(Self::ProposeEdits),
-            ContextPurpose::Continue => Ok(Self::Continue),
-            ContextPurpose::StoryQuestion => Ok(Self::WorkshopExplore),
-            ContextPurpose::Plan | ContextPurpose::MemoryAnalysis => Err(CoreError::new(
-                "InvalidContext",
-                "The discussion snapshot has an unsupported purpose.",
-            )),
-        }
-    }
-}
-
-fn skip_default_feedback_intent(intent: &FeedbackIntent) -> bool {
-    intent.is_discuss()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DiscussionScopeInput {
-    pub kind: ScopeKind,
-    pub start: Option<Endpoint>,
-    pub end: Option<Endpoint>,
-    pub quote: String,
-    pub source_body_hash: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StartDiscussion {
-    pub access: ProjectAccess,
-    pub operation_id: String,
-    pub expected: Head,
-    pub instruction: String,
-    #[serde(default, skip_serializing_if = "skip_default_feedback_intent")]
-    pub intent: FeedbackIntent,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub basis: Option<BasisKind>,
-    pub scope: Option<DiscussionScopeInput>,
-    pub pinned_document_ids: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub safe_brief: Option<SafeBriefInput>,
-    pub budget: MockContextBudget,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_binding: Option<ProviderBinding>,
-    pub previous_run_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lookup: Option<LookupAllowance>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

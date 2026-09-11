@@ -2630,7 +2630,7 @@ fn read_workshop_results(
     let mut results = Vec::new();
     for run_id in run_ids {
         let run = crate::projects::discussions::read_run(connection, &run_id)?;
-        if run.intent != crate::projects::discussions::FeedbackIntent::WorkshopExplore {
+        if run.intent != wns_story::discussion_vocabulary::FeedbackIntent::WorkshopExplore {
             continue;
         }
         let packet =
@@ -2891,7 +2891,7 @@ impl OwnedProject {
                 && prepared.access.operation_namespace == request.access.operation_namespace
                 && prepared.operation_id == request.operation_id;
             let matches = started.run.intent
-                == crate::projects::discussions::FeedbackIntent::WorkshopExplore
+                == wns_story::discussion_vocabulary::FeedbackIntent::WorkshopExplore
                 && metadata.is_some_and(|metadata| metadata.exploration == request.exploration)
                 && started.packet.options.provider_binding == request.provider_binding
                 && budget_matches
@@ -3880,7 +3880,7 @@ pub(crate) fn validate_storage(connection: &Connection) -> CoreResult<()> {
             if started.run.owner.operation_namespace != namespace
                 || started.run.operation_id != operation
                 || started.run.intent
-                    != crate::projects::discussions::FeedbackIntent::WorkshopExplore
+                    != wns_story::discussion_vocabulary::FeedbackIntent::WorkshopExplore
             {
                 return Err(CoreError::new(
                     "InvalidBackup",

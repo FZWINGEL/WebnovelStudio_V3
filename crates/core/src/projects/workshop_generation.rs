@@ -17,7 +17,9 @@ pub use wns_story::workshop_metadata::{
     WorkshopVoiceGuidance, WorkshopWorkingSelection, metadata_from_instruction, metadata_value,
 };
 
-use super::discussions::{FeedbackIntent, StartDiscussion};
+// Named at the crate that owns them: two future L5 siblings both need these,
+// so they sit below both rather than in either.
+use wns_story::discussion_vocabulary::{FeedbackIntent, StartDiscussion};
 use super::workshop::{
     CandidateChoiceStatus, StoryPossibilityStatus,
     WorkshopPreference, WorkshopRelationship, WorkshopSession, WorkshopState,
