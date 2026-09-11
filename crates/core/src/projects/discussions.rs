@@ -8,6 +8,15 @@
 //! drive with deterministic or live events.
 
 use super::*;
+// The provider delivery vocabulary moved to `wns-providers::vocabulary` (L1),
+// below both this module (bound for `wns-conversation`, L5) and `memory`
+// (`wns-story`, L4). Re-exported at the historical path so
+// `discussions::ProviderCleanup` and its siblings resolve unchanged for
+// `discussion_lookup` and `memory`.
+pub use wns_providers::vocabulary::{
+    HttpDeliverySubmission, HttpProviderUsage, ProviderCleanup, ProviderDeliveryReceipt,
+    ProviderOutcomeStatus, ProviderUsage,
+};
 use crate::context::continuation::CONTINUATION_RESPONSE_CONTRACT;
 use crate::context::lookup::LookupAllowance;
 use crate::context::packet::{
@@ -239,116 +248,6 @@ pub struct DiscussionMessage {
     pub scope: Option<ScopeGrant>,
     pub packet_id: Option<String>,
     pub created_at: String,
-}
-
-/// The provider-side outcome is kept separate from the discussion lifecycle.
-/// For example, a timed-out provider request with settled cleanup becomes a
-/// durable failed discussion while retaining any validated prefix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ProviderOutcomeStatus {
-    Completed,
-    Stopped,
-    TimedOut,
-    OutputLimit,
-    Failed,
-}
-
-impl ProviderOutcomeStatus {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Completed => "completed",
-            Self::Stopped => "stopped",
-            Self::TimedOut => "timed_out",
-            Self::OutputLimit => "output_limit",
-            Self::Failed => "failed",
-        }
-    }
-
-    fn parse(value: &str) -> CoreResult<Self> {
-        match value {
-            "completed" => Ok(Self::Completed),
-            "stopped" => Ok(Self::Stopped),
-            "timed_out" => Ok(Self::TimedOut),
-            "output_limit" => Ok(Self::OutputLimit),
-            "failed" => Ok(Self::Failed),
-            _ => Err(CoreError::new(
-                "InvalidProject",
-                "The saved provider result has an unknown outcome.",
-            )),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ProviderCleanup {
-    Settled,
-    Unresolved,
-}
-
-impl ProviderCleanup {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Settled => "settled",
-            Self::Unresolved => "unresolved",
-        }
-    }
-
-    fn parse(value: &str) -> CoreResult<Self> {
-        match value {
-            "settled" => Ok(Self::Settled),
-            "unresolved" => Ok(Self::Unresolved),
-            _ => Err(CoreError::new(
-                "InvalidProject",
-                "The saved provider result has an unknown cleanup state.",
-            )),
-        }
-    }
-}
-
-/// Evidence about the HTTP request itself.  This is intentionally separate
-/// from Codex's local stdin count: an HTTP request can be accepted by a remote
-/// server even when the local process loses the response before it is parsed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum HttpDeliverySubmission {
-    NotSent,
-    Uncertain,
-    ResponseReceived,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct HttpProviderUsage {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_tokens: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_tokens: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub total_tokens: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProviderDeliveryReceipt {
-    pub body_hash: String,
-    pub body_bytes: String,
-    pub submission: HttpDeliverySubmission,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub usage: Option<HttpProviderUsage>,
-}
-
-/// Raw provider usage is optional. Missing usage is an explicit unknown value;
-/// no estimate is substituted from the packet's byte accounting.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProviderUsage {
-    pub input_tokens: u64,
-    pub cached_input_tokens: u64,
-    pub cache_write_input_tokens: u64,
-    pub output_tokens: u64,
-    pub reasoning_output_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

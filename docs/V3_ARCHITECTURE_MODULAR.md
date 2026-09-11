@@ -1232,6 +1232,29 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    `memory` + `context_packets` moved together, and its two escapes are *both* designed splits
    rather than extractions.
 
+   **The second escape was cheap, and measuring first is what found it.** `memory`'s
+   dependency on `discussions` looked like an import of four names. It is an import of five
+   **provider delivery types** — `ProviderOutcomeStatus`, `ProviderCleanup`,
+   `HttpDeliverySubmission`, `ProviderDeliveryReceipt`, `ProviderUsage`, plus `HttpProviderUsage`.
+   All six are leaves: serde and `CoreError`, nothing else.
+
+   They are used by three modules that land in *different* crates — `memory` into `wns-story`
+   (L4), `discussions` and `discussion_lookup` into `wns-conversation` (L5) — so no amount of
+   moving either module could resolve it. Vocabulary two future siblings both need has to sit
+   below both, and `wns-providers::vocabulary` (L1) is the established home: this file's own
+   header records the identical fix for `ProviderBinding`, made for the identical reason.
+
+   Moving the six down, and pointing the importers at `wns-providers` directly rather than
+   through `discussions`' re-export, takes `memory → discussions` to **zero**. The re-export
+   stays, so `discussions::ProviderCleanup` and its siblings still resolve — but a re-export is
+   not an edge, and the difference is exactly the one that matters here.
+
+   So of the last unit's edges, one is discharged and one is a designed split. `memory →
+   context_packets` (five sites) is the remainder, and it is the same question asked of a
+   different module: are `PrepareContext`, `validated_packet_record` and
+   `persist_compiled_packet_at` packet vocabulary that belongs below both, or operations that
+   belong with the store?
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.

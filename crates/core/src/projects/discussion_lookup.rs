@@ -6,7 +6,8 @@
 //! mutable invocation state row plus immutable result and local-read rows.
 
 use super::check_id;
-use super::discussions::{ProviderCleanup, ProviderOutcomeStatus, ProviderUsage, RunOwner};
+use super::discussions::RunOwner;
+use wns_providers::vocabulary::{ProviderCleanup, ProviderOutcomeStatus, ProviderUsage};
 use super::{CoreError, CoreResult};
 use crate::context::lookup::{
     LOOKUP_SCHEMA_VERSION, LookupAllowance, LookupEnvelope, LookupExchange, LookupRead,

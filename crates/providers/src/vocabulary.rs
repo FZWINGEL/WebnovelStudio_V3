@@ -706,3 +706,136 @@ pub fn parse_decimal(value: &str) -> Result<u128, String> {
         .map_err(|_| "decimal value exceeds the supported counter range".to_owned())
 }
 
+
+// ---------------------------------------------------------------------------
+// Provider delivery vocabulary.
+//
+// Moved down from `webnovel-core::projects::discussions`, where they sat in a
+// 4,619-line module bound for `wns-conversation` (L5). Three modules use them
+// and they land in *different* crates: `memory` goes to `wns-story` (L4), and
+// `discussions` and `discussion_lookup` to `wns-conversation` (L5). Vocabulary
+// that two future siblings both need has to sit below both, so `memory`'s
+// `use crate::projects::discussions::{...}` was an L4->L5 upward edge that no
+// amount of moving either module could resolve.
+//
+// This is the second time this exact shape has been fixed here, and the
+// argument is the one in this file's own header: these are provider contract
+// types — an outcome, a cleanup state, a delivery receipt — not discussion
+// logic, and they lived in `discussions` only because that is where the first
+// adapter needing them happened to be written.
+//
+// Byte-compatibility is unaffected: a serialized receipt is identical whichever
+// crate owns the type, and `discussions` re-exports every item at its
+// historical path.
+// ---------------------------------------------------------------------------
+
+use wns_kernel::{CoreError, CoreResult};
+/// The provider-side outcome is kept separate from the discussion lifecycle.
+/// For example, a timed-out provider request with settled cleanup becomes a
+/// durable failed discussion while retaining any validated prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderOutcomeStatus {
+    Completed,
+    Stopped,
+    TimedOut,
+    OutputLimit,
+    Failed,
+}
+
+impl ProviderOutcomeStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Stopped => "stopped",
+            Self::TimedOut => "timed_out",
+            Self::OutputLimit => "output_limit",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn parse(value: &str) -> CoreResult<Self> {
+        match value {
+            "completed" => Ok(Self::Completed),
+            "stopped" => Ok(Self::Stopped),
+            "timed_out" => Ok(Self::TimedOut),
+            "output_limit" => Ok(Self::OutputLimit),
+            "failed" => Ok(Self::Failed),
+            _ => Err(CoreError::new(
+                "InvalidProject",
+                "The saved provider result has an unknown outcome.",
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderCleanup {
+    Settled,
+    Unresolved,
+}
+
+impl ProviderCleanup {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Settled => "settled",
+            Self::Unresolved => "unresolved",
+        }
+    }
+
+    pub fn parse(value: &str) -> CoreResult<Self> {
+        match value {
+            "settled" => Ok(Self::Settled),
+            "unresolved" => Ok(Self::Unresolved),
+            _ => Err(CoreError::new(
+                "InvalidProject",
+                "The saved provider result has an unknown cleanup state.",
+            )),
+        }
+    }
+}
+
+/// Evidence about the HTTP request itself.  This is intentionally separate
+/// from Codex's local stdin count: an HTTP request can be accepted by a remote
+/// server even when the local process loses the response before it is parsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HttpDeliverySubmission {
+    NotSent,
+    Uncertain,
+    ResponseReceived,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HttpProviderUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderDeliveryReceipt {
+    pub body_hash: String,
+    pub body_bytes: String,
+    pub submission: HttpDeliverySubmission,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<HttpProviderUsage>,
+}
+
+/// Raw provider usage is optional. Missing usage is an explicit unknown value;
+/// no estimate is substituted from the packet's byte accounting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderUsage {
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub cache_write_input_tokens: u64,
+    pub output_tokens: u64,
+    pub reasoning_output_tokens: u64,
+}

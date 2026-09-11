@@ -15,7 +15,10 @@ use crate::context::packet::{
 };
 use crate::context::{Audience, BasisKind, ContextPurpose, InformationPolicy, SourceRef};
 use crate::projects::context_packets::{PrepareContext, validated_packet_record};
-use crate::projects::discussions::{
+// Named at the crate that owns them, not through `discussions`' re-export:
+// this import is the whole of the edge that made `memory` (L4) depend on
+// `discussions` (L5), and it stops being an edge only when it points below.
+use wns_providers::vocabulary::{
     HttpDeliverySubmission, ProviderCleanup, ProviderDeliveryReceipt, ProviderOutcomeStatus,
     ProviderUsage,
 };
