@@ -10,7 +10,7 @@ use crate::documents::{
     TypedReplacementBlock, typed_replacement_snapshot, validate_append,
     validate_structured_replacement, validate_text_replacement, validate_typed_replacement_blocks,
 };
-use discussions::DiscussionRun;
+use wns_story::run_vocabulary::DiscussionRun;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

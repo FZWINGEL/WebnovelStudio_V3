@@ -27,7 +27,7 @@ pub const MAX_LOOKUP_INVOCATIONS: u8 = 3;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LookupDispatch {
-    pub run: super::discussions::DiscussionRun,
+    pub run: wns_story::run_vocabulary::DiscussionRun,
     pub ordinal: String,
     pub packet: CompiledPacket,
 }
@@ -69,7 +69,7 @@ pub enum LookupAdvance {
         dispatch: Box<LookupDispatch>,
     },
     Finished {
-        run: super::discussions::DiscussionRun,
+        run: wns_story::run_vocabulary::DiscussionRun,
     },
 }
 
