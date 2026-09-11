@@ -638,10 +638,17 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
 **Not yet done, and the next three steps in dependency order.**
 
 1. **`context/packet.rs` (step 6).** Still 3,462 lines, still the file §3.4 describes as the
-   hardest. Its coupling to `projects` is now measured and much smaller than assumed: after
-   de-coupling the error and identity types (which had already moved to the kernel), what
-   remains is `story_records` (19 refs), `story_context` (12), `reviewed_summary` (4) and one
-   each for `workshop_generation`, `project_chat_output` and `project_chat_context`.
+   hardest. Two of its three blockers are now cleared:
+   
+   - The error and identity types (`CoreError`, `CoreResult`, `Head`) had already moved to the
+     kernel; the fifteen sites reaching up for them now name the kernel directly.
+   - **`Revision` moved to `wns-kernel` and `story_records` moved to `wns-context`.** The record
+     shapes a compiled packet carries are the compiler's *input* vocabulary, so leaving them in
+     the crate under decomposition is exactly what made the compiler reach upward for its own
+     inputs. Both are re-exported at their historical paths, so no call site changed.
+   
+   What remains is `story_context` (12 refs), `reviewed_summary` (4) and one each for
+   `workshop_generation`, `project_chat_output` and `project_chat_context`.
    
    **And those are genuine inversions, not import tidying.** §3.4's "the compiler should
    receive already-materialised inputs rather than assemble them" is the fix for all three of

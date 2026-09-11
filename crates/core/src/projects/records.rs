@@ -232,15 +232,6 @@ pub enum CheckpointReason {
     Export,
     Interval,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Revision {
-    pub id: String,
-    pub head: Head,
-    pub body: Value,
-    pub reason: String,
-    pub parent_id: Option<String>,
-}
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageInfo {

@@ -86,6 +86,22 @@ pub struct Head {
     pub body_hash: String,
 }
 
+/// One immutable saved revision of a document.
+///
+/// Moved down from `projects/records.rs` so the packet compiler's input
+/// vocabulary can name it: `story_records` — the shapes a compiled packet
+/// carries — depends on this type, and a layer-2 crate may not reach up to the
+/// crate under decomposition for it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Revision {
+    pub id: String,
+    pub head: Head,
+    pub body: Value,
+    pub reason: String,
+    pub parent_id: Option<String>,
+}
+
 const MAX_RAW_BYTES: usize = 2 * 1024 * 1024;
 const MAX_UTF16_UNITS: u64 = 1_000_000;
 const MAX_BLOCKS: usize = 10_000;

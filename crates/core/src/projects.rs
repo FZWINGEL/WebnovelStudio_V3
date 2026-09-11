@@ -30,7 +30,6 @@ pub mod reviewed_story;
 pub mod reviewed_summary;
 pub mod source_pins;
 pub mod story_context;
-pub mod story_records;
 pub mod workshop;
 pub mod workshop_generation;
 
@@ -61,7 +60,15 @@ pub use workshop_api::*;
 // existing `webnovel_core::projects::{CoreError, CoreResult, Head}` import,
 // including the `use super::*` globs in this crate's own submodules, keeps
 // resolving unchanged.
-pub use wns_kernel::{CoreError, CoreResult, Head};
+pub use wns_kernel::{CoreError, CoreResult, Head, Revision};
+
+// L2 vocabulary that the packet compiler consumes. `story_records` is the set of
+// shapes a compiled packet carries, so it lives at or below the compiler rather
+// than above it — a layer-2 crate may not reach up into the crate under
+// decomposition for its own input types. Re-exported here so the 28 `use
+// super::*` globs and every `crate::projects::story_records::{…}` import keep
+// resolving.
+pub use wns_context::story_records;
 
 fn install_project_directory(staging: &Path, destination: &Path) -> CoreResult<()> {
     // The existence check alone cannot prevent replacing a directory that

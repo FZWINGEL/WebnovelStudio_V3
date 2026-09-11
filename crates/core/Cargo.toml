@@ -10,6 +10,7 @@ wns-kernel = { path = "../kernel" }
 wns-storage = { path = "../storage" }
 wns-documents = { path = "../documents" }
 wns-providers = { path = "../providers" }
+wns-context = { path = "../context" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 sha2 = "=0.11.0"

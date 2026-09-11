@@ -30,3 +30,13 @@
 //!
 //! L2. May depend on L0–L1 (`wns-kernel`, `wns-storage`, `wns-documents`,
 //! `wns-providers`). Must not depend on `wns-story` or above.
+
+/// The record shapes a compiled packet carries.
+///
+/// Moved down from `webnovel-core/src/projects/story_records.rs`, together with
+/// `Revision` into `wns-kernel`. These are the packet compiler's *input*
+/// vocabulary — the reviewed evidence, promise and knowledge records a packet
+/// is assembled from — so they sit at or below the compiler rather than above
+/// it. Leaving them in the crate under decomposition is what made the compiler
+/// reach upward for its own inputs.
+pub mod story_records;

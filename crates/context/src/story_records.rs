@@ -4,8 +4,7 @@
 //! from prose, generated memory, or a display label, and they do not replace
 //! the immutable source revision that supports them.
 
-use super::{CoreError, CoreResult, Revision};
-use crate::validate_snapshot_json;
+use wns_kernel::{CoreError, CoreResult, Revision, validate_snapshot_json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -253,7 +252,7 @@ fn validate_anchor(anchor: &EvidenceAnchor, revision: &Revision) -> CoreResult<(
             "Evidence quotation does not match the exact reviewed revision.",
         ));
     }
-    if crate::sha256_hex(anchor.quote.as_bytes()) != anchor.quote_hash.to_ascii_lowercase() {
+    if wns_kernel::sha256_hex(anchor.quote.as_bytes()) != anchor.quote_hash.to_ascii_lowercase() {
         return Err(invalid("Evidence quotation hash does not match its text."));
     }
     Ok(())
@@ -306,7 +305,7 @@ pub fn validate_records(
             "The reviewed evidence set exceeds {MAX_RECORD_BYTES} canonical UTF-8 bytes."
         )));
     }
-    Ok(Some(crate::sha256_hex(&encoded)))
+    Ok(Some(wns_kernel::sha256_hex(&encoded)))
 }
 
 /// Return the canonical JSON representation used for persistence and hashing.
@@ -374,7 +373,7 @@ pub fn validate_promises(
             "The reviewed promise set exceeds {MAX_RECORD_BYTES} canonical UTF-8 bytes."
         )));
     }
-    Ok(Some(crate::sha256_hex(&encoded)))
+    Ok(Some(wns_kernel::sha256_hex(&encoded)))
 }
 
 /// Return canonical persistence JSON for a promise set. Empty sets use the
@@ -457,7 +456,7 @@ pub fn validate_knowledge(
             "The reviewed knowledge set exceeds {MAX_RECORD_BYTES} canonical UTF-8 bytes."
         )));
     }
-    Ok(Some(crate::sha256_hex(&encoded)))
+    Ok(Some(wns_kernel::sha256_hex(&encoded)))
 }
 
 /// Return canonical persistence JSON for a reviewed knowledge set.
