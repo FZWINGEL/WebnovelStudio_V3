@@ -37,6 +37,7 @@ pub mod source_pins;
 /// *into* — `evidence_queries`, `exports`, `story_context` and `transfer` all
 /// reach for its functions, which is why it precedes them in the step-7 order.
 pub mod context_packets;
+pub mod evidence_queries;
 pub mod host;
 pub mod memory;
 pub mod story_context;

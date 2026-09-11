@@ -216,7 +216,10 @@ impl ProjectSession {
                             Command::Proposal(command) => project.handle_proposal(*command),
                             Command::Review(command) => project.handle_review(*command),
                             Command::EvidenceQuery(command) => {
-                                project.handle_evidence_query(*command)
+                                crate::projects::evidence_queries::handle_evidence_query(
+                                    &project,
+                                    *command,
+                                )
                             }
                             Command::Export(command) => project.handle_export(*command),
                             Command::SourcePins(command) => project.handle_source_pins(*command),
