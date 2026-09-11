@@ -46,3 +46,10 @@ pub mod story_records;
 /// Moved down from `projects/project_chat.rs` and
 /// `projects/project_chat_context.rs`; see the module for why.
 pub mod chat_vocabulary;
+
+/// Response-contract names and provider instructions the compiler embeds.
+///
+/// Moved down from `projects/project_chat_output.rs`; see the module for why.
+/// The response *parsers* stay in `projects`, which is the other half of the
+/// inversion.
+pub mod response_contracts;

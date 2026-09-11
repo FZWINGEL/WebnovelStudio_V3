@@ -45,7 +45,10 @@ use super::reviewed_summaries::{
     self, ReviewedSummaryOmission, ReviewedSummaryOmissionReason, ReviewedSummarySet,
 };
 use crate::documents::{Endpoint, ScopeGrant, ScopeKind, ScopeValidationRequest, validate_scope};
-use crate::projects::project_chat_output::{
+// Imported from wns-context, not from `projects` — this is the inversion. The
+// response vocabulary is the compiler's input, so it lives at the compiler's
+// layer; reaching up to `projects` for it is what section 3.4 corrects.
+use wns_context::response_contracts::{
     CHAPTER_DISCUSSION_RESPONSE_CONTRACT, CHAPTER_DISCUSSION_RESPONSE_INSTRUCTION,
     PROJECT_CHAT_RESPONSE_CONTRACT, project_chat_response_instruction,
 };
