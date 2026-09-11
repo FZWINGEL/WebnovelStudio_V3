@@ -4,6 +4,12 @@ use super::discussions::{
     DiscussionRun, DiscussionScopeInput, DiscussionStart, FeedbackIntent, RunOwner,
 };
 pub use super::project_chat_context::ProjectChatDraftRef;
+// Moved to wns-context (L2) as part of the packet-compiler inversion:
+// FrozenContext embeds FrozenProjectChat, so this vocabulary cannot sit above
+// the compiler it feeds. Re-exported at the historical path.
+pub use wns_context::chat_vocabulary::{
+    ChatDispositionScope, ChatDispositionScopeKind, ChatUnknownTo,
+};
 use super::project_chat_output::ChapterRangeProposal;
 pub use super::project_chat_output::ChatGroupEffectsOutput;
 use super::*;
@@ -213,70 +219,6 @@ pub struct SaveAssistantDraft {
     pub conversation_id: String,
     pub disposition_version: String,
     pub snapshot: SaveSnapshot,
-}
-
-/// The bounded story surface to which a question decision applies. A missing
-/// scope on an older client means `project`; references are authenticated
-/// against the producing conversation before the event is stored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ChatDispositionScopeKind {
-    Project,
-    Task,
-    Chapter,
-    Document,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ChatDispositionScope {
-    pub kind: ChatDispositionScopeKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reference_id: Option<String>,
-}
-
-impl ChatDispositionScope {
-    pub(crate) fn validate_shape(&self) -> CoreResult<()> {
-        match self.kind {
-            ChatDispositionScopeKind::Project => {
-                if self.reference_id.is_some() {
-                    return Err(CoreError::new(
-                        "InvalidDisposition",
-                        "A project disposition scope cannot carry a reference.",
-                    ));
-                }
-            }
-            ChatDispositionScopeKind::Task
-            | ChatDispositionScopeKind::Chapter
-            | ChatDispositionScopeKind::Document => {
-                let reference = self.reference_id.as_deref().ok_or_else(|| {
-                    CoreError::new(
-                        "InvalidDisposition",
-                        "A non-project disposition scope requires a reference.",
-                    )
-                })?;
-                check_id(reference)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Default for ChatDispositionScope {
-    fn default() -> Self {
-        Self {
-            kind: ChatDispositionScopeKind::Project,
-            reference_id: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ChatUnknownTo {
-    Author,
-    Reader,
-    Both,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

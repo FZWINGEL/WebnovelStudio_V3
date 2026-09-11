@@ -40,3 +40,9 @@
 /// it. Leaving them in the crate under decomposition is what made the compiler
 /// reach upward for its own inputs.
 pub mod story_records;
+
+/// Frozen project-chat vocabulary embedded in a context manifest.
+///
+/// Moved down from `projects/project_chat.rs` and
+/// `projects/project_chat_context.rs`; see the module for why.
+pub mod chat_vocabulary;
