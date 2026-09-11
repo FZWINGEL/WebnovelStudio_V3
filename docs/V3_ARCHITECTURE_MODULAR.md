@@ -398,11 +398,81 @@ repoint the path but to expose the script through the owning crate
 Expect more of this: every extraction of a module with adjacent tests will surface path-level
 couplings that no `use` statement ever revealed.
 
-**Not yet done, and next.** Steps 3 onward: `wns-documents` and `wns-providers` are the
+**Step 4 — the frontend kernel (`apps/desktop/src/kernel/`).** The frontend analogue of the
+`wns-kernel` extraction: `sameHead`, `sameDocumentHead`, `errorCode` and `errorText` now exist
+once instead of across sixteen module-local copies. `errorTextFor(fallback)` binds the shared
+reader to a module's own message, which is what let eight modules drop their local copy with
+**zero call-site edits** — there are 47 `errorText` call sites and a 47-site mechanical diff is
+exactly where behaviour changes silently.
+
+Three copies were deliberately **not** merged, because they are different contracts rather
+than duplicates, and each is named in `kernel/errors.ts`:
+
+* `chat/useDraftReviewContext.ts` also accepts a bare `{ message }` object that is not an
+  `Error`; folding that in would change the fallback at every other site.
+* `story/DocumentAliases.tsx` prefers `Error.message` **over** `detail` — the opposite
+  precedence — because its call sites embed the text in a sentence about a save possibly
+  having completed.
+* `shell/Workspace.tsx`'s fallback is derived from the value (`String(error)`) rather than a
+  constant, so it has no fixed message to bind.
+
+Similarly, `sameHead` was **six copies of two different functions**: five compared two non-null
+heads and `ReviewPanel`'s tolerated a null on the left. Merging them would have been a
+null-safety regression, so both contracts are kept explicitly separate.
+
+**Verified:** `tsc --noEmit` clean; `vitest` **713 passed across 74 files**, unchanged.
+
+---
+
+## 9. The test suite is not where the debt is
+
+A full audit of `crates/core/tests/` (78 files, ~47k lines) and the inline tests was run against
+the hypothesis that a large share of it tests superseded functionality. **It found zero
+genuinely dead tests.** Every version-numbered test — roughly 48 test functions across 25 files
+— exercises today's live migration chain, today's live reader-floor validation, or today's live
+byte-compatibility contract. The old version *numbers* are inputs to current code, not
+artefacts of old code.
+
+Three things make this worth stating outright, because each is a trap for a future cleanup:
+
+* **`create_v1_project` (`tests/metadata.rs:45`) is not a stale fixture.** It builds a schema-1
+  database with `wns_storage::SCHEMA_001_PROJECTS_SQL` — a *production* constant, which is what
+  makes the fixture truthful by construction. Its two consumers assert that a schema-1 project
+  opens under today's code without losing the author's writing, and that a **failed** migration
+  rolls back, leaves the new column absent, and retains exactly one pre-upgrade backup. The
+  second is failure coverage for the most destructive operation in the product.
+* **`tests/support/schema.rs` is not stale data.** It is an *inverse-migration toolkit*: it
+  strips columns, tables and triggers from a **current** database so it can be truthfully
+  presented as an older one. Twelve files use it at 52 call sites. It is a precision instrument.
+* **`tests/v2_import.rs` is the highest-risk misread.** "V2" is the *previous product's* schema,
+  not an old V3 version. The importer is live: `v2_import.rs` is wired through
+  `library.rs:858 import_v2` and `:1022 resume_v2_import`, documented in `PRODUCT.md:201` as a
+  shipped native action. Deleting those 16 tests would remove coverage for a shipped feature.
+
+What keeps the tree honest is structural, not diligence: `tests/integration.rs:11-25` compiles
+all files into one binary and asserts `registered == discovered`, so a test file cannot be
+orphaned or silently emptied. Verified alongside: zero `#[ignore]`, zero `todo!`/`unimplemented!`,
+and no test pinning a retired wire contract.
+
+**The one real instance of what was being looked for is documentation, not tests.**
+`ADR_0022:78` states "The current reader floor is schema 34" while `LATEST_SCHEMA_VERSION` is
+40 — and it does not mention the schema 36, 37, 39 or 40 floors at all. That is genuine drift,
+and it is a comment.
+
+**Conclusion: delete nothing from the test tree.** If the goal is removing tech debt, the debt
+is the eleven structural defects in §1, not the suite that guards them. A suite that tests the
+migration chain from schema 1 is precisely the asset that makes the extractions in §5 safe to
+attempt.
+
+---
+
+**Not yet done, and next.** Rust steps 3 onward: `wns-documents` and `wns-providers` are the
 cheapest next extractions; `wns-providers` is worth doing before the hard files precisely
 because it validates the pattern at 16,116 lines. The `context/packet.rs` inversion (§3.4) is
-the highest-value change in the tree and the true prerequisite for `wns-context`.
+the highest-value change in the tree and the true prerequisite for `wns-context`. On the
+frontend, the remaining §4 work is the feature-slice move, the single `createStore`, and
+generated IPC — D6–D8 remain exactly as measured.
 
-**Two things this branch does not claim.** The `SourceEpoch` type named in §2 does not exist
-yet — it is a target for the invariant work, not a delivered type, and the current fencing is
-still per-call-site. And no frontend work has started; D6–D9 remain exactly as measured.
+**One thing this branch does not claim.** The `SourceEpoch` type named in §2 does not exist yet
+— it is a target for the invariant work, not a delivered type, and the current fencing is still
+per-call-site.
