@@ -207,7 +207,9 @@ impl ProjectSession {
                             Command::Packet(command) => {
                                 crate::projects::context_packets::handle_packet(&mut project, *command)
                             }
-                            Command::Context(command) => project.handle_context(*command),
+                            Command::Context(command) => {
+                                crate::projects::story_context::handle_context(&mut project, *command)
+                            }
                             Command::Discussion(command) => project.handle_discussion(*command),
                             Command::Guidance(command) => project.handle_guidance(*command),
                             Command::History(command) => project.handle_history(*command),

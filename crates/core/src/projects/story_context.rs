@@ -25,6 +25,7 @@ use wns_context::chat_vocabulary::ProjectChatFreeze;
 // was the last one standing between `story_context` and `wns-story`.
 use wns_context::frozen::{augment_frozen_chat, validate_frozen_project_chat};
 use super::*;
+use wns_story::host::StoryHost;
 use crate::context::navigation::{
     FrozenNavigationView, MAX_FROZEN_NAVIGATION_VIEWS, NavigationViewRef, navigation_content_hash,
     validate_frozen_navigation_views, validate_navigation_view_payload,
@@ -79,7 +80,7 @@ pub struct FreezeReviewedContinuation {
 }
 
 
-pub(crate) enum ContextCommand {
+pub enum ContextCommand {
     Epochs(ProjectAccess, Reply<ContextEpochs>),
     ReadAliases(ProjectAccess, String, Reply<DocumentAliases>),
     Freeze(FreezeStory, Reply<FrozenContext>),
@@ -206,307 +207,307 @@ impl ProjectSession {
     }
 }
 
-impl OwnedProject {
-    pub(super) fn handle_context(&mut self, command: ContextCommand) {
-        // Context mutations share the same uncertainty fence as saving. There
-        // is no independent DB writer or detached indexing connection.
-        macro_rules! respond {
-            ($reply:expr, $result:expr) => {{
-                let result = $result;
-                self.fence_uncertain(&result);
-                let _ = $reply.send(result);
-            }};
+// Actor-side logic, as free functions over `StoryHost`.
+
+pub fn handle_context(host: &mut impl StoryHost, command: ContextCommand) {
+    // Context mutations share the same uncertainty fence as saving. There
+    // is no independent DB writer or detached indexing connection.
+    macro_rules! respond {
+        ($reply:expr, $result:expr) => {{
+            let result = $result;
+            host.fence_uncertain(&result);
+            let _ = $reply.send(result);
+        }};
+    }
+    match command {
+        ContextCommand::Epochs(access, reply) => respond!(
+            reply,
+            host.check_access(&access).and_then(|()| epochs(host.db()?))
+        ),
+        ContextCommand::ReadAliases(access, id, reply) => {
+            respond!(reply, context_document_aliases(host, access, &id))
         }
-        match command {
-            ContextCommand::Epochs(access, reply) => respond!(
-                reply,
-                self.check_access(&access).and_then(|()| epochs(self.db()?))
-            ),
-            ContextCommand::ReadAliases(access, id, reply) => {
-                respond!(reply, self.context_document_aliases(access, &id))
-            }
-            ContextCommand::Freeze(request, reply) => respond!(reply, self.freeze_story(request)),
-            ContextCommand::FreezeReviewed(request, reply) => {
-                respond!(reply, self.freeze_reviewed_continuation(request))
-            }
-            ContextCommand::Snapshot(access, id, reply) => {
-                respond!(reply, self.context_snapshot(&access, &id))
-            }
-            ContextCommand::Read(access, id, handle, reply) => {
-                respond!(reply, self.context_read(&access, &id, &handle))
-            }
-            ContextCommand::Search(request, reply) => respond!(reply, self.context_search(request)),
-            ContextCommand::Fresh(access, id, reply) => respond!(
-                reply,
-                self.context_snapshot(&access, &id)
-                    .and_then(|frozen| Ok(
-                        frozen.snapshot.context_source_epoch == epochs(self.db()?)?.source
-                    ))
-            ),
-            ContextCommand::Revoke(access, expected, reply) => {
-                respond!(reply, self.context_revoke(access, &expected))
-            }
-            ContextCommand::Aliases(access, id, expected, aliases, reply) => {
-                respond!(reply, self.context_aliases(access, &id, &expected, aliases))
-            }
-            ContextCommand::Index(access, clear, reply) => {
-                respond!(reply, self.context_index(access, clear))
-            }
+        ContextCommand::Freeze(request, reply) => respond!(reply, freeze_story(host, request)),
+        ContextCommand::FreezeReviewed(request, reply) => {
+            respond!(reply, freeze_reviewed_continuation(host, request))
+        }
+        ContextCommand::Snapshot(access, id, reply) => {
+            respond!(reply, context_snapshot(host, &access, &id))
+        }
+        ContextCommand::Read(access, id, handle, reply) => {
+            respond!(reply, context_read(host, &access, &id, &handle))
+        }
+        ContextCommand::Search(request, reply) => respond!(reply, context_search(host, request)),
+        ContextCommand::Fresh(access, id, reply) => respond!(
+            reply,
+            context_snapshot(host, &access, &id)
+                .and_then(|frozen| Ok(
+                    frozen.snapshot.context_source_epoch == epochs(host.db()?)?.source
+                ))
+        ),
+        ContextCommand::Revoke(access, expected, reply) => {
+            respond!(reply, context_revoke(host, access, &expected))
+        }
+        ContextCommand::Aliases(access, id, expected, aliases, reply) => {
+            respond!(reply, context_aliases(host, access, &id, &expected, aliases))
+        }
+        ContextCommand::Index(access, clear, reply) => {
+            respond!(reply, context_index(host, access, clear))
         }
     }
+}
 
-    fn freeze_story(&mut self, request: FreezeStory) -> CoreResult<FrozenContext> {
-        self.check_access(&request.access)?;
-        check_id(&request.operation_id)?;
-        if request.basis != BasisKind::Working {
-            return Err(CoreError::new(
-                "BasisUnavailable",
-                "Reviewed and explicit historical requests need their respective authority records.",
-            ));
-        }
-        // No inferred character knowledge is installed by C1. A later reviewed
-        // knowledge view must supply these grants before limited POV is enabled.
-        if request.policy.character_id.is_some() || !request.policy.character_grants.is_empty() {
-            return Err(CoreError::new(
-                "CharacterPolicyUnavailable",
-                "Character-specific disclosure needs reviewed knowledge grants.",
-            ));
-        }
-        let payload = logical_hash(&request)?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let previous: Option<(String, String)> = tx.query_row(
-            "SELECT id,payload_hash FROM story_snapshots WHERE operation_namespace=? AND operation_id=?",
-            params![request.access.operation_namespace, request.operation_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).optional()?;
-        if let Some((id, saved_payload)) = previous {
-            if payload != saved_payload {
-                return Err(CoreError::new(
-                    "OperationIdReusedWithDifferentPayload",
-                    "This context operation was already used for a different request.",
-                ));
-            }
-            return load_snapshot(&tx, &request.access, &id);
-        }
-        let current_epochs = epochs(&tx)?;
-        if request.policy.version != current_epochs.policy {
-            return Err(CoreError::new(
-                "ContextPolicyChanged",
-                "Prepare a new request using the current source permissions.",
-            ));
-        }
-        let frozen = freeze_story_at(&tx, &request, &payload)?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(frozen)
+pub fn freeze_story(host: &mut impl StoryHost, request: FreezeStory) -> CoreResult<FrozenContext> {
+    host.check_access(&request.access)?;
+    check_id(&request.operation_id)?;
+    if request.basis != BasisKind::Working {
+        return Err(CoreError::new(
+            "BasisUnavailable",
+            "Reviewed and explicit historical requests need their respective authority records.",
+        ));
     }
-
-    fn freeze_reviewed_continuation(
-        &mut self,
-        request: FreezeReviewedContinuation,
-    ) -> CoreResult<FrozenContext> {
-        self.check_access(&request.access)?;
-        check_id(&request.operation_id)?;
-        check_id(&request.expected.document_id)?;
-        parse_version(&request.expected.version)?;
-        if request.policy.audience != Audience::RestrictedWriting {
-            return Err(CoreError::new(
-                "BoundaryConflict",
-                "Reviewed continuation needs a restricted writing policy.",
-            ));
-        }
-        if request.policy.character_id.is_some() || !request.policy.character_grants.is_empty() {
-            return Err(CoreError::new(
-                "CharacterPolicyUnavailable",
-                "Character-specific reviewed continuation needs reviewed knowledge grants.",
-            ));
-        }
-        let payload = logical_hash(&request)?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let previous: Option<(String, String)> = tx.query_row(
-            "SELECT id,payload_hash FROM story_snapshots WHERE operation_namespace=? AND operation_id=?",
-            params![request.access.operation_namespace, request.operation_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).optional()?;
-        if let Some((id, saved_payload)) = previous {
-            if payload != saved_payload {
-                return Err(CoreError::new(
-                    "OperationIdReusedWithDifferentPayload",
-                    "This context operation was already used for a different request.",
-                ));
-            }
-            return load_snapshot(&tx, &request.access, &id);
-        }
-        let current_epochs = epochs(&tx)?;
-        if request.policy.version != current_epochs.policy {
-            return Err(CoreError::new(
-                "ContextPolicyChanged",
-                "Prepare a new request using the current source permissions.",
-            ));
-        }
-        let frozen = freeze_reviewed_continuation_at(&tx, &request, &payload)?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(frozen)
+    // No inferred character knowledge is installed by C1. A later reviewed
+    // knowledge view must supply these grants before limited POV is enabled.
+    if request.policy.character_id.is_some() || !request.policy.character_grants.is_empty() {
+        return Err(CoreError::new(
+            "CharacterPolicyUnavailable",
+            "Character-specific disclosure needs reviewed knowledge grants.",
+        ));
     }
-
-    fn context_snapshot(&self, access: &ProjectAccess, id: &str) -> CoreResult<FrozenContext> {
-        self.check_access(access)?;
-        load_snapshot(self.db()?, access, id)
-    }
-
-    fn context_read(
-        &self,
-        access: &ProjectAccess,
-        id: &str,
-        handle: &str,
-    ) -> CoreResult<SourceRead> {
-        let frozen = self.context_snapshot(access, id)?;
-        read_source(self.db()?, &frozen, handle)
-    }
-
-    fn context_search(&self, request: SearchStory) -> CoreResult<SearchResult> {
-        let query = request.query.trim();
-        if query.is_empty() || query.len() > 500 || !(1..=100).contains(&request.limit) {
+    let payload = logical_hash(&request)?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let previous: Option<(String, String)> = tx.query_row(
+        "SELECT id,payload_hash FROM story_snapshots WHERE operation_namespace=? AND operation_id=?",
+        params![request.access.operation_namespace, request.operation_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional()?;
+    if let Some((id, saved_payload)) = previous {
+        if payload != saved_payload {
             return Err(CoreError::new(
-                "InvalidRequest",
-                "Search needs 1–500 bytes and a result limit between 1 and 100.",
+                "OperationIdReusedWithDifferentPayload",
+                "This context operation was already used for a different request.",
             ));
         }
-        let frozen = self.context_snapshot(&request.access, &request.snapshot_id)?;
-        search_frozen(self.db()?, &frozen, query, request.mode, request.limit)
+        return load_snapshot(&tx, &request.access, &id);
     }
-
-    fn context_revoke(
-        &mut self,
-        access: ProjectAccess,
-        expected: &str,
-    ) -> CoreResult<ContextEpochs> {
-        self.check_access(&access)?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let changed = tx.execute("UPDATE project SET disclosure_policy_epoch=disclosure_policy_epoch+1,context_source_epoch=context_source_epoch+1 WHERE singleton=1 AND disclosure_policy_epoch=?", [parse_version(expected)?])?;
-        if changed != 1 {
-            return Err(CoreError::new(
-                "ContextPolicyChanged",
-                "Source permissions already changed. Read the current version before retrying.",
-            ));
-        }
-        let result = epochs(&tx)?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(result)
+    let current_epochs = epochs(&tx)?;
+    if request.policy.version != current_epochs.policy {
+        return Err(CoreError::new(
+            "ContextPolicyChanged",
+            "Prepare a new request using the current source permissions.",
+        ));
     }
+    let frozen = freeze_story_at(&tx, &request, &payload)?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(frozen)
+}
 
-    fn context_aliases(
-        &mut self,
-        access: ProjectAccess,
-        id: &str,
-        expected: &str,
-        aliases: Vec<String>,
-    ) -> CoreResult<ContextEpochs> {
-        self.check_access(&access)?;
-        if aliases.len() > 64
-            || aliases.iter().any(|name| {
-                name.trim().is_empty() || name.len() > 256 || name.chars().any(char::is_control)
-            })
-        {
+pub fn freeze_reviewed_continuation(
+    host: &mut impl StoryHost,
+    request: FreezeReviewedContinuation,
+) -> CoreResult<FrozenContext> {
+    host.check_access(&request.access)?;
+    check_id(&request.operation_id)?;
+    check_id(&request.expected.document_id)?;
+    parse_version(&request.expected.version)?;
+    if request.policy.audience != Audience::RestrictedWriting {
+        return Err(CoreError::new(
+            "BoundaryConflict",
+            "Reviewed continuation needs a restricted writing policy.",
+        ));
+    }
+    if request.policy.character_id.is_some() || !request.policy.character_grants.is_empty() {
+        return Err(CoreError::new(
+            "CharacterPolicyUnavailable",
+            "Character-specific reviewed continuation needs reviewed knowledge grants.",
+        ));
+    }
+    let payload = logical_hash(&request)?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let previous: Option<(String, String)> = tx.query_row(
+        "SELECT id,payload_hash FROM story_snapshots WHERE operation_namespace=? AND operation_id=?",
+        params![request.access.operation_namespace, request.operation_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional()?;
+    if let Some((id, saved_payload)) = previous {
+        if payload != saved_payload {
             return Err(CoreError::new(
-                "InvalidRequest",
-                "Use at most 64 nonempty names of up to 256 bytes.",
+                "OperationIdReusedWithDifferentPayload",
+                "This context operation was already used for a different request.",
             ));
         }
-        let mut aliases: Vec<_> = aliases
-            .into_iter()
-            .map(|name| name.trim().to_owned())
-            .collect();
-        aliases.sort();
-        aliases.dedup();
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        read_document(&tx, id)?;
-        let current = epochs(&tx)?;
-        if current.source != expected {
-            return Err(CoreError::new(
-                "ContextChanged",
-                "The story changed. Read its current version before changing aliases.",
-            ));
-        }
-        if read_aliases(&tx, id)? == aliases {
-            return Ok(current);
-        }
-        tx.execute("DELETE FROM document_aliases WHERE document_id=?", [id])?;
-        for alias in aliases {
-            tx.execute(
-                "INSERT INTO document_aliases(document_id,alias) VALUES(?,?)",
-                params![id, alias],
-            )?;
-        }
+        return load_snapshot(&tx, &request.access, &id);
+    }
+    let current_epochs = epochs(&tx)?;
+    if request.policy.version != current_epochs.policy {
+        return Err(CoreError::new(
+            "ContextPolicyChanged",
+            "Prepare a new request using the current source permissions.",
+        ));
+    }
+    let frozen = freeze_reviewed_continuation_at(&tx, &request, &payload)?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(frozen)
+}
+
+pub fn context_snapshot(host: &impl StoryHost, access: &ProjectAccess, id: &str) -> CoreResult<FrozenContext> {
+    host.check_access(access)?;
+    load_snapshot(host.db()?, access, id)
+}
+
+pub fn context_read(
+    host: &impl StoryHost,
+    access: &ProjectAccess,
+    id: &str,
+    handle: &str,
+) -> CoreResult<SourceRead> {
+    let frozen = context_snapshot(host, access, id)?;
+    read_source(host.db()?, &frozen, handle)
+}
+
+pub fn context_search(host: &impl StoryHost, request: SearchStory) -> CoreResult<SearchResult> {
+    let query = request.query.trim();
+    if query.is_empty() || query.len() > 500 || !(1..=100).contains(&request.limit) {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "Search needs 1–500 bytes and a result limit between 1 and 100.",
+        ));
+    }
+    let frozen = context_snapshot(host, &request.access, &request.snapshot_id)?;
+    search_frozen(host.db()?, &frozen, query, request.mode, request.limit)
+}
+
+pub fn context_revoke(
+    host: &mut impl StoryHost,
+    access: ProjectAccess,
+    expected: &str,
+) -> CoreResult<ContextEpochs> {
+    host.check_access(&access)?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let changed = tx.execute("UPDATE project SET disclosure_policy_epoch=disclosure_policy_epoch+1,context_source_epoch=context_source_epoch+1 WHERE singleton=1 AND disclosure_policy_epoch=?", [parse_version(expected)?])?;
+    if changed != 1 {
+        return Err(CoreError::new(
+            "ContextPolicyChanged",
+            "Source permissions already changed. Read the current version before retrying.",
+        ));
+    }
+    let result = epochs(&tx)?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(result)
+}
+
+pub fn context_aliases(
+    host: &mut impl StoryHost,
+    access: ProjectAccess,
+    id: &str,
+    expected: &str,
+    aliases: Vec<String>,
+) -> CoreResult<ContextEpochs> {
+    host.check_access(&access)?;
+    if aliases.len() > 64
+        || aliases.iter().any(|name| {
+            name.trim().is_empty() || name.len() > 256 || name.chars().any(char::is_control)
+        })
+    {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "Use at most 64 nonempty names of up to 256 bytes.",
+        ));
+    }
+    let mut aliases: Vec<_> = aliases
+        .into_iter()
+        .map(|name| name.trim().to_owned())
+        .collect();
+    aliases.sort();
+    aliases.dedup();
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    read_document(&tx, id)?;
+    let current = epochs(&tx)?;
+    if current.source != expected {
+        return Err(CoreError::new(
+            "ContextChanged",
+            "The story changed. Read its current version before changing aliases.",
+        ));
+    }
+    if read_aliases(&tx, id)? == aliases {
+        return Ok(current);
+    }
+    tx.execute("DELETE FROM document_aliases WHERE document_id=?", [id])?;
+    for alias in aliases {
         tx.execute(
-            "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
+            "INSERT INTO document_aliases(document_id,alias) VALUES(?,?)",
+            params![id, alias],
+        )?;
+    }
+    tx.execute(
+        "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
+        [],
+    )?;
+    let result = epochs(&tx)?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(result)
+}
+
+pub fn context_document_aliases(
+    host: &impl StoryHost,
+    access: ProjectAccess,
+    id: &str,
+) -> CoreResult<DocumentAliases> {
+    host.check_access(&access)?;
+    let connection = host.db()?;
+    let document = read_document(connection, id)?;
+    Ok(DocumentAliases {
+        document_id: document.head.document_id,
+        aliases: read_aliases(connection, id)?,
+        source_epoch: epochs(connection)?.source,
+    })
+}
+
+pub fn context_index(
+    host: &mut impl StoryHost,
+    access: ProjectAccess,
+    document_id: Option<String>,
+) -> CoreResult<u32> {
+    host.check_access(&access)?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let mut count = 0;
+    if let Some(id) = document_id {
+        let document = read_document(&tx, &id)?;
+        let revision = checkpoint_at(&tx, &document, "index")?;
+        tx.execute(
+            "DELETE FROM passage_projections WHERE revision_id=?",
+            [&revision.id],
+        )?;
+        let source = SourceRef {
+            project_id: access.project_id.clone(),
+            document_id: id.clone(),
+            revision_id: revision.id.clone(),
+            body_hash: revision.head.body_hash.clone(),
+        };
+        for passage in passages(&revision, &revision.id, &source)? {
+            tx.execute("INSERT INTO passage_projections(revision_id,block_id,block_order,body_hash,text) VALUES(?,?,?,?,?)", params![revision.id, passage.block_id, passage.block_order, revision.head.body_hash, passage.text])?;
+            count += 1;
+        }
+        tx.execute("UPDATE documents SET projection_dirty=0 WHERE id=?", [id])?;
+    } else {
+        tx.execute("DELETE FROM passage_projections", [])?;
+        tx.execute(
+            "UPDATE documents SET projection_dirty=1 WHERE role='ordinary'",
             [],
         )?;
-        let result = epochs(&tx)?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(result)
     }
-
-    fn context_document_aliases(
-        &self,
-        access: ProjectAccess,
-        id: &str,
-    ) -> CoreResult<DocumentAliases> {
-        self.check_access(&access)?;
-        let connection = self.db()?;
-        let document = read_document(connection, id)?;
-        Ok(DocumentAliases {
-            document_id: document.head.document_id,
-            aliases: read_aliases(connection, id)?,
-            source_epoch: epochs(connection)?.source,
-        })
-    }
-
-    fn context_index(
-        &mut self,
-        access: ProjectAccess,
-        document_id: Option<String>,
-    ) -> CoreResult<u32> {
-        self.check_access(&access)?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut count = 0;
-        if let Some(id) = document_id {
-            let document = read_document(&tx, &id)?;
-            let revision = checkpoint_at(&tx, &document, "index")?;
-            tx.execute(
-                "DELETE FROM passage_projections WHERE revision_id=?",
-                [&revision.id],
-            )?;
-            let source = SourceRef {
-                project_id: access.project_id.clone(),
-                document_id: id.clone(),
-                revision_id: revision.id.clone(),
-                body_hash: revision.head.body_hash.clone(),
-            };
-            for passage in passages(&revision, &revision.id, &source)? {
-                tx.execute("INSERT INTO passage_projections(revision_id,block_id,block_order,body_hash,text) VALUES(?,?,?,?,?)", params![revision.id, passage.block_id, passage.block_order, revision.head.body_hash, passage.text])?;
-                count += 1;
-            }
-            tx.execute("UPDATE documents SET projection_dirty=0 WHERE id=?", [id])?;
-        } else {
-            tx.execute("DELETE FROM passage_projections", [])?;
-            tx.execute(
-                "UPDATE documents SET projection_dirty=1 WHERE role='ordinary'",
-                [],
-            )?;
-        }
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(count)
-    }
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(count)
 }
 
 /// Build and persist one immutable story snapshot inside an existing actor
