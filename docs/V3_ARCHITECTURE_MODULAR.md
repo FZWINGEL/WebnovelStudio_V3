@@ -842,6 +842,25 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    would be "a bounded, verifiable change" and it was — but only after four failed estimates
    taught me to read the helper's body before deciding whether it could travel.
 
+   **And the host trait is genuinely narrow.** With the helpers generalised, the whole of what
+   `memory/app_server.rs` needs from the actor is:
+
+   ```
+   self.info     ×2   (for the generalised validate_runtime_owner)
+   db_mut()      ×2
+   ```
+
+   Two methods. Not six, and not the twelve domains the actor dispatches. The earlier count of
+   "self.x()" calls was misleading because chained calls (`self\n    .db_mut()`) do not match a
+   same-line grep — a measurement error of exactly the kind this migration keeps producing, and
+   caught the same way: by reading the file rather than the pattern.
+
+   So `MemoryHost` is `{ fn info(&self) -> &ProjectInfo; fn db_mut(&mut self) -> CoreResult<&mut Connection>; }`,
+   the `impl OwnedProject` bodies become free functions taking `&mut impl MemoryHost`, and the
+   `impl ProjectSession` half stays in `webnovel-core` because it constructs `Command` values the
+   actor owns. That is the intended split: command plumbing with the actor, domain logic in the
+   crate, and the trait as the only thing between them.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
