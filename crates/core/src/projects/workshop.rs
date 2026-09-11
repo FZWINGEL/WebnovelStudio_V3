@@ -465,8 +465,22 @@ pub(crate) struct WorkshopSnapshotOrigin<'a> {
 /// immutable project-chat command/preview/decision chain, validated by the helper in
 /// `project_chat::adoption`.  Keeping the branch here makes both history reads
 /// and backup validation use the same rule.
+/// The chat-origin authority check, injected rather than called.
+///
+/// Its owner is `project_chat`, on the far side of the boundary this module is
+/// about to cross. Injecting it keeps `validate_storage` — a backup validator
+/// taking only a `&Connection`, one of twelve chained in `transfer.rs` — from
+/// carrying a host it has no use for.
+type ChatAuthorityCheck = dyn for<'a> Fn(
+    &Connection,
+    WorkshopSnapshotOrigin<'a>,
+    &WorkshopState,
+    &WorkshopState,
+) -> CoreResult<()>;
+
 fn validate_snapshot_authority(
     connection: &Connection,
+    validate_authority: &ChatAuthorityCheck,
     origin: WorkshopSnapshotOrigin<'_>,
     state_json: &str,
     state_hash: &str,
@@ -575,12 +589,7 @@ fn validate_snapshot_authority(
             ));
         }
     };
-    crate::projects::project_chat::validate_chat_workshop_snapshot(
-        connection,
-        origin,
-        &parsed,
-        &previous_state,
-    )?;
+    validate_authority(connection, origin, &parsed, &previous_state)?;
     Ok(parsed)
 }
 
@@ -3204,6 +3213,7 @@ pub fn workshop_history(
         let (project_id, namespace, operation, version, payload, state, hash) = row?;
         let parsed = validate_snapshot_authority(
             db,
+            &crate::projects::project_chat::validate_chat_workshop_snapshot,
             WorkshopSnapshotOrigin {
                 project_id: &project_id,
                 namespace: &namespace,
@@ -3699,7 +3709,10 @@ fn same_document_records(left: &[DocumentRecord], right: &[DocumentRecord]) -> b
 /// Validate workshop rows at backup/recovery boundaries. Historical previews
 /// and receipts may retain an older identity after recovery, but all hashes,
 /// JSON contracts, and bounded metadata must remain valid.
-pub(crate) fn validate_storage(connection: &Connection) -> CoreResult<()> {
+pub(crate) fn validate_storage(
+    connection: &Connection,
+    validate_authority: &ChatAuthorityCheck,
+) -> CoreResult<()> {
     if let Some((version, state, hash)) = connection
         .query_row(
             "SELECT version,state_json,state_hash FROM workshop_state WHERE singleton=1",
@@ -3778,6 +3791,7 @@ pub(crate) fn validate_storage(connection: &Connection) -> CoreResult<()> {
         }
         validate_snapshot_authority(
             connection,
+            validate_authority,
             WorkshopSnapshotOrigin {
                 project_id: &project,
                 namespace: &namespace,
