@@ -6,7 +6,7 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createServer as createNetServer } from 'node:net';
@@ -21,6 +21,12 @@ const executable = process.env.WNS_V3_NATIVE_EXE
 await initializeEvidence(executable);
 const evidence = resolve(root, '.local/native-results/app-close');
 await mkdir(evidence, { recursive: true });
+// The evidence directory is a record. A passing run must not leave the previous
+// run's failure capture beside its own, where it reads as a failure that did
+// not happen. Only the dirty-close failure pair is clearable — the neighbouring
+// dirty-flush and close-work captures are deliberate passing-path evidence.
+await rm(resolve(evidence, 'dirty-close-failure.png'), { force: true });
+await rm(resolve(evidence, 'dirty-close-failure.txt'), { force: true });
 const runtimeObservations = [];
 const fixtureDirectories = [];
 const launchLogs = [];

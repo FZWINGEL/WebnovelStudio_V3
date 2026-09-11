@@ -13,7 +13,7 @@ import { createServer } from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, mkdir, realpath, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, relative, resolve, sep, toNamespacedPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +58,12 @@ if (!report.enabled) {
   console.log(JSON.stringify({ status: report.status, output, hint: `Set WNS_V3_ALLOW_LIVE_CHAT=1 to explicitly authorize ${requestHint}.` }, null, 2));
   process.exit(0);
 }
+
+// The output directory is evidence. A passing run must not leave the previous
+// run's failure artifacts beside its own report, where they read as a failure
+// that did not happen.
+await rm(resolve(output, 'failure.png'), { force: true });
+await rm(resolve(output, 'failure.txt'), { force: true });
 
 report.status = 'started';
 await saveReport();

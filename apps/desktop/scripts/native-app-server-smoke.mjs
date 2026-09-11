@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtemp, mkdir, realpath, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createServer } from 'node:net';
@@ -20,6 +20,11 @@ const executable = process.env.WNS_V3_NATIVE_EXE
 const output = resolve(root, '.local/native-results/app-server-transport');
 const data = await mkdtemp(resolve(tmpdir(), 'wns-v3-app-server-transport-'));
 await mkdir(output, { recursive: true });
+// The output directory is evidence. A passing run must not leave the previous
+// run's failure artifacts beside its own report, where they read as a failure
+// that did not happen.
+await rm(resolve(output, 'failure.json'), { force: true });
+await rm(resolve(output, 'failure.txt'), { force: true });
 // This settings-only qualification has no access to an author's Codex login.
 await mkdir(resolve(data, 'empty-codex-home'));
 await initializeEvidence(executable);

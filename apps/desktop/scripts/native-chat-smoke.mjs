@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createServer } from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, relative, isAbsolute, sep, toNamespacedPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,11 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const executable = resolve(process.env.WNS_V3_NATIVE_EXE ?? resolve(root, 'target/debug/webnovel-desktop.exe'));
 const output = resolve(root, '.local/native-results/chat');
 await mkdir(output, { recursive: true });
+// The output directory is evidence. A passing run must not leave the previous
+// run's failure artifacts beside its own report, where they read as a failure
+// that did not happen.
+await rm(resolve(output, 'failure.png'), { force: true });
+await rm(resolve(output, 'failure.txt'), { force: true });
 await writeFile(resolve(output, 'report.json'), JSON.stringify({ status: 'started', checks: [] }));
 await initializeEvidence(executable);
 const data = await realpath(await mkdtemp(resolve(tmpdir(), 'wns-v3-chat-native-')));

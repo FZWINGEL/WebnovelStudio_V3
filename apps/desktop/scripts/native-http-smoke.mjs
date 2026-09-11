@@ -6,7 +6,7 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, stat, writeFile, readFile, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, relative, isAbsolute, sep } from 'node:path';
 import { createServer } from 'node:net';
@@ -17,6 +17,10 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const evidence = resolve(root, '.local/native-results/http');
 await mkdir(evidence, { recursive: true });
+// The evidence directory is a record. A passing run must not leave the previous
+// run's failure capture beside its own, where it reads as a failure that did
+// not happen.
+await rm(resolve(evidence, 'failure.png'), { force: true });
 const executable = process.env.WNS_V3_NATIVE_EXE ? resolve(process.env.WNS_V3_NATIVE_EXE) : resolve(root, 'target/debug/webnovel-desktop.exe');
 await initializeEvidence(executable);
 const build = await stat(executable);
