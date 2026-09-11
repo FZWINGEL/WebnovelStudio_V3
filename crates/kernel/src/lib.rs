@@ -189,6 +189,143 @@ pub struct Revision {
     pub parent_id: Option<String>,
 }
 
+/// One document row, typed.
+///
+/// Moved down from `webnovel-core::projects::records` so that the row readers
+/// in `wns-storage` can name what they return without reaching up into the
+/// crate under decomposition. The serde attributes are unchanged: they are what
+/// keeps historical serialized records byte-compatible.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DocumentRecord {
+    pub head: Head,
+    pub title: String,
+    pub kind: String,
+    pub metadata_version: String,
+    pub body: Value,
+    pub last_checkpoint_id: Option<String>,
+    /// Ordinary documents are the only records exposed through the generic
+    /// editor and story-context APIs.  Assistant drafts and conversation
+    /// anchors use explicit, typed paths and are omitted from legacy JSON so
+    /// historical previews and hashes remain byte-compatible.
+    #[serde(default, skip_serializing_if = "DocumentRole::is_ordinary")]
+    pub role: DocumentRole,
+}
+
+/// Authority role for a document row.  This is deliberately an enum rather
+/// than a title/ID convention so every source consumer can apply the same
+/// fence.  New roles must be added with a reader-floor migration.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum DocumentRole {
+    #[default]
+    Ordinary,
+    AssistantDraft,
+    ConversationAnchor,
+}
+
+impl DocumentRole {
+    /// Public because the row readers in `wns-storage` decode with it.
+    pub fn storage_name(self) -> &'static str {
+        match self {
+            Self::Ordinary => "ordinary",
+            Self::AssistantDraft => "assistantDraft",
+            Self::ConversationAnchor => "conversationAnchor",
+        }
+    }
+
+    /// Public because the row readers in `wns-storage` decode with it.
+    pub fn from_storage(value: &str) -> CoreResult<Self> {
+        match value {
+            "ordinary" => Ok(Self::Ordinary),
+            "assistantDraft" => Ok(Self::AssistantDraft),
+            "conversationAnchor" => Ok(Self::ConversationAnchor),
+            _ => Err(CoreError::new(
+                "InvalidProject",
+                "The document contains an unknown authority role.",
+            )),
+        }
+    }
+
+    fn is_ordinary(&self) -> bool {
+        matches!(self, Self::Ordinary)
+    }
+}
+
+/// The restore half of a command receipt's stored result.
+///
+/// Receipt vocabulary: [`StoredResult`] names it, so it has to sit at or below
+/// every crate that stores or reads a receipt.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RestoredDecision {
+    pub revision_id: String,
+    pub before_revision_id: String,
+    pub after_revision_id: String,
+}
+
+/// The apply half of a command receipt's stored result.
+///
+/// Receipt vocabulary by the same argument as [`RestoredDecision`]: it moved
+/// down as a leaf type, five strings and no behaviour, so that `StoredResult`
+/// can follow it without dragging `proposals` along.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppliedDecision {
+    pub decision_id: String,
+    pub proposal_id: String,
+    pub prepared_id: String,
+    pub before_revision_id: String,
+    pub after_revision_id: String,
+}
+
+/// The immutable decision a command receipt records.
+///
+/// This is the type `wns-storage::existing_receipt` returns and
+/// `wns-storage::insert_receipt` writes, so it lives at L0 with them rather
+/// than beside any one command that produces one.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoredResult {
+    pub head: Head,
+    pub saved_generation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied: Option<AppliedDecision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restored: Option<RestoredDecision>,
+}
+
+/// A fresh identifier. An id is an opaque string to every layer above this one,
+/// and to the database.
+pub fn new_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+/// A body fingerprint is exactly 64 hex digits, and nothing else is one.
+/// Callers write this predicate as a validity fence over stored rows, so it
+/// belongs beside the hashes it checks rather than in any one reader.
+pub fn valid_hash(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Require a document to be exactly at an expected head, or report a conflict
+/// carrying the head the caller actually found.
+///
+/// The `current_head` field is what the editor reconciles against, so this is
+/// the one place a version conflict is constructed.
+pub fn require_head(current: &Head, expected: &Head) -> CoreResult<()> {
+    parse_version(&expected.version)?;
+    if current != expected {
+        let mut error = CoreError::new(
+            "VersionConflict",
+            "This document has a newer saved version. Keep your text and reconcile.",
+        );
+        error.current_head = Some(current.clone());
+        return Err(error);
+    }
+    Ok(())
+}
+
 const MAX_RAW_BYTES: usize = 2 * 1024 * 1024;
 const MAX_UTF16_UNITS: u64 = 1_000_000;
 const MAX_BLOCKS: usize = 10_000;

@@ -26,13 +26,10 @@ pub struct HistoryPage {
     pub next_before_version: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RestoredDecision {
-    pub revision_id: String,
-    pub before_revision_id: String,
-    pub after_revision_id: String,
-}
+// Moved to wns-kernel (L0) as receipt vocabulary, by the same argument as
+// `AppliedDecision`: `StoredResult` names it. Re-exported here so
+// `history::RestoredDecision` resolves as before.
+pub use wns_kernel::RestoredDecision;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

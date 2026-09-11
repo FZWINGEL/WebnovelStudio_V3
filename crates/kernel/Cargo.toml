@@ -15,3 +15,6 @@ url = "=2.5.8"
 # without also owning the error type. The orphan rule is why they cannot live in
 # the layers that produce them.
 rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+# `new_id` generates the identifiers every layer hands around. An id is not a
+# layer's concern, so the generator is not either.
+uuid = { version = "=1.26.0", features = ["v4"] }

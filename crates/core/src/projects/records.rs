@@ -10,14 +10,14 @@
 //! split exists because the actor and the records change for different reasons,
 //! and a crate cannot be extracted from a namespace.
 
-use super::{check_id, history, proposals};
+use super::check_id;
 use crate::documents::Endpoint;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use wns_kernel::{CoreError, CoreResult, Head, ProjectAccess};
+use wns_kernel::{CoreError, CoreResult, DocumentRecord, Head, ProjectAccess, StoredResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -73,60 +73,6 @@ pub struct ViewState {
     pub head: Head,
     pub anchor: Endpoint,
     pub focus: Endpoint,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DocumentRecord {
-    pub head: Head,
-    pub title: String,
-    pub kind: String,
-    pub metadata_version: String,
-    pub body: Value,
-    pub last_checkpoint_id: Option<String>,
-    /// Ordinary documents are the only records exposed through the generic
-    /// editor and story-context APIs.  Assistant drafts and conversation
-    /// anchors use explicit, typed paths and are omitted from legacy JSON so
-    /// historical previews and hashes remain byte-compatible.
-    #[serde(default, skip_serializing_if = "DocumentRole::is_ordinary")]
-    pub role: DocumentRole,
-}
-
-/// Authority role for a document row.  This is deliberately an enum rather
-/// than a title/ID convention so every source consumer can apply the same
-/// fence.  New roles must be added with a reader-floor migration.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "camelCase")]
-pub enum DocumentRole {
-    #[default]
-    Ordinary,
-    AssistantDraft,
-    ConversationAnchor,
-}
-
-impl DocumentRole {
-    pub(crate) fn storage_name(self) -> &'static str {
-        match self {
-            Self::Ordinary => "ordinary",
-            Self::AssistantDraft => "assistantDraft",
-            Self::ConversationAnchor => "conversationAnchor",
-        }
-    }
-
-    pub(crate) fn from_storage(value: &str) -> CoreResult<Self> {
-        match value {
-            "ordinary" => Ok(Self::Ordinary),
-            "assistantDraft" => Ok(Self::AssistantDraft),
-            "conversationAnchor" => Ok(Self::ConversationAnchor),
-            _ => Err(CoreError::new(
-                "InvalidProject",
-                "The document contains an unknown authority role.",
-            )),
-        }
-    }
-
-    fn is_ordinary(&self) -> bool {
-        matches!(self, Self::Ordinary)
-    }
 }
 #[derive(Debug)]
 pub struct AttachedProject {
@@ -189,16 +135,6 @@ pub struct OperationReceipt {
     pub operation_kind: String,
     pub payload_hash: String,
     pub result: StoredResult,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StoredResult {
-    pub head: Head,
-    pub saved_generation: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub applied: Option<proposals::AppliedDecision>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub restored: Option<history::RestoredDecision>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

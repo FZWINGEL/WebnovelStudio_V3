@@ -10,12 +10,15 @@
 //! byte-compatibility of historical packet bytes and hashes depends on
 //! migrations never being rewritten.
 
-use rusqlite::{Connection, OpenFlags, backup::Backup};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, backup::Backup, params};
 use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
-use wns_kernel::{CoreError, CoreResult};
+use wns_kernel::{
+    CoreError, CoreResult, DocumentRecord, DocumentRole, Head, Revision, StoredResult, new_id,
+    parse_stored_version, parse_version, validate_snapshot_json,
+};
 
 pub const LATEST_SCHEMA_VERSION: i64 = 40;
 
@@ -282,5 +285,200 @@ fn backup_before_upgrade(root: &Path, version: i64) -> CoreResult<()> {
     drop(destination);
     let backup = OpenOptions::new().read(true).write(true).open(&path)?;
     backup.sync_all()?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Typed row access.
+//
+// These six functions were the shared primitive layer inside
+// `webnovel-core::projects`: 240 call sites across twelve files under
+// `projects/`, and every one of them named the same readers. They lived above
+// the schema they read, which is why the twenty remaining step-7 modules could
+// not move — a module cannot travel to another crate while the helpers its
+// bodies call are still in the crate it is leaving.
+//
+// They read the tables this crate's migrations create, so they belong here.
+// `webnovel-core` re-exports every one of them at its historical path, so the
+// 240 call sites are unchanged.
+// ---------------------------------------------------------------------------
+
+type DocumentRow = (
+    String,
+    String,
+    i64,
+    i64,
+    String,
+    String,
+    Option<String>,
+    String,
+);
+
+/// Read an ordinary story document.  This narrow helper is intentionally the
+/// only generic read path: control anchors and assistant drafts cannot leak
+/// into project attach, editor, source, memory, review, or export flows.
+pub fn read_document(connection: &Connection, id: &str) -> CoreResult<DocumentRecord> {
+    read_document_with_role(connection, id, DocumentRole::Ordinary)
+}
+
+/// Read one document through an explicitly authorized role path.  Callers
+/// must name the role they expect; there is no broad "include hidden" flag.
+pub fn read_document_with_role(
+    connection: &Connection,
+    id: &str,
+    expected_role: DocumentRole,
+) -> CoreResult<DocumentRecord> {
+    let row: Option<DocumentRow> = connection.query_row("SELECT title,kind,working_version,metadata_version,body_hash,body_json,last_checkpoint_id,role FROM documents WHERE id=? AND trashed=0", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional()?;
+    let (title, kind, version, metadata_version, hash, body, checkpoint, stored_role) = row
+        .ok_or_else(|| {
+            CoreError::new(
+                "DocumentNotFound",
+                "This document is not available in this project.",
+            )
+        })?;
+    let role = DocumentRole::from_storage(&stored_role)?;
+    if role != expected_role {
+        return Err(CoreError::new(
+            "DocumentRoleMismatch",
+            "This document is not available through the requested authority path.",
+        ));
+    }
+    let valid = validate_snapshot_json(&body).map_err(|e| CoreError::new("InvalidDocument", &e))?;
+    if valid.hash != hash || valid.canonical_json != body {
+        return Err(CoreError::new(
+            "InvalidDocument",
+            "The saved document failed its fingerprint check.",
+        ));
+    }
+    Ok(DocumentRecord {
+        head: Head {
+            document_id: id.into(),
+            version: version.to_string(),
+            body_hash: hash,
+        },
+        title,
+        kind,
+        metadata_version: parse_stored_version(metadata_version)?,
+        body: valid.snapshot,
+        last_checkpoint_id: checkpoint,
+        role,
+    })
+}
+
+pub fn read_revision(connection: &Connection, id: &str) -> CoreResult<Revision> {
+    let (doc,version,body,hash,reason,parent): (String,i64,String,String,String,Option<String>) = connection.query_row("SELECT document_id,source_working_version,body_json,body_hash,reason,parent_id FROM revisions WHERE id=?", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
+    let valid = validate_snapshot_json(&body).map_err(|e| CoreError::new("InvalidDocument", &e))?;
+    if valid.hash != hash || valid.canonical_json != body {
+        return Err(CoreError::new(
+            "InvalidDocument",
+            "The revision failed its fingerprint check.",
+        ));
+    }
+    Ok(Revision {
+        id: id.into(),
+        head: Head {
+            document_id: doc,
+            version: version.to_string(),
+            body_hash: hash,
+        },
+        body: valid.snapshot,
+        reason,
+        parent_id: parent,
+    })
+}
+
+/// Retain the document's current body as a revision, or return the revision
+/// already recorded at this working version. The `documents.last_checkpoint_id`
+/// update is what makes the next revision's parent the one just written.
+pub fn checkpoint_at(
+    connection: &Connection,
+    document: &DocumentRecord,
+    reason: &str,
+) -> CoreResult<Revision> {
+    let existing: Option<String> = connection
+        .query_row(
+            "SELECT id FROM revisions WHERE document_id=? AND source_working_version=?",
+            params![
+                document.head.document_id,
+                parse_version(&document.head.version)?
+            ],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(id) = existing {
+        return read_revision(connection, &id);
+    }
+    let id = new_id();
+    connection.execute("INSERT INTO revisions(id,document_id,source_working_version,schema_version,body_json,body_hash,parent_id,reason) VALUES(?,?,?,1,?,?,?,?)", params![id, document.head.document_id, parse_version(&document.head.version)?, serde_json::to_string(&document.body)?, document.head.body_hash, document.last_checkpoint_id, reason])?;
+    connection.execute(
+        "UPDATE documents SET last_checkpoint_id=? WHERE id=?",
+        params![id, document.head.document_id],
+    )?;
+    read_revision(connection, &id)
+}
+
+/// The immutable decision already recorded for one operation, if any.
+///
+/// The two lookups before `command_receipts` are the cross-kind reuse fence:
+/// an operation id spent on a workshop or proposal command may not be spent
+/// again on a document command, so this one function is the single place the
+/// three receipt tables are reconciled.
+pub fn existing_receipt(
+    connection: &Connection,
+    namespace: &str,
+    id: &str,
+    kind: &str,
+    payload: &str,
+) -> CoreResult<Option<StoredResult>> {
+    let workshop_receipt: Option<(String, String)> = connection
+        .query_row(
+            "SELECT operation_kind,payload_hash FROM workshop_receipts WHERE operation_namespace=? AND operation_id=?",
+            params![namespace, id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if workshop_receipt.is_some() {
+        return Err(CoreError::new(
+            "OperationIdReusedWithDifferentPayload",
+            "This operation ID was already used for a workshop command.",
+        ));
+    }
+    let proposal_receipt: Option<(String, String)> = connection
+        .query_row(
+            "SELECT kind,payload_hash FROM proposal_receipts \
+             WHERE operation_namespace=? AND operation_id=?",
+            params![namespace, id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if proposal_receipt.is_some() {
+        return Err(CoreError::new(
+            "OperationIdReusedWithDifferentPayload",
+            "This operation ID was already used for a proposal command.",
+        ));
+    }
+    let found: Option<(String, String, String)> = connection.query_row("SELECT operation_kind,payload_hash,result_json FROM command_receipts WHERE operation_namespace=? AND operation_id=?", params![namespace, id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+    found
+        .map(|(stored_kind, stored_payload, result)| {
+            if stored_kind != kind || stored_payload != payload {
+                return Err(CoreError::new(
+                    "OperationIdReusedWithDifferentPayload",
+                    "This operation ID was already used for a different request.",
+                ));
+            }
+            Ok(serde_json::from_str(&result)?)
+        })
+        .transpose()
+}
+
+pub fn insert_receipt(
+    connection: &Connection,
+    namespace: &str,
+    id: &str,
+    kind: &str,
+    payload: &str,
+    result: &StoredResult,
+) -> CoreResult<()> {
+    connection.execute("INSERT INTO command_receipts(operation_namespace,operation_id,document_id,payload_hash,operation_kind,result_json) VALUES(?,?,?,?,?,?)", params![namespace, id, result.head.document_id, payload, kind, serde_json::to_string(result)?])?;
     Ok(())
 }

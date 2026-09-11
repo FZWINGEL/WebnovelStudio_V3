@@ -105,15 +105,10 @@ pub struct PreparedProposal {
     pub body_hash: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AppliedDecision {
-    pub decision_id: String,
-    pub proposal_id: String,
-    pub prepared_id: String,
-    pub before_revision_id: String,
-    pub after_revision_id: String,
-}
+// Moved to wns-kernel (L0) as receipt vocabulary: `StoredResult` names it, and
+// `StoredResult` had to reach L0 with the receipt readers. Re-exported here so
+// `proposals::AppliedDecision` resolves as before.
+pub use wns_kernel::AppliedDecision;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -8,7 +8,6 @@ use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 
 pub mod background_work;
 pub mod context_packets;
@@ -64,6 +63,21 @@ pub use workshop_api::*;
 pub use wns_kernel::{
     CoreError, CoreResult, Head, ProjectAccess, Revision, check_id, logical_hash, parse_stored_version,
     parse_version,
+};
+
+// The shared primitive layer, moved down so the remaining step-7 modules can
+// follow it. Eight functions and three record types had 240 call sites across
+// the twelve files under `projects/`, and every module's actor side reached for
+// the same ones. While they lived here, a module could not travel to another
+// crate: the helpers its bodies call would have to stay behind.
+//
+// Vocabulary went to L0, row access to L1, and both are re-exported at their
+// historical paths so not one of the 240 call sites changed.
+pub use wns_kernel::{AppliedDecision, DocumentRecord, DocumentRole, RestoredDecision, StoredResult};
+pub(crate) use wns_kernel::{new_id, require_head, valid_hash};
+pub(crate) use wns_storage::{
+    checkpoint_at, existing_receipt, insert_receipt, read_document, read_document_with_role,
+    read_revision,
 };
 
 // L2 vocabulary that the packet compiler consumes. `story_records` is the set of
@@ -961,9 +975,6 @@ impl OwnedProject {
     }
 }
 
-fn new_id() -> String {
-    Uuid::new_v4().to_string()
-}
 fn validate_title(title: &str) -> CoreResult<()> {
     if title.trim().is_empty() || title.len() > 512 || title.chars().any(char::is_control) {
         return Err(CoreError::new(
@@ -1028,9 +1039,6 @@ fn write_project_marker(path: &Path, info: &ProjectInfo) -> CoreResult<()> {
 }
 pub fn blank_document() -> Value {
     json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":new_id()}}]}})
-}
-fn valid_hash(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 pub(crate) fn read_view_state(connection: &Connection) -> CoreResult<Option<ViewState>> {
     let row: Option<(String, i64, String, String, i64, String, i64)> = connection
@@ -1217,185 +1225,6 @@ fn save_receipt_matches_shared_literal_fixture() {
         fixture["logicalJson"].as_str().unwrap()
     );
 }
-fn require_head(current: &Head, expected: &Head) -> CoreResult<()> {
-    parse_version(&expected.version)?;
-    if current != expected {
-        let mut error = CoreError::new(
-            "VersionConflict",
-            "This document has a newer saved version. Keep your text and reconcile.",
-        );
-        error.current_head = Some(current.clone());
-        return Err(error);
-    }
-    Ok(())
-}
-type DocumentRow = (
-    String,
-    String,
-    i64,
-    i64,
-    String,
-    String,
-    Option<String>,
-    String,
-);
-
-/// Read an ordinary story document.  This narrow helper is intentionally the
-/// only generic read path: control anchors and assistant drafts cannot leak
-/// into project attach, editor, source, memory, review, or export flows.
-fn read_document(connection: &Connection, id: &str) -> CoreResult<DocumentRecord> {
-    read_document_with_role(connection, id, DocumentRole::Ordinary)
-}
-
-/// Read one document through an explicitly authorized role path.  Callers
-/// must name the role they expect; there is no broad "include hidden" flag.
-pub(super) fn read_document_with_role(
-    connection: &Connection,
-    id: &str,
-    expected_role: DocumentRole,
-) -> CoreResult<DocumentRecord> {
-    let row: Option<DocumentRow> = connection.query_row("SELECT title,kind,working_version,metadata_version,body_hash,body_json,last_checkpoint_id,role FROM documents WHERE id=? AND trashed=0", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional()?;
-    let (title, kind, version, metadata_version, hash, body, checkpoint, stored_role) = row
-        .ok_or_else(|| {
-            CoreError::new(
-                "DocumentNotFound",
-                "This document is not available in this project.",
-            )
-        })?;
-    let role = DocumentRole::from_storage(&stored_role)?;
-    if role != expected_role {
-        return Err(CoreError::new(
-            "DocumentRoleMismatch",
-            "This document is not available through the requested authority path.",
-        ));
-    }
-    let valid = validate_snapshot_json(&body).map_err(|e| CoreError::new("InvalidDocument", &e))?;
-    if valid.hash != hash || valid.canonical_json != body {
-        return Err(CoreError::new(
-            "InvalidDocument",
-            "The saved document failed its fingerprint check.",
-        ));
-    }
-    Ok(DocumentRecord {
-        head: Head {
-            document_id: id.into(),
-            version: version.to_string(),
-            body_hash: hash,
-        },
-        title,
-        kind,
-        metadata_version: parse_stored_version(metadata_version)?,
-        body: valid.snapshot,
-        last_checkpoint_id: checkpoint,
-        role,
-    })
-}
-fn read_revision(connection: &Connection, id: &str) -> CoreResult<Revision> {
-    let (doc,version,body,hash,reason,parent): (String,i64,String,String,String,Option<String>) = connection.query_row("SELECT document_id,source_working_version,body_json,body_hash,reason,parent_id FROM revisions WHERE id=?", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
-    let valid = validate_snapshot_json(&body).map_err(|e| CoreError::new("InvalidDocument", &e))?;
-    if valid.hash != hash || valid.canonical_json != body {
-        return Err(CoreError::new(
-            "InvalidDocument",
-            "The revision failed its fingerprint check.",
-        ));
-    }
-    Ok(Revision {
-        id: id.into(),
-        head: Head {
-            document_id: doc,
-            version: version.to_string(),
-            body_hash: hash,
-        },
-        body: valid.snapshot,
-        reason,
-        parent_id: parent,
-    })
-}
-fn checkpoint_at(
-    connection: &Connection,
-    document: &DocumentRecord,
-    reason: &str,
-) -> CoreResult<Revision> {
-    let existing: Option<String> = connection
-        .query_row(
-            "SELECT id FROM revisions WHERE document_id=? AND source_working_version=?",
-            params![
-                document.head.document_id,
-                parse_version(&document.head.version)?
-            ],
-            |r| r.get(0),
-        )
-        .optional()?;
-    if let Some(id) = existing {
-        return read_revision(connection, &id);
-    }
-    let id = new_id();
-    connection.execute("INSERT INTO revisions(id,document_id,source_working_version,schema_version,body_json,body_hash,parent_id,reason) VALUES(?,?,?,1,?,?,?,?)", params![id, document.head.document_id, parse_version(&document.head.version)?, serde_json::to_string(&document.body)?, document.head.body_hash, document.last_checkpoint_id, reason])?;
-    connection.execute(
-        "UPDATE documents SET last_checkpoint_id=? WHERE id=?",
-        params![id, document.head.document_id],
-    )?;
-    read_revision(connection, &id)
-}
-fn existing_receipt(
-    connection: &Connection,
-    namespace: &str,
-    id: &str,
-    kind: &str,
-    payload: &str,
-) -> CoreResult<Option<StoredResult>> {
-    let workshop_receipt: Option<(String, String)> = connection
-        .query_row(
-            "SELECT operation_kind,payload_hash FROM workshop_receipts WHERE operation_namespace=? AND operation_id=?",
-            params![namespace, id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?;
-    if workshop_receipt.is_some() {
-        return Err(CoreError::new(
-            "OperationIdReusedWithDifferentPayload",
-            "This operation ID was already used for a workshop command.",
-        ));
-    }
-    let proposal_receipt: Option<(String, String)> = connection
-        .query_row(
-            "SELECT kind,payload_hash FROM proposal_receipts \
-             WHERE operation_namespace=? AND operation_id=?",
-            params![namespace, id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?;
-    if proposal_receipt.is_some() {
-        return Err(CoreError::new(
-            "OperationIdReusedWithDifferentPayload",
-            "This operation ID was already used for a proposal command.",
-        ));
-    }
-    let found: Option<(String, String, String)> = connection.query_row("SELECT operation_kind,payload_hash,result_json FROM command_receipts WHERE operation_namespace=? AND operation_id=?", params![namespace, id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
-    found
-        .map(|(stored_kind, stored_payload, result)| {
-            if stored_kind != kind || stored_payload != payload {
-                return Err(CoreError::new(
-                    "OperationIdReusedWithDifferentPayload",
-                    "This operation ID was already used for a different request.",
-                ));
-            }
-            Ok(serde_json::from_str(&result)?)
-        })
-        .transpose()
-}
-fn insert_receipt(
-    connection: &Connection,
-    namespace: &str,
-    id: &str,
-    kind: &str,
-    payload: &str,
-    result: &StoredResult,
-) -> CoreResult<()> {
-    connection.execute("INSERT INTO command_receipts(operation_namespace,operation_id,document_id,payload_hash,operation_kind,result_json) VALUES(?,?,?,?,?,?)", params![namespace, id, result.head.document_id, payload, kind, serde_json::to_string(result)?])?;
-    Ok(())
-}
-
 #[cfg(test)]
 fn hold_context_after_commit_before_ack(operation_id: &str) {
     tests::hold_after_commit_before_ack(operation_id);
