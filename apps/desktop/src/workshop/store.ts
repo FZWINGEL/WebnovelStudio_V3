@@ -1,5 +1,6 @@
 import { readWorkshop, saveWorkshop, type SaveWorkshop, type WorkshopResult, type WorkshopSession, type WorkshopSnapshot, type WorkshopState, type WorkshopView } from '../ipc/workshop';
 import type { ProjectAccess } from '../ipc/projects';
+import { createSaveLoop, errorCode } from '../kernel';
 import { LENSES, type WorkshopLens } from './catalog';
 
 export const emptyWorkshop = (): WorkshopState => ({ schemaVersion: 1, currentSessionId: null, sessions: [], preferences: [], decisions: [], relationships: [], impacts: [], presets: [] });
@@ -26,19 +27,43 @@ export class WorkshopStore {
   generation = 0;
   savedGeneration = 0;
   loaded = false;
-  saving = false;
   locked = false;
   error = '';
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private flight: Promise<void> | null = null;
-  private pending: { request: SaveWorkshop; generation: number } | null = null;
   private loadSequence = 0;
 
   constructor(readonly access: ProjectAccess, private readonly api: WorkshopTransport = transport) {}
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private notify() { for (const listener of this.listeners) listener(); }
-  get dirty() { return this.generation !== this.savedGeneration || this.pending !== null; }
+
+  /**
+   * A refusal that provably happened before the transaction may be discarded —
+   * retaining those bytes would prevent the author from saving their correction.
+   * Anything else may have committed, so its bytes and operation id are kept.
+   */
+  private readonly loop = createSaveLoop({
+    isDirty: () => this.generation !== this.savedGeneration,
+    capture: () => {
+      if (!this.loaded || this.generation === this.savedGeneration) return null;
+      const request: SaveWorkshop = { access: this.access, operationId: crypto.randomUUID(), expectedVersion: this.version, state: structuredClone(this.state) };
+      const generation = this.generation;
+      return {
+        send: async () => {
+          const ack = await this.api.save(request);
+          this.version = ack.version;
+          this.savedGeneration = generation;
+          if (this.generation === generation) this.state = ack.state;
+        },
+        commit: () => {},
+        discardOn: error => ['InvalidRequest', 'InvalidDocument', 'InvalidWorkshopCandidate', 'PreferenceConflict', 'ProtectedContentChanged', 'StaleRelationship', 'UnsupportedSchema'].includes(errorCode(error) ?? ''),
+        fail: error => { this.error = describeWorkshopError(error); },
+      };
+    },
+  });
+
+  get saving() { return this.loop.saving; }
+  get dirty() { return this.generation !== this.savedGeneration || this.loop.hasPending; }
   get status() { return this.error ? 'Not saved' : this.saving ? 'Saving…' : this.dirty ? 'Unsaved changes' : 'Saved on this computer'; }
 
   async load() {
@@ -74,33 +99,10 @@ export class WorkshopStore {
   }
   async flush(): Promise<void> {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
-    if (this.flight) { await this.flight; if (this.dirty) await this.flush(); return; }
     if (!this.loaded || !this.dirty) return;
-    this.saving = true; this.error = ''; this.notify();
-    const run = async () => {
-      while (this.dirty) {
-        this.pending ??= { request: { access: this.access, operationId: crypto.randomUUID(), expectedVersion: this.version, state: structuredClone(this.state) }, generation: this.generation };
-        const captured = this.pending;
-        try {
-          const ack = await this.api.save(captured.request);
-          this.version = ack.version;
-          this.savedGeneration = captured.generation;
-          if (this.generation === captured.generation) this.state = ack.state;
-          this.pending = null;
-        } catch (error) {
-          // Keep exact bytes and operation ID for a lost-ack retry. A newer
-          // author edit must not mutate the uncertain request.
-          const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-          // Explicit validation failures precede a transaction. Retaining those
-          // bytes would prevent the author from saving their correction.
-          if (['InvalidRequest', 'InvalidDocument', 'InvalidWorkshopCandidate', 'PreferenceConflict', 'ProtectedContentChanged', 'StaleRelationship', 'UnsupportedSchema'].includes(code)) this.pending = null;
-          this.error = describeWorkshopError(error); throw error;
-        }
-      }
-    };
-    this.flight = run();
-    try { await this.flight; }
-    finally { this.flight = null; this.saving = false; this.notify(); }
+    this.error = ''; this.notify();
+    try { await this.loop.flush(); }
+    finally { this.notify(); }
   }
   acceptAdoption(snapshot: WorkshopSnapshot, expectedGeneration: number) {
     if (this.dirty || this.generation !== expectedGeneration) throw new Error('Your working version changed. Reopen the saved Workshop before continuing.');

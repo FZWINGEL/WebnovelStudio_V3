@@ -259,12 +259,35 @@ Directly removes D9: one `sameHead`, one `errorCode`, one `errorText`, one bigin
 parser. These are not cosmetic — `sameHead` appearing six times means six places a
 comparison could be subtly wrong about document identity.
 
-### 4.3 One store primitive
+### 4.3 One save loop
 
-Directly removes D8. A single `createStore` implementing the listener/flight/pending pattern
-the four hand-rolled stores already converge on, with `useSyncExternalStore` binding
-provided. The lost-acknowledgment `pending` retention is the subtle part and should exist
-once, tested once.
+**Delivered as `kernel/saveLoop.ts`.** D8 said four stores converge on one
+listener/flight/pending pattern. Reading them rather than counting them changed the
+conclusion: they do **not** converge on one store shape. `ComposerSession` has no listener
+set at all — it is not subscribable — and it has no debounce timer, while `WorkshopStore`
+has both. What they genuinely share is narrower and more important: the **single-flight save
+loop with lost-acknowledgment retention**.
+
+The retention rule is the part worth having once:
+
+> A write that fails without a definitive answer must keep the exact payload and operation
+> id it sent. A retry under a fresh operation id is a second mutation of the same intent.
+
+`createSaveLoop` owns that loop and the rule. Two asymmetries are preserved deliberately
+rather than flattened, because each is load-bearing:
+
+- `discardOn` is opt-in. `WorkshopStore` declares the validation codes that provably precede
+  a transaction — retaining those bytes would stop the author saving their correction.
+  `ComposerSession` declares none, so a protocol mismatch retains the payload for
+  reconciliation. A shared default in either direction would be wrong for one of them.
+- The loop joins an in-flight drain but does **not** re-run after it. `drain` already
+  re-checks `isDirty` between writes; re-running in the loop would livelock whenever a
+  `capture` legitimately returns `null` for a still-dirty store. `ComposerSession`, which
+  has no debounce timer, re-checks itself in `save()` instead.
+
+Verified: `tsc --noEmit` clean; the 16 store tests (`workshop/store.test.ts`,
+`assistant/composer.test.ts`) pass, including the lost-ack retention, late-acknowledgment and
+post-refusal-correction cases that pin this rule, and the full frontend suite is unchanged.
 
 ### 4.4 Generated IPC bindings
 

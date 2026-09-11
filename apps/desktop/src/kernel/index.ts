@@ -8,3 +8,4 @@
  */
 export { sameHead, sameDocumentHead, type RevisionIdentity } from './heads';
 export { errorCode, errorText, errorTextFor } from './errors';
+export { createSaveLoop, type SaveAttempt, type SaveLoop } from './saveLoop';
