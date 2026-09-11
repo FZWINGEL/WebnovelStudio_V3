@@ -1269,8 +1269,33 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    so that third of the edge is a one-line import repoint. `metadata_value` is three lines and
    `metadata_from_instruction` is 87, and both are used by `context_packets` (L4), `discussions`
    (L5) and `workshop` (L5) — so they need L3 or lower, and their own closure has not been
-   measured. That measurement is the next action, and it is the first one this document has been
-   able to state as an action rather than a guess.
+   measured.
+
+   **Both of the two edges above are now discharged except one, and the technique held where it
+   mattered.** `story_context → project_chat_context` was not a designed split after all — it was
+   three names, and the measurement that said otherwise had counted the closure of a *different*
+   function. Measured properly:
+
+   - `validate_frozen_project_chat` and its seven companions: 696 lines, all L0–L3. Moved.
+   - `augment_frozen_chat`: 180 lines, all L0–L3, and `FreezeStory` — which it takes — is pure
+     vocabulary, every field L0–L3. Both moved.
+
+   That took `story_context → project_chat_context` to zero. Two details did the work, and both
+   are the same lesson stated twice:
+
+   > **A module's layer is set by its lowest consumer**, and **a re-export is not an edge.**
+
+   `project_chat_output` had been moved to `wns-conversation` (L5) when its visible consumers were
+   L5. A function that only had to reach L3 also parsed through it, so the earlier destination was
+   wrong rather than merely inconvenient — it now lives at L3. And `story_context` still named
+   `augment_frozen_chat` through `project_chat_context`'s re-export, which *resolves* but is not an
+   edge; naming it at the owning crate is what actually took the count to zero.
+
+   **`story_context` has exactly one reach left into the conversation cluster: `memory`.** Its
+   own cluster is `story_context` + `memory` + `context_packets`, mutually dependent through
+   `memory → context_packets → story_context → memory`, and all three bound for `wns-story` — so
+   they are one unit and, unlike the two cycles just broken, they need no splitting at all. They
+   simply move together.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
