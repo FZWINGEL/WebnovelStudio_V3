@@ -4,6 +4,10 @@
 //! and their immutable revisions remain the only story authority.  Workshop
 //! rows retain exploration state, exact previews, and receipts so a lost IPC
 //! acknowledgment can be reconciled without replaying a mutation.
+pub use wns_story::workshop_metadata::{
+    MAX_STORY_POSSIBILITIES, MAX_STORY_POSSIBILITY_TEXT_CHARS, validate_story_possibilities,
+    validate_text,
+};
 pub use wns_story::workshop_vocabulary::{
     CandidateChoiceStatus, Lens, PreferencePolarity, PreferenceScope, PreferenceStrength,
     StoryPossibility, StoryPossibilityKind, StoryPossibilityStatus, UnknownTo, WorkshopDepth,
@@ -24,8 +28,6 @@ const MAX_RELATIONSHIPS: usize = 512;
 const MAX_IMPACTS: usize = 1024;
 const MAX_PRESETS: usize = 128;
 const MAX_LIST: usize = 512;
-const MAX_STORY_POSSIBILITIES: usize = 64;
-const MAX_STORY_POSSIBILITY_TEXT_CHARS: usize = 4000;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_DETAIL_BYTES: usize = 32 * 1024;
 type WorkshopCandidateRecord = (String, String, Option<WorkshopRelationship>);
@@ -578,19 +580,6 @@ fn validate_snapshot_authority(
     Ok(parsed)
 }
 
-fn validate_text(value: &str, label: &str, max: usize) -> CoreResult<()> {
-    if value.len() > max
-        || value
-            .chars()
-            .any(|ch| ch.is_control() && !matches!(ch, '\n' | '\r' | '\t'))
-    {
-        return Err(CoreError::new(
-            "InvalidRequest",
-            &format!("{label} is too long or contains a control character."),
-        ));
-    }
-    Ok(())
-}
 
 fn validate_id_list(values: &[String], label: &str) -> CoreResult<()> {
     if values.len() > MAX_LIST {
@@ -612,32 +601,6 @@ fn validate_id_list(values: &[String], label: &str) -> CoreResult<()> {
     Ok(())
 }
 
-pub(crate) fn validate_story_possibilities(values: &[StoryPossibility]) -> CoreResult<()> {
-    if values.len() > MAX_STORY_POSSIBILITIES {
-        return Err(CoreError::new(
-            "InvalidRequest",
-            "A workshop session contains too many story possibilities.",
-        ));
-    }
-    let mut ids = HashSet::new();
-    for possibility in values {
-        check_id(&possibility.id)?;
-        if !ids.insert(&possibility.id) {
-            return Err(CoreError::new(
-                "InvalidRequest",
-                "Story possibility IDs must be unique within a workshop session.",
-            ));
-        }
-        if possibility.text.chars().count() > MAX_STORY_POSSIBILITY_TEXT_CHARS {
-            return Err(CoreError::new(
-                "InvalidRequest",
-                "Story possibility text must be at most 4000 characters.",
-            ));
-        }
-        validate_text(&possibility.text, "story possibility", MAX_TEXT_BYTES)?;
-    }
-    Ok(())
-}
 
 fn validate_kind(kind: &str) -> CoreResult<()> {
     if !["note", "character", "world", "theme", "hook", "scene"].contains(&kind) {

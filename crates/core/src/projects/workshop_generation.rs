@@ -5,15 +5,25 @@
 //! contract used at that boundary.  It deliberately does not persist a
 //! second candidate table: raw output remains in the existing discussion run
 //! and is interpreted only for completed workshop runs.
+pub use wns_story::workshop_metadata::{
+    MAX_DETAIL_BYTES, MAX_WORKSHOP_TEXT_BYTES, VOICE_GUIDANCE_ACTION, VOICE_GUIDANCE_DIMENSIONS,
+    WORKSHOP_ACTIONS, invalid, is_supported_action, is_voice_guidance_action, validate_exploration,
+    validate_id, validate_relationship_metadata, validate_string_list,
+    validate_voice_guidance_metadata,
+    validate_workshop_text,
+};
+pub use wns_story::workshop_metadata::{
+    WorkshopContext, WorkshopExploration, WorkshopLiteral, WorkshopPacketMetadata,
+    WorkshopVoiceGuidance, WorkshopWorkingSelection, metadata_from_instruction, metadata_value,
+};
 
 use super::discussions::{FeedbackIntent, StartDiscussion};
 use super::workshop::{
-    CandidateChoiceStatus, Lens, StoryPossibility, StoryPossibilityStatus, WorkshopDepth,
-    WorkshopPreference, WorkshopQuestion, WorkshopRelationship, WorkshopSession, WorkshopState,
-    validate_story_possibilities,
+    CandidateChoiceStatus, StoryPossibilityStatus,
+    WorkshopPreference, WorkshopRelationship, WorkshopSession, WorkshopState,
 };
 pub use super::workshop::{WorkshopCandidate, WorkshopOutput};
-use super::{CoreError, CoreResult, Head, ProjectAccess};
+use super::{CoreResult, Head, ProjectAccess};
 use crate::context::packet::{MockContextBudget, ProviderBinding};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,278 +33,31 @@ use std::collections::BTreeSet;
 // cannot sit above the compiler. Re-exported at the historical path.
 pub use wns_context::response_contracts::WORKSHOP_RESPONSE_CONTRACT;
 pub const WORKSHOP_SCHEMA_VERSION: &str = "story-workshop-output.v1";
-const MAX_TEXT_BYTES: usize = 32 * 1024;
-const MAX_DETAIL_BYTES: usize = 8 * 1024;
 const MAX_CANDIDATE_BYTES: usize = 128 * 1024;
 const MAX_CANDIDATES: usize = 3;
-const VOICE_GUIDANCE_ACTION: &str = "voiceGuidance";
 // Situation packets created before the three-choice contract used the
 // generic refinement cardinality. Their immutable packet metadata is still
 // readable, so keep that exact instruction prefix as a compatibility marker
 // when projecting historical stored results.
 const LEGACY_SITUATION_INSTRUCTION_PREFIX: &str = "Use one concrete situation to offer three contrasting tentative choices by this person or relationship. Show commitments and pressure through behavior, not a required trauma or biography.";
-const VOICE_GUIDANCE_DIMENSIONS: [&str; 5] = [
-    "Sentence density",
-    "Viewpoint distance",
-    "Humor",
-    "Exposition",
-    "Dialogue rhythm",
-];
-const WORKSHOP_ACTIONS: &[&str] = &[
-    "directions",
-    "explore",
-    "findDirection",
-    "findDirections",
-    "concrete",
-    "consequences",
-    "challenge",
-    "ordinaryLife",
-    "situation",
-    "moment",
-    VOICE_GUIDANCE_ACTION,
-    "arc",
-    "scale",
-    "subvert",
-    "synthesize",
-];
 
 /// The renderer sends only this exploration intent. The project actor fills
 /// the remaining request fields from its current workshop state and anchor
-/// document while holding the actor's CAS boundary.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopWorkingSelection {
-    pub from: u32,
-    pub to: u32,
-    pub text: String,
-}
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopExploration {
-    pub session_id: String,
-    pub expected_version: String,
-    pub working_generation: String,
-    pub action: String,
-    pub instruction: String,
-    pub selected_scope: String,
-    pub selected_text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub working_selection: Option<WorkshopWorkingSelection>,
-}
 
 /// A literal protected by the actor. The core checks exact string presence
 /// only when the literal falls inside the editable response scope; semantic
-/// preservation remains reviewable author work.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopLiteral {
-    pub text: String,
-    pub fixed: bool,
-}
 
 /// A trusted snapshot assembled by the workshop actor. The IDs are resolved
 /// to current project documents before this value reaches the packet builder;
-/// renderer supplied IDs are never used as source authority.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopContext {
-    pub expected: Head,
-    pub lens: Lens,
-    pub depth: WorkshopDepth,
-    pub current_element: String,
-    /// Author-corrected interpretation, separate from the exact editable prose.
-    /// This travels in the extensible final instruction, not the strict
-    /// metadata projection used to validate historical candidate scopes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub author_brief: Option<String>,
-    pub direction: String,
-    pub still_open: String,
-    pub focus_question: String,
-    pub focus_reason: String,
-    pub selected_details: Vec<WorkshopLiteral>,
-    pub chosen_details: Vec<String>,
-    pub fixed_details: Vec<String>,
-    pub fixed_source_refs: Vec<String>,
-    pub preferences: Vec<String>,
-    pub hard_constraints: Vec<String>,
-    pub included_document_ids: Vec<String>,
-    pub included_alternatives: Vec<String>,
-    pub rejected_rationales: Vec<String>,
-    pub questions: Vec<WorkshopQuestion>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub story_possibilities: Vec<StoryPossibility>,
-    pub original_notes: String,
-    pub outside_direction: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relationship: Option<WorkshopRelationship>,
-}
 
 /// Metadata retained inside the immutable discussion request and packet.
 /// Optional fields keep historical discussion request and packet bytes
 /// unchanged when this value is absent.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopPacketMetadata {
-    pub exploration: WorkshopExploration,
-    pub lens: Lens,
-    pub depth: WorkshopDepth,
-    pub current_element: String,
-    pub direction: String,
-    pub still_open: String,
-    pub focus_question: String,
-    pub focus_reason: String,
-    pub selected_details: Vec<WorkshopLiteral>,
-    pub chosen_details: Vec<String>,
-    pub fixed_details: Vec<String>,
-    pub fixed_source_refs: Vec<String>,
-    pub preferences: Vec<String>,
-    pub hard_constraints: Vec<String>,
-    pub included_alternatives: Vec<String>,
-    pub rejected_rationales: Vec<String>,
-    pub questions: Vec<WorkshopQuestion>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub story_possibilities: Vec<StoryPossibility>,
-    pub original_notes: String,
-    pub outside_direction: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub voice_guidance: Option<WorkshopVoiceGuidance>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relationship: Option<WorkshopRelationship>,
-}
 
 /// Frozen author material for a voice-guidance request. This is evidence for
 /// reviewable style instructions only; it is never a canon or writing record.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopVoiceGuidance {
-    pub sample: String,
-    pub author_instruction: String,
-    pub dimensions: Vec<String>,
-    pub adopt_events: bool,
-}
 
-impl WorkshopPacketMetadata {
-    pub fn from_context(
-        exploration: WorkshopExploration,
-        context: &WorkshopContext,
-    ) -> CoreResult<Self> {
-        validate_exploration(&exploration)?;
-        if context.current_element.trim().is_empty() {
-            return Err(invalid("The workshop current element is empty."));
-        }
-        for text in [
-            &context.current_element,
-            &context.direction,
-            &context.still_open,
-            &context.focus_question,
-            &context.focus_reason,
-        ] {
-            validate_workshop_text(text, MAX_TEXT_BYTES, "workshop context")?;
-        }
-        validate_workshop_text(&context.original_notes, MAX_TEXT_BYTES, "original notes")?;
-        if let Some(brief) = &context.author_brief {
-            validate_workshop_text(brief, MAX_TEXT_BYTES, "author brief")?;
-        }
-        if context.questions.len() > 256 {
-            return Err(invalid("The workshop question list is too large."));
-        }
-        for question in &context.questions {
-            validate_id(&question.id, "workshop question ID")?;
-            validate_workshop_text(&question.text, MAX_DETAIL_BYTES, "workshop question")?;
-            validate_workshop_text(
-                &question.reason,
-                MAX_DETAIL_BYTES,
-                "workshop question reason",
-            )?;
-        }
-        validate_story_possibilities(&context.story_possibilities)?;
-        validate_string_list(&context.chosen_details, MAX_TEXT_BYTES, "chosen details")?;
-        validate_string_list(&context.fixed_details, MAX_TEXT_BYTES, "fixed details")?;
-        validate_string_list(
-            &context.fixed_source_refs,
-            MAX_DETAIL_BYTES,
-            "fixed source references",
-        )?;
-        validate_string_list(&context.preferences, MAX_TEXT_BYTES, "preferences")?;
-        validate_string_list(
-            &context.hard_constraints,
-            MAX_TEXT_BYTES,
-            "hard constraints",
-        )?;
-        validate_string_list(
-            &context.included_alternatives,
-            MAX_TEXT_BYTES,
-            "included alternatives",
-        )?;
-        validate_string_list(
-            &context.rejected_rationales,
-            MAX_TEXT_BYTES,
-            "rejection rationales",
-        )?;
-        for detail in &context.selected_details {
-            validate_workshop_text(&detail.text, MAX_DETAIL_BYTES, "selected detail")?;
-        }
-        if let Some(relationship) = &context.relationship {
-            validate_relationship_metadata(relationship)?;
-        }
-        let mut fixed = context.fixed_details.clone();
-        fixed.extend(
-            context
-                .selected_details
-                .iter()
-                .filter(|detail| detail.fixed)
-                .map(|detail| detail.text.clone()),
-        );
-        fixed.sort();
-        fixed.dedup();
-        let voice_guidance = if is_voice_guidance_action(&exploration.action) {
-            Some(WorkshopVoiceGuidance {
-                sample: exploration.selected_text.clone(),
-                author_instruction: exploration.instruction.clone(),
-                dimensions: VOICE_GUIDANCE_DIMENSIONS
-                    .iter()
-                    .map(|dimension| (*dimension).to_owned())
-                    .collect(),
-                adopt_events: false,
-            })
-        } else {
-            None
-        };
-        Ok(Self {
-            exploration,
-            lens: context.lens,
-            depth: context.depth,
-            current_element: context.current_element.clone(),
-            direction: context.direction.clone(),
-            still_open: context.still_open.clone(),
-            focus_question: context.focus_question.clone(),
-            focus_reason: context.focus_reason.clone(),
-            selected_details: context.selected_details.clone(),
-            chosen_details: context.chosen_details.clone(),
-            fixed_details: fixed,
-            fixed_source_refs: context.fixed_source_refs.clone(),
-            preferences: context.preferences.clone(),
-            hard_constraints: context.hard_constraints.clone(),
-            included_alternatives: context.included_alternatives.clone(),
-            rejected_rationales: context.rejected_rationales.clone(),
-            questions: context.questions.clone(),
-            story_possibilities: context
-                .story_possibilities
-                .iter()
-                .filter(|possibility| {
-                    possibility.status == StoryPossibilityStatus::Open
-                        && !possibility.text.trim().is_empty()
-                })
-                .cloned()
-                .collect(),
-            original_notes: context.original_notes.clone(),
-            outside_direction: context.outside_direction,
-            relationship: context.relationship.clone(),
-            voice_guidance,
-        })
-    }
-}
 
 /// The internal request assembled by the actor after resolving workshop CAS
 /// state. It can be converted into the existing discussion lifecycle without
@@ -597,7 +360,7 @@ fn workshop_instruction(
         );
     }
     let encoded = serde_json::to_string(&value)?;
-    if encoded.len() > MAX_TEXT_BYTES {
+    if encoded.len() > MAX_WORKSHOP_TEXT_BYTES {
         return Err(invalid("The workshop request instruction is too large."));
     }
     Ok(encoded)
@@ -606,93 +369,6 @@ fn workshop_instruction(
 /// Decode the immutable workshop envelope embedded in the trusted final
 /// instruction. The actor is responsible for constructing this instruction
 /// from the current workshop CAS state before calling `start_discussion`.
-pub fn metadata_from_instruction(instruction: &str) -> CoreResult<WorkshopPacketMetadata> {
-    let value: Value = serde_json::from_str(instruction)
-        .map_err(|error| invalid(&format!("The workshop instruction is not JSON: {error}")))?;
-    if value.get("schemaVersion").and_then(Value::as_str) != Some("story-workshop-request.v1") {
-        return Err(invalid("The workshop instruction has an unknown schema."));
-    }
-    if let Some(brief) = value.get("authorBrief") {
-        let brief = brief
-            .as_str()
-            .ok_or_else(|| invalid("The workshop author brief must be text."))?;
-        validate_workshop_text(brief, MAX_TEXT_BYTES, "author brief")?;
-    }
-    let metadata = value
-        .get("workshop")
-        .ok_or_else(|| invalid("The workshop instruction has no frozen metadata."))?;
-    let metadata: WorkshopPacketMetadata = serde_json::from_value(metadata.clone())
-        .map_err(|error| invalid(&format!("The workshop metadata is invalid: {error}")))?;
-    validate_exploration(&metadata.exploration)?;
-    validate_story_possibilities(&metadata.story_possibilities)?;
-    if metadata.story_possibilities.iter().any(|possibility| {
-        possibility.status != StoryPossibilityStatus::Open || possibility.text.trim().is_empty()
-    }) {
-        return Err(invalid(
-            "Frozen workshop story possibilities must be open and nonempty.",
-        ));
-    }
-    validate_voice_guidance_metadata(&metadata)?;
-    for (field, outer, embedded) in [
-        (
-            "action",
-            value.get("action").and_then(Value::as_str),
-            Some(metadata.exploration.action.as_str()),
-        ),
-        (
-            "instruction",
-            value.get("instruction").and_then(Value::as_str),
-            Some(metadata.exploration.instruction.as_str()),
-        ),
-        (
-            "selectedScope",
-            value.get("selectedScope").and_then(Value::as_str),
-            Some(metadata.exploration.selected_scope.as_str()),
-        ),
-        (
-            "selectedText",
-            value.get("selectedText").and_then(Value::as_str),
-            Some(metadata.exploration.selected_text.as_str()),
-        ),
-        (
-            "currentElement",
-            value.get("currentElement").and_then(Value::as_str),
-            Some(metadata.current_element.as_str()),
-        ),
-        (
-            "direction",
-            value.get("direction").and_then(Value::as_str),
-            Some(metadata.direction.as_str()),
-        ),
-        (
-            "stillOpen",
-            value.get("stillOpen").and_then(Value::as_str),
-            Some(metadata.still_open.as_str()),
-        ),
-        (
-            "focusQuestion",
-            value.get("focusQuestion").and_then(Value::as_str),
-            Some(metadata.focus_question.as_str()),
-        ),
-        (
-            "focusReason",
-            value.get("focusReason").and_then(Value::as_str),
-            Some(metadata.focus_reason.as_str()),
-        ),
-    ] {
-        if outer != embedded {
-            return Err(invalid(&format!(
-                "The workshop instruction has mismatched {field} metadata."
-            )));
-        }
-    }
-    if value.get("outsideDirection").and_then(Value::as_bool) != Some(metadata.outside_direction) {
-        return Err(invalid(
-            "The workshop instruction has mismatched outsideDirection metadata.",
-        ));
-    }
-    Ok(metadata)
-}
 
 /// Validate a completed workshop response. `run_id` is used to assign stable
 /// candidate IDs, so IDs stay durable and cannot collide across runs.
@@ -732,15 +408,15 @@ pub fn validate_workshop_output(
         ));
     }
     validate_workshop_text(&output.request_kind, 256, "request kind")?;
-    validate_workshop_text(&output.question, MAX_TEXT_BYTES, "question")?;
-    validate_workshop_text(&output.question_reason, MAX_TEXT_BYTES, "question reason")?;
+    validate_workshop_text(&output.question, MAX_WORKSHOP_TEXT_BYTES, "question")?;
+    validate_workshop_text(&output.question_reason, MAX_WORKSHOP_TEXT_BYTES, "question reason")?;
     validate_workshop_text(&output.dimension, 256, "dimension")?;
     for text in [
         &output.interpretation.you_said,
         &output.interpretation.possible_direction,
         &output.interpretation.still_open,
     ] {
-        validate_workshop_text(text, MAX_TEXT_BYTES, "interpretation")?;
+        validate_workshop_text(text, MAX_WORKSHOP_TEXT_BYTES, "interpretation")?;
     }
     let (expected, cardinality_message) = if is_direction_action(&metadata.exploration.action)
         || is_voice_guidance_action(&metadata.exploration.action)
@@ -800,7 +476,7 @@ fn validate_candidate(
 ) -> CoreResult<()> {
     for (value, label, limit) in [
         (&candidate.title, "candidate title", 256),
-        (&candidate.content, "candidate content", MAX_TEXT_BYTES),
+        (&candidate.content, "candidate content", MAX_WORKSHOP_TEXT_BYTES),
         (&candidate.dimension_value, "candidate dimension", 512),
     ] {
         validate_workshop_text(value, limit, label)?;
@@ -813,17 +489,17 @@ fn validate_candidate(
     }
     validate_string_list(
         &candidate.assumptions,
-        MAX_TEXT_BYTES,
+        MAX_WORKSHOP_TEXT_BYTES,
         "candidate assumptions",
     )?;
     validate_string_list(
         &candidate.preserved_details,
-        MAX_TEXT_BYTES,
+        MAX_WORKSHOP_TEXT_BYTES,
         "preserved details",
     )?;
     validate_string_list(
         &candidate.changed_details,
-        MAX_TEXT_BYTES,
+        MAX_WORKSHOP_TEXT_BYTES,
         "changed details",
     )?;
     if candidate.changed_details.is_empty() {
@@ -917,9 +593,6 @@ fn is_direction_action(action: &str) -> bool {
     )
 }
 
-fn is_voice_guidance_action(action: &str) -> bool {
-    action == VOICE_GUIDANCE_ACTION
-}
 
 fn is_legacy_situation_instruction(exploration: &WorkshopExploration) -> bool {
     exploration.action == "situation"
@@ -929,9 +602,6 @@ fn is_legacy_situation_instruction(exploration: &WorkshopExploration) -> bool {
             .starts_with(LEGACY_SITUATION_INSTRUCTION_PREFIX)
 }
 
-fn is_supported_action(action: &str) -> bool {
-    WORKSHOP_ACTIONS.contains(&action)
-}
 
 fn validate_voice_guidance_candidate(
     candidate: &WorkshopCandidate,
@@ -959,32 +629,6 @@ fn validate_voice_guidance_candidate(
     Ok(())
 }
 
-fn validate_voice_guidance_metadata(metadata: &WorkshopPacketMetadata) -> CoreResult<()> {
-    if is_voice_guidance_action(&metadata.exploration.action) {
-        let guidance = metadata
-            .voice_guidance
-            .as_ref()
-            .ok_or_else(|| invalid("Voice-guidance metadata is missing from the request."))?;
-        if guidance.sample != metadata.exploration.selected_text
-            || guidance.author_instruction != metadata.exploration.instruction
-            || guidance.dimensions
-                != VOICE_GUIDANCE_DIMENSIONS
-                    .iter()
-                    .map(|dimension| (*dimension).to_owned())
-                    .collect::<Vec<_>>()
-            || guidance.adopt_events
-        {
-            return Err(invalid(
-                "Voice-guidance metadata does not match the frozen author request.",
-            ));
-        }
-    } else if metadata.voice_guidance.is_some() {
-        return Err(invalid(
-            "Voice-guidance metadata is not allowed for another workshop action.",
-        ));
-    }
-    Ok(())
-}
 
 fn preference_applies(
     preference: &WorkshopPreference,
@@ -1031,51 +675,6 @@ fn format_preference(preference: &WorkshopPreference) -> String {
     value
 }
 
-fn validate_exploration(exploration: &WorkshopExploration) -> CoreResult<()> {
-    validate_id(&exploration.session_id, "workshop session ID")?;
-    validate_id(&exploration.expected_version, "workshop expected version")?;
-    validate_id(
-        &exploration.working_generation,
-        "workshop working generation",
-    )?;
-    if exploration.action.trim().is_empty() {
-        return Err(invalid("The workshop action is empty."));
-    }
-    validate_workshop_text(&exploration.action, 128, "workshop action")?;
-    if !is_supported_action(&exploration.action) {
-        return Err(invalid("The workshop action is unsupported."));
-    }
-    validate_workshop_text(
-        &exploration.instruction,
-        MAX_TEXT_BYTES,
-        "workshop instruction",
-    )?;
-    if exploration.instruction.trim().is_empty() {
-        return Err(invalid("The workshop instruction is empty."));
-    }
-    validate_workshop_text(&exploration.selected_scope, 256, "selected scope")?;
-    validate_workshop_text(
-        &exploration.selected_text,
-        MAX_DETAIL_BYTES,
-        "selected text",
-    )?;
-    if exploration.selected_scope.trim().is_empty() {
-        return Err(invalid("The workshop selected scope is empty."));
-    }
-    if is_voice_guidance_action(&exploration.action) && exploration.selected_text.trim().is_empty()
-    {
-        return Err(invalid(
-            "Voice guidance requires an author-selected or current sample.",
-        ));
-    }
-    if let Some(selection) = &exploration.working_selection {
-        validate_workshop_text(&selection.text, MAX_DETAIL_BYTES, "working selection")?;
-        if selection.from > selection.to {
-            return Err(invalid("The workshop working selection range is inverted."));
-        }
-    }
-    Ok(())
-}
 
 fn validate_working_selection(
     exploration: &WorkshopExploration,
@@ -1120,101 +719,19 @@ fn utf16_slice(value: &str, from: u32, to: u32) -> Option<String> {
     Some(value.get(start?..end?)?.to_owned())
 }
 
-fn validate_string_list(values: &[String], limit: usize, label: &str) -> CoreResult<()> {
-    if values.len() > 256 {
-        return Err(invalid(&format!("The {label} list is too large.")));
-    }
-    for value in values {
-        validate_workshop_text(value, limit, label)?;
-    }
-    Ok(())
-}
 
-fn validate_workshop_text(value: &str, limit: usize, label: &str) -> CoreResult<()> {
-    if value.len() > limit
-        || value
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-    {
-        return Err(invalid(&format!(
-            "The {label} is too large or contains control characters."
-        )));
-    }
-    Ok(())
-}
 
-fn validate_id(value: &str, label: &str) -> CoreResult<()> {
-    if value.is_empty()
-        || value.len() > 64
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-    {
-        return Err(invalid(&format!("The {label} is invalid.")));
-    }
-    Ok(())
-}
 
-fn invalid(detail: &str) -> CoreError {
-    CoreError::new("InvalidWorkshop", detail)
-}
 
-fn validate_relationship_metadata(relationship: &WorkshopRelationship) -> CoreResult<()> {
-    validate_id(&relationship.id, "relationship ID")?;
-    validate_id(
-        &relationship.from_document_id,
-        "relationship source document ID",
-    )?;
-    validate_id(
-        &relationship.to_document_id,
-        "relationship target document ID",
-    )?;
-    if relationship.from_document_id == relationship.to_document_id {
-        return Err(invalid("A relationship must have different endpoints."));
-    }
-    validate_workshop_text(
-        &relationship.relationship_type,
-        MAX_DETAIL_BYTES,
-        "relationship type",
-    )?;
-    validate_workshop_text(
-        &relationship.description,
-        MAX_TEXT_BYTES,
-        "relationship description",
-    )?;
-    validate_workshop_text(
-        &relationship.uncertainty,
-        MAX_DETAIL_BYTES,
-        "relationship uncertainty",
-    )?;
-    if relationship.source_heads.len() != 2 {
-        return Err(invalid("A relationship must retain both endpoint sources."));
-    }
-    let source_ids = relationship
-        .source_heads
-        .iter()
-        .map(|head| head.document_id.as_str())
-        .collect::<BTreeSet<_>>();
-    if source_ids.len() != 2
-        || !source_ids.contains(relationship.from_document_id.as_str())
-        || !source_ids.contains(relationship.to_document_id.as_str())
-    {
-        return Err(invalid(
-            "A relationship source must match both directional endpoints.",
-        ));
-    }
-    Ok(())
-}
 
 /// Packet metadata is JSON by design so old packet rows can be read without
 /// knowing this feature. This helper is useful to packet and transfer code.
-pub fn metadata_value(metadata: &WorkshopPacketMetadata) -> CoreResult<Value> {
-    Ok(serde_json::to_value(metadata)?)
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Named at the crate that owns it; the module itself no longer builds one.
+    use wns_story::workshop_vocabulary::WorkshopQuestion;
     use crate::projects::workshop::WorkshopSession;
     use crate::projects::workshop::{Lens, WorkshopBranchKind, WorkshopDepth};
 
@@ -1394,7 +911,7 @@ mod tests {
         for brief in [
             Value::Null,
             serde_json::json!({"text": "not a string"}),
-            Value::String("x".repeat(MAX_TEXT_BYTES + 1)),
+            Value::String("x".repeat(MAX_WORKSHOP_TEXT_BYTES + 1)),
         ] {
             envelope["authorBrief"] = brief;
             assert_eq!(
@@ -1405,7 +922,7 @@ mod tests {
             );
         }
         let mut oversized = context();
-        oversized.author_brief = Some("x".repeat(MAX_TEXT_BYTES));
+        oversized.author_brief = Some("x".repeat(MAX_WORKSHOP_TEXT_BYTES));
         // Even a valid single field must fit alongside all mandatory context.
         let error = workshop_instruction(&exploration, &oversized).unwrap_err();
         assert!(error.detail.contains("instruction is too large"));
