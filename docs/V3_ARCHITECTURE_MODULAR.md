@@ -1249,11 +1249,28 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    stays, so `discussions::ProviderCleanup` and its siblings still resolve — but a re-export is
    not an edge, and the difference is exactly the one that matters here.
 
-   So of the last unit's edges, one is discharged and one is a designed split. `memory →
-   context_packets` (five sites) is the remainder, and it is the same question asked of a
-   different module: are `PrepareContext`, `validated_packet_record` and
-   `persist_compiled_packet_at` packet vocabulary that belongs below both, or operations that
-   belong with the store?
+   **And `memory → context_packets` is not an edge at all once the unit is stated correctly.**
+   Five sites, three names — `PrepareContext`, `validated_packet_record` (a three-line wrapper
+   over `story_context::validated_snapshot_record`), and `persist_compiled_packet_at` (ten
+   lines). `story_context`, `memory` and `context_packets` are all bound for `wns-story` (L4),
+   so every one of those calls is *internal* to the crate they will share. There was never a
+   cross-crate edge to break; measuring it as one was another instance of counting a call site
+   rather than a crate boundary.
+
+   That leaves the last unit's real edges at two:
+
+   | Edge | State |
+   |---|---|
+   | `story_context` → `project_chat_context` | designed split, 646 lines plus three types |
+   | `context_packets` → `workshop_generation` | measured below |
+
+   `context_packets → workshop_generation` is three names. `WORKSHOP_RESPONSE_CONTRACT` is
+   *already* at L3 — `workshop_generation` only re-exports it from `wns_context::response_contracts`,
+   so that third of the edge is a one-line import repoint. `metadata_value` is three lines and
+   `metadata_from_instruction` is 87, and both are used by `context_packets` (L4), `discussions`
+   (L5) and `workshop` (L5) — so they need L3 or lower, and their own closure has not been
+   measured. That measurement is the next action, and it is the first one this document has been
+   able to state as an action rather than a guess.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
