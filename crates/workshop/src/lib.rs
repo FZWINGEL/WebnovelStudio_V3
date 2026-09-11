@@ -32,3 +32,9 @@
 
 /// What the Workshop needs from the actor.
 pub mod host;
+
+/// Durable Story Workshop state and reviewed adoption boundary.
+pub mod workshop;
+
+/// Story Workshop generation contracts.
+pub mod workshop_generation;

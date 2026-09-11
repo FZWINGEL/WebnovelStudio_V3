@@ -36,6 +36,16 @@ pub trait WorkshopHost {
     /// `intent_for_packet`, `read_provider_result` and `read_message`, so it
     /// stays in `discussions` and is reached from here instead of travelling.
     fn read_run(&self, run_id: &str) -> CoreResult<DiscussionRun>;
+    /// The immutable authority chain for a chat-origin workshop snapshot.
+    ///
+    /// Its owner is `project_chat`; this is the seam rather than a move, which
+    /// is what `project_chat` called it when the forwarding function was added.
+    fn validate_chat_workshop_snapshot(
+        &self,
+        origin: crate::workshop::WorkshopSnapshotOrigin<'_>,
+        state: &crate::workshop::WorkshopState,
+        previous_state: &crate::workshop::WorkshopState,
+    ) -> CoreResult<()>;
     /// The actor reads two fields off this (`project_id`, `operation_namespace`).
     fn info(&self) -> &ProjectInfo;
 }
