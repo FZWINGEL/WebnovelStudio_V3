@@ -1037,9 +1037,22 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    helpers its bodies use, and the test hooks its crash paths reach. None of the three is visible
    in the imports, which is why the only way to find the order is to try.
 
-   Three of the twenty-one have moved: `source_pins`, `history`, `reviewed_story` — chosen in
-   that order not for size but for reachability, and the third one's ease is the return on the
-   primitive-layer commit that made it possible.
+   Four of the twenty-one have moved: `source_pins`, `history`, `reviewed_story`,
+   `project_chat_output` — chosen in that order not for size but for reachability, and the
+   later ones' ease is the return on the primitive-layer commit that made them possible.
+
+   **And there is a fourth category of module, which the three before it hid.**
+   `project_chat_output` (1,113 lines) has **no `impl` blocks at all**: no `ProjectSession`
+   half, no actor-side half, no command vocabulary. The answer to "what does this need from
+   the actor?" is *nothing*, so it needed no host trait and no `Command` variant — the entire
+   move was two import rewrites and a glob re-export. It is what step 7 is *supposed* to look
+   like, and it appeared only after three modules taught the pattern that made it findable.
+   Its 11 tests moved with it, so the workspace total is conserved exactly.
+
+   That reframes the remaining seventeen. Some are pure vocabulary like this one; some are
+   `history`-shaped, needing four host methods; some carry a command enum of their own. The
+   work is not uniform, and the doc can now name which kind a given module is *before* it is
+   attempted, which is the whole of what three modules bought.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too

@@ -1,4 +1,4 @@
-//! L4 — discussions and the project conversation.
+//! L5 — discussions and the project conversation.
 //!
 //! **Skeleton.** Nothing has been ported yet; this crate declares the boundary
 //! and the dependency edge so the layering rule is checked from the first commit.
@@ -25,6 +25,13 @@
 //!
 //! # Dependency rule
 //!
-//! L4. May depend on L0–L3. Must not depend on `wns-workshop` — these are
+//! L5. May depend on L0–L4. Must not depend on `wns-workshop` — these are
 //! siblings, and the `workshop.rs:9` edge into `discussions` must be inverted
 //! before either can move.
+
+/// Validation for the project-chat assistant response contract.
+///
+/// The first step-7 module that was a pure move: no `impl` blocks, no
+/// `ProjectSession` half, no command vocabulary, so no host trait. Its callers
+/// are `discussions` and the seven files under `project_chat/`.
+pub mod project_chat_output;

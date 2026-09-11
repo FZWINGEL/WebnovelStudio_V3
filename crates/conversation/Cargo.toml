@@ -2,7 +2,7 @@
 name = "wns-conversation"
 version.workspace = true
 edition = "2024"
-description = "L4: discussions, project chat, proposals, guidance and the adoption transaction."
+description = "L5: discussions, project chat, proposals, guidance and the adoption transaction."
 
 [dependencies]
 wns-kernel = { path = "../kernel" }
@@ -13,3 +13,9 @@ wns-context = { path = "../context" }
 wns-story = { path = "../story" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
+# `project_chat_output` mints ids for the blocks it materialises.
+uuid = { version = "=1.26.0", features = ["v4"] }
+
+[dev-dependencies]
+# The response-contract tests hash their fixtures.
+sha2 = "=0.11.0"

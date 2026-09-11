@@ -4696,6 +4696,7 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "wns-context",
+ "wns-conversation",
  "wns-documents",
  "wns-kernel",
  "wns-providers",
@@ -5199,6 +5200,8 @@ version = "3.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2 0.11.0",
+ "uuid",
  "wns-context",
  "wns-documents",
  "wns-kernel",
