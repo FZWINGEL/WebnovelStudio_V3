@@ -12,6 +12,7 @@
 //! the edge points strictly downward, so the layering rule is unchanged.
 
 pub mod history;
+pub mod records;
 pub mod material_adoption;
 pub mod scope;
 pub mod structured;
@@ -25,6 +26,11 @@ pub mod structured;
 pub fn blank_document() -> serde_json::Value {
     serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":wns_kernel::new_id()}}]}})
 }
+
+pub use records::{
+    CheckpointReason, CheckpointRequest, OperationReceipt, ReconcileRequest, ReconciledDocument,
+    SaveAck, SaveCause, SaveSnapshot,
+};
 
 pub use scope::{
     Endpoint, ScopeGrant, ScopeKind, ScopeReceipt, ScopeValidationError, ScopeValidationRequest,
