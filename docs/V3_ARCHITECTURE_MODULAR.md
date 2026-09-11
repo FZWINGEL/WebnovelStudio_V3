@@ -791,6 +791,25 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    also the last one: steps 8 and 9 are ordinary moves once the actor stops being a type every
    module can add methods to.
 
+   **Decided: a host trait per concern.** The trait is declared in the target crate and exposes
+   only what one module needs from the actor; `OwnedProject` implements it in core; the module's
+   impl bodies become free functions taking `&mut impl TheHost`. Measured on the smallest
+   candidate, `projects/memory/app_server.rs` (227 lines), the split is clean:
+
+   - its `impl ProjectSession` block is two methods that each do nothing but
+     `self.request(|reply| Command::Memory(...))`, so the session half needs `request` alone and
+     could become a facade method directly;
+   - its `impl OwnedProject` block needs `db`, `db_mut`, `check_access` **and** the
+     crate-private helpers the bodies call — `validate_runtime_owner`, `read_memory_job_row`,
+     `validate_job_owner`.
+
+   That second half is the actual work, and it is worth stating plainly: **a host trait is
+   narrow only if the helpers travel with the module.** A module whose bodies call six private
+   functions from the crate they are leaving does not have a narrow host; it has a wide one with
+   extra steps. The estimation for a real module is therefore *"how many crate-private free
+   functions do its impl bodies call?"*, not how many actor methods they call — and that number
+   is readable with one grep per module before committing to the pattern.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
