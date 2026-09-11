@@ -548,12 +548,29 @@ attempt.
 
 ---
 
-**Not yet done, and next.** Rust steps 3 onward: `wns-documents` and `wns-providers` are the
-cheapest next extractions; `wns-providers` is worth doing before the hard files precisely
-because it validates the pattern at 16,116 lines. The `context/packet.rs` inversion (§3.4) is
-the highest-value change in the tree and the true prerequisite for `wns-context`. On the
-frontend, the remaining §4 work is the feature-slice move, the single `createStore`, and
-generated IPC — D6–D8 remain exactly as measured.
+**Delivered, in order.** Skeleton (0) · `wns-kernel` (1) · `wns-storage` (2) ·
+`wns-documents` (3) · `wns-providers` (4) · `projects.rs` split (D3 prerequisite) ·
+frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed: the
+`ADR_0022` reader-floor drift, and a correction to this document's own test-tree audit.
+
+**Not yet done, and the next three steps in dependency order.**
+
+1. **`ProjectSession` facades (step 5).** Now unblocked and now measurable: 28 public methods
+   with **166 call sites** across the tree, and `request` alone has 94. This is the gate on
+   everything below it. It is an interface change only — the actor, the channel and the
+   ordering guarantees stay — so the existing suite is the contract.
+2. **`context/packet.rs` (step 6).** Still 3,462 lines, still the file §3.4 describes as the
+   hardest. Its `projects::{project_chat_output, story_context, workshop_generation}` imports
+   are the inversion to perform.
+3. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)**, then `wns-transfer` and
+   `wns-library` (step 8), then `wns-app` (step 9). Note that `wns-library` *cannot* move
+   before step 5: `webnovel-core/src/library.rs` reaches `ProjectSession` and
+   `projects::import` directly, and a layered crate may not depend on the crate under
+   decomposition — `crates/architecture` will refuse it.
+
+On the frontend, §4.1 (feature slices), §4.4 (generated IPC) and §4.5 (shell reduction) remain.
+§4.4 is the largest remaining correctness win: D6 — 255 hand-written type mirrors across 22
+files with one tested — is untouched.
 
 **One thing this branch does not claim.** The `SourceEpoch` type named in §2 does not exist yet
 — it is a target for the invariant work, not a delivered type, and the current fencing is still
