@@ -8,6 +8,7 @@ use crate::context::packet::{
     compile_packet, compile_packet_legacy, packet_input_hash, serialized_input,
 };
 use crate::documents::ScopeGrant;
+use wns_story::host::StoryHost;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -46,7 +47,7 @@ pub enum PreparationResult {
     },
 }
 
-pub(crate) enum PacketCommand {
+pub enum PacketCommand {
     Prepare(Box<PrepareContext>, Reply<PreparationResult>),
     Read(ProjectAccess, String, Reply<CompiledPacket>),
     Current(ProjectAccess, String, Reply<bool>),
@@ -78,167 +79,167 @@ impl ProjectSession {
     }
 }
 
-impl OwnedProject {
-    pub(super) fn handle_packet(&mut self, command: PacketCommand) {
-        match command {
-            PacketCommand::Prepare(request, reply) => {
-                let result = self.prepare_context_packet(*request);
-                self.fence_uncertain(&result);
-                let _ = reply.send(result);
-            }
-            PacketCommand::Read(access, id, reply) => {
-                let _ = reply.send(self.read_context_packet(&access, &id));
-            }
-            PacketCommand::Current(access, id, reply) => {
-                let result = self.read_context_packet(&access, &id).and_then(|packet| {
-                    let snapshot = story_context::load_snapshot(
-                        self.db()?,
-                        &access,
-                        &packet.receipt.snapshot_id,
-                    )?;
-                    Ok(snapshot.snapshot.context_source_epoch == self.context_source_epoch()?)
-                });
-                let _ = reply.send(result);
-            }
-        }
-    }
+// Actor-side logic, as free functions over `StoryHost`.
 
-    fn prepare_context_packet(&mut self, request: PrepareContext) -> CoreResult<PreparationResult> {
-        self.check_access(&request.access)?;
-        check_id(&request.operation_id)?;
-        if request.lookup.is_some() {
-            return Err(CoreError::new(
-                "LookupRequiresDiscussion",
-                "Story lookups require an explicitly authorized discussion job.",
-            ));
+pub fn handle_packet(host: &mut impl StoryHost, command: PacketCommand) {
+    match command {
+        PacketCommand::Prepare(request, reply) => {
+            let result = prepare_context_packet(host, *request);
+            host.fence_uncertain(&result);
+            let _ = reply.send(result);
         }
-        if request.safe_brief.is_some() {
-            return Err(CoreError::new(
-                "SafeBriefRequiresDiscussion",
-                "An approved writing brief must be committed by a restricted discussion start.",
-            ));
+        PacketCommand::Read(access, id, reply) => {
+            let _ = reply.send(read_context_packet(host, &access, &id));
         }
-        if request.response_contract.is_some() {
-            return Err(CoreError::new(
-                "ResponseContractRequiresDiscussion",
-                "A provider response contract is reserved for an internal live discussion start.",
-            ));
-        }
-        let payload = logical_hash(&request)?;
-        let existing: Option<(String, String)> = self.db()?.query_row(
-            "SELECT id,payload_hash FROM context_packets WHERE operation_namespace=? AND operation_id=?",
-            params![request.access.operation_namespace,request.operation_id],
-            |row| Ok((row.get(0)?,row.get(1)?)),
-        ).optional()?;
-        if let Some((id, previous)) = existing {
-            if previous != payload {
-                return Err(CoreError::new(
-                    "OperationIdReusedWithDifferentPayload",
-                    "This preparation was already used for another request.",
-                ));
-            }
-            let packet = self.read_context_packet(&request.access, &id)?;
-            let frozen = story_context::load_snapshot(
-                self.db()?,
-                &request.access,
-                &packet.receipt.snapshot_id,
-            )?;
-            return Ok(PreparationResult::Prepared {
-                packet: Box::new(packet),
-                current: frozen.snapshot.context_source_epoch == self.context_source_epoch()?,
+        PacketCommand::Current(access, id, reply) => {
+            let result = read_context_packet(host, &access, &id).and_then(|packet| {
+                let snapshot = story_context::load_snapshot(
+                    host.db()?,
+                    &access,
+                    &packet.receipt.snapshot_id,
+                )?;
+                Ok(snapshot.snapshot.context_source_epoch == host.context_source_epoch()?)
             });
+            let _ = reply.send(result);
         }
-        let frozen =
-            story_context::load_snapshot(self.db()?, &request.access, &request.snapshot_id)?;
-        if frozen
-            .guidance
-            .iter()
-            .any(|record| record.version.scope == crate::context::guidance::GuidanceScope::Request)
-        {
-            return Err(CoreError::new(
-                "RequestGuidanceRequiresDiscussion",
-                "Request-scoped author guidance is reserved for an explicit discussion and cannot be replayed by generic packet preparation.",
-            ));
-        }
-        if frozen.snapshot.context_source_epoch != self.context_source_epoch()? {
-            return Err(CoreError::new(
-                "ContextChanged",
-                "The story changed. Prepare a fresh snapshot before compiling a new request.",
-            ));
-        }
-        let sources = frozen
-            .snapshot
-            .sources
-            .iter()
-            .map(|source| story_context::read_source(self.db()?, &frozen, &source.handle))
-            .collect::<CoreResult<Vec<_>>>()?;
-        let compile_request = PacketRequest {
-            packet_id: new_id(),
-            session_id: new_id(),
-            invocation_ordinal: "0".into(),
-            frozen,
-            instruction: request.instruction.clone(),
-            sources,
-            mandatory_handles: request.mandatory_handles.clone(),
-            safe_brief: request.safe_brief.clone(),
-            scope: request.scope.clone(),
-            budget: request.budget.clone(),
-            provider_binding: request.provider_binding.clone(),
-            response_contract: request.response_contract.clone(),
-            // Parsed here, where the instruction is authored, and passed down.
-            // The compiler used to parse it out of `instruction` itself, which
-            // made it reach up into this crate for the workshop vocabulary and
-            // its validation cluster. The builder is the only code that can
-            // build a valid workshop instruction, so it owns proving this.
-            workshop_metadata: if request.response_contract.as_deref()
-                == Some(workshop_generation::WORKSHOP_RESPONSE_CONTRACT)
-            {
-                let metadata =
-                    workshop_generation::metadata_from_instruction(&request.instruction)?;
-                Some(workshop_generation::metadata_value(&metadata)?)
-            } else {
-                None
-            },
-            lookup: request.lookup.clone(),
-        };
-        let packet = match compile_packet(&compile_request) {
-            Ok(packet) => packet,
-            Err(PacketError::Budget(error)) => {
-                return Ok(PreparationResult::BudgetRejected { error });
-            }
-            Err(error) => return Err(packet_error(error)),
-        };
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        persist_compiled_packet_at(&tx, &request, &packet)?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        // Keep the test-only process-loss barrier aligned with the other
-        // durable author operations.  The barrier runs after COMMIT and
-        // before the caller receives the packet acknowledgment, so recovery
-        // must discover the exact operation by retrying its immutable request.
-        #[cfg(test)]
-        super::hold_context_after_commit_before_ack(&request.operation_id);
-        Ok(PreparationResult::Prepared {
-            packet: Box::new(packet),
-            current: true,
-        })
     }
+}
 
-    fn read_context_packet(&self, access: &ProjectAccess, id: &str) -> CoreResult<CompiledPacket> {
-        self.check_access(access)?;
-        let stored = read_packet_row(self.db()?, id)?;
-        if stored.project_id != access.project_id || stored.namespace != access.operation_namespace
-        {
+pub fn prepare_context_packet(host: &mut impl StoryHost, request: PrepareContext) -> CoreResult<PreparationResult> {
+    host.check_access(&request.access)?;
+    check_id(&request.operation_id)?;
+    if request.lookup.is_some() {
+        return Err(CoreError::new(
+            "LookupRequiresDiscussion",
+            "Story lookups require an explicitly authorized discussion job.",
+        ));
+    }
+    if request.safe_brief.is_some() {
+        return Err(CoreError::new(
+            "SafeBriefRequiresDiscussion",
+            "An approved writing brief must be committed by a restricted discussion start.",
+        ));
+    }
+    if request.response_contract.is_some() {
+        return Err(CoreError::new(
+            "ResponseContractRequiresDiscussion",
+            "A provider response contract is reserved for an internal live discussion start.",
+        ));
+    }
+    let payload = logical_hash(&request)?;
+    let existing: Option<(String, String)> = host.db()?.query_row(
+        "SELECT id,payload_hash FROM context_packets WHERE operation_namespace=? AND operation_id=?",
+        params![request.access.operation_namespace,request.operation_id],
+        |row| Ok((row.get(0)?,row.get(1)?)),
+    ).optional()?;
+    if let Some((id, previous)) = existing {
+        if previous != payload {
             return Err(CoreError::new(
-                "ContextProjectMismatch",
-                "This prepared request belongs to another project or an independent recovered copy.",
+                "OperationIdReusedWithDifferentPayload",
+                "This preparation was already used for another request.",
             ));
         }
-        let packet = validate_packet_row(self.db()?, &stored)?;
-        story_context::load_snapshot(self.db()?, access, &packet.receipt.snapshot_id)?;
-        Ok(packet)
+        let packet = read_context_packet(host, &request.access, &id)?;
+        let frozen = story_context::load_snapshot(
+            host.db()?,
+            &request.access,
+            &packet.receipt.snapshot_id,
+        )?;
+        return Ok(PreparationResult::Prepared {
+            packet: Box::new(packet),
+            current: frozen.snapshot.context_source_epoch == host.context_source_epoch()?,
+        });
     }
+    let frozen =
+        story_context::load_snapshot(host.db()?, &request.access, &request.snapshot_id)?;
+    if frozen
+        .guidance
+        .iter()
+        .any(|record| record.version.scope == crate::context::guidance::GuidanceScope::Request)
+    {
+        return Err(CoreError::new(
+            "RequestGuidanceRequiresDiscussion",
+            "Request-scoped author guidance is reserved for an explicit discussion and cannot be replayed by generic packet preparation.",
+        ));
+    }
+    if frozen.snapshot.context_source_epoch != host.context_source_epoch()? {
+        return Err(CoreError::new(
+            "ContextChanged",
+            "The story changed. Prepare a fresh snapshot before compiling a new request.",
+        ));
+    }
+    let sources = frozen
+        .snapshot
+        .sources
+        .iter()
+        .map(|source| story_context::read_source(host.db()?, &frozen, &source.handle))
+        .collect::<CoreResult<Vec<_>>>()?;
+    let compile_request = PacketRequest {
+        packet_id: new_id(),
+        session_id: new_id(),
+        invocation_ordinal: "0".into(),
+        frozen,
+        instruction: request.instruction.clone(),
+        sources,
+        mandatory_handles: request.mandatory_handles.clone(),
+        safe_brief: request.safe_brief.clone(),
+        scope: request.scope.clone(),
+        budget: request.budget.clone(),
+        provider_binding: request.provider_binding.clone(),
+        response_contract: request.response_contract.clone(),
+        // Parsed here, where the instruction is authored, and passed down.
+        // The compiler used to parse it out of `instruction` itself, which
+        // made it reach up into this crate for the workshop vocabulary and
+        // its validation cluster. The builder is the only code that can
+        // build a valid workshop instruction, so it owns proving this.
+        workshop_metadata: if request.response_contract.as_deref()
+            == Some(workshop_generation::WORKSHOP_RESPONSE_CONTRACT)
+        {
+            let metadata =
+                workshop_generation::metadata_from_instruction(&request.instruction)?;
+            Some(workshop_generation::metadata_value(&metadata)?)
+        } else {
+            None
+        },
+        lookup: request.lookup.clone(),
+    };
+    let packet = match compile_packet(&compile_request) {
+        Ok(packet) => packet,
+        Err(PacketError::Budget(error)) => {
+            return Ok(PreparationResult::BudgetRejected { error });
+        }
+        Err(error) => return Err(packet_error(error)),
+    };
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    persist_compiled_packet_at(&tx, &request, &packet)?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    // Keep the test-only process-loss barrier aligned with the other
+    // durable author operations.  The barrier runs after COMMIT and
+    // before the caller receives the packet acknowledgment, so recovery
+    // must discover the exact operation by retrying its immutable request.
+    #[cfg(test)]
+    super::hold_context_after_commit_before_ack(&request.operation_id);
+    Ok(PreparationResult::Prepared {
+        packet: Box::new(packet),
+        current: true,
+    })
+}
+
+pub fn read_context_packet(host: &impl StoryHost, access: &ProjectAccess, id: &str) -> CoreResult<CompiledPacket> {
+    host.check_access(access)?;
+    let stored = read_packet_row(host.db()?, id)?;
+    if stored.project_id != access.project_id || stored.namespace != access.operation_namespace
+    {
+        return Err(CoreError::new(
+            "ContextProjectMismatch",
+            "This prepared request belongs to another project or an independent recovered copy.",
+        ));
+    }
+    let packet = validate_packet_row(host.db()?, &stored)?;
+    story_context::load_snapshot(host.db()?, access, &packet.receipt.snapshot_id)?;
+    Ok(packet)
 }
 
 /// Internal request owners compose this insert with their job acceptance.
@@ -470,4 +471,24 @@ pub(crate) fn validate_context_packets(db: &Connection) -> CoreResult<()> {
         validate_packet_row(db, &read_packet_row(db, &id)?)?;
     }
     Ok(())
+}
+
+// The actor implements the host. One impl for the whole story-context cluster,
+// declared beside the first module to convert.
+impl wns_story::host::StoryHost for OwnedProject {
+    fn check_access(&self, access: &ProjectAccess) -> CoreResult<()> {
+        OwnedProject::check_access(self, access)
+    }
+    fn db(&self) -> CoreResult<&Connection> {
+        OwnedProject::db(self)
+    }
+    fn db_mut(&mut self) -> CoreResult<&mut Connection> {
+        OwnedProject::db_mut(self)
+    }
+    fn fence_uncertain<T>(&mut self, result: &CoreResult<T>) {
+        OwnedProject::fence_uncertain(self, result)
+    }
+    fn context_source_epoch(&self) -> CoreResult<String> {
+        OwnedProject::context_source_epoch(self)
+    }
 }

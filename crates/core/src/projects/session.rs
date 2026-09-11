@@ -202,7 +202,9 @@ impl ProjectSession {
                         match command {
                             Command::Memory(command) => project.handle_memory(*command),
                             Command::ProjectChat(command) => project.handle_project_chat(*command),
-                            Command::Packet(command) => project.handle_packet(*command),
+                            Command::Packet(command) => {
+                                crate::projects::context_packets::handle_packet(&mut project, *command)
+                            }
                             Command::Context(command) => project.handle_context(*command),
                             Command::Discussion(command) => project.handle_discussion(*command),
                             Command::Guidance(command) => project.handle_guidance(*command),
