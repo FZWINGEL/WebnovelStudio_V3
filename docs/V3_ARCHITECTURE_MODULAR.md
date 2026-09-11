@@ -695,6 +695,25 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    The lesson generalises past this file — **grepping for upward references finds the ones that
    cross a crate boundary and misses the ones that cross a module boundary inside the same
    crate**, which is exactly the shape of a rename in progress.
+
+   **The whole move was then attempted in one change, and it reached one error.** All 18 context
+   modules (9,166 lines) moved, `frozen.rs` was carved out of `story_context.rs` with
+   `search_saved_passages` and its `literal_spans` helper, `ReviewPrefixItem` and
+   `reviewed_summary` came down, `ProjectAccess` went to the kernel, and the crate compiled down
+   to a single unresolved import. That import is the one thing left:
+
+   **`packet.rs` needs `workshop_generation::{WORKSHOP_RESPONSE_CONTRACT,
+   metadata_from_instruction, metadata_value}`.** The two functions round-trip a
+   `WorkshopPacketMetadata`, which pulls `WorkshopExploration`, `WorkshopLiteral`, `Lens` and
+   `WorkshopDepth` from two different files — **and `WorkshopPacketMetadata` has an inherent
+   `impl` block**, which by Rust's rules cannot live in a different crate from its type. So the
+   cluster has to travel with its behaviour, not just its fields.
+
+   The attempt was reverted after that, cleanly, because finishing it means deciding whether the
+   workshop packet-metadata vocabulary belongs at L2 with the compiler or whether the compiler
+   should *receive* the parsed metadata instead of parsing it itself — and the second is the
+   better answer, since it is the same "receive materialised inputs" principle §3.4 already
+   names. That decision is the remaining design question of step 6, not a mechanical step.
 2. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)**, then `wns-transfer` and
    `wns-library` (step 8), then `wns-app` (step 9). `wns-library` was blocked on step 5 and no
    longer is — `library.rs` now reaches `ProjectSession::documents()` and `project()` instead
