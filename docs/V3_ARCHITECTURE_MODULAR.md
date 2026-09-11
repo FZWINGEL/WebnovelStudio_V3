@@ -1110,9 +1110,34 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    Moving both would have put guidance in a crate whose stated concern is the conversation that
    *authors* it, which is a worse boundary than the one this produced.
 
-   With guidance resolved, the remaining `story_context` group is `story_context` +
-   `conversation_context` + `memory` + `project_chat_context`, measured at 6,363 lines — still
-   entangled with each other, and still the "session's work" this document predicted.
+   **And the same trick applies twice more, which shrinks the group a lot.** The 6,363-line
+   figure above counted the modules, not the edges. Measured, `story_context`'s remaining
+   dependencies on that group are two calls into `conversation_context` and **one** call into
+   `memory`:
+
+   | Edge | What crosses | Mirrors |
+   |---|---|---|
+   | `story_context` → `conversation_context` | `select_conversation_at`, `validate_conversation_at` | exactly the `guidance` shape — a frozen-selection half |
+   | `story_context` → `memory` | `validate_navigation_view_record` | a single function |
+
+   Both are the *caller's* half of a mutual dependency, so both discharge the same way guidance
+   did: move them down to the seam, not the modules. `select_conversation_at` and
+   `validate_conversation_at` are the frozen half of the conversation the same way
+   `select_guidance_at` is the frozen half of guidance, and `validate_navigation_view_record`
+   belongs with navigation in `wns-context` regardless.
+
+   That leaves `project_chat_context`, whose dependency on `story_context` needs nothing at all:
+   `FrozenContext`, `FreezeStory` and `freeze_project_chat_at` are L5 calling L4, which is legal
+   the moment `story_context` is at L4.
+
+   So `story_context` is three small moves away from being movable on its own — and it is the
+   largest single unblock left, since `guidance`, `evidence_queries`, `context_packets`,
+   `discussion_lookup`, `memory` and `workshop` all wait behind it. The estimate that mattered
+   was never the line count of the group; it was the number of edges crossing out of it, and
+   that number is three.
+
+   `memory` remains the harder half: it reaches `context_packets` and `discussions`, which are
+   conversation-side and do not shrink this way.
 
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
