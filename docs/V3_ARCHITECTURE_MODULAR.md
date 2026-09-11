@@ -920,6 +920,23 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    lesson of step 7 — **the shared vocabulary moves before the modules do**, or each module move
    re-discovers the same blocked helper.
 
+   **And order between the modules themselves matters too.** The next candidate,
+   `evidence_queries.rs` (516 lines, seven command arms), was attempted and reverted: its actor
+   side calls `reviewed_story::current_records_for_sources`, takes a `ReviewedRecordSet`, and
+   calls `story_context::load_snapshot`. All three are still in `webnovel-core`, and none is a
+   helper — they are domain modules that have to move first.
+
+   So `source_pins` succeeded because it was self-contained: every helper it used lived in its
+   own file. That is the selection criterion for the next module, and it is checkable before
+   starting — **does the module's actor side call into other modules under `projects/`?** If it
+   does, those modules are its predecessors in the ordering, and extracting it first fails at
+   the end rather than the beginning.
+
+   The comfortable reading of this step is that it is twenty-one identical moves. It is not. It
+   is a partial order: a module can move when everything its actor side reaches is already below
+   it, and the only way to find that order is to try, because the dependency is visible in the
+   bodies rather than in the imports.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
