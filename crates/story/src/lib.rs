@@ -36,7 +36,10 @@ pub mod source_pins;
 /// The third module to move in step 7 and the first that other modules call
 /// *into* — `evidence_queries`, `exports`, `story_context` and `transfer` all
 /// reach for its functions, which is why it precedes them in the step-7 order.
+pub mod context_packets;
 pub mod host;
+pub mod memory;
+pub mod story_context;
 pub mod reviewed_story;
 pub mod workshop_metadata;
 pub mod workshop_vocabulary;

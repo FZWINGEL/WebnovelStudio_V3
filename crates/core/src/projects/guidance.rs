@@ -16,9 +16,6 @@ use crate::context::guidance::{
 };
 // Re-exported rather than privately imported: `story_context` pins guidance into
 // every snapshot it freezes and calls these three by path.
-pub(crate) use crate::context::guidance::{
-    pin_guidance_at, select_guidance_at, validate_guidance_at,
-};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 

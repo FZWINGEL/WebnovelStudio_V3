@@ -20,6 +20,10 @@ pub trait StoryHost {
     fn db_mut(&mut self) -> CoreResult<&mut Connection>;
     fn fence_uncertain<T>(&mut self, result: &CoreResult<T>);
     fn context_source_epoch(&self) -> CoreResult<String>;
+    /// Crash-injection point for `kill_after_commit_before_ack_recovers_once`,
+    /// declared unconditionally for the same reason `HistoryHost` declares it:
+    /// the real hook compiles only into core's own test binary.
+    fn hold_context_after_commit_before_ack(&self, operation_id: &str);
     /// The actor reads two fields off this (`project_id`, `operation_namespace`)
     /// to validate a runtime owner. Everything else it reaches for is a method.
     fn info(&self) -> &ProjectInfo;

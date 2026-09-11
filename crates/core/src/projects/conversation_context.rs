@@ -16,6 +16,3 @@
 //! Re-exported at the historical path for `story_context` and
 //! `project_chat_context`.
 
-pub(crate) use wns_context::conversation::{
-    select_conversation_at, validate_conversation_at,
-};
