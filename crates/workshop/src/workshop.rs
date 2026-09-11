@@ -9,6 +9,7 @@ pub use wns_story::workshop_metadata::{
     validate_text,
 };
 pub use wns_story::workshop_vocabulary::{
+    WorkshopBranchKind, WorkshopDecisionStatus, WorkshopImpactKind, WorkshopImpactStatus, SelectedDetail, CandidateChoice, WorkshopSession, WorkshopDecision, WorkshopImpact, WorkshopPreset, WorkshopState, WorkshopSnapshotOrigin,
     CandidateChoiceStatus, Lens, PreferencePolarity, PreferenceScope, PreferenceStrength,
     StoryPossibility, StoryPossibilityKind, StoryPossibilityStatus, UnknownTo, WorkshopDepth,
     WorkshopPreference, WorkshopQuestion, WorkshopQuestionStatus, WorkshopRelationship,
@@ -53,12 +54,6 @@ fn storage_valid_id(value: &str) -> bool {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkshopBranchKind {
-    Working,
-    WhatIf,
-}
 
 
 
@@ -67,106 +62,18 @@ pub enum WorkshopBranchKind {
 
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkshopDecisionStatus {
-    Chosen,
-    Archived,
-    Superseded,
-}
-
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkshopImpactKind {
-    Contradiction,
-    PossibleTension,
-    DependentAssumption,
-    StyleSuggestion,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkshopImpactStatus {
-    NeedsReview,
-    Acknowledged,
-    Intentional,
-}
-
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SelectedDetail {
-    pub id: String,
-    pub candidate_id: Option<String>,
-    pub text: String,
-    pub fixed: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CandidateChoice {
-    pub candidate_id: String,
-    pub status: CandidateChoiceStatus,
-    pub rationale: String,
-    pub include_in_context: bool,
-}
 
 
 
 
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopSession {
-    pub id: String,
-    pub title: String,
-    pub lens: Lens,
-    pub parent_session_id: Option<String>,
-    pub branch_kind: WorkshopBranchKind,
-    pub brief: String,
-    pub direction: String,
-    pub still_open: String,
-    pub focus_question: String,
-    pub focus_reason: String,
-    pub focus_document_id: Option<String>,
-    pub anchor_document_id: Option<String>,
-    pub depth: WorkshopDepth,
-    pub outside_direction: bool,
-    pub included_document_ids: Vec<String>,
-    pub working_text: String,
-    pub working_title: String,
-    pub working_generation: String,
-    pub selected_details: Vec<SelectedDetail>,
-    pub choices: Vec<CandidateChoice>,
-    pub questions: Vec<WorkshopQuestion>,
-    pub composer: String,
-    pub selected_scope: String,
-    pub original_notes: String,
-    pub active_run_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relationship_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub story_possibilities: Vec<StoryPossibility>,
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopDecision {
-    pub id: String,
-    pub session_id: String,
-    pub title: String,
-    pub document_id: String,
-    pub revision_id: String,
-    pub head: Head,
-    pub candidate_ids: Vec<String>,
-    pub rationale: String,
-    pub status: WorkshopDecisionStatus,
-    pub fixed: bool,
-    pub protected_text: Vec<String>,
-    pub access: String,
-    pub supersedes_id: Option<String>,
-}
+
+
+
+
+
+
 
 
 /// A relationship proposed as part of an atomic adoption.  This remains a
@@ -186,20 +93,6 @@ pub struct WorkshopRelationshipDraft {
     pub to_expected: Option<Head>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopImpact {
-    pub id: String,
-    pub decision_id: String,
-    pub document_id: String,
-    pub kind: WorkshopImpactKind,
-    pub reason: String,
-    pub status: WorkshopImpactStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relationship_id: Option<String>,
-}
 
 /// An author classification supplied with an adoption preview.  It is tied
 /// to a candidate affected target and becomes an immutable impact provenance
@@ -222,41 +115,8 @@ pub struct WorkshopAdoptionImpact {
     pub status: WorkshopImpactStatus,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopPreset {
-    pub id: String,
-    pub name: String,
-    pub preferences: Vec<WorkshopPreference>,
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkshopState {
-    pub schema_version: u32,
-    pub current_session_id: Option<String>,
-    pub sessions: Vec<WorkshopSession>,
-    pub preferences: Vec<WorkshopPreference>,
-    pub decisions: Vec<WorkshopDecision>,
-    pub relationships: Vec<WorkshopRelationship>,
-    pub impacts: Vec<WorkshopImpact>,
-    pub presets: Vec<WorkshopPreset>,
-}
 
-impl Default for WorkshopState {
-    fn default() -> Self {
-        Self {
-            schema_version: 1,
-            current_session_id: None,
-            sessions: Vec::new(),
-            preferences: Vec::new(),
-            decisions: Vec::new(),
-            relationships: Vec::new(),
-            impacts: Vec::new(),
-            presets: Vec::new(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -455,13 +315,6 @@ fn read_state(connection: &Connection) -> CoreResult<(i64, WorkshopState)> {
     }
 }
 
-pub struct WorkshopSnapshotOrigin<'a> {
-    pub project_id: &'a str,
-    pub namespace: &'a str,
-    pub operation: &'a str,
-    pub version: i64,
-    pub payload_hash: &'a str,
-}
 
 /// Validate the authority for one immutable Workshop snapshot.
 ///
