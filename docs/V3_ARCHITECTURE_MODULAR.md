@@ -680,6 +680,21 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    
    That is why this step is not a file move. The packet-compiler inversion resolves all three at
    once, and is the right unit of work.
+
+   **Measured, then confirmed by attempting it.** An attempt to move the vocabulary down one
+   module at a time was abandoned, and the failure is the finding. `contracts.rs` looks like the
+   perfect first move — 341 lines, 22 types, and a grep for `crate::projects` returns zero. But
+   it references `crate::context::{lookup, navigation, reviewed_evidence, reviewed_knowledge,
+   reviewed_promises, reviewed_summaries}` — six *sibling* paths, which a `crate::projects` grep
+   cannot see. In turn `lookup` and `navigation` import `crate::projects::story_context`, the
+   very module the move was meant to empty. The closure is the whole of `context/`, including
+   `packet.rs`.
+
+   So step 6 is genuinely atomic: `contracts` → six siblings → `story_context` → back to
+   `projects`. There is no first module that can move alone, and the attempt cost one revert.
+   The lesson generalises past this file — **grepping for upward references finds the ones that
+   cross a crate boundary and misses the ones that cross a module boundary inside the same
+   crate**, which is exactly the shape of a rename in progress.
 2. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)**, then `wns-transfer` and
    `wns-library` (step 8), then `wns-app` (step 9). `wns-library` was blocked on step 5 and no
    longer is — `library.rs` now reaches `ProjectSession::documents()` and `project()` instead
