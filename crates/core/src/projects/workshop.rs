@@ -24,7 +24,7 @@ impl wns_workshop::host::WorkshopHost for OwnedProject {
         OwnedProject::fence_uncertain(self, result)
     }
     fn start_discussion(&mut self, request: StartDiscussion) -> CoreResult<DiscussionStart> {
-        OwnedProject::start_discussion(self, request)
+        crate::projects::discussions::start_discussion(self, request)
     }
     fn read_start(&self, run_id: &str) -> CoreResult<DiscussionStart> {
         crate::projects::discussions::read_start(self.db()?, run_id)

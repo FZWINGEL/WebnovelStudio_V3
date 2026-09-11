@@ -333,7 +333,7 @@ impl OwnedProject {
             retired_sessions: HashSet::new(),
             needs_reopen: false,
         };
-        project.recover_interrupted_discussions()?;
+        crate::projects::discussions::recover_interrupted_discussions(&mut project)?;
         crate::projects::memory::recover_interrupted_memory(&mut project)?;
         Ok(project)
     }

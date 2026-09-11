@@ -32,93 +32,93 @@ impl ProjectSession {
     }
 }
 
-impl OwnedProject {
-    pub(super) fn claim_app_server_dispatch(
-        &mut self,
-        owner: RunOwner,
-        dispatch: AppServerDispatch,
-    ) -> CoreResult<()> {
-        validate_runtime_owner(&self.info, &owner)?;
-        dispatch.validate()?;
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let run = read_run(&tx, &owner.run_id)?;
-        validate_owner(&run, &owner)?;
-        reject_legacy_lookup_path(&run)?;
-        if run.status != DiscussionRunStatus::Running || run.dispatch_state != "claimed" {
-            return Err(CoreError::new(
-                "RunNotStarted",
-                "This discussion no longer permits external dispatch.",
-            ));
-        }
-        let packet = context_packets::validated_packet_record(&tx, &run.packet_id)?;
-        let current_basis: bool = tx.query_row(
-            "SELECT ss.context_source_epoch=p.context_source_epoch AND ss.disclosure_policy_epoch=p.disclosure_policy_epoch FROM context_packets cp JOIN story_snapshots ss ON ss.id=cp.snapshot_id JOIN project p ON p.singleton=1 WHERE cp.id=?",
-            [&run.packet_id], |row| row.get(0),
-        )?;
-        if !current_basis {
-            return Err(CoreError::new(
-                "ContextChanged",
-                "The story or its permissions changed before app-server submission. No turn was sent.",
-            ));
-        }
-        if !packet
-            .options
-            .provider_binding
-            .as_ref()
-            .is_some_and(is_app_server)
-            || !dispatch_matches_packet(&dispatch, &packet)?
-        {
-            return Err(CoreError::new(
-                "ProviderBindingMismatch",
-                "The app-server dispatch does not match the frozen packet.",
-            ));
-        }
-        let inserted = tx.execute(
-            "INSERT INTO codex_app_server_dispatches(job_kind,job_id,packet_id,dispatch_json) VALUES('discussion',?,?,?) ON CONFLICT(job_kind,job_id) DO NOTHING",
-            params![run.id, run.packet_id, serde_json::to_string(&dispatch)?],
-        )?;
-        if inserted != 1 {
-            return Err(CoreError::new(
-                "DispatchAlreadyClaimed",
-                "This request already claimed external submission. It will not be sent again.",
-            ));
-        }
-        tx.commit().map_err(CoreError::uncertain)
-    }
+// Actor-side logic, as free functions over `StoryHost`.
 
-    pub(super) fn acknowledge_app_server_turn(
-        &mut self,
-        owner: RunOwner,
-        dispatch: AppServerDispatch,
-        turn_id: String,
-    ) -> CoreResult<()> {
-        validate_runtime_owner(&self.info, &owner)?;
-        dispatch.validate()?;
-        if !valid_identifier(&turn_id) {
-            return Err(CoreError::new(
-                "InvalidRequest",
-                "The app-server turn identity is invalid.",
-            ));
-        }
-        let tx = self
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let run = read_run(&tx, &owner.run_id)?;
-        validate_owner(&run, &owner)?;
-        let saved = stored_dispatch(&tx, &run.id)?;
-        if saved.as_ref().is_none_or(|(identity, saved_turn)| {
-            identity != &dispatch || saved_turn.as_ref().is_some_and(|value| value != &turn_id)
-        }) {
-            return Err(CoreError::new(
-                "ProviderBindingMismatch",
-                "The acknowledged turn does not match this request's dispatch.",
-            ));
-        }
-        tx.execute("UPDATE codex_app_server_dispatches SET turn_id=? WHERE job_kind='discussion' AND job_id=? AND turn_id IS NULL", params![turn_id, run.id])?;
-        tx.commit().map_err(CoreError::uncertain)
+pub fn claim_app_server_dispatch(
+    host: &mut impl StoryHost,
+    owner: RunOwner,
+    dispatch: AppServerDispatch,
+) -> CoreResult<()> {
+    validate_runtime_owner(&host.info(), &owner)?;
+    dispatch.validate()?;
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let run = read_run(&tx, &owner.run_id)?;
+    validate_owner(&run, &owner)?;
+    reject_legacy_lookup_path(&run)?;
+    if run.status != DiscussionRunStatus::Running || run.dispatch_state != "claimed" {
+        return Err(CoreError::new(
+            "RunNotStarted",
+            "This discussion no longer permits external dispatch.",
+        ));
     }
+    let packet = context_packets::validated_packet_record(&tx, &run.packet_id)?;
+    let current_basis: bool = tx.query_row(
+        "SELECT ss.context_source_epoch=p.context_source_epoch AND ss.disclosure_policy_epoch=p.disclosure_policy_epoch FROM context_packets cp JOIN story_snapshots ss ON ss.id=cp.snapshot_id JOIN project p ON p.singleton=1 WHERE cp.id=?",
+        [&run.packet_id], |row| row.get(0),
+    )?;
+    if !current_basis {
+        return Err(CoreError::new(
+            "ContextChanged",
+            "The story or its permissions changed before app-server submission. No turn was sent.",
+        ));
+    }
+    if !packet
+        .options
+        .provider_binding
+        .as_ref()
+        .is_some_and(is_app_server)
+        || !dispatch_matches_packet(&dispatch, &packet)?
+    {
+        return Err(CoreError::new(
+            "ProviderBindingMismatch",
+            "The app-server dispatch does not match the frozen packet.",
+        ));
+    }
+    let inserted = tx.execute(
+        "INSERT INTO codex_app_server_dispatches(job_kind,job_id,packet_id,dispatch_json) VALUES('discussion',?,?,?) ON CONFLICT(job_kind,job_id) DO NOTHING",
+        params![run.id, run.packet_id, serde_json::to_string(&dispatch)?],
+    )?;
+    if inserted != 1 {
+        return Err(CoreError::new(
+            "DispatchAlreadyClaimed",
+            "This request already claimed external submission. It will not be sent again.",
+        ));
+    }
+    tx.commit().map_err(CoreError::uncertain)
+}
+
+pub fn acknowledge_app_server_turn(
+    host: &mut impl StoryHost,
+    owner: RunOwner,
+    dispatch: AppServerDispatch,
+    turn_id: String,
+) -> CoreResult<()> {
+    validate_runtime_owner(&host.info(), &owner)?;
+    dispatch.validate()?;
+    if !valid_identifier(&turn_id) {
+        return Err(CoreError::new(
+            "InvalidRequest",
+            "The app-server turn identity is invalid.",
+        ));
+    }
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let run = read_run(&tx, &owner.run_id)?;
+    validate_owner(&run, &owner)?;
+    let saved = stored_dispatch(&tx, &run.id)?;
+    if saved.as_ref().is_none_or(|(identity, saved_turn)| {
+        identity != &dispatch || saved_turn.as_ref().is_some_and(|value| value != &turn_id)
+    }) {
+        return Err(CoreError::new(
+            "ProviderBindingMismatch",
+            "The acknowledged turn does not match this request's dispatch.",
+        ));
+    }
+    tx.execute("UPDATE codex_app_server_dispatches SET turn_id=? WHERE job_kind='discussion' AND job_id=? AND turn_id IS NULL", params![turn_id, run.id])?;
+    tx.commit().map_err(CoreError::uncertain)
 }
 
 fn stored_dispatch(

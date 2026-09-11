@@ -285,8 +285,11 @@ impl OwnedProject {
 
         for record in &expected.items {
             let outcome = match record.kind {
-                BackgroundWorkKind::Discussion => self
-                    .stop_discussion(access.clone(), record.id.clone())
+                BackgroundWorkKind::Discussion => discussions::stop_discussion(
+                    self,
+                    access.clone(),
+                    record.id.clone(),
+                )
                     .map(|stop| BackgroundWorkStatus::from(stop.run.status)),
                 BackgroundWorkKind::Memory => memory::stop_memory(
                     self,
@@ -326,8 +329,11 @@ impl OwnedProject {
 
         for record in &expected.items {
             let outcome = match record.kind {
-                BackgroundWorkKind::Discussion => self
-                    .interrupt_discussion(access.clone(), record.id.clone())
+                BackgroundWorkKind::Discussion => discussions::interrupt_discussion(
+                    self,
+                    access.clone(),
+                    record.id.clone(),
+                )
                     .map(|run| BackgroundWorkStatus::from(run.status)),
                 BackgroundWorkKind::Memory => memory::interrupt_memory_claim(
                     self,
