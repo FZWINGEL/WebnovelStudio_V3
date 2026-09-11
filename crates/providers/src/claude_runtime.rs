@@ -7,7 +7,7 @@ use super::claude_runner::ClaudeStream;
 use super::cli::windows_process::{
     self, ChildLimits, ChildOutcome, ChildTermination, CliInvocation, EnvironmentPolicy, StopSignal,
 };
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{

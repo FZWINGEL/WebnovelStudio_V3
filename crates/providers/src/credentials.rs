@@ -4,7 +4,7 @@
 //! The persistent reference is an opaque, app-owned UUID target; the target
 //! is safe to keep in app settings while the secret remains in the OS store.
 
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use std::fmt;
 use uuid::Uuid;
 

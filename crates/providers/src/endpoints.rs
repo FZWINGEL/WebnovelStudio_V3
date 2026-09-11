@@ -6,7 +6,7 @@
 
 use super::credentials::CredentialTarget;
 use super::openai_compatible::normalize_base_url;
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -72,7 +72,7 @@ impl EndpointProfileDraft {
         }
     }
 
-    pub(crate) fn validate(&self) -> CoreResult<String> {
+    pub fn validate(&self) -> CoreResult<String> {
         if let Some(id) = &self.id {
             validate_profile_id(id)?;
         }
@@ -85,7 +85,7 @@ impl EndpointProfileDraft {
 }
 
 impl EndpointProfile {
-    pub(crate) fn new(id: String, draft: &EndpointProfileDraft) -> CoreResult<Self> {
+    pub fn new(id: String, draft: &EndpointProfileDraft) -> CoreResult<Self> {
         let normalized = draft.validate()?;
         let profile = Self {
             id,
@@ -102,7 +102,7 @@ impl EndpointProfile {
         Ok(profile)
     }
 
-    pub(crate) fn validate(&self) -> CoreResult<()> {
+    pub fn validate(&self) -> CoreResult<()> {
         validate_profile_id(&self.id)?;
         validate_label(&self.label)?;
         let normalized = normalize_url(&self.base_url)?;
@@ -131,7 +131,7 @@ impl EndpointProfile {
             .chain(self.cached_model_ids.iter())
     }
 
-    pub(crate) fn config_equals(&self, draft: &EndpointProfileDraft, normalized: &str) -> bool {
+    pub fn config_equals(&self, draft: &EndpointProfileDraft, normalized: &str) -> bool {
         self.label == draft.label
             && self.base_url == normalized
             && self.enabled == draft.enabled
@@ -203,11 +203,11 @@ impl EndpointProfilesSettings {
     }
 }
 
-pub(crate) fn validate_discovered_model_ids(model_ids: &[String]) -> CoreResult<()> {
+pub fn validate_discovered_model_ids(model_ids: &[String]) -> CoreResult<()> {
     validate_model_ids(model_ids)
 }
 
-pub(crate) fn parse_revision(value: &str) -> CoreResult<i64> {
+pub fn parse_revision(value: &str) -> CoreResult<i64> {
     if value.is_empty()
         || !value.bytes().all(|byte| byte.is_ascii_digit())
         || (value.len() > 1 && value.starts_with('0'))

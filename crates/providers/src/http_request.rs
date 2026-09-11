@@ -4,9 +4,9 @@
 //! worker and the core settlement path can agree on the exact HTTP bytes that
 //! belong to an immutable packet without calling those bytes Codex stdin.
 
-use crate::context::packet::{HttpResponseFormat, PacketMessage, PacketOptions};
-use crate::projects::{CoreError, CoreResult};
-use crate::sha256_hex;
+use crate::vocabulary::{HttpResponseFormat, PacketMessage, PacketOptions};
+use wns_kernel::{CoreError, CoreResult};
+use wns_kernel::sha256_hex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -96,7 +96,7 @@ pub fn prepare_request(
             &format!("The HTTP request body could not be encoded: {error}"),
         )
     })?;
-    if body.len() > crate::context::packet::HTTP_INPUT_LIMIT_BYTES {
+    if body.len() > crate::vocabulary::HTTP_INPUT_LIMIT_BYTES {
         return Err(CoreError::new(
             "InputTooLarge",
             "The OpenAI-compatible request body exceeds the application limit.",

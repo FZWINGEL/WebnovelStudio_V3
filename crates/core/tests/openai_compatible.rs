@@ -570,7 +570,8 @@ fn packet_stream_sends_the_compiled_body_and_reports_http_stages() {
     let mut events = Vec::new();
     let mut stages = Vec::new();
     let response = run(adapter.stream_packet_async(
-        &packet,
+        &packet.messages,
+        &packet.options,
         &CancellationToken::new(),
         &mut |event| events.push(event),
         &mut |stage| stages.push(stage),
@@ -613,7 +614,8 @@ fn packet_stream_rejects_an_endpoint_binding_mismatch_before_network_io() {
     let adapter = adapter(&server, None);
     let mut stages = Vec::new();
     let error = run(adapter.stream_packet_async(
-        &packet,
+        &packet.messages,
+        &packet.options,
         &CancellationToken::new(),
         &mut |_| {},
         &mut |stage| stages.push(stage),

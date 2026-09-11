@@ -7,7 +7,7 @@
 
 use super::catalog::ServiceTier;
 use super::preferences::ModelSelection;
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashSet;

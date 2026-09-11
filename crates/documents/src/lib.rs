@@ -1,29 +1,24 @@
-//! L1 — the document model and the editor contract.
+//! L1 — canonical document and proposal-scope contracts.
 //!
-//! **Skeleton.** Nothing has been ported yet; this crate declares the boundary
-//! and the dependency edge so the layering rule is checked from the first commit.
+//! W1's scope validator lives here so it can be used by the durable core without
+//! importing Tauri, ProseMirror, or a provider runtime. The W0 snapshot validator
+//! it builds on lives one layer down, in `wns-kernel`.
 //!
-//! # Why this boundary
-//!
-//! Document semantics and schema evolution change for unrelated reasons. Today
-//! both live in `webnovel-core`, so a migration added for chat recompiles the
-//! document model and vice versa.
-//!
-//! # What lands here
-//!
-//! From `crates/core/src/`:
-//! * `documents/mod.rs` — document records and roles
-//! * `documents/scope.rs` (~1,614 lines) — structural scope validation
-//! * `documents/structured.rs` (~376 lines) — typed rich blocks
-//!
-//! # What deliberately does NOT land here
-//!
-//! The W0 snapshot validator lives in `wns-kernel`. It is a pure function from a
-//! JSON string to a canonical receipt — it never touches a document record, a
-//! connection or a project — so it belongs with the canonicalization primitives
-//! rather than with the model that consumes them.
-//!
-//! # Dependency rule
-//!
-//! L1. May depend on `wns-kernel` only. No sibling edge to `wns-storage` or
-//! `wns-providers`.
+//! Extracted from `webnovel-core`, where document semantics and database schema
+//! evolution changed for unrelated reasons in the same crate. This crate depends
+//! on `wns-kernel` only.
+
+pub mod scope;
+pub mod structured;
+
+pub use scope::{
+    Endpoint, ScopeGrant, ScopeKind, ScopeReceipt, ScopeValidationError, ScopeValidationRequest,
+    StructuralToken, capture_append_scope, capture_scope, structural_token_iter, structural_tokens,
+    validate_append, validate_scope, validate_scope_json, validate_text_replacement,
+};
+pub use structured::{
+    MAX_STRUCTURED_BLOCKS, MAX_STRUCTURED_EXPLANATION_BYTES, MAX_STRUCTURED_UTF16_UNITS,
+    STRUCTURED_PROPOSAL_RESPONSE_CONTRACT, TypedReplacementBlock, TypedReplacementHeadingAttrs,
+    TypedReplacementInline, TypedReplacementLinkAttrs, TypedReplacementMark,
+    typed_replacement_snapshot, validate_structured_replacement, validate_typed_replacement_blocks,
+};

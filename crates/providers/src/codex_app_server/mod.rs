@@ -1,7 +1,7 @@
 //! Versioned contracts for the application-owned Codex app-server transport.
 //! A retained process is not retained story context or permission to replay work.
 
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 
 pub const AUTHOR_PROFILE: &str = "codex-app-server.author.v1";
@@ -26,7 +26,7 @@ impl AppServerRuntimeIdentity {
     }
 }
 
-pub fn is_app_server(binding: &crate::context::packet::ProviderBinding) -> bool {
+pub fn is_app_server(binding: &crate::vocabulary::ProviderBinding) -> bool {
     binding.provider_id == "codex"
         && matches!(
             binding.profile_version.as_str(),
@@ -65,7 +65,7 @@ impl AppServerDispatch {
 /// tools, files, instructions, and history cannot enter this envelope.
 pub fn turn_request(
     dispatch: &AppServerDispatch,
-    binding: &crate::context::packet::ProviderBinding,
+    binding: &crate::vocabulary::ProviderBinding,
     packet: &str,
 ) -> serde_json::Value {
     serde_json::json!({
@@ -85,17 +85,17 @@ pub fn prepare_dispatch(
     server_generation: String,
     thread_id: String,
     rpc_id: String,
-    binding: &crate::context::packet::ProviderBinding,
+    binding: &crate::vocabulary::ProviderBinding,
     packet: &str,
 ) -> CoreResult<AppServerDispatch> {
     let mut dispatch = AppServerDispatch {
         server_generation,
         thread_id,
         rpc_id,
-        packet_hash: crate::sha256_hex(packet.as_bytes()),
+        packet_hash: wns_kernel::sha256_hex(packet.as_bytes()),
         request_hash: String::new(),
     };
-    dispatch.request_hash = crate::sha256_hex(&serde_json::to_vec(&turn_request(
+    dispatch.request_hash = wns_kernel::sha256_hex(&serde_json::to_vec(&turn_request(
         &dispatch, binding, packet,
     ))?);
     dispatch.validate()?;
@@ -191,7 +191,7 @@ impl AppServerDelivery {
     }
 }
 
-pub(crate) fn valid_identifier(value: &str) -> bool {
+pub fn valid_identifier(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
 }
 

@@ -11,7 +11,7 @@ use super::cli::windows_process::{
     InteractiveAction, StopSignal, spawn_interactive,
 };
 use super::codex_catalog::{CodexCatalog, CodexCatalogModel, parse_model_page};
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::ffi::OsString;

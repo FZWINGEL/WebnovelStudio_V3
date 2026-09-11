@@ -11,7 +11,7 @@ use super::adapter::{
 };
 use super::credentials::SecretValue;
 use super::http_request::prepare_request;
-use crate::context::packet::{CompiledPacket, HttpResponseFormat};
+use crate::vocabulary::{HttpResponseFormat, PacketMessage, PacketOptions};
 use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{Client, RequestBuilder, Response};
@@ -489,15 +489,21 @@ impl OpenAiCompatibleAdapter {
     /// produced by the core HTTP request compiler.  This path is intentionally
     /// separate from `ChatRequest`: reserializing a packet at dispatch time
     /// would make its durable body hash unverifiable.
+    /// Takes the provider-facing half of a compiled packet rather than the
+    /// packet itself. `CompiledPacket` carries a `PacketReceipt`, which is the
+    /// compiler's own product and belongs at L2 — reaching up for it is what
+    /// made this crate depend on the packet compiler. The caller already holds
+    /// the packet, so it passes the two fields this adapter actually reads.
     pub async fn stream_packet_async(
         &self,
-        packet: &CompiledPacket,
+        messages: &[PacketMessage],
+        options: &PacketOptions,
         cancel: &CancellationToken,
         on_event: &mut (dyn FnMut(StreamEvent) + Send),
         on_stage: &mut (dyn FnMut(HttpRequestStage) + Send),
     ) -> Result<ChatResponse, ProviderError> {
         Self::check_cancel(cancel)?;
-        let binding = packet.options.provider_binding.as_ref().ok_or_else(|| {
+        let binding = options.provider_binding.as_ref().ok_or_else(|| {
             ProviderError::new(
                 ProviderErrorKind::Configuration,
                 "immutable packet has no OpenAI-compatible provider binding",
@@ -527,7 +533,7 @@ impl OpenAiCompatibleAdapter {
                 "immutable packet endpoint does not match the configured adapter",
             ));
         }
-        let prepared = prepare_request(&packet.messages, &packet.options).map_err(|error| {
+        let prepared = prepare_request(messages, options).map_err(|error| {
             ProviderError::new(
                 ProviderErrorKind::Configuration,
                 format!("immutable HTTP packet is invalid: {}", error.detail),

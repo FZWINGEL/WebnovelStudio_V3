@@ -7,8 +7,8 @@
 //! boundary.  Refresh tokens, id tokens, API keys, and all other fields are
 //! deliberately ignored or refused.
 
-use crate::projects::{CoreError, CoreResult};
-use crate::providers::credentials::{MAX_CREDENTIAL_BYTES, SecretValue};
+use wns_kernel::{CoreError, CoreResult};
+use crate::credentials::{MAX_CREDENTIAL_BYTES, SecretValue};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};

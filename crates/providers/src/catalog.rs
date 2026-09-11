@@ -10,7 +10,7 @@ use super::claude_profile::{CLAUDE_FABLE_MODEL, CLAUDE_OPUS_MODEL, CLAUDE_SONNET
 use super::codex_catalog::CodexCatalog;
 use super::endpoints::{ENDPOINT_PROVIDER_PREFIX, EndpointProfilesSettings};
 use super::preferences::{ModelKey, ModelSelection, ModelSettings};
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 
 pub const CATALOG_SCHEMA_VERSION: u32 = 1;
@@ -183,7 +183,7 @@ pub fn built_in_catalog() -> CatalogSnapshot {
 /// native readiness is overlaid by the desktop runtime after a connection
 /// check.  The active/favorite selections are preserved as unavailable rows
 /// when a model disappears from the latest discovery.
-pub(crate) fn catalog_with_endpoints_and_codex(
+pub fn catalog_with_endpoints_and_codex(
     endpoints: &EndpointProfilesSettings,
     settings: &ModelSettings,
     codex: Option<&CodexCatalog>,

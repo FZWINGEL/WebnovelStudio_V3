@@ -6,12 +6,12 @@ use super::launch::AppServerLaunch;
 use super::protocol::ThreadStartConfig;
 use super::runtime::{AppServerAuth, AppServerConnection, AppServerHealth, AppServerReservation};
 use super::{AppServerRuntimeIdentity, MAINTENANCE_PROFILE};
-use crate::context::packet::{
+use crate::vocabulary::{
     CODEX_MAINTENANCE_MODEL_ID, CODEX_MAINTENANCE_REASONING, CODEX_SERVICE_TIER, ProviderBinding,
 };
-use crate::projects::{CoreError, CoreResult};
-use crate::providers::codex_runtime::CodexConnection;
-use crate::providers::preferences::ModelSelection;
+use wns_kernel::{CoreError, CoreResult};
+use crate::codex_runtime::CodexConnection;
+use crate::preferences::ModelSelection;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]

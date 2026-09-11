@@ -18,10 +18,14 @@ pub use wns_kernel::{
 };
 
 pub mod context;
-pub mod documents;
+// L1 — extracted to `wns-documents`. Aliased at this path so every existing
+// `crate::documents::*` reference resolves unchanged.
+pub use wns_documents as documents;
 pub mod library;
 pub mod projects;
-pub mod providers;
+// L1 — extracted to `wns-providers`. Aliased at this path so every existing
+// `crate::providers::*` reference resolves unchanged.
+pub use wns_providers as providers;
 // L1 — extracted to `wns-storage`, which now depends only on `wns-kernel`.
 // Aliased at this path so every existing `crate::storage::{configure, migrate,
 // LATEST_SCHEMA_VERSION}` reference resolves unchanged.

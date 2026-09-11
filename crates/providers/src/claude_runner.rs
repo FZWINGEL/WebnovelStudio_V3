@@ -362,7 +362,7 @@ fn append_partial(observed: &mut String, partial: &str, output_limited: &mut boo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::cli::windows_process::{ChildLimits, EnvironmentPolicy};
+    use crate::cli::windows_process::{ChildLimits, EnvironmentPolicy};
     use std::path::PathBuf;
 
     fn invocation(packet: Vec<u8>) -> CliInvocation {
@@ -468,7 +468,7 @@ not-json
         let result = process_error(
             ContainmentError::Cleanup {
                 stage: "fixture",
-                partial: Some(crate::providers::cli::windows_process::ChildOutput {
+                partial: Some(crate::cli::windows_process::ChildOutput {
                     exit_code: None,
                     stdin_bytes_written: 17,
                     stdout: b"ignored raw stdout".to_vec(),

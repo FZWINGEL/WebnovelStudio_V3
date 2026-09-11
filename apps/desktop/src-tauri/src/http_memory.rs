@@ -311,7 +311,8 @@ async fn run_response(
     let mut output_limited = false;
     let response = adapter
         .stream_packet_async(
-            &dispatch.packet,
+            &dispatch.packet.messages,
+            &dispatch.packet.options,
             stop,
             &mut |event| {
                 if let StreamEvent::ContentDelta(chunk) = event {

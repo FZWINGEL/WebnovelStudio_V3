@@ -17,14 +17,14 @@ use super::{
     AppServerConnectionSettlement, AppServerDelivery, AppServerDispatch, AppServerSubmission,
     AppServerTerminal, prepare_dispatch, turn_request,
 };
-use crate::context::packet::ProviderBinding;
-use crate::projects::{CoreError, CoreResult};
-use crate::providers::cli::windows_process::{
+use crate::vocabulary::ProviderBinding;
+use wns_kernel::{CoreError, CoreResult};
+use crate::cli::windows_process::{
     self, ChildStream, CliInvocation, ContainmentError, InteractiveAction, PersistentEvent,
     RunningChild, StopSignal,
 };
-use crate::providers::codex_exec::{CodexFailureCode, CodexUsage};
-use crate::providers::codex_runner::{CodexRunResult, CodexRunStatus};
+use crate::codex_exec::{CodexFailureCode, CodexUsage};
+use crate::codex_runner::{CodexRunResult, CodexRunStatus};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1422,7 +1422,7 @@ impl Driver {
 
     fn finish_process(
         &mut self,
-        result: Result<crate::providers::cli::windows_process::ChildOutcome, ContainmentError>,
+        result: Result<crate::cli::windows_process::ChildOutcome, ContainmentError>,
     ) {
         if self.ready_sent {
             // Initialization already settled; there is no readiness waiter.

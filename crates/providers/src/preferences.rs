@@ -10,7 +10,7 @@ use super::catalog::{
 };
 use super::codex_catalog::CodexCatalog;
 use super::endpoints::EndpointProfilesSettings;
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -128,7 +128,7 @@ impl StoryMemorySettings {
     }
 }
 
-pub(crate) fn validate_story_memory_provider_id(
+pub fn validate_story_memory_provider_id(
     provider_id: &str,
     endpoints: &EndpointProfilesSettings,
 ) -> CoreResult<()> {
@@ -214,7 +214,7 @@ pub fn validate_settings_against_catalog(
 /// Validate a stored selection while allowing an unchanged active Codex
 /// selection whose model or explicit trait disappeared from the latest
 /// discovery.  New choices still use the strict validator above.
-pub(crate) fn validate_settings_preserving_unavailable_active(
+pub fn validate_settings_preserving_unavailable_active(
     settings: &ModelSettings,
     catalog: &super::catalog::CatalogSnapshot,
 ) -> CoreResult<()> {
@@ -297,7 +297,7 @@ pub fn parse_revision(value: &str) -> CoreResult<i64> {
     Ok(revision)
 }
 
-pub(crate) fn provider_state_with_endpoints_and_codex(
+pub fn provider_state_with_endpoints_and_codex(
     settings: ModelSettings,
     endpoints: &EndpointProfilesSettings,
     codex: Option<&CodexCatalog>,

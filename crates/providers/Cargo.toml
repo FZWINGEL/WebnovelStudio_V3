@@ -8,3 +8,25 @@ description = "L1: the provider port and its codex-exec, app-server, claude, htt
 wns-kernel = { path = "../kernel" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
+sha2 = "=0.11.0"
+url = "=2.5.8"
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+futures-util = "=0.3.34"
+reqwest = { version = "=0.13.4", features = ["json", "stream"] }
+tokio = { version = "=1.53.1", features = ["macros", "net", "rt", "time"] }
+unicode-segmentation = "=1.13.3"
+uuid = { version = "=1.26.0", features = ["v4"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }

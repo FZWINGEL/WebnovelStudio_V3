@@ -7,12 +7,11 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{SnapshotReceipt, validate_snapshot_json};
+use wns_kernel::{SnapshotReceipt, sha256_hex, validate_snapshot_json};
 
 /// A UTF-16 endpoint inside one block's inline content.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1283,15 +1282,6 @@ fn structured_hash(tokens: &[StructuralToken]) -> Result<String, String> {
     Ok(sha256_hex(&value))
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut result = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        use std::fmt::Write;
-        write!(&mut result, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    result
-}
 
 #[cfg(test)]
 mod tests {

@@ -4695,7 +4695,9 @@ dependencies = [
  "url",
  "uuid",
  "windows-sys 0.61.2",
+ "wns-documents",
  "wns-kernel",
+ "wns-providers",
  "wns-storage",
  "zip",
 ]
@@ -5236,8 +5238,18 @@ dependencies = [
 name = "wns-providers"
 version = "3.0.0"
 dependencies = [
+ "futures-util",
+ "reqwest",
+ "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
+ "tokio",
+ "unicode-segmentation",
+ "url",
+ "uuid",
+ "windows-sys 0.61.2",
  "wns-kernel",
 ]
 

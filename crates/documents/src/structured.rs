@@ -6,7 +6,7 @@
 //! snapshot against the source-bound scope.
 
 use super::{ScopeKind, ScopeValidationRequest, validate_scope};
-use crate::validate_snapshot_json;
+use wns_kernel::validate_snapshot_json;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
@@ -308,7 +308,7 @@ fn mark_value(mark: &TypedReplacementMark) -> Value {
     }
 }
 
-fn canonical_snapshot(value: &Value) -> Result<crate::SnapshotReceipt, String> {
+fn canonical_snapshot(value: &Value) -> Result<wns_kernel::SnapshotReceipt, String> {
     validate_snapshot_json(
         &serde_json::to_string(value)
             .map_err(|error| format!("snapshot serialization failed: {error}"))?,

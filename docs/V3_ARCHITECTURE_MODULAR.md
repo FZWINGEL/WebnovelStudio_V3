@@ -373,6 +373,38 @@ byte guarantee depends on migrations never being rewritten. `webnovel-core` alia
 as `storage`, so `crate::storage::{configure, migrate, LATEST_SCHEMA_VERSION}` resolves as
 before.
 
+*Step 3 — `wns-documents`.* `documents/` (scope validation, structured blocks) moved to a
+crate depending only on `wns-kernel`. Its own private `sha256_hex` copy was deleted in favour
+of the kernel's, taking the tree from three copies of that function to one.
+
+*Step 4 — `wns-providers`.* The 16,116-line provider surface moved to a crate depending only
+on `wns-kernel`. This step required the inversion §3.2 predicted, and it turned out to be a
+**real cycle rather than a one-way edge**: `context/packet.rs` sourced its profile constants
+from the provider modules (`CODEX_PROFILE_VERSION`, `CLAUDE_INPUT_LIMIT_BYTES`, …) while the
+provider adapters reached *up* into the compiler for `ProviderBinding`. Two changes break it:
+
+- The provider contract vocabulary — the profile constants and limits, `ProviderBinding`,
+  `HttpProviderBinding`, `HttpResponseFormat`, `ProviderRuntimeIdentity`, `PacketMessage`,
+  `PacketOptions`, and the two helpers they need — moved down into
+  `wns-providers::vocabulary`. `context/packet.rs` re-exports every item at its historical
+  path, so all 158 `ProviderBinding` references and every packet's serialized layout are
+  unchanged. The byte-compatibility suite is what proves that.
+- `openai_compatible::stream_packet_async` took `&CompiledPacket`. `CompiledPacket` carries a
+  `PacketReceipt`, which is the compiler's own product and belongs at L2, so reaching up for it
+  is what made providers depend on context. It now takes `&[PacketMessage]` and
+  `&PacketOptions` — the two fields it actually read. Its two callers pass those.
+
+`packet.rs` went from 4,149 to 3,462 lines. Extracting the vocabulary required moving five
+disjoint line ranges out of a byte-critical file plus two shared helpers, so the ranges were
+lifted with `sed` on exact line numbers rather than retyped, and the serialization tests are
+the check on whether that was done correctly.
+
+**One thing this step exposed.** `wns-providers` now has a public surface where it had
+`pub(crate)`. `webnovel-core/src/library.rs` reaches into provider internals — catalog
+construction, endpoint-profile validation, preference validation — for production logic, not
+tests. Those items are promoted to `pub`; the honest fix is step 8, where `wns-library` takes
+that logic with it.
+
 **Enforcement.** `crates/architecture` asserts, in CI-able tests: every layered crate exists
 with a manifest; every layered crate is a workspace member; no crate depends on a sibling or a
 higher layer; and no layered crate depends on `webnovel-core`. It ships a deliberately
@@ -398,7 +430,7 @@ repoint the path but to expose the script through the owning crate
 Expect more of this: every extraction of a module with adjacent tests will surface path-level
 couplings that no `use` statement ever revealed.
 
-**Step 4 — the frontend kernel (`apps/desktop/src/kernel/`).** The frontend analogue of the
+**Frontend step — the kernel (`apps/desktop/src/kernel/`).** The frontend analogue of the
 `wns-kernel` extraction: `sameHead`, `sameDocumentHead`, `errorCode` and `errorText` now exist
 once instead of across sixteen module-local copies. `errorTextFor(fallback)` binds the shared
 reader to a module's own message, which is what let eight modules drop their local copy with

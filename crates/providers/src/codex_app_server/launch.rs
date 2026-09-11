@@ -10,13 +10,13 @@
 
 use super::AppServerRuntimeIdentity;
 use super::auth::{ExternalAuth, read_auth_file};
-use crate::projects::{CoreError, CoreResult};
-use crate::providers::cli::windows_process::{
+use wns_kernel::{CoreError, CoreResult};
+use crate::cli::windows_process::{
     ChildLimits, CliInvocation, EnvironmentPolicy, MAX_OVERALL,
 };
-use crate::providers::codex_catalog::CodexCatalog;
-use crate::providers::codex_profile::CodexLaunchProfile;
-use crate::providers::preferences::ModelSelection;
+use crate::codex_catalog::CodexCatalog;
+use crate::codex_profile::CodexLaunchProfile;
+use crate::preferences::ModelSelection;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -485,8 +485,8 @@ fn unavailable(code: &'static str, message: &'static str) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::catalog::ServiceTier;
-    use crate::providers::codex_catalog::CodexCatalogModel;
+    use crate::catalog::ServiceTier;
+    use crate::codex_catalog::CodexCatalogModel;
 
     #[test]
     fn security_hash_ignores_only_volatile_catalog_path() {

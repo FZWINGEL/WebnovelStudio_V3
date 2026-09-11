@@ -12,7 +12,7 @@ use super::codex_catalog::CodexCatalog;
 use super::codex_discovery;
 use super::codex_profile::CodexLaunchProfile;
 use super::codex_runner::CodexStream;
-use crate::projects::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult};
 use sha2::{Digest, Sha256};
 use std::{
     ffi::OsString,
@@ -147,11 +147,11 @@ impl CodexConnection {
 
     pub fn start_bound(
         &self,
-        binding: &crate::context::packet::ProviderBinding,
+        binding: &crate::vocabulary::ProviderBinding,
         packet: Vec<u8>,
         stop: StopSignal,
     ) -> CoreResult<CodexStream> {
-        use crate::context::packet::ProviderBinding;
+        use crate::vocabulary::ProviderBinding;
         if binding
             == &ProviderBinding::codex_maintenance_runtime(self.version(), self.fingerprint())
         {
@@ -626,7 +626,7 @@ mod tests {
     #[test]
     fn changed_catalog_metadata_fences_a_saved_author_binding_before_process_creation() {
         use super::super::codex_catalog::CodexCatalogModel;
-        use crate::context::packet::ProviderBinding;
+        use crate::vocabulary::ProviderBinding;
         let model = CodexCatalogModel {
             model_id: "synthetic-model".into(),
             label: "Synthetic model".into(),
