@@ -50,3 +50,10 @@ pub mod discussion_lookup;
 
 /// Explicit review and atomic author decisions over immutable source passages.
 pub mod proposals;
+
+/// Discussion run lifecycle and settlement, recovery, and lookup invocation.
+///
+/// The four-concern file the architecture document names: run lifecycle and
+/// settlement, recovery/lost-acknowledgment, lookup invocation, and
+/// packet-assembly glue. `app_server` and `retry` are its submodules.
+pub mod discussions;

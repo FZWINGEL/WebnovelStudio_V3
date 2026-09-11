@@ -1,7 +1,7 @@
 use super::*;
-use crate::context::guidance::FrozenGuidance;
+use wns_context::guidance::FrozenGuidance;
 
-pub(super) fn draft(
+pub fn draft(
     db: &Connection,
     access: &ProjectAccess,
     run_id: &str,
@@ -11,7 +11,7 @@ pub(super) fn draft(
     Ok(draft)
 }
 
-pub(super) fn guidance(
+pub fn guidance(
     db: &Connection,
     request: &StartDiscussion,
 ) -> CoreResult<Option<Vec<FrozenGuidance>>> {
