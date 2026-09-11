@@ -638,8 +638,26 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
 **Not yet done, and the next three steps in dependency order.**
 
 1. **`context/packet.rs` (step 6).** Still 3,462 lines, still the file §3.4 describes as the
-   hardest. Its `projects::{project_chat_output, story_context, workshop_generation}` imports
-   are the inversion to perform.
+   hardest. Its coupling to `projects` is now measured and much smaller than assumed: after
+   de-coupling the error and identity types (which had already moved to the kernel), what
+   remains is `story_records` (19 refs), `story_context` (12), `reviewed_summary` (4) and one
+   each for `workshop_generation`, `project_chat_output` and `project_chat_context`.
+   
+   **And those are genuine inversions, not import tidying.** §3.4's "the compiler should
+   receive already-materialised inputs rather than assemble them" is the fix for all three of
+   these, which the design did not know:
+   
+   - `reviewed_summary.rs` imports `crate::context::SourceRef`. It is not vocabulary beneath
+     context — it is a *consumer* of it, so moving it down creates the cycle in the other
+     direction.
+   - `story_records.rs` imports `Revision` from `projects/records.rs`, so the record vocabulary
+     is not self-contained.
+   - `FrozenContext`, `SourceRead`, `SourcePassage` and `SearchResult` have no `impl` blocks in
+     `story_context.rs`. The types can be lifted; the operations on them cannot be, at least
+     not in the same step.
+   
+   That is why this step is not a file move. The packet-compiler inversion resolves all three at
+   once, and is the right unit of work.
 2. **`wns-story`, `wns-conversation`, `wns-workshop` (step 7)**, then `wns-transfer` and
    `wns-library` (step 8), then `wns-app` (step 9). `wns-library` was blocked on step 5 and no
    longer is — `library.rs` now reaches `ProjectSession::documents()` and `project()` instead
