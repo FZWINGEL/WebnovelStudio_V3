@@ -24,7 +24,8 @@ import type { ChatAdoptionTarget } from '../ipc/projectChat';
 import { readProjectActivity, type ProjectActivitySnapshot } from '../ipc/projectActivity';
 import { Workshop, type WorkshopHandle } from './Workshop';
 import { StoryBible } from './StoryBible';
-import { AppCloseDialog, type AppCloseDialogPhase } from './AppCloseDialog';
+import { AppCloseDialog } from './AppCloseDialog';
+import { useAppClose } from './useAppClose';
 import { appCloseStatus, beginAppClose, cancelAppClose, finishAppClose, stopAppJobs, type AppCloseStatus } from '../ipc/appClose';
 import './workspaceModes.css';
 import './CoauthorWorkspace.css';
@@ -41,40 +42,6 @@ function errorText(error: unknown): string {
   if (error && typeof error === 'object' && 'detail' in error) return String(error.detail);
   return error instanceof Error ? error.message : String(error);
 }
-
-type CloseDecision = 'stop' | 'stay';
-type CloseAttempt = {
-  closeId: string;
-  gateActive: boolean;
-  cancelRequired: boolean;
-  invalidated: boolean;
-  keepPrompt: boolean;
-  decision: CloseDecision | null;
-  resolveDecision: ((decision: CloseDecision) => void) | null;
-  stopFlight: Promise<void> | null;
-  cancelFlight: Promise<boolean> | null;
-};
-type ClosePrompt = { phase: AppCloseDialogPhase; status: AppCloseStatus | null; message: string };
-
-class StayOpenSignal extends Error {
-  constructor() { super('The editor remains open.'); }
-}
-
-const CLOSE_POLL_MS = 500;
-const CLOSE_MAX_POLLS = 120;
-const waitForClosePoll = () => new Promise<void>(resolve => setTimeout(resolve, CLOSE_POLL_MS));
-const closeHasActiveWork = (status: AppCloseStatus) => status.startingRequests > 0 || status.activeJobs > 0 || status.activeWorkers > 0;
-const closeHasPendingOnly = (status: AppCloseStatus) => status.pendingResults > 0 && status.startingRequests === 0 && status.activeWorkers === 0;
-const closeStatusMessage = (status: AppCloseStatus) => closeHasActiveWork(status)
-  ? 'Some AI replies or story memory refreshes are still in progress. Stop them before closing, or stay open.'
-  : status.pendingResults > 0
-    ? 'Some replies or story memory still need saving. Stop local work and close, or stay open while they finish.'
-    : 'The app is still finishing local work. Stay open and try closing again.';
-const closeBlockedMessage = (status: AppCloseStatus) => closeHasActiveWork(status)
-  ? 'Some AI replies or story memory refreshes are still finishing. Stay open and try closing again once they finish.'
-  : status.pendingResults > 0
-    ? 'Some replies or story memory still need saving. Stay open and retry saving them.'
-    : 'The app is still finishing local work. Stay open and try closing again.';
 
 function projectIdentity(project: OpenedProject): WorkspaceIdentity {
   return {
@@ -146,8 +113,13 @@ export function Workspace() {
     viewState: ViewState | null;
   } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [closePrompt, setClosePrompt] = useState<ClosePrompt | null>(null);
-  const closeAttempt = useRef<CloseAttempt | null>(null);
+  const appClose = useAppClose({
+    isRunning: () => running.current,
+    notice: setNotice,
+    run: work => perform(work),
+    save: () => flushWorkshop(),
+    session: () => activeRef.current?.session ?? null,
+  });
 
   async function acceptChatAccess(access: ProjectAccess): Promise<void> {
     const currentProject = projectRef.current;
@@ -234,221 +206,6 @@ export function Workspace() {
     const timer = window.setInterval(() => { void refresh(); }, 2000);
     return () => { disposed = true; window.clearInterval(timer); };
   }, [projectPickerOpen, workspaceMode, project?.project.projectId, project?.access.operationNamespace, project?.access.session, library.entries]);
-
-  function currentCloseAttempt(attempt: CloseAttempt): boolean {
-    return closeAttempt.current === attempt && !attempt.invalidated;
-  }
-
-  async function releaseCloseGate(attempt: CloseAttempt): Promise<boolean> {
-    if (!attempt.cancelRequired && !attempt.gateActive) return true;
-    if (attempt.cancelFlight) return attempt.cancelFlight;
-    attempt.invalidated = true;
-    const flight = cancelAppClose(attempt.closeId).then(() => {
-      attempt.gateActive = false;
-      attempt.cancelRequired = false;
-      return true;
-    }).catch(() => {
-      // Keep this attempt fenced after a failed cancellation. A late status
-      // or finish acknowledgment must never turn the original close back
-      // into a destroy; Stay open can retry the same cancellation token.
-      return false;
-    }).finally(() => {
-      if (attempt.cancelFlight === flight) attempt.cancelFlight = null;
-    });
-    attempt.cancelFlight = flight;
-    return flight;
-  }
-
-  async function blockClose(attempt: CloseAttempt, status: AppCloseStatus | null, message: string, resolveWaitingDecision: boolean): Promise<boolean> {
-    attempt.keepPrompt = true;
-    const released = await releaseCloseGate(attempt);
-    setClosePrompt({ phase: released ? 'blocked' : 'error', status, message: released ? message : `${message} The close request could not be released. Try Stay open again.` });
-    if (released && resolveWaitingDecision && attempt.resolveDecision) {
-      const resolve = attempt.resolveDecision;
-      attempt.resolveDecision = null;
-      attempt.decision = 'stay';
-      resolve('stay');
-    }
-    return released;
-  }
-
-  function askToClose(attempt: CloseAttempt, status: AppCloseStatus, message: string): Promise<CloseDecision> {
-    return new Promise(resolve => {
-      attempt.resolveDecision = resolve;
-      setClosePrompt({ phase: 'waiting', status, message });
-    });
-  }
-
-  async function stayOpen(): Promise<void> {
-    const attempt = closeAttempt.current;
-    if (!attempt) return;
-    if (attempt.decision === 'stay' && !attempt.cancelRequired && !attempt.gateActive) {
-      closeAttempt.current = null;
-      setClosePrompt(null);
-      return;
-    }
-    attempt.keepPrompt = true;
-    const released = await releaseCloseGate(attempt);
-    if (!released) {
-      setClosePrompt(previous => ({
-        phase: 'error',
-        status: previous?.status ?? null,
-        message: 'The close request is still active. Stay open and try again to release it safely.',
-      }));
-      return;
-    }
-    attempt.keepPrompt = false;
-    attempt.decision = 'stay';
-    const resolve = attempt.resolveDecision;
-    attempt.resolveDecision = null;
-    if (resolve) {
-      resolve('stay');
-      setClosePrompt(null);
-      if (closeAttempt.current === attempt) closeAttempt.current = null;
-      return;
-    }
-    closeAttempt.current = null;
-    setClosePrompt(null);
-  }
-
-  async function stopAndClose(): Promise<void> {
-    const attempt = closeAttempt.current;
-    if (!attempt || attempt.invalidated || attempt.stopFlight) return;
-    attempt.stopFlight = (async () => {
-      try {
-        let status = await appCloseStatus(attempt.closeId);
-        for (let poll = 0; status.startingRequests > 0 && poll < CLOSE_MAX_POLLS; poll += 1) {
-          if (!currentCloseAttempt(attempt)) return;
-          setClosePrompt({ phase: 'stopping', status, message: 'Waiting for a request to finish starting before stopping local work…' });
-          await waitForClosePoll();
-          status = await appCloseStatus(attempt.closeId);
-        }
-        if (!currentCloseAttempt(attempt)) return;
-        if (status.startingRequests > 0) {
-          await blockClose(attempt, status, 'A reply is still starting and could not be stopped yet. Stay open and try again.', true);
-          return;
-        }
-        status = await stopAppJobs(attempt.closeId);
-        for (let poll = 0; !status.ready && !closeHasPendingOnly(status) && poll < CLOSE_MAX_POLLS; poll += 1) {
-          if (!currentCloseAttempt(attempt)) return;
-          setClosePrompt({ phase: 'stopping', status, message: 'Stopping local work…' });
-          await waitForClosePoll();
-          status = await appCloseStatus(attempt.closeId);
-        }
-        if (!currentCloseAttempt(attempt)) return;
-        if (!status.ready) {
-          await blockClose(attempt, status, closeBlockedMessage(status), true);
-          return;
-        }
-        const resolve = attempt.resolveDecision;
-        attempt.resolveDecision = null;
-        attempt.decision = 'stop';
-        setClosePrompt({ phase: 'stopping', status, message: 'Finishing the close safely…' });
-        resolve?.('stop');
-      } catch (reason) {
-        if (currentCloseAttempt(attempt)) await blockClose(attempt, null, `Could not stop local work safely: ${errorText(reason)}`, true);
-      }
-    })().finally(() => { attempt.stopFlight = null; });
-    await attempt.stopFlight;
-  }
-
-  async function closeApplication(): Promise<void> {
-    if (closeAttempt.current) return;
-    const attempt: CloseAttempt = {
-      closeId: crypto.randomUUID(), gateActive: false, cancelRequired: false, invalidated: false,
-      keepPrompt: false, decision: null, resolveDecision: null, stopFlight: null, cancelFlight: null,
-    };
-    closeAttempt.current = attempt;
-    try {
-      try {
-        attempt.cancelRequired = true;
-        await beginAppClose(attempt.closeId);
-        attempt.gateActive = true;
-      } catch (reason) {
-        await blockClose(attempt, null, `Could not prepare to close safely: ${errorText(reason)}`, false);
-        return;
-      }
-      const prepare = async (): Promise<void> => {
-        let status: AppCloseStatus;
-        try {
-          status = await appCloseStatus(attempt.closeId);
-        } catch (reason) {
-          await blockClose(attempt, null, `Could not check whether it is safe to close: ${errorText(reason)}`, false);
-          throw new StayOpenSignal();
-        }
-        if (!currentCloseAttempt(attempt)) throw new StayOpenSignal();
-        if (!status.ready) {
-          if (closeHasPendingOnly(status)) {
-            await blockClose(attempt, status, closeBlockedMessage(status), false);
-            throw new StayOpenSignal();
-          }
-          const decision = await askToClose(attempt, status, closeStatusMessage(status));
-          if (decision === 'stay' || !currentCloseAttempt(attempt)) throw new StayOpenSignal();
-          try {
-            status = await appCloseStatus(attempt.closeId);
-          } catch (reason) {
-            await blockClose(attempt, null, `Could not confirm that local work stopped: ${errorText(reason)}`, false);
-            throw new StayOpenSignal();
-          }
-          if (!status.ready) {
-            await blockClose(attempt, status, closeBlockedMessage(status), false);
-            throw new StayOpenSignal();
-          }
-        }
-        if (!currentCloseAttempt(attempt)) throw new StayOpenSignal();
-        // A final read fences the stop decision from any work that started while
-        // the dialog was open. Never finish or destroy on a stale status.
-        try {
-          status = await appCloseStatus(attempt.closeId);
-        } catch (reason) {
-          await blockClose(attempt, null, `Could not confirm that it is safe to close: ${errorText(reason)}`, false);
-          throw new StayOpenSignal();
-        }
-        if (!currentCloseAttempt(attempt)) throw new StayOpenSignal();
-        if (!status.ready) {
-          await blockClose(attempt, status, closeBlockedMessage(status), false);
-          throw new StayOpenSignal();
-        }
-        try {
-          await finishAppClose(attempt.closeId);
-          if (!currentCloseAttempt(attempt)) throw new StayOpenSignal();
-        } catch (reason) {
-          if (reason instanceof StayOpenSignal) throw reason;
-          await blockClose(attempt, status, `Could not finish closing safely: ${errorText(reason)}`, false);
-          throw new StayOpenSignal();
-        }
-        // Destroy is deliberately inside detachAfter's prepare callback. If it
-        // fails, detachAfter never disposes the mounted editor session.
-        await getCurrentWindow().destroy();
-        attempt.gateActive = false;
-        attempt.cancelRequired = false;
-      };
-      try {
-        await flushWorkshop();
-        const session = activeRef.current?.session;
-        if (session) await session.detachAfter(prepare, 'close');
-        else await prepare();
-      } catch (reason) {
-        if (reason instanceof StayOpenSignal) return;
-        // A flush/checkpoint can fail before the native close callback runs.
-        // Release the native admission gate, but keep the editor mounted.
-        await blockClose(attempt, null, `Could not save the current writing before closing: ${errorText(reason)}`, false);
-        throw reason;
-      }
-    } finally {
-      if (closeAttempt.current === attempt && !attempt.keepPrompt) closeAttempt.current = null;
-    }
-  }
-
-  useEffect(() => {
-    if (!isTauri()) return;
-    const attached = getCurrentWindow().onCloseRequested(event => {
-      event.preventDefault();
-      if (running.current || closeAttempt.current) { setNotice('Finish the current operation before closing.'); return; }
-      void perform(closeApplication);
-    });
-    return () => { void attached.then(unlisten => unlisten()); };
-  }, []);
 
   async function perform(work: () => Promise<void>) {
     if (running.current) return;
@@ -1192,7 +949,7 @@ export function Workspace() {
       </aside>
       {active ? <Writer key={`${project.project.projectId}:${active.record.head.documentId}`} active={active} sources={project.documents.map(document => ({ id: document.head.documentId, title: document.title }))} onError={setError} onRename={() => { setRenamedDocumentTitle(active.record.title); setRenamingDocument(!renamingDocument); }} navigation={projectTab === 'chapters' ? { index: activeIndex, total: tabDocuments.length, previous: activeIndex > 0 ? () => selectDocument(tabDocuments[activeIndex - 1]) : undefined, next: activeIndex < tabDocuments.length - 1 ? () => selectDocument(tabDocuments[activeIndex + 1]) : undefined, disabled: busy } : undefined} /> : <main className="empty-project"><div className="project-start"><h1>{projectTab === 'chapters' ? 'Give your next chapter a direction.' : projectTab === 'worldbuilding' ? 'Create the world your story needs.' : projectTab === 'characters' ? 'Find the people at the heart of it.' : projectTab === 'plot' ? 'Shape what happens next.' : 'Keep the ideas worth returning to.'}</h1><p>{projectTab === 'chapters' ? 'Start with a brief. Let the AI draft, then read, revise, and decide what belongs in your story.' : 'Bring an idea, ask the AI to develop it, and choose what to keep. You can always write and edit directly.'}</p><button className="primary-button" disabled={busy} onClick={() => beginDocument()}>{projectTab === 'chapters' ? 'Create a chapter' : projectTab === 'characters' ? 'Create a character' : projectTab === 'worldbuilding' ? 'Create worldbuilding' : 'Create an idea'}</button><p className="start-alternative">You can start in any tab. No setup checklist is required.</p></div></main>}
     </div>}
-    {closePrompt && <AppCloseDialog phase={closePrompt.phase} status={closePrompt.status} message={closePrompt.message} onStop={() => { void stopAndClose(); }} onStayOpen={() => { void stayOpen(); }} />}
+    {appClose.prompt && <AppCloseDialog phase={appClose.prompt.phase} status={appClose.prompt.status} message={appClose.prompt.message} onStop={() => { void appClose.stopAndClose(); }} onStayOpen={() => { void appClose.stayOpen(); }} />}
     {exporting && active?.session === exporting.session && <ExportDialog access={exporting.session.projectAccess} documentId={exporting.record.head.documentId} title={exporting.record.title} isChapter={exporting.record.kind === 'chapter'}
       onPrepare={(format, basis) => prepareExport(exporting, format, basis)} onExport={preview => writeExport(exporting, preview)}
       onClose={() => { setExporting(null); exportButton.current?.focus(); }} />}
