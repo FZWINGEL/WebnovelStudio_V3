@@ -195,16 +195,23 @@ because it is what makes `wns-context` a real layer instead of a façade over `p
 carries no dependency on `webnovel-core`, and `crates/architecture` holds the line.
 
 The file split went by concern rather than by stage, which is not what this paragraph asked
-for and is worth stating plainly. `packet.rs` is 1,735 lines, with `packet/validation.rs`
-(904), `packet/support.rs` (519) and `packet/serialization.rs` (367) beside it. The four
-*stages* remain inside `compile_packet_with_schema`, which is ~1,035 lines of one function.
-That is deliberate: the stages are not separable by moving text. They run over shared mutable
-packing state — the budget accumulator, the accepted-omission set, the receipt in progress —
-so extracting them means threading a dozen mutable locals through new signatures, which
-changes how the code is read rather than only where it lives, and is not a move this
-migration's verification can call behaviour-preserving. What the split does buy is real: the
-three concerns that *are* separable are out, the file is a third smaller, and what remains is
-one pipeline whose length is now the only thing wrong with it.
+for, and the reason is P4. `packet.rs` is 1,735 lines, with `packet/validation.rs` (904),
+`packet/support.rs` (519) and `packet/serialization.rs` (367) beside it. The four *stages*
+remain inside `compile_packet_with_schema`, which is ~1,035 lines of one function.
+
+They are not separable by moving text, and the measurement is the argument: that function
+declares **29 mutable locals** — the budget accumulator, the per-kind candidate sets, the
+accepted omissions, the receipt in progress — and each stage reads and writes most of them.
+Extracting a stage means bundling them into a state struct and threading it through new
+signatures, which changes how the code reads rather than only where it lives. P4 says "the
+migration is a sequence of extractions, never a rewrite", and P3 says a step that cannot keep
+the suite green is not a step; a change of that shape is a rewrite of the function's structure,
+and its being behaviour-preserving would be a claim this migration's verification cannot make.
+
+What the split does buy is real: the three concerns that *are* separable are out, the file is a
+third smaller, and what remains is one pipeline whose length is now the only thing wrong with
+it. Splitting that pipeline is a piece of work someone should do deliberately, with the
+function in front of them — not as a by-product of a module move.
 
 **`projects/discussions.rs` (4,605) → `wns-conversation`.** Four concerns in one file: run
 lifecycle and settlement, recovery/lost-acknowledgment, lookup invocation, and packet
