@@ -53,8 +53,10 @@ pub trait TransferSource {
 /// The project the transfer crate cannot construct, because it does not own
 /// the type.
 pub trait TransferFactory {
-    /// What a completed recovery or import hands back to the caller.
-    type Session;
+    /// What a completed recovery or import hands back to the caller. It is also
+    /// readable as a source: the library registers and inspects the project it
+    /// just created.
+    type Session: TransferSource;
     /// The handle a V2 import populates before the atomic rename. It never
     /// escapes: it is opened, filled and dropped inside one function.
     type Staging;

@@ -39,7 +39,12 @@ pub const LAYERS: &[(&str, &str, u32)] = &[
     // reached `story_context`, `reviewed_story` and `memory` at L4 and the
     // conversation and workshop validators at L5.
     ("wns-transfer", "crates/transfer", 6),
-    ("wns-library", "crates/library", 5),
+    // Raised from L5 to L7. The library's V2 import workflow drives the
+    // installer in `wns-transfer` (L6), so it sits above the portability crate;
+    // it also reaches `v2_import`, which moved up with the installer that
+    // consumes it. Nothing depends on the library but the app shell, which the
+    // layer table does not register.
+    ("wns-library", "crates/library", 7),
 ];
 
 /// The crate being decomposed. The rule above applies to `wns-*` only; this one

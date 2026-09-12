@@ -1,6 +1,13 @@
 //! Transport preference is separate from the author model and from any
 //! already-accepted project request. Reading it never starts a process.
-use super::*;
+use rusqlite::{OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+use wns_kernel::{CoreError, CoreResult};
+use wns_providers::preferences::parse_revision;
+use wns_transfer::host::TransferFactory;
+
+use crate::library::Library;
+
 
 const KEY: &str = "codex-transport-v1";
 
@@ -19,7 +26,7 @@ pub struct CodexTransportSettings {
     pub transport: CodexTransport,
 }
 
-impl Library {
+impl<F: TransferFactory> Library<F> {
     pub fn codex_transport_settings(&self) -> CoreResult<CodexTransportSettings> {
         let row: Option<(i64, i64, String)> = self
             .connection

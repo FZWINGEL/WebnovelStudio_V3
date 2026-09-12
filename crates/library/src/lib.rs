@@ -1,7 +1,5 @@
 //! L5 — the project library index and app preferences.
 //!
-//! **Skeleton.** Nothing has been ported yet; this crate declares the boundary
-//! and the dependency edge so the layering rule is checked from the first commit.
 //!
 //! # Why this boundary
 //!
@@ -24,3 +22,12 @@
 //! # Dependency rule
 //!
 //! L7 — see below. May depend on L0–L6.
+
+/// The index, its preference CAS, and the V2 import workflow.
+///
+/// Generic over the factory it creates projects with; `webnovel-core` fixes
+/// that parameter, because the project type lives there.
+pub mod library;
+
+/// The Codex transport preference, schema-versioned separately from the rest.
+pub mod codex_transport;

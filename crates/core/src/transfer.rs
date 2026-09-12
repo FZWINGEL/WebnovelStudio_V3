@@ -57,13 +57,17 @@ impl TransferSource for ProjectSession {
     }
 }
 
+/// The staging handle an import populates. Only the crates that fix the
+/// factory's parameters ever name it; `wns-transfer` sees it as `F::Staging`.
+pub struct CoreStaging(OwnedProject);
+
 /// The project type `wns-transfer` cannot name.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct CoreProjectFactory;
+pub struct CoreProjectFactory;
 
 impl TransferFactory for CoreProjectFactory {
     type Session = ProjectSession;
-    type Staging = OwnedProject;
+    type Staging = CoreStaging;
 
     fn create_staged(
         staging: &Path,
@@ -73,14 +77,17 @@ impl TransferFactory for CoreProjectFactory {
     ) -> CoreResult<ProjectSession> {
         ProjectSession::create_staged(staging, destination, title, origin)
     }
-    fn open_staging(path: &Path, title: &str) -> CoreResult<OwnedProject> {
-        OwnedProject::open_direct(path.to_owned(), Some(title.to_owned()))
+    fn open_staging(path: &Path, title: &str) -> CoreResult<CoreStaging> {
+        Ok(CoreStaging(OwnedProject::open_direct(
+            path.to_owned(),
+            Some(title.to_owned()),
+        )?))
     }
-    fn staging_info(staging: &OwnedProject) -> &ProjectInfo {
-        &staging.info
+    fn staging_info(staging: &CoreStaging) -> &ProjectInfo {
+        &staging.0.info
     }
-    fn staging_db_mut(staging: &mut OwnedProject) -> CoreResult<&mut rusqlite::Connection> {
-        staging.db_mut()
+    fn staging_db_mut(staging: &mut CoreStaging) -> CoreResult<&mut rusqlite::Connection> {
+        staging.0.db_mut()
     }
 }
 
