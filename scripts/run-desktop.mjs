@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, delimiter, resolve } from 'node:path';
+import { basename, dirname, delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
@@ -34,11 +34,48 @@ async function pruneTarget() {
     console.log('No target/debug/deps directory found.');
     return;
   }
+  const activeArtifacts = new Set();
+  try {
+    const { execFileSync } = await import('node:child_process');
+    const output = execFileSync('cargo', ['test', '--workspace', '--all-targets', '--no-run', '--message-format=json'], {
+      cwd: root,
+      env: environment,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    }).toString();
+    for (const line of output.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.reason === 'compiler-artifact') {
+          if (msg.executable) {
+            const base = basename(msg.executable);
+            activeArtifacts.add(base);
+            activeArtifacts.add(base.replace(/\.exe$/i, '.pdb'));
+            activeArtifacts.add(base.replace(/\.exe$/i, '.d'));
+          }
+          if (msg.filenames) {
+            for (const f of msg.filenames) {
+              const base = basename(f);
+              activeArtifacts.add(base);
+              if (base.endsWith('.exe')) {
+                activeArtifacts.add(base.replace(/\.exe$/i, '.pdb'));
+                activeArtifacts.add(base.replace(/\.exe$/i, '.d'));
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+  } catch (err) {
+    console.log(`Unable to query Cargo for active artifacts: ${err.message}`);
+  }
   const { readdirSync, statSync, unlinkSync } = await import('node:fs');
   const files = readdirSync(depsDir);
   const groups = new Map();
   for (const file of files) {
     if (file.endsWith('.pdb') || file.endsWith('.exe')) {
+      if (activeArtifacts.has(file)) continue;
       const match = file.match(/^([a-zA-Z0-9_]+)-[0-9a-f]{16}\.(pdb|exe)$/);
       if (match) {
         const key = `${match[1]}.${match[2]}`;

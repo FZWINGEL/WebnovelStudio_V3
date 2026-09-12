@@ -967,24 +967,34 @@ describe('Story Workshop behavioral contracts', () => {
     let resolveSave!: (value: WorkshopSnapshot) => void;
     mocks.saveWorkshop.mockImplementationOnce(() => new Promise<WorkshopSnapshot>(resolve => { resolveSave = resolve; }));
     await render();
-    const working = host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!;
-    setValue(working, 'My local manual version');
-    await act(async () => new Promise(resolve => setTimeout(resolve, 700)));
-    expect((host.querySelector('.workshop-working-text') as HTMLTextAreaElement).value).toBe('My local manual version');
-    resolveSave({ version: '2', state: currentView.state });
+    vi.useFakeTimers();
+    try {
+      const working = host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!;
+      setValue(working, 'My local manual version');
+      await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+      expect((host.querySelector('.workshop-working-text') as HTMLTextAreaElement).value).toBe('My local manual version');
+      resolveSave({ version: '2', state: currentView.state });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps editing and saving available while generation is offline', async () => {
     mocks.providers.state = providerState(false);
     await render();
-    const working = host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!;
-    setValue(working, 'Manual setting notes remain editable offline.');
-    await act(async () => new Promise(resolve => setTimeout(resolve, 320)));
-    expect((host.querySelector('.workshop-working-text') as HTMLTextAreaElement).value).toContain('Manual setting notes');
-    expect(host.textContent).toContain('You can keep editing, saving, and organizing here.');
-    expect(host.querySelector<HTMLButtonElement>('.workshop-generation-footer .primary-button')?.disabled).toBe(true);
-    expect(mocks.startWorkshop).not.toHaveBeenCalled();
-    expect(mocks.saveWorkshop).toHaveBeenCalled();
+    vi.useFakeTimers();
+    try {
+      const working = host.querySelector<HTMLTextAreaElement>('.workshop-working-text')!;
+      setValue(working, 'Manual setting notes remain editable offline.');
+      await act(async () => { await vi.advanceTimersByTimeAsync(320); });
+      expect((host.querySelector('.workshop-working-text') as HTMLTextAreaElement).value).toContain('Manual setting notes');
+      expect(host.textContent).toContain('You can keep editing, saving, and organizing here.');
+      expect(host.querySelector<HTMLButtonElement>('.workshop-generation-footer .primary-button')?.disabled).toBe(true);
+      expect(mocks.startWorkshop).not.toHaveBeenCalled();
+      expect(mocks.saveWorkshop).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects a local hard preference that conflicts with a confirmed project constraint', async () => {

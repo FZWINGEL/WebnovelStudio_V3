@@ -39,9 +39,23 @@ cargo test -p webnovel-core --test integration context_migration::
 # Desktop command tests.
 cargo test -p webnovel-desktop discussion_commands::
 
-# One frontend file, with its normal isolated jsdom environment.
+# Quick check an individual crate (~2–3 seconds warm):
+.\scripts\desktop.cmd quick wns-story
+.\scripts\desktop.ps1 -Command quick wns-story
+
+# Filtered frontend tests through the pinned launcher (~0.5–0.9s):
+.\scripts\desktop.cmd test src/kernel/document.test.ts
+.\scripts\desktop.ps1 -Command test src/kernel/document.test.ts
+
+# Interactive frontend watch mode:
+.\scripts\desktop.cmd test:watch
+
+# Direct npm invocation for a single test file:
 npm.cmd --prefix apps/desktop test -- src/providers/ModelSelector.test.tsx
 ```
+
+> [!NOTE]
+> When running through `desktop.cmd` or `desktop.ps1`, pass test filters directly without a leading `--` separator (e.g. `.\scripts\desktop.cmd test src/kernel/document.test.ts`). PowerShell's parameter binder treats a lone `--` as an ambiguous parameter name.
 
 Focused checks speed up iteration. Run the full check before submitting a
 change; use the relevant native flow when editor, lifecycle, or IPC behavior
