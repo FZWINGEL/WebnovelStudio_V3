@@ -324,18 +324,20 @@ the editor feature's public interface.
 itself from the editor's inputs, with the document surface moved to `editor/` (and chapter
 memory to `story/`) so the edge is feature→feature. `Workspace.tsx` went 1,206 → 963.
 
-**Measured, not done — and the measurement changes the plan.** Library CRUD and the
-document-session cluster are not separable by moving functions. `activate` alone resets
-search, the create/rename/import dialogs, the project tab, the notice and the workspace
-mode; the cluster's other fifteen functions reach roughly twenty of `Workspace`'s state
-cells and setters between them. Extracting them as a hook with those as parameters
-produces a twenty-five-argument interface that holds `Workspace`'s state and merely
-returns it — the coupling is relocated, not removed.
+**Done, by a route this section did not describe.** Library CRUD and chat adoption did not
+go to `library/` and `chat/`. They went into `shell/workspaceModel.ts` with the rest of the
+workspace's state, because that is what they are: `open`/`create`/`duplicate` run the
+workspace's activation sequence, and the adoption bridge runs its session fencing.
 
-What these two items actually require is moving the *ownership* of `project` and `active`
-out of `Workspace` into a workspace-model hook, with the shell rendering from it. That is a
-larger change than this section describes, and it should be planned as its own step rather
-than attempted as an extraction.
+A first attempt read this section literally and cut the document-session functions out as
+their own hook. It failed, and the reason is the useful part: `activate` alone resets the
+search box, the create/rename/import dialogs, the project tab, the notice and the workspace
+mode, and its fifteen siblings reach twenty more state cells between them. Extracted as a
+hook they need a twenty-five-argument interface that *holds* the workspace's state and hands
+it back — the coupling relocated into a signature. A boundary only exists once the state
+moves with the behaviour.
+
+`Workspace.tsx` is 236 lines of layout; the model is 972.
 
 ---
 
