@@ -745,3 +745,43 @@ pub(super) fn pack_navigation_views(
     }
     Ok(delivered)
 }
+
+/// The discussion prefix: complete recent turns before optional story blocks,
+/// stopping at the first turn that cannot fit rather than displacing story
+/// evidence that is already supplied as the budget grows.
+///
+/// It returns a count rather than a packet — the packet it prices against is
+/// discarded, and only the number of turns that fitted is kept.
+pub(super) fn pack_conversation_prefix(
+    pricing: &Pricing<'_>,
+    schema: PacketSchemaVersion,
+    sources: &[SelectedSource],
+    omissions: &[String],
+    total_turns: usize,
+    available: usize,
+) -> Result<usize, PacketError> {
+    let mut included_turns = 0;
+    for count in 1..=total_turns {
+        let candidate = build_serialized(
+            &pricing,
+            sources,
+            omissions,
+
+            Packing {
+                schema,
+                method: "layeredExcerpt",
+                conversation_turns: count,
+                navigation_views: &[],
+                reviewed_evidence: &[],
+                reviewed_promises: &[],
+                reviewed_knowledge: &[],
+                accepted_summaries: &[],
+            },
+        )?;
+        if candidate.input_tokens > available {
+            break;
+        }
+        included_turns = count;
+    }
+    Ok(included_turns)
+}

@@ -1007,32 +1007,8 @@ fn compile_packet_with_schema(
         )));
     }
 
-    // Discussion uses a fixed priority prefix: complete recent turns before
-    // optional story blocks. Stop at the first turn that cannot fit, rather
-    // than displacing already supplied story evidence as budgets grow.
-    let mut included_turns = 0;
-    for count in 1..=total_turns {
-        let candidate = build_serialized(
-            &pricing,
-            &mandatory_sources,
-            &mandatory_omissions,
-
-            Packing {
-                schema,
-                method: "layeredExcerpt",
-                conversation_turns: count,
-                navigation_views: &[],
-                reviewed_evidence: &[],
-                reviewed_promises: &[],
-                reviewed_knowledge: &[],
-                accepted_summaries: &[],
-            },
-        )?;
-        if candidate.input_tokens > available {
-            break;
-        }
-        included_turns = count;
-    }
+    let included_turns =
+        pack_conversation_prefix(&pricing, schema, &mandatory_sources, &mandatory_omissions, total_turns, available)?;
     if included_turns != total_turns {
         let evidence_omissions = reviewed_evidence_omissions(&validated_reviewed_evidence, &[]);
         let promise_omissions = reviewed_promise_omissions(&validated_reviewed_promises, &[]);
