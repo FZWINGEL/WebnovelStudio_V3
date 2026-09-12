@@ -19,7 +19,7 @@ use rusqlite::Connection;
 pub use wns_documents::history::{
     HistoryPage, HistoryHost, RestoreAck, RestoreRevision, RevisionSummary,
 };
-pub(crate) use wns_documents::history::{HistoryCommand, validate_history_storage};
+pub(crate) use wns_documents::history::HistoryCommand;
 pub use wns_kernel::RestoredDecision;
 
 impl ProjectSession {

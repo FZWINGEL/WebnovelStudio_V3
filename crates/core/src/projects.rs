@@ -76,7 +76,7 @@ pub use wns_kernel::{
 // here so `webnovel_core::projects::blank_document` and the integration tests
 // that build fixtures with it are unchanged.
 pub use wns_documents::blank_document;
-pub(crate) use wns_kernel::{new_id, require_head, valid_hash, validate_title};
+pub(crate) use wns_kernel::{new_id, require_head, validate_title};
 pub(crate) use wns_storage::{
     checkpoint_at, existing_receipt, insert_receipt, read_document, read_revision,
 };
@@ -1657,5 +1657,5 @@ mod tests {
 // `transfer` validates a stored view state before accepting a backup, and
 // cannot reach it through the crate being decomposed.
 pub(crate) use wns_documents::{
-    read_view_state, validate_endpoint, validate_stored_view_state,
+    read_view_state, validate_endpoint,
 };

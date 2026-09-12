@@ -2,14 +2,22 @@
 name = "wns-transfer"
 version.workspace = true
 edition = "2024"
-description = "L5: backup, recover, duplicate, draft and reviewed export, V2 import, recovery copy."
+description = "L6: backup, recovery, export and migration."
 
 [dependencies]
 wns-kernel = { path = "../kernel" }
 wns-storage = { path = "../storage" }
 wns-documents = { path = "../documents" }
+wns-providers = { path = "../providers" }
 wns-context = { path = "../context" }
 wns-story = { path = "../story" }
+wns-conversation = { path = "../conversation" }
+wns-workshop = { path = "../workshop" }
+# Backup uses SQLite's online backup API from a separate read-only connection,
+# and the manifest is a stored ZIP.
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+sha2 = "=0.11.0"
+uuid = { version = "=1.26.0", features = ["v4"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 zip = { version = "=8.6.0", default-features = false }

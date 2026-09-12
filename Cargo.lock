@@ -4703,6 +4703,7 @@ dependencies = [
  "wns-providers",
  "wns-storage",
  "wns-story",
+ "wns-transfer",
  "wns-workshop",
  "zip",
 ]
@@ -5300,13 +5301,19 @@ dependencies = [
 name = "wns-transfer"
 version = "3.0.0"
 dependencies = [
+ "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
+ "uuid",
  "wns-context",
+ "wns-conversation",
  "wns-documents",
  "wns-kernel",
+ "wns-providers",
  "wns-storage",
  "wns-story",
+ "wns-workshop",
  "zip",
 ]
 

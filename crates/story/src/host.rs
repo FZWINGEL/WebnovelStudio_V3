@@ -12,7 +12,7 @@
 //! snapshot to answer whether a prepared packet is still current.
 
 use rusqlite::Connection;
-use wns_kernel::{CoreResult, ProjectInfo, ProjectAccess};
+use wns_kernel::{CoreResult, ProjectAccess, ProjectInfo};
 
 pub trait StoryHost {
     fn check_access(&self, access: &ProjectAccess) -> CoreResult<()>;
@@ -27,6 +27,9 @@ pub trait StoryHost {
     /// The actor reads two fields off this (`project_id`, `operation_namespace`)
     /// to validate a runtime owner. Everything else it reaches for is a method.
     fn info(&self) -> &ProjectInfo;
+    /// The project folder. Export installation writes beside it, and a backup
+    /// reads `project.sqlite3` from it.
+    fn path(&self) -> &std::path::Path;
     /// The access of the renderer session currently attached, or the recovery
     /// error that says there is none.
     ///

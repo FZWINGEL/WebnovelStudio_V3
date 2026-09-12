@@ -52,6 +52,9 @@ impl wns_story::host::StoryHost for OwnedProject {
     fn info(&self) -> &wns_kernel::ProjectInfo {
         &self.info
     }
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
     /// The crash-injection hook compiles the real body only into core's own
     /// test binary, so production behaviour is unchanged.
     fn hold_context_after_commit_before_ack(&self, operation_id: &str) {

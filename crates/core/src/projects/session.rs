@@ -232,7 +232,9 @@ impl ProjectSession {
                                     *command,
                                 )
                             }
-                            Command::Export(command) => project.handle_export(*command),
+                            Command::Export(command) => {
+                                wns_transfer::exports::handle_export(&mut project, *command)
+                            }
                             Command::SourcePins(command) => project.handle_source_pins(*command),
                             Command::WorkshopStart(request, reply) => {
                                 let result = crate::projects::workshop::start_workshop(&mut project, *request);

@@ -8,6 +8,7 @@ autotests = false
 [dependencies]
 wns-kernel = { path = "../kernel" }
 wns-library = { path = "../library" }
+wns-transfer = { path = "../transfer" }
 wns-storage = { path = "../storage" }
 wns-documents = { path = "../documents" }
 wns-providers = { path = "../providers" }

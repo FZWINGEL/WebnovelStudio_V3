@@ -10,7 +10,6 @@
 //! `story_context` and `transfer` — exactly as it did before the move.
 
 use super::*;
-use rusqlite::Connection;
 
 pub use wns_story::reviewed_story::*;
 
@@ -60,20 +59,6 @@ impl ProjectSession {
 
 /// What the moved module needs from the actor: four methods. No crash hook here
 /// — that is what `history` needed and this does not.
-impl ReviewedStoryHost for OwnedProject {
-    fn check_access(&self, access: &ProjectAccess) -> CoreResult<()> {
-        OwnedProject::check_access(self, access)
-    }
-    fn db(&self) -> CoreResult<&Connection> {
-        OwnedProject::db(self)
-    }
-    fn db_mut(&mut self) -> CoreResult<&mut Connection> {
-        OwnedProject::db_mut(self)
-    }
-    fn fence_uncertain<T>(&mut self, result: &CoreResult<T>) {
-        OwnedProject::fence_uncertain(self, result)
-    }
-}
 
 impl OwnedProject {
     pub(super) fn handle_review(&mut self, command: ReviewCommand) {

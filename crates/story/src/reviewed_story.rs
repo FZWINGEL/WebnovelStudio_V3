@@ -38,6 +38,7 @@ use wns_context::story_records::{
 use wns_context::{
     ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind, SourceRef,
 };
+use crate::host::StoryHost;
 use wns_kernel::{
     CoreError, CoreResult, DocumentRecord, DocumentRole, Head, ProjectAccess, Reply, Revision,
     check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head, sha256_hex,
@@ -55,13 +56,6 @@ use wns_storage::{checkpoint_at, read_document, read_revision};
 ///
 /// Unlike `history`, there is no crash hook here, so the trait is exactly as
 /// wide as the module's real dependency on the actor.
-pub trait ReviewedStoryHost {
-    fn check_access(&self, access: &ProjectAccess) -> CoreResult<()>;
-    fn db(&self) -> CoreResult<&Connection>;
-    fn db_mut(&mut self) -> CoreResult<&mut Connection>;
-    fn fence_uncertain<T>(&mut self, result: &CoreResult<T>);
-}
-
 const MAX_REVIEW_CHAPTERS: usize = 4096;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -851,7 +845,7 @@ type BundleDbRow = (
 /// new export.  The returned revision is the exact immutable checkpoint
 /// recorded by the ready bundle.
 pub fn resolve_reviewed_export_source(
-    host: &impl ReviewedStoryHost,
+    host: &impl StoryHost,
     access: &ProjectAccess,
     expected: &Head,
 ) -> CoreResult<(String, Revision)> {
@@ -907,7 +901,7 @@ pub fn resolve_reviewed_export_source(
 }
 
 pub fn read_reviewed_record_set_internal(
-    host: &impl ReviewedStoryHost,
+    host: &impl StoryHost,
     access: ProjectAccess,
     document_id: &str,
 ) -> CoreResult<Option<ReviewedRecordSet>> {
@@ -958,7 +952,7 @@ pub fn read_reviewed_record_set_internal(
 }
 
 pub fn chapter_review_status(
-    host: &impl ReviewedStoryHost,
+    host: &impl StoryHost,
     access: ProjectAccess,
     document_id: &str,
 ) -> CoreResult<ReviewStatus> {
@@ -1072,7 +1066,7 @@ pub fn chapter_review_status(
     }
 }
 
-pub fn read_review_stage(host: &impl ReviewedStoryHost, access: ProjectAccess, stage_id: &str) -> CoreResult<ReviewStage> {
+pub fn read_review_stage(host: &impl StoryHost, access: ProjectAccess, stage_id: &str) -> CoreResult<ReviewStage> {
     host.check_access(&access)?;
     check_id(stage_id)?;
     let db = host.db()?;
@@ -1082,7 +1076,7 @@ pub fn read_review_stage(host: &impl ReviewedStoryHost, access: ProjectAccess, s
     stage_to_dto(db, stage)
 }
 
-pub fn stage_author_review(host: &mut impl ReviewedStoryHost, request: StageAuthorReview) -> CoreResult<ReviewStage> {
+pub fn stage_author_review(host: &mut impl StoryHost, request: StageAuthorReview) -> CoreResult<ReviewStage> {
     host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     check_id(&request.expected.document_id)?;
@@ -1220,7 +1214,7 @@ pub fn stage_author_review(host: &mut impl ReviewedStoryHost, request: StageAuth
     Ok(result)
 }
 
-pub fn mark_ready(host: &mut impl ReviewedStoryHost, request: MarkReady) -> CoreResult<ReadyBundle> {
+pub fn mark_ready(host: &mut impl StoryHost, request: MarkReady) -> CoreResult<ReadyBundle> {
     host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     check_id(&request.stage_id)?;
@@ -1418,7 +1412,7 @@ pub fn mark_ready(host: &mut impl ReviewedStoryHost, request: MarkReady) -> Core
 /// This stayed behind in `webnovel-core` as a twelve-line delegation until the
 /// move; it belongs here with the vocabulary it dispatches, because its arms
 /// name `ReviewCommand` and call the five functions above.
-pub fn handle_review(host: &mut impl ReviewedStoryHost, command: ReviewCommand) {
+pub fn handle_review(host: &mut impl StoryHost, command: ReviewCommand) {
     match command {
         ReviewCommand::Status(access, document_id, reply) => {
             let _ = reply.send(chapter_review_status(host, access, &document_id));
