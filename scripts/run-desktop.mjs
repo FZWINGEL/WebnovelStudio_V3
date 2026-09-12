@@ -28,6 +28,45 @@ const tauri = resolve(desktop, 'node_modules/@tauri-apps/cli/tauri.js');
 if (['build', 'spike', 'package'].includes(action)) {
   await node([resolve(root, 'scripts/check-versions.mjs')]);
 }
+async function pruneTarget() {
+  const depsDir = resolve(root, 'target/debug/deps');
+  if (!existsSync(depsDir)) {
+    console.log('No target/debug/deps directory found.');
+    return;
+  }
+  const { readdirSync, statSync, unlinkSync } = await import('node:fs');
+  const files = readdirSync(depsDir);
+  const groups = new Map();
+  for (const file of files) {
+    if (file.endsWith('.pdb') || file.endsWith('.exe')) {
+      const match = file.match(/^([a-zA-Z0-9_]+)-[0-9a-f]{16}\.(pdb|exe)$/);
+      if (match) {
+        const key = `${match[1]}.${match[2]}`;
+        if (!groups.has(key)) groups.set(key, []);
+        const stat = statSync(resolve(depsDir, file));
+        groups.get(key).push({ file, mtime: stat.mtimeMs, size: stat.size });
+      }
+    }
+  }
+  let prunedCount = 0;
+  let prunedBytes = 0;
+  for (const list of groups.values()) {
+    list.sort((a, b) => b.mtime - a.mtime);
+    const toRemove = list.slice(1);
+    for (const item of toRemove) {
+      try {
+        unlinkSync(resolve(depsDir, item.file));
+        prunedCount++;
+        prunedBytes += item.size;
+      } catch {
+        // ignore locked files
+      }
+    }
+  }
+  const mb = (prunedBytes / (1024 * 1024)).toFixed(1);
+  console.log(`Pruned ${prunedCount} orphaned build artifacts (${mb} MB freed).`);
+}
+
 switch (action) {
   case 'dev': await node([tauri, 'dev']); break;
   case 'spike': await node([tauri, 'build', '--debug', '--no-bundle', '--', '--locked']); break;
@@ -36,15 +75,22 @@ switch (action) {
     if (process.platform !== 'win32') throw new Error('The initial installer target is Windows x64.');
     await node([tauri, 'build', '--target', 'x86_64-pc-windows-msvc', '--bundles', 'nsis', '--', '--locked']);
     break;
-  case 'test': await node(['node_modules/vitest/vitest.mjs', 'run']); break;
+  case 'test': await node([npm, 'test']); break;
   case 'native': await node(['scripts/native-smoke.mjs']); break;
+  case 'quick':
+    await run('cargo', ['fmt', '--all', '--check']);
+    await run('cargo', ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings']);
+    await run('cargo', ['test', '--workspace', '--lib', '--bins', '--locked']);
+    await node([npm, 'run', 'typecheck']);
+    break;
+  case 'prune': await pruneTarget(); break;
   case 'check':
     await node(['--test', resolve(root, 'scripts/runner-identities.test.mjs'), resolve(root, 'scripts/collect-ci-timings.test.mjs'), resolve(root, 'scripts/native-artifact.test.mjs'), resolve(root, 'scripts/native-consumer.test.mjs'), resolve(root, 'scripts/owned-process.test.mjs'), resolve(root, 'scripts/check-versions.test.mjs'), resolve(root, 'scripts/prepare-package-retest.test.mjs')]);
     await run('cargo', ['fmt', '--all', '--check']);
     await run('cargo', ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings']);
     await run('cargo', ['test', '--workspace', '--locked']);
     await node(['scripts/build.mjs']);
-    await node(['node_modules/vitest/vitest.mjs', 'run']);
+    await node([npm, 'test']);
     break;
   default: throw new Error(`Unknown desktop command: ${action}`);
 }

@@ -1,13 +1,15 @@
 param(
-    [ValidateSet('setup', 'dev', 'build', 'package', 'spike', 'check', 'native', 'test')]
-    [string]$Command = 'dev'
+    [ValidateSet('setup', 'dev', 'build', 'package', 'spike', 'check', 'quick', 'native', 'test', 'prune')]
+    [string]$Command = 'dev',
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$RemainingArgs
 )
 $ErrorActionPreference = 'Stop'
 $repoPath = Split-Path -Parent $PSScriptRoot
 Push-Location $repoPath
 try {
     # npm manages this exact Node version in its normal package cache. Nothing in V2 changes.
-    & npm.cmd exec --yes --package=node@24.20.0 -- node (Join-Path $PSScriptRoot 'run-desktop.mjs') $Command
+    & npm.cmd exec --yes --package=node@24.20.0 -- node (Join-Path $PSScriptRoot 'run-desktop.mjs') $Command @RemainingArgs
     if ($LASTEXITCODE -ne 0) { throw "Desktop command '$Command' failed ($LASTEXITCODE)." }
 } finally {
     Pop-Location

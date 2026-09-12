@@ -236,3 +236,32 @@ are retained, but the remaining real native/fan-out and hosted cache/runner/cost
 matrix cannot be proved without restored GitHub Actions capacity. The goal is
 blocked, not complete. Restore account billing/spending capacity before running
 and measuring the candidate workflow. Changes have not been committed or pushed.
+
+## Test suite optimization update (12 September 2026)
+
+Targeted performance profiling of the 75 integration test suites compiled into
+`crates/core/tests/integration.rs` (720 tests) identified `codex_app_server` as the
+primary bottleneck, taking 25.16 s (~37% of integration test runtime). Within that suite,
+`completed_thread_threshold_recycles_idle_connection` alone consumed 16.04 s by
+executing 128 sequential child-process IPC roundtrips to test the default
+`MAX_THREADS_PER_CONNECTION = 128` threshold.
+
+To optimize execution without compromising process recycling verification or runtime
+durability:
+1. Added `AppServerConnection::start_with_thread_threshold` in `crates/providers`,
+   exposing a configurable recycling threshold to test fixtures while preserving
+   the production default `MAX_THREADS_PER_CONNECTION = 128`.
+2. Updated `completed_thread_threshold_recycles_idle_connection` in `crates/core` to
+   configure a threshold of 8 iterations and execute 8 IPC roundtrips.
+
+Verified local measurements:
+- `completed_thread_threshold_recycles_idle_connection`: dropped from 16.04 s to 1.15 s (14.89 s reduction).
+- `codex_app_server` integration suite: dropped from 25.16 s to 10.17 s (14.99 s reduction).
+- `crates/core/tests/integration.rs` (720 tests): dropped from 67.30 s to 52.35 s (~22% overall speedup).
+- Workspace test suite (`cargo test --workspace --locked`): 979 tests pass with 0 failures.
+
+Additionally, `scripts/run-desktop.mjs` was updated to delegate Vitest execution
+via `npm test` rather than invoking `node node_modules/vitest/vitest.mjs run` directly,
+resolving Node 24 worker module resolution errors under `scripts/desktop.ps1 test` and
+aligning desktop verification with the GitHub Actions CI workflow. All 78 frontend test
+files (824 tests) execute and pass cleanly.

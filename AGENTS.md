@@ -11,6 +11,23 @@
 - Proposed commands are not evidence. Record native WebView2 text input, accessibility, persistence, provider, and packaging evidence in the qualification documents before claiming support.
 - Register new core integration test files in `crates/core/tests/integration.rs`; see [development checks](docs/TESTING.md) for focused commands and the full verification path.
 
+## Instruction Synchronization
+
+**All agent instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `.claude/CLAUDE.md`) must always remain synchronized.**
+Whenever guidelines, architectural rules, tooling requirements, or workflow constraints are added, modified, or removed in any instruction file, the changes must immediately be propagated across all equivalent files to guarantee identical standards across all AI agents and harnesses.
+
+## Preferred Tooling: CodeGraph & Context Mode
+
+Always prefer and prioritize using **CodeGraph** and **Context Mode** over raw tool calls:
+
+1. **CodeGraph (Primary Code Intelligence)**:
+   - In repositories indexed by CodeGraph (where `.codegraph/` exists), reach for CodeGraph **BEFORE** using `grep`, `find`, or reading raw source files.
+   - Use `codegraph_explore` (MCP) or `codegraph explore "<query>"` / `codegraph query "<symbol>"` (shell) to understand symbols, call paths, and source code.
+2. **Context Mode (Primary Execution & Sandbox)**:
+   - Always prefer `context-mode` MCP tools (`ctx_execute`, `ctx_batch_execute`, `ctx_execute_file`, `ctx_search`, `ctx_index`, `ctx_fetch_and_index`) to preserve context window capacity and session continuity.
+   - **Think in Code**: When analyzing, counting, filtering, comparing, searching, or transforming code and data, write a script via `ctx_execute` (or `ctx_execute_file`) that computes and outputs only the concise answer (`console.log`), rather than reading large files or dumps into context.
+   - **Avoid Raw Dumps**: Do not dump large command outputs (>20 lines), large web pages, or multi-file contents into the prompt. Use `ctx_fetch_and_index` + `ctx_search` for web documentation and `ctx_batch_execute` for batch commands.
+
 <!-- CODEGRAPH_START -->
 ## CodeGraph
 

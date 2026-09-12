@@ -1,14 +1,33 @@
 # Development checks
 
-Run the complete local check from the repository root:
+For the fast inner-loop development check (~8–10 seconds), run:
+
+```powershell
+.\scripts\desktop.ps1 -Command quick
+# Or from Command Prompt / batch:
+.\scripts\desktop.cmd quick
+```
+
+This checks Rust formatting, strict workspace Clippy, runs all workspace crate
+unit tests, and validates TypeScript without running the full 75 integration test suites.
+
+Run the complete local qualification check before submitting:
 
 ```powershell
 .\scripts\desktop.ps1 -Command check
+# Or from Command Prompt / batch:
+.\scripts\desktop.cmd check
 ```
 
 It runs Rust formatting, strict workspace Clippy, every Rust test, TypeScript,
 the frontend production build, and the full isolated frontend suite. Native
 qualification remains separate; see [native checks](../tests/native/README.md).
+
+To safely prune orphaned compilation artifacts and recover tens of gigabytes of disk space without rebuilding dependencies:
+
+```powershell
+.\scripts\desktop.cmd prune
+```
 
 For a focused development loop, use the normal Cargo or Vitest filters:
 

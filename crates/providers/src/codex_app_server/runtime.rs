@@ -261,6 +261,7 @@ struct Driver {
     poisoned: bool,
     local_failure: Option<AppServerLocalFailure>,
     completed_threads: usize,
+    max_threads_per_connection: usize,
     recycle_requested: bool,
     next_rpc: u64,
     resources: Box<dyn Send>,
@@ -283,6 +284,25 @@ impl AppServerConnection {
         invocation: CliInvocation,
         resources: impl Send + 'static,
         auth: Option<AppServerAuth>,
+    ) -> CoreResult<Self> {
+        Self::start_with_config(invocation, resources, auth, MAX_THREADS_PER_CONNECTION)
+    }
+
+    /// Starts with a custom thread-recycle threshold (useful for testing process
+    /// recycling without executing hundreds of sequential IPC turns).
+    pub fn start_with_thread_threshold(
+        invocation: CliInvocation,
+        resources: impl Send + 'static,
+        max_threads_per_connection: usize,
+    ) -> CoreResult<Self> {
+        Self::start_with_config(invocation, resources, None, max_threads_per_connection)
+    }
+
+    pub fn start_with_config(
+        invocation: CliInvocation,
+        resources: impl Send + 'static,
+        auth: Option<AppServerAuth>,
+        max_threads_per_connection: usize,
     ) -> CoreResult<Self> {
         if auth.as_ref().is_some_and(|auth| {
             !protocol::valid_identifier(&auth.method) || !auth.params.is_object()
@@ -345,6 +365,7 @@ impl AppServerConnection {
                     poisoned: false,
                     local_failure: None,
                     completed_threads: 0,
+                    max_threads_per_connection,
                     recycle_requested: false,
                     next_rpc: 1,
                     resources: Box::new(resources),
@@ -1252,7 +1273,7 @@ impl Driver {
         };
         let completed = request.completed.take();
         self.completed_threads = self.completed_threads.saturating_add(1);
-        if self.completed_threads >= MAX_THREADS_PER_CONNECTION {
+        if self.completed_threads >= self.max_threads_per_connection {
             self.recycle_requested = true;
             if let Ok(mut state) = self.state.lock() {
                 // Stop admission before asking the process to close. Existing

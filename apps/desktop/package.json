@@ -11,6 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:watch": "vitest",
     "test:native": "node scripts/native-smoke.mjs",
     "test:native-http": "node scripts/native-http-smoke.mjs",
     "test:native-close": "node scripts/native-app-close.mjs",

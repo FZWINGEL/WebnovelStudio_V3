@@ -413,9 +413,13 @@ fn acknowledged_turn_crash_preserves_turn_identity_and_validates_receipt() {
 #[test]
 fn completed_thread_threshold_recycles_idle_connection() {
     let _fixture_guard = fixture_guard();
-    let connection =
-        AppServerConnection::start(invocation("complete"), ()).expect("start app-server fixture");
-    for _ in 0..128 {
+    let connection = AppServerConnection::start_with_thread_threshold(
+        invocation("complete"),
+        (),
+        8,
+    )
+    .expect("start app-server fixture");
+    for _ in 0..8 {
         let mut stream = start_request(&connection, StopSignal::new());
         let finished = collect(&mut stream);
         assert_eq!(finished.result.status, CodexRunStatus::Completed);
