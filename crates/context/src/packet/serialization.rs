@@ -109,21 +109,31 @@ impl Pricing<'_> {
     }
 }
 
-/// What a packing *stage* needs beyond [`Pricing`]: what the packet is being
-/// built as, and what has been delivered so far.
-///
-/// Built after the summaries and views stages, because those are the two that
-/// fill it — which is the design question §3.4 left open, answered by where the
-/// borrow actually ends rather than by argument.
-pub(super) struct Stage<'a> {
+/// What the packet is being built as. Both values are `Copy`, so a stage may
+/// hold one for the whole pipeline without borrowing anything that moves.
+#[derive(Clone, Copy)]
+pub(super) struct Shape {
     pub(super) schema: PacketSchemaVersion,
     pub(super) conversation_turns: usize,
-    pub(super) delivered_views: &'a [FrozenNavigationView],
-    pub(super) delivered_summaries: &'a [ReviewedSummarySet],
-    /// The handles still under consideration. It is rebound once the accepted
-    /// summaries are known, so a stage context built after that — as this one
-    /// is — carries the binding the pipeline actually uses.
-    pub(super) optional_handles: &'a [String],
+}
+
+/// What the pipeline has delivered so far, rebuilt by the caller before each
+/// stage.
+///
+/// A stage *returns* what it delivers rather than writing into a `&mut`, and
+/// that is the whole reason this struct can exist: the summaries stage produces
+/// `summaries` and the views stage produces `views`, so a context that held
+/// them could not be alive across its own call. Returning them means the caller
+/// rebinds after, and the borrow ends where the stage does.
+#[derive(Clone, Copy)]
+pub(super) struct Delivered<'a> {
+    pub(super) views: &'a [FrozenNavigationView],
+    pub(super) summaries: &'a [ReviewedSummarySet],
+    pub(super) evidence: &'a [PackedReviewedEvidence],
+    pub(super) promises: &'a [PackedReviewedPromises],
+    /// The handles still under consideration — rebound once the accepted
+    /// summaries are known, which is why it is read from here rather than held.
+    pub(super) handles: &'a [String],
 }
 
 pub(super) fn build_serialized(
@@ -437,19 +447,20 @@ pub(super) fn build_serialized(
 /// enclosing scope — nine of them now the pricing context and the stage context.
 pub(super) fn pack_reviewed_evidence(
     pricing: &Pricing<'_>,
-    stage: &Stage<'_>,
+    shape: Shape,
     sources: &[SelectedSource],
+    context: &Delivered<'_>,
     candidates: &[PackedReviewedEvidence],
-    delivered: &mut Vec<PackedReviewedEvidence>,
-    available: &mut usize,
-) -> Result<(), PacketError> {
+    available: usize,
+) -> Result<Vec<PackedReviewedEvidence>, PacketError> {
     let mut blocked = false;
+    let mut delivered: Vec<PackedReviewedEvidence> = Vec::new();
     for evidence in candidates {
         if blocked {
             break;
         }
         for record in &evidence.records {
-            let mut candidate_evidence = (*delivered).clone();
+            let mut candidate_evidence = delivered.clone();
             if let Some(existing) = candidate_evidence.iter_mut().find(|item| {
                 item.set.source_handle == evidence.set.source_handle
                     && item.set.bundle_id == evidence.set.bundle_id
@@ -466,28 +477,28 @@ pub(super) fn pack_reviewed_evidence(
             let packet = build_serialized(
                 &pricing,
                 sources,
-                &pricing.omissions(stage.optional_handles, stage.delivered_views, &HashMap::new()),
+                &pricing.omissions(context.handles, context.views, &HashMap::new()),
 
                 Packing {
-                    schema: stage.schema,
+                    schema: shape.schema,
                     method: "layeredExcerpt",
-                    conversation_turns: stage.conversation_turns,
-                    navigation_views: stage.delivered_views,
+                    conversation_turns: shape.conversation_turns,
+                    navigation_views: context.views,
                     reviewed_evidence: &candidate_evidence,
                     reviewed_promises: &[],
                     reviewed_knowledge: &[],
-                    accepted_summaries: stage.delivered_summaries,
+                    accepted_summaries: context.summaries,
                 },
             )?;
-            if packet.input_tokens <= *available {
-                (*delivered) = candidate_evidence;
+            if packet.input_tokens <= available {
+                delivered = candidate_evidence;
             } else {
                 blocked = true;
                 break;
             }
         }
     }
-    Ok(())
+    Ok(delivered)
 }
 
 /// A reviewed-records stage, split out of the pipeline on the same terms as
@@ -497,21 +508,20 @@ pub(super) fn pack_reviewed_evidence(
 
 pub(super) fn pack_reviewed_knowledge(
     pricing: &Pricing<'_>,
-    stage: &Stage<'_>,
+    shape: Shape,
     sources: &[SelectedSource],
-    evidence: &[PackedReviewedEvidence],
-    promises: &[PackedReviewedPromises],
+    context: &Delivered<'_>,
     candidates: &[PackedReviewedKnowledge],
-    delivered: &mut Vec<PackedReviewedKnowledge>,
-    available: &mut usize,
-) -> Result<(), PacketError> {
+    available: usize,
+) -> Result<Vec<PackedReviewedKnowledge>, PacketError> {
     let mut blocked = false;
+    let mut delivered: Vec<PackedReviewedKnowledge> = Vec::new();
     for knowledge in candidates {
         if blocked {
             break;
         }
         for record in &knowledge.records {
-            let mut candidate_knowledge = (*delivered).clone();
+            let mut candidate_knowledge = delivered.clone();
             if let Some(existing) = candidate_knowledge.iter_mut().find(|item| {
                 item.set.source_handle == knowledge.set.source_handle
                     && item.set.bundle_id == knowledge.set.bundle_id
@@ -528,28 +538,28 @@ pub(super) fn pack_reviewed_knowledge(
             let packet = build_serialized(
                 &pricing,
                 sources,
-                &pricing.omissions(stage.optional_handles, stage.delivered_views, &HashMap::new()),
+                &pricing.omissions(context.handles, context.views, &HashMap::new()),
 
                 Packing {
-                    schema: stage.schema,
+                    schema: shape.schema,
                     method: "layeredExcerpt",
-                    conversation_turns: stage.conversation_turns,
-                    navigation_views: stage.delivered_views,
-                    reviewed_evidence: evidence,
-                    reviewed_promises: promises,
+                    conversation_turns: shape.conversation_turns,
+                    navigation_views: context.views,
+                    reviewed_evidence: context.evidence,
+                    reviewed_promises: context.promises,
                     reviewed_knowledge: &candidate_knowledge,
-                    accepted_summaries: stage.delivered_summaries,
+                    accepted_summaries: context.summaries,
                 },
             )?;
-            if packet.input_tokens <= *available {
-                (*delivered) = candidate_knowledge;
+            if packet.input_tokens <= available {
+                delivered = candidate_knowledge;
             } else {
                 blocked = true;
                 break;
             }
         }
     }
-    Ok(())
+    Ok(delivered)
 }
 
 /// A reviewed-records stage, split out of the pipeline on the same terms as
@@ -559,20 +569,20 @@ pub(super) fn pack_reviewed_knowledge(
 
 pub(super) fn pack_reviewed_promises(
     pricing: &Pricing<'_>,
-    stage: &Stage<'_>,
+    shape: Shape,
     sources: &[SelectedSource],
-    evidence: &[PackedReviewedEvidence],
+    context: &Delivered<'_>,
     candidates: &[PackedReviewedPromises],
-    delivered: &mut Vec<PackedReviewedPromises>,
-    available: &mut usize,
-) -> Result<(), PacketError> {
+    available: usize,
+) -> Result<Vec<PackedReviewedPromises>, PacketError> {
     let mut blocked = false;
+    let mut delivered: Vec<PackedReviewedPromises> = Vec::new();
     for promises in candidates {
         if blocked {
             break;
         }
         for record in &promises.records {
-            let mut candidate_promises = (*delivered).clone();
+            let mut candidate_promises = delivered.clone();
             if let Some(existing) = candidate_promises.iter_mut().find(|item| {
                 item.set.source_handle == promises.set.source_handle
                     && item.set.bundle_id == promises.set.bundle_id
@@ -589,26 +599,149 @@ pub(super) fn pack_reviewed_promises(
             let packet = build_serialized(
                 &pricing,
                 sources,
-                &pricing.omissions(stage.optional_handles, stage.delivered_views, &HashMap::new()),
+                &pricing.omissions(context.handles, context.views, &HashMap::new()),
 
                 Packing {
-                    schema: stage.schema,
+                    schema: shape.schema,
                     method: "layeredExcerpt",
-                    conversation_turns: stage.conversation_turns,
-                    navigation_views: stage.delivered_views,
-                    reviewed_evidence: evidence,
+                    conversation_turns: shape.conversation_turns,
+                    navigation_views: context.views,
+                    reviewed_evidence: context.evidence,
                     reviewed_promises: &candidate_promises,
                     reviewed_knowledge: &[],
-                    accepted_summaries: stage.delivered_summaries,
+                    accepted_summaries: context.summaries,
                 },
             )?;
-            if packet.input_tokens <= *available {
-                (*delivered) = candidate_promises;
+            if packet.input_tokens <= available {
+                delivered = candidate_promises;
             } else {
                 blocked = true;
                 break;
             }
         }
     }
-    Ok(())
+    Ok(delivered)
+}
+
+/// The accepted-summaries stage: an accepted narrative summary replaces optional
+/// original prose, never the target or a pin, so complete summaries are taken in
+/// order and the first that does not fit ends the stage.
+///
+/// It returns what it delivered rather than writing into a `&mut`, which is what
+/// lets a `Delivered` context name the sets a stage reads: the value this one
+/// produces cannot be borrowed across its own call.
+pub(super) fn pack_reviewed_summaries(
+    pricing: &Pricing<'_>,
+    shape: Shape,
+    sources: &[SelectedSource],
+    omissions: &[String],
+    handles: &[String],
+    available: usize,
+) -> Result<Vec<ReviewedSummarySet>, PacketError> {
+    let mut delivered: Vec<ReviewedSummarySet> = Vec::new();
+    for handle in handles {
+        let Some(summary) = pricing.request
+            .frozen
+            .reviewed_summaries
+            .iter()
+            .find(|set| &set.source_handle == handle)
+        else {
+            continue;
+        };
+        if !reviewed_summaries::eligible(summary, pricing.request.frozen.policy.audience)
+            || !summary_is_smaller(summary, pricing.request)
+        {
+            continue;
+        }
+        let mut candidate = delivered.clone();
+        candidate.push(summary.clone());
+        let packet = build_serialized(
+            &pricing,
+            sources,
+            omissions,
+
+            Packing {
+                schema: shape.schema,
+                method: "layeredExcerpt",
+                conversation_turns: shape.conversation_turns,
+                navigation_views: &[],
+                reviewed_evidence: &[],
+                reviewed_promises: &[],
+                reviewed_knowledge: &[],
+                accepted_summaries: &candidate,
+            },
+        )?;
+        if packet.input_tokens > available {
+            break;
+        }
+        delivered = candidate;
+    }
+    Ok(delivered)
+}
+
+/// The generated-views stage: a view is useful only when its full representation
+/// is smaller than the original source, and it is never clipped or combined with
+/// duplicate source prose. Stable-prefix pressure means a view that does not fit
+/// cannot be displaced by a later one.
+pub(super) fn pack_navigation_views(
+    pricing: &Pricing<'_>,
+    shape: Shape,
+    sources: &[SelectedSource],
+    context: &Delivered<'_>,
+    available: usize,
+) -> Result<Vec<FrozenNavigationView>, PacketError> {
+    let mut delivered: Vec<FrozenNavigationView> = Vec::new();
+    let mut blocked = false;
+    for handle in context.handles {
+        let Some(view) = pricing.navigation_by_handle.get(handle.as_str()) else {
+            continue;
+        };
+        if view.representation_bytes >= view.original_bytes {
+            continue;
+        }
+        if blocked {
+            continue;
+        }
+        let mut candidate_views = delivered.clone();
+        candidate_views.push(view.view.clone());
+        let block_handles = optional_handles_without_views(
+            context.handles,
+            &candidate_views,
+            pricing.navigation_by_handle,
+        );
+        let mut candidate_omissions = optional_omissions(
+            &block_handles,
+            pricing.canonical_by_handle,
+            &HashMap::new(),
+            pricing.directory_omissions,
+        );
+        candidate_omissions.extend(navigation_source_omissions(
+            &candidate_views,
+            pricing.navigation_by_handle,
+        ));
+        let packet = build_serialized(
+            &pricing,
+            sources,
+            &candidate_omissions,
+
+            Packing {
+                schema: shape.schema,
+                method: "layeredExcerpt",
+                conversation_turns: shape.conversation_turns,
+                navigation_views: &candidate_views,
+                reviewed_evidence: &[],
+                reviewed_promises: &[],
+                reviewed_knowledge: &[],
+                accepted_summaries: context.summaries,
+            },
+        )?;
+        if packet.input_tokens <= available {
+            delivered = candidate_views;
+        } else {
+            // Stable-prefix pressure: later views cannot displace an earlier
+            // view that did not fit at the same source priority.
+            blocked = true;
+        }
+    }
+    Ok(delivered)
 }

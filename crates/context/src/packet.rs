@@ -1089,46 +1089,9 @@ fn compile_packet_with_schema(
         );
     }
 
-    // Accepted narrative summaries precede replaceable generated views. Each
-    // complete summary replaces optional original prose, never the target or a pin.
-    let mut delivered_summaries: Vec<ReviewedSummarySet> = Vec::new();
-    for handle in &optional_handles {
-        let Some(summary) = request
-            .frozen
-            .reviewed_summaries
-            .iter()
-            .find(|set| &set.source_handle == handle)
-        else {
-            continue;
-        };
-        if !reviewed_summaries::eligible(summary, request.frozen.policy.audience)
-            || !summary_is_smaller(summary, request)
-        {
-            continue;
-        }
-        let mut candidate = delivered_summaries.clone();
-        candidate.push(summary.clone());
-        let packet = build_serialized(
-            &pricing,
-            &mandatory_sources,
-            &mandatory_omissions,
-
-            Packing {
-                schema,
-                method: "layeredExcerpt",
-                conversation_turns: included_turns,
-                navigation_views: &[],
-                reviewed_evidence: &[],
-                reviewed_promises: &[],
-                reviewed_knowledge: &[],
-                accepted_summaries: &candidate,
-            },
-        )?;
-        if packet.input_tokens > available {
-            break;
-        }
-        delivered_summaries = candidate;
-    }
+    let shape = Shape { schema, conversation_turns: included_turns };
+    let delivered_summaries =
+        pack_reviewed_summaries(&pricing, shape, &mandatory_sources, &mandatory_omissions, &optional_handles, available)?;
     let optional_handles: Vec<String> = optional_handles
         .into_iter()
         .filter(|handle| {
@@ -1138,106 +1101,36 @@ fn compile_packet_with_schema(
         })
         .collect();
 
-    // First choose complete generated views in stable source order. A view is
-    // useful only when its full representation is smaller than the original
-    // source; it is never clipped or combined with duplicate source prose.
-    let mut delivered_views: Vec<FrozenNavigationView> = Vec::new();
-    let mut view_budget_blocked = false;
-    for handle in &optional_handles {
-        let Some(view) = navigation_by_handle.get(handle.as_str()) else {
-            continue;
-        };
-        if view.representation_bytes >= view.original_bytes {
-            continue;
-        }
-        if view_budget_blocked {
-            continue;
-        }
-        let mut candidate_views = delivered_views.clone();
-        candidate_views.push(view.view.clone());
-        let block_handles = optional_handles_without_views(
-            &optional_handles,
-            &candidate_views,
-            &navigation_by_handle,
-        );
-        let mut candidate_omissions = optional_omissions(
-            &block_handles,
-            &canonical_by_handle,
-            &HashMap::new(),
-            &directory_omissions,
-        );
-        candidate_omissions.extend(navigation_source_omissions(
-            &candidate_views,
-            &navigation_by_handle,
-        ));
-        let packet = build_serialized(
-            &pricing,
-            &mandatory_sources,
-            &candidate_omissions,
-
-            Packing {
-                schema,
-                method: "layeredExcerpt",
-                conversation_turns: included_turns,
-                navigation_views: &candidate_views,
-                reviewed_evidence: &[],
-                reviewed_promises: &[],
-                reviewed_knowledge: &[],
-                accepted_summaries: &delivered_summaries,
-            },
-        )?;
-        if packet.input_tokens <= available {
-            delivered_views = candidate_views;
-        } else {
-            // Stable-prefix pressure: later views cannot displace an earlier
-            // view that did not fit at the same source priority.
-            view_budget_blocked = true;
-        }
-    }
-
-    let stage = Stage {
-        schema,
-        conversation_turns: included_turns,
-        delivered_views: &delivered_views,
-        delivered_summaries: &delivered_summaries,
-        optional_handles: &optional_handles,
+    let delivered = Delivered {
+        views: &[],
+        summaries: &delivered_summaries,
+        evidence: &[],
+        promises: &[],
+        handles: &optional_handles,
     };
-    let mut delivered_reviewed_evidence: Vec<PackedReviewedEvidence> = Vec::new();
-    pack_reviewed_evidence(
-        &pricing,
-        &stage,
-        &mandatory_sources,
-        &validated_reviewed_evidence,
-        &mut delivered_reviewed_evidence,
-        &mut available,
-    )?;
+    let delivered_views =
+        pack_navigation_views(&pricing, shape, &mandatory_sources, &delivered, available)?;
+    let delivered = Delivered {
+        views: &delivered_views,
+        summaries: &delivered_summaries,
+        evidence: &[],
+        promises: &[],
+        handles: &optional_handles,
+    };
+    let delivered_reviewed_evidence =
+        pack_reviewed_evidence(&pricing, shape, &mandatory_sources, &delivered, &validated_reviewed_evidence, available)?;
     let reviewed_evidence_omissions =
         reviewed_evidence_omissions(&validated_reviewed_evidence, &delivered_reviewed_evidence);
 
-    let mut delivered_reviewed_promises: Vec<PackedReviewedPromises> = Vec::new();
-    pack_reviewed_promises(
-        &pricing,
-        &stage,
-        &mandatory_sources,
-        &delivered_reviewed_evidence,
-        &validated_reviewed_promises,
-        &mut delivered_reviewed_promises,
-        &mut available,
-    )?;
+    let delivered = Delivered { evidence: &delivered_reviewed_evidence, ..delivered };
+    let delivered_reviewed_promises =
+        pack_reviewed_promises(&pricing, shape, &mandatory_sources, &delivered, &validated_reviewed_promises, available)?;
     let reviewed_promise_omissions =
         reviewed_promise_omissions(&validated_reviewed_promises, &delivered_reviewed_promises);
 
-    let mut delivered_reviewed_knowledge: Vec<PackedReviewedKnowledge> = Vec::new();
-    pack_reviewed_knowledge(
-        &pricing,
-        &stage,
-        &mandatory_sources,
-        &delivered_reviewed_evidence,
-        &delivered_reviewed_promises,
-        &validated_reviewed_knowledge,
-        &mut delivered_reviewed_knowledge,
-        &mut available,
-    )?;
+    let delivered = Delivered { promises: &delivered_reviewed_promises, ..delivered };
+    let delivered_reviewed_knowledge =
+        pack_reviewed_knowledge(&pricing, shape, &mandatory_sources, &delivered, &validated_reviewed_knowledge, available)?;
     let reviewed_knowledge_omissions =
         reviewed_knowledge_omissions(&validated_reviewed_knowledge, &delivered_reviewed_knowledge);
 
