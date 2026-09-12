@@ -2,7 +2,7 @@ import { Extension, Mark, Node, commands, mergeAttributes } from '@tiptap/core';
 import { Fragment, Slice, type Node as PMNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { history, redo, undo } from '@tiptap/pm/history';
-import { safeHref } from './document';
+import { safeHref } from '../kernel';
 
 const idAttributes = { id: {
   default: null,

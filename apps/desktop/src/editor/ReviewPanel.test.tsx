@@ -2,7 +2,7 @@
 import { act, useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import { DocumentSession } from '../editor/session';
 import type { DocumentRecord, ProjectAccess, ProjectTransport } from '../ipc/projects';
 import * as ipc from '../ipc/reviews';

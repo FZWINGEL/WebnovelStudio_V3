@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HistoryPanel } from '../editor/HistoryPanel';
 import * as ipc from '../ipc/history';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import type { ProjectAccess, Revision } from '../ipc/projects';
 
 vi.mock('../ipc/history', () => ({ listDocumentHistory: vi.fn(), readDocumentRevision: vi.fn() }));

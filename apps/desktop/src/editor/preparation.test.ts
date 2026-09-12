@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PrepareContinuation, PrepareProposal, PrepareStructured, PreparedProposal } from '../ipc/proposals';
-import type { WnsDocument } from './document';
-import { bodyHash, canonicalJson } from './document';
+import type { WnsDocument } from '../kernel';
+import { bodyHash, canonicalJson } from '../kernel';
 import { confirmPreparation } from './preparation';
 
 const access = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };

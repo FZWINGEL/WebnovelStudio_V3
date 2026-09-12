@@ -6,7 +6,7 @@ import { SourcePinsPanel } from './SourcePinsPanel';
 import { readSourcePins, saveSourcePins, type SourcePinSet, type SourcePinsView } from '../ipc/sourcePins';
 import { DocumentSession } from '../editor/session';
 import type { ProjectAccess } from '../ipc/projects';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 
 vi.mock('../ipc/sourcePins', () => ({ readSourcePins: vi.fn(), saveSourcePins: vi.fn() }));
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };

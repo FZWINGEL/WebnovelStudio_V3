@@ -7,7 +7,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   isTauri: mocks.isTauri,
 }));
 
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import { validateSnapshot } from './native';
 
 const snapshot: WnsDocument = {

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FeedbackPanel, finalContextPacketIdForRun } from './FeedbackPanel';
 import * as discussions from '../ipc/discussions';
 import * as proposals from '../ipc/proposals';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import { DocumentSession } from '../editor/session';
 import { Editor } from '@tiptap/core';
 import { editorExtensions } from '../editor/schema';

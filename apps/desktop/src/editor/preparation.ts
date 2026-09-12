@@ -1,5 +1,5 @@
 import type { PrepareContinuation, PrepareProposal, PrepareStructured, PreparedProposal } from '../ipc/proposals';
-import { bodyHash, canonicalJson } from './document';
+import { bodyHash, canonicalJson } from '../kernel';
 import { SessionError } from './session';
 
 /** Confirm the exact immutable preview requested, including its version. */

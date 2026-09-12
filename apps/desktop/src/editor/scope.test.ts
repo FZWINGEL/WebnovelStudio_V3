@@ -3,7 +3,7 @@ import { TextSelection } from '@tiptap/pm/state';
 import { closeHistory, undo, redo } from '@tiptap/pm/history';
 import { afterEach, describe, expect, it } from 'vitest';
 import golden from '../../../../contracts/fixtures/w1_scope_golden.json';
-import { canonicalJson, snapshotFromEditor, type WnsDocument } from './document';
+import { canonicalJson, snapshotFromEditor, type WnsDocument } from '../kernel';
 import { editorExtensions } from './schema';
 import { captureSelection, prepareReplacement, prepareScopedReplacement } from './selection';
 import type { ScopeGrant } from '../ipc/context';

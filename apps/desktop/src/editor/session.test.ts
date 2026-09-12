@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentRecord, Head, OperationReceipt, ProjectAccess, ProjectTransport, ReconciledDocument, SaveAck, SaveSnapshot } from '../ipc/projects';
-import { bodyHash, canonicalJson, type WnsDocument } from './document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import { DocumentSession, SessionError, logicalSaveJson } from './session';
 import receiptFixture from '../../../../contracts/fixtures/w2_save_receipt.json';
 

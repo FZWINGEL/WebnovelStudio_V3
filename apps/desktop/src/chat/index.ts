@@ -3,7 +3,8 @@
 
 export { ChapterRangeReview, suggestedChapterRange } from './ChapterRangeReview';
 export { ConversationHistoryPanel } from './ConversationHistoryPanel';
-export { documentBlocks } from './DraftReviewDiff';
 export { ProjectConversation } from './ProjectConversation';
 export type { ProjectConversationHandle } from './ProjectConversation';
 export { confirmChapterRange } from './confirmChapterRange';
+export { Writer } from './Writer';
+export type { WriterConversation } from './Writer';

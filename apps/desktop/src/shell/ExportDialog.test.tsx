@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExportDialog, type ExportBasis } from './ExportDialog';
-import { bodyHash } from '../editor/document';
+import { bodyHash } from '../kernel';
 import type { DraftExportPreview, DraftFormat } from '../ipc/exports';
 import type { ProjectAccess } from '../ipc/projects';
 

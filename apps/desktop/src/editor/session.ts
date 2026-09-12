@@ -1,5 +1,5 @@
 import { sameHead } from '../kernel';
-import { bodyHash, canonicalJson, type WnsDocument } from './document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import type { CheckpointRequest, DocumentRecord, Head, OperationReceipt, ProjectAccess, ProjectTransport, ReconciledDocument, Revision, SaveAck, SaveSnapshot } from '../ipc/projects';
 import type { ApplyProposal, PreparedProposal, Proposal } from '../ipc/proposals';
 import type { RestoreRevision } from '../ipc/history';

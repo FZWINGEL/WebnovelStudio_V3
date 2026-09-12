@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { readStoryContextSource, type SourceDescriptor } from '../ipc/context';
 import { readDocument, type ProjectAccess } from '../ipc/projects';
 import type { WnsDocument } from '../editor';
-import { documentBlocks } from '../chat';
+import { documentBlocks } from '../editor';
 
 /** A local reading aid. Neither button changes the immutable request or its sources. */
 export function SourceVersionComparison({ access, snapshotId, source }: {

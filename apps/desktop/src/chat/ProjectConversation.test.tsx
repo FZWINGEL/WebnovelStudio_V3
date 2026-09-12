@@ -12,7 +12,7 @@ const startProjectChapter = vi.hoisted(() => vi.fn());
 const setChatDisposition = vi.hoisted(() => vi.fn());
 
 // The chat renders the editor itself; this suite is about the chat around it.
-vi.mock('../editor/Writer', () => ({ Writer: () => <div data-testid="mounted-editor">Working text stays mounted.</div> }));
+vi.mock('./Writer', () => ({ Writer: () => <div data-testid="mounted-editor">Working text stays mounted.</div> }));
 vi.mock('../ipc/projectChat', async () => {
   const actual = await vi.importActual<typeof import('../ipc/projectChat')>('../ipc/projectChat');
   return { ...actual, readProjectConversation, saveProjectComposer, startProjectChapter, setChatDisposition };

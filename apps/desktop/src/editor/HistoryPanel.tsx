@@ -1,6 +1,6 @@
 import { errorTextFor } from '../kernel';
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import { listDocumentHistory, readDocumentRevision, type RevisionSummary } from '../ipc/history';
 import type { ProjectAccess, Revision } from '../ipc/projects';
 

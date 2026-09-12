@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../kernel';
 import type { AssistantDraft, ProjectConversationView } from '../ipc/projectChat';
 import type { DocumentRecord, ProjectAccess } from '../ipc/projects';
 

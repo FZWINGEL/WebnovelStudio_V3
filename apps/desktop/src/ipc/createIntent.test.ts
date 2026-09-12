@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CreateDocumentIntent, DocumentRecord, Head, OpenedProject, ProjectAccess, ProjectInfo } from './projects';
 import { CreateIntentRecoveryError, CreateIntentUnresolvedError, isUncertainCreateError, runCreateIntent } from './createIntent';
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../kernel';
 
 const initialAccess: ProjectAccess = { projectId: 'project-1', session: 'renderer-1', writerLease: 'lease-1', operationNamespace: 'namespace-1' };
 const project: ProjectInfo = { projectId: 'project-1', operationNamespace: 'namespace-1', title: 'Story', formatVersion: 1 };

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DocumentSession } from './session';
-import { bodyHash, canonicalJson, type WnsDocument } from './document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import type { ApplyAck, ApplyProposal, PreparedProposal, Proposal } from '../ipc/proposals';
 import type { DocumentRecord, OperationReceipt, ProjectAccess, ProjectTransport, ReconciledDocument } from '../ipc/projects';
 

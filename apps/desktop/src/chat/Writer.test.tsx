@@ -2,10 +2,10 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import { DocumentSession } from '../editor/session';
 import type { DocumentRecord, Head, ProjectAccess, ProjectTransport, SaveAck, SaveSnapshot, ViewState } from '../ipc/projects';
-import { Writer } from '../editor/Writer';
+import { Writer } from '../chat/Writer';
 import type { ProjectChapterComposer } from '../ipc/projectChat';
 
 const mocks = vi.hoisted(() => ({

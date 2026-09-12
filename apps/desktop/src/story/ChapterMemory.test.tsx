@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { canonicalJson, bodyHash, type WnsDocument } from '../editor/document';
+import { canonicalJson, bodyHash, type WnsDocument } from '../kernel';
 import type { DocumentSession, SessionState } from '../editor/session';
 import type { ProjectAccess, Head } from '../ipc/projects';
 import type { DigestCandidate, MemoryJob, MemoryRead, MemoryViewRecord } from '../ipc/memory';

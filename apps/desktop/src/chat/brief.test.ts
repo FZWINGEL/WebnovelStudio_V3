@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { bodyHash } from '../editor/document';
+import { bodyHash } from '../kernel';
 import type { DiscussionScope, SafeBriefInput } from '../ipc/discussions';
 import { approveChapterBrief, projectBriefScopeJson } from './brief';
 

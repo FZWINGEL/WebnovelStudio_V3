@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChatAdoptionEffects as EffectsManifest, ChatAdoptionTarget } from '../ipc/projectChat';
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../kernel';
 import { ChatAdoptionEffects } from './ChatAdoptionEffects';
 
 const head = (documentId: string, version: string) => ({ documentId, version, bodyHash: `${documentId}-${version}-hash` });

@@ -7,7 +7,7 @@ import { createDocument, reconcileProject, readDocument, projectTransport, proje
 import { CreateIntentRecoveryError, CreateIntentUnresolvedError, runCreateIntent } from '../ipc/createIntent';
 import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, libraryResumeImport, projectBackup, type LibrarySnapshot } from '../ipc/library';
 import { prepareDraftExport, prepareReviewedDraftExport, exportPreparedDraft, type DraftExportPreview, type DraftFormat } from '../ipc/exports';
-import { Writer } from '../editor';
+import { Writer } from '../chat';
 import type { DiscussionRun } from '../ipc/discussions';
 import { ExportDialog, type ExportBasis } from './ExportDialog';
 import { V2ImportDialog } from './V2ImportDialog';

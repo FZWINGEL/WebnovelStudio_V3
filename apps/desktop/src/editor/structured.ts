@@ -3,7 +3,7 @@ import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { ScopeGrant } from '../ipc/context';
 import type { StructuredBlock } from '../ipc/proposals';
-import { safeHref, snapshotFromEditor, type Block } from './document';
+import { safeHref, snapshotFromEditor, type Block } from '../kernel';
 import { blocksQuote } from './revisionScope';
 
 const idPattern = /^[A-Za-z0-9_-]{1,64}$/u;

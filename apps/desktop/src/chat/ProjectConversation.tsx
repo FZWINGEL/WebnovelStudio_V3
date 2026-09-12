@@ -13,7 +13,7 @@ import { conversationItems, draftRefs, ProjectConversationStore } from './conver
 import { DraftReviewPanel, type DraftReviewPanelHandle } from './DraftReviewPanel';
 import { ProjectDocumentsPanel } from './ProjectDocumentsPanel';
 import { DocumentSaveRecap } from './DocumentSaveRecap';
-import { Writer } from '../editor';
+import { Writer } from './Writer';
 import { RequestStatus } from './RequestStatus';
 import { useStoryFreshness } from './useStoryFreshness';
 import { ChapterHandoff, parseChapterHandoff, type ChapterHandoffProposal } from './ChapterHandoff';

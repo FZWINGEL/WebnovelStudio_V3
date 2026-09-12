@@ -288,12 +288,47 @@ Two things the change surfaced and did not paper over:
   broke. They now spread the real module and override the one function they stub, which is
   the form that cannot break this way again.
 
-* **Cycles between features are not forbidden, and four pairs have them**: `assistant` with
-  `chat` and with `editor`, `chat` with `editor`, and `editor` with `story`. Five further
-  edges are one-way. The rule here is that each direction goes through a declared surface;
-  breaking the cycles is the same discharge the Rust side needed and is *not* done — it is the
-  remaining design question of §4.1, and it is the same one §3.5 faced, where the answer was to
-  move the half the higher layer calls down to the seam.
+* **Four pairs of features were mutually dependent**, and the publication rule did not touch
+  that: every edge could go through a surface and the graph still be a knot. The pairs were
+  `assistant` with `chat` and with `editor`, `chat` with `editor`, and `editor` with `story`
+  — and **the whole of all four cycles was six imports in one file**, `editor/Writer.tsx`,
+  which composed the feedback, proposal, chapter-range and chapter-memory panels from three
+  features above it. Every other edge in all four pairs pointed *down*; the graph was acyclic
+  the moment that file stopped reaching upward.
+
+  It was discharged by moving the composition to `chat` — the feature that renders it — which
+  is what §4.5 said was already true and was not. `editor` keeps the Tiptap model, the save
+  loop and the document surfaces it owns (`HistoryPanel`, `ReviewPanel`); `chat` owns
+  `<Writer>`. One further cycle edge was a pure helper: `documentBlocks` lived in
+  `chat/DraftReviewDiff` and was imported by `assistant/SourceVersionComparison`, making two
+  features mutually dependent for a function over a document. It is a document helper, so it
+  moved to the document model.
+
+  What is left is a partial order — `providers` and `editor` at the bottom, then `assistant`,
+  then `story`, then `chat`, with `workshop` above `editor` alone — and
+  `featureBoundary.test.ts` now asserts acyclicity rather than only publication. That
+  assertion's first draft matched `import … from` and not `export … from`, so a cycle
+  injected as a re-export passed it; the second draft fails on both, verified by injecting
+  each.
+
+One more cycle turned up the moment the check was widened past the features, and it is the
+same shape as the last: `ipc/*.ts` imported the document model from `editor/` to narrow a
+wire body to `WnsDocument`, while `editor` imports `ipc/projects`. `ipc` is not a feature, so
+the rule above exempts it — but exempting it from the *acyclicity* check would have hidden
+exactly this, so the check covers every slice and the exemption now applies only to the
+publication rule. The document model moved to `kernel/`, where the rest of the shared
+vocabulary already was and where the module's own doc comment said it belonged; `editor`
+re-exports it so a feature that already reads the editor needs no second import to name a
+document. The same 59-edge count now forms a total order over every slice:
+
+```
+providers · editor · ipc/generated   →   assistant   →   story   →   chat
+        workshop · shell above editor / everything
+```
+
+`ipc/generated` is separated from `ipc` deliberately: it is a build artifact with no
+dependencies of its own, and folding it into the wrappers invents a cycle, since `kernel`'s
+document model imports the generated narrowing and the wrappers import `kernel`.
 
 ### 4.2 `kernel/`
 

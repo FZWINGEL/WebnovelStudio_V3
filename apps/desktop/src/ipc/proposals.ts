@@ -30,7 +30,7 @@ import type { TypedReplacementBlock } from './generated/documents';
 export type { AppliedDecision };
 
 import { invoke } from '@tauri-apps/api/core';
-import type { Inline, WnsDocument } from '../editor';
+import type { Inline, WnsDocument } from '../kernel';
 import type { DocumentRecord, Head, ProjectAccess } from './projects';
 import type { ScopeGrant } from './context';
 

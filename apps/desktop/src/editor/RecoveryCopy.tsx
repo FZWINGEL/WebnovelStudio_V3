@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import { saveRecoveryCopy } from '../ipc/recovery';
 
 export function RecoveryCopy({ capture }: { capture: () => WnsDocument }) {

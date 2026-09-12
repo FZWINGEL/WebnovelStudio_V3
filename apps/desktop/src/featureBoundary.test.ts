@@ -16,16 +16,19 @@ import { describe, expect, it } from 'vitest';
  * as `crates/architecture/tests/layering.rs` on the Rust side: the boundary is
  * a property of the tree, so it is checked against the tree.
  *
- * Cycles between features are *not* forbidden here. `chat` and `assistant`
- * import each other, and so do four other pairs; the rule this enforces is that
- * each direction goes through a declared surface, which is what makes the edge
- * reviewable. Forbidding the cycles outright is a separate piece of work.
+ * It also asserts the graph is acyclic, which the publication rule alone does
+ * not give you: four pairs of features were mutually dependent, each edge
+ * published through a surface and the whole set still a knot. That is the
+ * discharge §3.5 needed on the Rust side, and here it took one move — see the
+ * note on that assertion for where the cycles actually lived.
  */
 
 const SOURCE = join(process.cwd(), 'src');
 const FEATURES = ['assistant', 'chat', 'editor', 'providers', 'story', 'workshop'];
 const SHARED = ['ipc', 'kernel'];
-const IMPORT = /import\s+(?:type\s+)?\{[^}]*\}\s+from\s+'([^']+)'/g;
+// `export … from` creates the same dependency as `import … from`, and the
+// first draft of this test missed it: a cycle injected as a re-export passed.
+const IMPORT = /(?:import|export)\s+(?:type\s+)?(?:\{[^}]*\}|\*)\s+from\s+'([^']+)'/g;
 
 function sources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -38,7 +41,12 @@ function sources(dir: string, out: string[] = []): string[] {
 }
 
 function sliceOf(path: string): string {
-  return relative(SOURCE, path).split(/[\\/]/)[0];
+  const parts = relative(SOURCE, path).split(/[\\/]/);
+  // The generated bindings are a build artifact rather than a layer: they carry
+  // no dependencies of their own and anything may read them. Folding them into
+  // `ipc` invents a cycle — `kernel`'s document model imports the generated
+  // `WnsDocument` narrowing, and `ipc`'s wrappers import `kernel`.
+  return parts[0] === 'ipc' && parts[1] === 'generated' ? 'ipc/generated' : parts[0];
 }
 
 /** Every relative import in the tree, as (from-slice, to-slice, remainder). */
@@ -103,6 +111,44 @@ describe('the feature boundary', () => {
     for (const feature of used) {
       expect(() => readFileSync(join(SOURCE, feature, 'index.ts'), 'utf8'), feature).not.toThrow();
     }
-    expect(used.size).toBeGreaterThan(4);
+    expect([...used].sort()).toEqual(['assistant', 'editor', 'providers', 'story']);
+  });
+
+  /**
+   * The rule above can hold and the graph still be a knot: every edge published
+   * through a surface, and no order in which the features can be read. All four
+   * of these pairs were mutual before this — `assistant` with `chat` and with
+   * `editor`, `chat` with `editor`, `editor` with `story` — and the whole of
+   * each cycle was six imports in `editor/Writer.tsx`, which composed panels
+   * from three features above it. It now lives in `chat`, the feature that
+   * renders it, which is what §4.5 said should happen and did not.
+   *
+   * What is left is a partial order — `providers` and `editor` at the bottom,
+   * then `assistant`, then `story`, then `chat`; `workshop` sits above `editor`
+   * alone — and this is what keeps it one.
+   */
+  it('leaves the whole slice graph acyclic, ipc and kernel included', () => {
+    // `ipc` and `kernel` are exempt from the publication rule because they are
+    // shared infrastructure rather than features — but they are still slices,
+    // and `ipc` imported the document model from `editor` while `editor`
+    // imported `ipc/projects`, so the two were mutually dependent. Exempting
+    // them from *this* check would have hidden exactly that. The model moved to
+    // `kernel`, where the rest of the shared vocabulary already was, and the
+    // check now covers every slice.
+    const slices = [...FEATURES, ...SHARED, 'ipc/generated', 'shell'];
+    const depends = new Map<string, Set<string>>(slices.map(slice => [slice, new Set<string>()]));
+    for (const edge of all) {
+      if (slices.includes(edge.from) && slices.includes(edge.to) && edge.from !== edge.to) depends.get(edge.from)!.add(edge.to);
+    }
+    const reaches = (from: string, target: string, seen = new Set<string>()): boolean => {
+      for (const next of depends.get(from)!) {
+        if (next === target) return true;
+        if (seen.has(next)) continue;
+        seen.add(next);
+        if (reaches(next, target, seen)) return true;
+      }
+      return false;
+    };
+    expect(slices.filter(slice => reaches(slice, slice)).sort()).toEqual([]);
   });
 });

@@ -9,3 +9,11 @@
 export { sameHead, sameDocumentHead, type RevisionIdentity } from './heads';
 export { errorCode, errorText, errorTextFor } from './errors';
 export { createSaveLoop, type SaveAttempt, type SaveLoop } from './saveLoop';
+/**
+ * The document model itself. It sat in `editor/` while `ipc/*.ts` imported it
+ * from there to narrow a wire body to `WnsDocument`, which made `ipc` and
+ * `editor` mutually dependent. It is vocabulary every layer shares rather than
+ * editing behaviour, so it belongs at the foundation.
+ */
+export { bodyHash, canonicalJson, documentBlocks, safeHref, sample, snapshotFromEditor } from './document';
+export type { Block, Inline, Mark, SnapshotReceipt, WnsDocument } from './document';

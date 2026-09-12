@@ -1,6 +1,6 @@
 import { errorTextFor, sameDocumentHead } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
-import { bodyHash, canonicalJson } from '../editor/document';
+import { bodyHash, canonicalJson } from '../kernel';
 import type { Scope } from '../editor/selection';
 import type { DocumentSession, SessionState } from '../editor/session';
 import { chapterReviewStatus, markReady, readReviewedRecordSet, reviewedEntityCatalog, reviewedKnowledgeCharacterCatalog, reviewedKnowledgeTopicCatalog, reviewedPromiseCatalog, readReviewStage, stageAuthorReview, type KnowledgeRecord, type MarkReady, type PossessionRecord, type PromiseRecord, type ReviewedEntityChoice, type ReviewMember, type ReviewStage, type ReviewStatus, type StageAuthorReview } from '../ipc/reviews';

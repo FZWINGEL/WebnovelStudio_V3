@@ -1,5 +1,5 @@
 import type { DiscussionScope } from '../ipc/discussions';
-import type { Block, WnsDocument } from './document';
+import type { Block, WnsDocument } from '../kernel';
 
 export function blockText(block: Block): string {
   return block.type === 'sceneBreak' ? '' : (block.content ?? []).map(inline => inline.type === 'hardBreak' ? '\n' : inline.text).join('');

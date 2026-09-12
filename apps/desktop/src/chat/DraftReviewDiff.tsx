@@ -1,5 +1,5 @@
 import type { DocumentRecord } from '../ipc/projects';
-import type { WnsDocument } from '../editor';
+import { documentBlocks, type WnsDocument } from '../editor';
 
 type DiffToken = { kind: 'same' | 'removed' | 'added'; text: string };
 
@@ -29,21 +29,12 @@ export interface DocumentDiffSummary {
   removedWords: number;
 }
 
-function inlineText(value: { type: string; text?: string }): string {
-  return value.type === 'hardBreak' ? '\n' : value.text ?? '';
-}
 
 /**
  * Keep the comparison deterministic and deliberately structural. Block index is
  * the only alignment rule; this component must not make semantic claims about
  * why the author changed the text.
  */
-export function documentBlocks(document: WnsDocument | null): string[] {
-  if (!document) return [];
-  return document.body.content.map(block => block.type === 'sceneBreak'
-    ? '—'
-    : (block.content ?? []).map(inlineText).join(''));
-}
 
 function words(text: string): string[] { return text.match(/\S+/gu) ?? []; }
 

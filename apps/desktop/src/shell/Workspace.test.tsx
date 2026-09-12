@@ -6,7 +6,7 @@ import type { DocumentRecord, OpenedProject, ProjectAccess } from '../ipc/projec
 import { projectTabPreferenceKey, writeProjectTabs } from './projectTabs';
 import { Workspace } from './Workspace';
 
-import { Writer } from '../editor/Writer';
+import { Writer } from '../chat/Writer';
 const mocks = vi.hoisted(() => {
   const events: string[] = [];
   const sessions: any[] = [];
@@ -125,7 +125,7 @@ vi.mock('./StoryBible', () => ({ StoryBible: () => <section data-testid="story-b
 vi.mock('./AppCloseDialog', () => ({ AppCloseDialog: ({ phase, message, onStop, onStayOpen }: any) => <div data-testid="app-close-dialog"><p>{message}</p>{phase === 'waiting' && <button onClick={onStop}>Stop replies and close</button>}<button onClick={onStayOpen}>Stay open</button></div> }));
 vi.mock('../providers/ModelSelector', () => ({ ModelSelector: () => null }));
 vi.mock('../providers/ModelSettings', () => ({ ModelSettings: () => null }));
-vi.mock('../editor/Writer', () => ({
+vi.mock('../chat/Writer', () => ({
   Writer: ({ active, navigation }: any) => <section data-testid="writer">
     <strong>{active.record.title}</strong>
     {navigation?.previous && <button onClick={navigation.previous}>Previous chapter</button>}

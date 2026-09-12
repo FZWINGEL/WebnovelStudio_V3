@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import { DocumentSession } from '../editor/session';
 import { captureRevisionScope } from '../editor/revisionScope';
 import type { ProjectTransport } from '../ipc/projects';

@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProposalPanel } from './ProposalPanel';
 import * as proposalIpc from '../ipc/proposals';
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../kernel';
 import type { ScopeGrant } from '../ipc/context';
 import type { Head, ProjectAccess } from '../ipc/projects';
 

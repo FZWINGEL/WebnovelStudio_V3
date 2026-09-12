@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ScopeGrant } from '../ipc/context';
 import type { StructuredBlock } from '../ipc/proposals';
 import golden from '../../../../contracts/fixtures/structured_proposals_golden.json';
-import { canonicalJson, snapshotFromEditor, type WnsDocument } from './document';
+import { canonicalJson, snapshotFromEditor, type WnsDocument } from '../kernel';
 import { captureRevisionScope, blocksQuote } from './revisionScope';
 import { editorExtensions } from './schema';
 import {

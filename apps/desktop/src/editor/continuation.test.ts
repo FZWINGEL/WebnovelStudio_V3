@@ -2,7 +2,7 @@ import { Editor } from '@tiptap/core';
 import { redo, undo } from '@tiptap/pm/history';
 import { afterEach, describe, expect, it } from 'vitest';
 import fixture from '../../../../tests/fixtures/continuation.json';
-import { canonicalJson, snapshotFromEditor, type WnsDocument } from './document';
+import { canonicalJson, snapshotFromEditor, type WnsDocument } from '../kernel';
 import { editorExtensions } from './schema';
 import { prepareContinuation } from './continuation';
 import type { ScopeGrant } from '../ipc/context';

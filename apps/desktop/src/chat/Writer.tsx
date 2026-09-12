@@ -3,26 +3,21 @@ import { Editor, Extension } from '@tiptap/core';
 import { EditorContent } from '@tiptap/react';
 import { EditorState, Plugin, Selection, TextSelection, type Transaction } from '@tiptap/pm/state';
 import { closeHistory, redo, redoDepth, undo, undoDepth } from '@tiptap/pm/history';
-import { editorExtensions } from '../editor/schema';
-import { bodyHash, canonicalJson, snapshotFromEditor } from '../editor/document';
-import { prepareContinuation } from '../editor/continuation';
-import { confirmPreparation } from '../editor/preparation';
-import { prepareStructuredReplacement, structuredRange, validateStructuredBlocks } from '../editor/structured';
-import { DocumentSession, SessionError, type PreparedEditorChange } from '../editor/session';
+import {
+  bodyHash, canonicalJson, captureRevisionScope, captureSelection, confirmPreparation,
+  DocumentSession, editorExtensions, HistoryPanel, prepareContinuation, prepareScopedReplacement,
+  prepareStructuredReplacement, RecoveryCopy, ReviewPanel, SessionError, snapshotFromEditor,
+  structuredRange, validateStructuredBlocks,
+  type PreparedEditorChange, type Scope, type SessionState,
+} from '../editor';
 import { saveViewState, type DocumentRecord, type Endpoint, type Head, type Revision, type ViewState } from '../ipc/projects';
-import { captureSelection, prepareScopedReplacement, type Scope } from '../editor/selection';
 import { prepareContinuationProposal, prepareProposal, prepareStructuredProposal, readProposals, type PrepareContinuation, type PrepareStructured, type PreparedProposal, type Proposal } from '../ipc/proposals';
-import { captureRevisionScope } from '../editor/revisionScope';
-import { ProposalPanel } from '../assistant';
+import { FeedbackPanel, ProposalPanel } from '../assistant';
 import type { ProjectChapterComposer } from '../ipc/projectChat';
 import { readProjectChapterFeedback, type ChapterDiscussionFeedback } from '../ipc/projectChat';
-import { ChapterRangeReview, suggestedChapterRange } from '../chat';
-import { confirmChapterRange } from '../chat';
-import { FeedbackPanel } from '../assistant';
-import { HistoryPanel } from './HistoryPanel';
-import { ReviewPanel } from './ReviewPanel';
+import { ChapterRangeReview, suggestedChapterRange } from './ChapterRangeReview';
+import { confirmChapterRange } from './confirmChapterRange';
 import { ChapterMemory } from '../story';
-import { RecoveryCopy } from './RecoveryCopy';
 import { DocumentAliases } from '../story';
 import type { SourceChoice } from '../ipc/sourcePins';
 

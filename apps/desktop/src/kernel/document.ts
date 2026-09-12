@@ -84,3 +84,21 @@ export const sample: WnsDocument['body'] = {
     ] },
   ],
 };
+
+/** One line per block, for comparing two revisions of the same document. */
+function inlineText(value: { type: string; text?: string }): string {
+  return value.type === 'hardBreak' ? '\n' : value.text ?? '';
+}
+
+/**
+ * The text of each block, in order, with a scene break as an em dash.
+ *
+ * It lived in `chat/DraftReviewDiff` and was imported from there by
+ * `assistant/SourceVersionComparison`, which made the two features mutually
+ * dependent for the sake of one pure function over a document. It is a
+ * document helper, so it belongs with the document model.
+ */
+export function documentBlocks(document: WnsDocument | null): string[] {
+  if (!document) return [];
+  return document.body.content.map(block => block.type === 'sceneBreak' ? '—' : (block.content ?? []).map(inlineText).join(''));
+}
