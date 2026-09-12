@@ -782,37 +782,10 @@ fn compile_packet_with_schema(
         &mandatory_handles,
         &eligible_handles,
     );
-    let canonical_by_handle: HashMap<String, CanonicalRead> = canonical_reads
-        .into_iter()
-        .map(|read| (read.read.descriptor.handle.clone(), read))
-        .collect();
-    let navigation_by_handle: HashMap<String, ValidatedNavigationView> = validated_navigation_views
-        .iter()
-        .cloned()
-        .map(|view| (view.source_handle.clone(), view))
-        .collect();
+    let canonical_by_handle = canonical_by_handle(canonical_reads);
+    let navigation_by_handle = navigation_by_handle(&validated_navigation_views);
 
-    let options = match request.provider_binding.as_ref() {
-        Some(binding) => {
-            binding
-                .validate()
-                .map_err(|message| PacketError::InvalidRequest { message })?;
-            PacketOptions {
-                model_id: binding.model_id.clone(),
-                // This boundary has no qualified provider token limit. The
-                // retained output cap is an application byte limit instead.
-                max_output_tokens: String::new(),
-                token_accounting_method: binding.accounting_method.clone(),
-                provider_binding: Some(binding.clone()),
-            }
-        }
-        None => PacketOptions {
-            model_id: request.budget.model_id.clone(),
-            max_output_tokens: request.budget.reserved_output_tokens.clone(),
-            token_accounting_method: MOCK_TOKEN_ACCOUNTING_METHOD.to_owned(),
-            provider_binding: None,
-        },
-    };
+    let options = packet_options(request)?;
 
     let mandatory_set: HashSet<&str> = mandatory_handles.iter().map(String::as_str).collect();
     let optional_handles: Vec<String> = if workshop_request {

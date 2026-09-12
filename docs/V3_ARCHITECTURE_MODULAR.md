@@ -210,8 +210,29 @@ and its being behaviour-preserving would be a claim this migration's verificatio
 
 What the split does buy is real: the three concerns that *are* separable are out, the file is a
 third smaller, and what remains is one pipeline whose length is now the only thing wrong with
-it. Splitting that pipeline is a piece of work someone should do deliberately, with the
-function in front of them — not as a by-product of a module move.
+it. Three further blocks came out on the same terms — `packet_options`, `canonical_by_handle`
+and `navigation_by_handle`, each with a single input and a single output — which is what a
+separable block looks like, and it took 28 lines off a 1,035-line function.
+
+**The measurement that says the rest is not that.** The reviewed-records stage is 62 lines and
+names **thirteen** values from the enclosing scope: `request`, `target_handle`, `target`,
+`mandatory_sources`, `optional_handles`, `delivered_views`, `navigation_by_handle`,
+`canonical_by_handle`, `directory_omissions`, `schema`, `included_turns`,
+`delivered_summaries`, `options`. Two more — `available` and the delivered set itself — are
+mutable. That is not a block with a boundary; it is a segment of one computation.
+
+**The design that would work, for whoever picks this up.** Nine of those thirteen do not change
+once the selections are fixed, and they are the same nine repeated at each of the eleven
+`build_serialized` call sites. A `Pricing<'a>` holding them turns a call site from seven
+arguments into three and a stage from thirteen into four. The one that resists is
+`delivered_views`: it is built by the views stage and read by everything after it, so it cannot
+be borrowed into a context constructed once — it has to stay a parameter, or the context has
+to be rebuilt after the views stage. Settling that is the actual work, and it is a design
+decision about where the pipeline's phases begin, not a mechanical move.
+
+So this is the one item in §3.4 that is **not done**, and the honest statement of it is that
+the file is split, the pipeline is not, and the next step is a `Pricing` context plus a
+decision about where the views stage ends.
 
 **`projects/discussions.rs` (4,605) → `wns-conversation`.** Four concerns in one file: run
 lifecycle and settlement, recovery/lost-acknowledgment, lookup invocation, and packet

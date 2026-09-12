@@ -517,3 +517,48 @@ pub(super) fn summary_source_omissions(original: &[String], summaries: &[Reviewe
     }));
     omissions
 }
+
+/// The provider-facing options a compiled packet carries.
+///
+/// One input and one output: the only block in the pipeline that carries
+/// nothing else across its boundary.
+pub(super) fn packet_options(request: &PacketRequest) -> Result<PacketOptions, PacketError> {
+    Ok(match request.provider_binding.as_ref() {
+    Some(binding) => {
+        binding
+            .validate()
+            .map_err(|message| PacketError::InvalidRequest { message })?;
+        PacketOptions {
+            model_id: binding.model_id.clone(),
+            // This boundary has no qualified provider token limit. The
+            // retained output cap is an application byte limit instead.
+            max_output_tokens: String::new(),
+            token_accounting_method: binding.accounting_method.clone(),
+            provider_binding: Some(binding.clone()),
+        }
+    }
+    None => PacketOptions {
+        model_id: request.budget.model_id.clone(),
+        max_output_tokens: request.budget.reserved_output_tokens.clone(),
+        token_accounting_method: MOCK_TOKEN_ACCOUNTING_METHOD.to_owned(),
+        provider_binding: None,
+    },
+    })
+}
+
+pub(super) fn canonical_by_handle(reads: Vec<CanonicalRead>) -> HashMap<String, CanonicalRead> {
+    reads
+        .into_iter()
+        .map(|read| (read.read.descriptor.handle.clone(), read))
+        .collect()
+}
+
+pub(super) fn navigation_by_handle(
+    views: &[ValidatedNavigationView],
+) -> HashMap<String, ValidatedNavigationView> {
+    views
+        .iter()
+        .cloned()
+        .map(|view| (view.source_handle.clone(), view))
+        .collect()
+}
