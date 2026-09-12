@@ -870,34 +870,6 @@ fn compile_packet_with_schema(
 
     // Try the complete eligible set first.  If it fits, no digest or excerpt
     // is manufactured and every supplied source is represented exactly once.
-    let full_sources: Vec<SelectedSource> = ordered_handles
-        .iter()
-        .filter_map(|handle| canonical_by_handle.get(handle.as_str()).cloned())
-        .filter(|read| read.read.descriptor.coverage != CoverageLabel::DirectoryOnly)
-        .filter(|read| {
-            !workshop_request
-                || mandatory_set.contains(read.read.descriptor.handle.as_str())
-                || read.read.descriptor.handle == target_handle
-        })
-        .map(|read| SelectedSource {
-            mandatory: mandatory_set.contains(read.read.descriptor.handle.as_str())
-                || read.read.descriptor.handle == target_handle,
-            read,
-            passages: None,
-        })
-        .collect();
-    let full_omissions = directory_omissions.clone();
-    let total_turns = request
-        .frozen
-        .conversation
-        .as_ref()
-        .map_or(0, |c| c.turns.len());
-    let full_evidence_omissions =
-        reviewed_evidence_omissions(&validated_reviewed_evidence, &validated_reviewed_evidence);
-    let full_promise_omissions =
-        reviewed_promise_omissions(&validated_reviewed_promises, &validated_reviewed_promises);
-    let full_knowledge_omissions =
-        reviewed_knowledge_omissions(&validated_reviewed_knowledge, &validated_reviewed_knowledge);
     // Everything the packing decisions are priced against, fixed from here on.
     // `mandatory_sources` is not among them: it differs per call site, and the
     // final stage moves it.
@@ -910,57 +882,23 @@ fn compile_packet_with_schema(
         directory_omissions: &directory_omissions,
         options: &options,
     };
-    let full_packet = build_serialized(
-        &pricing,
-        &full_sources,
-        &full_omissions,
-
-        Packing {
-            schema,
-            method: "fullText",
-            conversation_turns: total_turns,
-            navigation_views: &[],
-            reviewed_evidence: &validated_reviewed_evidence,
-            reviewed_promises: &validated_reviewed_promises,
-            reviewed_knowledge: &validated_reviewed_knowledge,
-            accepted_summaries: &[],
-        },
-    )?;
-    if full_packet.input_tokens <= available {
-        return finish_packet(
-            full_packet,
-            options,
-            request,
-            &full_sources,
-            full_omissions,
-            "fullText",
-            PacketReceipts {
-                accepted_summaries: &[],
-                navigation: NavigationReceipt {
-                    delivered_views: &[],
-                    omissions: navigation_omissions(
-                        &validated_navigation_views,
-                        &[],
-                        full_sources
-                            .iter()
-                            .map(|source| source.read.read.descriptor.handle.as_str())
-                            .collect(),
-                    ),
-                },
-                evidence: ReviewedEvidenceReceipt {
-                    delivered: &validated_reviewed_evidence,
-                    omissions: &full_evidence_omissions,
-                },
-                promises: ReviewedPromiseReceipt {
-                    delivered: &validated_reviewed_promises,
-                    omissions: &full_promise_omissions,
-                },
-                knowledge: ReviewedKnowledgeReceipt {
-                    delivered: &validated_reviewed_knowledge,
-                    omissions: &full_knowledge_omissions,
-                },
-            },
-        );
+    let full_sources = select_eligible_sources(&pricing, &ordered_handles, &mandatory_set, workshop_request);
+    let full_omissions = directory_omissions.clone();
+    let total_turns = request
+        .frozen
+        .conversation
+        .as_ref()
+        .map_or(0, |c| c.turns.len());
+    let validated = Validated {
+        navigation_views: &validated_navigation_views,
+        reviewed_evidence: &validated_reviewed_evidence,
+        reviewed_promises: &validated_reviewed_promises,
+        reviewed_knowledge: &validated_reviewed_knowledge,
+    };
+    if let Some(packet) = try_full_eligible_packet(
+        &pricing, schema, &validated, &full_sources, &full_omissions, total_turns, available,
+    )? {
+        return Ok(packet);
     }
 
     let selected_block_counts = HashMap::new();
@@ -974,38 +912,9 @@ fn compile_packet_with_schema(
             &directory_omissions,
         )
     };
-    let mandatory_packet = build_serialized(
-        &pricing,
-        &mandatory_sources,
-        &mandatory_omissions,
-
-        Packing {
-            schema,
-            method: "layeredExcerpt",
-            conversation_turns: 0,
-            navigation_views: &[],
-            reviewed_evidence: &[],
-            reviewed_promises: &[],
-            reviewed_knowledge: &[],
-            accepted_summaries: &[],
-        },
+    try_mandatory_packet(
+        &pricing, schema, &mandatory_sources, &mandatory_omissions, &mut mandatory_handles, available,
     )?;
-    if mandatory_packet.input_tokens > available {
-        mandatory_handles.extend(
-            request
-                .frozen
-                .guidance
-                .iter()
-                .map(|item| item.handle.clone()),
-        );
-        return Err(PacketError::Budget(budget_error(
-            BudgetErrorCode::MandatoryContextTooLarge,
-            mandatory_packet.input_tokens,
-            available,
-            mandatory_handles,
-            "The target, instruction, scope, adopted guidance, and mandatory pinned sources do not fit the reserved input budget.",
-        )));
-    }
 
     let included_turns =
         pack_conversation_prefix(&pricing, schema, &mandatory_sources, &mandatory_omissions, total_turns, available)?;

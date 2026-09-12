@@ -785,3 +785,170 @@ pub(super) fn pack_conversation_prefix(
     }
     Ok(included_turns)
 }
+
+/// The complete eligible set: every supplied source that carries real content,
+/// in stable order. A workshop request keeps only the mandatory handles and the
+/// target, because a lens reads what the author pinned and nothing else.
+///
+/// `mandatory` is a set of `&str` borrowed from `mandatory_handles`, which the
+/// budget failure path later extends — so it is passed rather than held.
+pub(super) fn select_eligible_sources(
+    pricing: &Pricing<'_>,
+    ordered: &[String],
+    mandatory: &HashSet<&str>,
+    workshop_request: bool,
+) -> Vec<SelectedSource> {
+    ordered
+        .iter()
+        .filter_map(|handle| pricing.canonical_by_handle.get(handle.as_str()).cloned())
+        .filter(|read| read.read.descriptor.coverage != CoverageLabel::DirectoryOnly)
+        .filter(|read| {
+            !workshop_request
+                || mandatory.contains(read.read.descriptor.handle.as_str())
+                || read.read.descriptor.handle == pricing.target_handle
+        })
+        .map(|read| SelectedSource {
+            mandatory: mandatory.contains(read.read.descriptor.handle.as_str())
+                || read.read.descriptor.handle == pricing.target_handle,
+            read,
+            passages: None,
+        })
+        .collect()
+}
+
+/// The validated inputs a packet is compiled from: every frozen view and
+/// reviewed record, checked against the exact resolved source before any budget
+/// branch is attempted.
+#[derive(Clone, Copy)]
+pub(super) struct Validated<'a> {
+    pub(super) navigation_views: &'a [ValidatedNavigationView],
+    pub(super) reviewed_evidence: &'a [PackedReviewedEvidence],
+    pub(super) reviewed_promises: &'a [PackedReviewedPromises],
+    pub(super) reviewed_knowledge: &'a [PackedReviewedKnowledge],
+}
+
+/// The first whole-packet attempt, and the reason the stages exist: if the
+/// complete eligible set fits, nothing is excerpted, summarised or replaced,
+/// and every supplied source is represented exactly once. `Some` means the
+/// compiler is finished; `None` sends it on to the stages.
+pub(super) fn try_full_eligible_packet(
+    pricing: &Pricing<'_>,
+    schema: PacketSchemaVersion,
+    validated: &Validated<'_>,
+    sources: &[SelectedSource],
+    omissions: &[String],
+    total_turns: usize,
+    available: usize,
+) -> Result<Option<CompiledPacket>, PacketError> {
+    let full_packet = build_serialized(
+        pricing,
+        sources,
+        omissions,
+
+        Packing {
+            schema,
+            method: "fullText",
+            conversation_turns: total_turns,
+            navigation_views: &[],
+            reviewed_evidence: validated.reviewed_evidence,
+            reviewed_promises: validated.reviewed_promises,
+            reviewed_knowledge: validated.reviewed_knowledge,
+            accepted_summaries: &[],
+        },
+    )?;
+    if full_packet.input_tokens > available {
+        return Ok(None);
+    }
+    let evidence_omissions =
+        reviewed_evidence_omissions(validated.reviewed_evidence, validated.reviewed_evidence);
+    let promise_omissions =
+        reviewed_promise_omissions(validated.reviewed_promises, validated.reviewed_promises);
+    let knowledge_omissions =
+        reviewed_knowledge_omissions(validated.reviewed_knowledge, validated.reviewed_knowledge);
+    Ok(Some(finish_packet(
+        full_packet,
+        pricing.options.clone(),
+        pricing.request,
+        sources,
+        omissions.to_vec(),
+        "fullText",
+        PacketReceipts {
+            accepted_summaries: &[],
+            navigation: NavigationReceipt {
+                delivered_views: &[],
+                omissions: navigation_omissions(
+                    validated.navigation_views,
+                    &[],
+                    sources
+                        .iter()
+                        .map(|source| source.read.read.descriptor.handle.as_str())
+                        .collect(),
+                ),
+            },
+            evidence: ReviewedEvidenceReceipt {
+                delivered: validated.reviewed_evidence,
+                omissions: &evidence_omissions,
+            },
+            promises: ReviewedPromiseReceipt {
+                delivered: validated.reviewed_promises,
+                omissions: &promise_omissions,
+            },
+            knowledge: ReviewedKnowledgeReceipt {
+                delivered: validated.reviewed_knowledge,
+                omissions: &knowledge_omissions,
+            },
+        },
+    )?))
+}
+
+/// The second whole-packet attempt: the target, the instruction, the scope, the
+/// adopted guidance and the mandatory pinned sources, with nothing optional.
+/// The packet itself is discarded — only whether it fits matters.
+/// Failing this one is terminal — there is no smaller packet to fall back to.
+///
+/// `handles` is taken by `&mut` because the failure path extends it with the
+/// guidance handles before reporting — the extended list is what the error
+/// names, and it is the caller's binding that is extended.
+pub(super) fn try_mandatory_packet(
+    pricing: &Pricing<'_>,
+    schema: PacketSchemaVersion,
+    sources: &[SelectedSource],
+    omissions: &[String],
+    handles: &mut Vec<String>,
+    available: usize,
+) -> Result<(), PacketError> {
+    let mandatory_packet = build_serialized(
+        pricing,
+        sources,
+        omissions,
+
+        Packing {
+            schema,
+            method: "layeredExcerpt",
+            conversation_turns: 0,
+            navigation_views: &[],
+            reviewed_evidence: &[],
+            reviewed_promises: &[],
+            reviewed_knowledge: &[],
+            accepted_summaries: &[],
+        },
+    )?;
+    if mandatory_packet.input_tokens > available {
+        handles.extend(
+            pricing
+                .request
+                .frozen
+                .guidance
+                .iter()
+                .map(|item| item.handle.clone()),
+        );
+        return Err(PacketError::Budget(budget_error(
+            BudgetErrorCode::MandatoryContextTooLarge,
+            mandatory_packet.input_tokens,
+            available,
+            handles.clone(),
+            "The target, instruction, scope, adopted guidance, and mandatory pinned sources do not fit the reserved input budget.",
+        )));
+    }
+    Ok(())
+}
