@@ -312,6 +312,54 @@ Two things stay hand-written and must be tested: the response-hash cross-check
 (`ipc/native.ts:12-13` recomputes `canonicalJson` + `bodyHash`) and the argument naming
 convention (commands are snake_case, arguments camelCase — ad-hoc today).
 
+**Done.** All nine crates with an IPC surface supply a `Group`: 300 generated types across
+`src/ipc/generated/`, against the 255 mirrors the plan counted — the difference is the
+closure, since a group declares every name its file mentions rather than its crate's own
+types. Both hand-written halves are now tested: `ipc/native.test.ts` drives the cross-check
+through a mocked channel and asserts it refuses a receipt that disagrees on either the hash
+or the canonical text, and `ipc/invokeContract.test.ts` reads all 120 `invoke` call sites in
+`src/` and checks the spelling of every command and argument. The second was confirmed to
+fail on a deliberately introduced violation and to name the site.
+
+What the work found is the part worth keeping, and it is the same finding each time: **the
+generation was never wrong, and the mirrors were.** Three classes recurred.
+
+* *A mirror that was a duplicate, not a narrowing.* `StructuredBlock` was documented in the
+  frontend as a deliberate narrowing of the wire type; generating the wire type showed it
+  was a verbatim copy, and the only real difference was a field Rust omits when empty. Same
+  for `ComposerBody` (a copy of `DiscussionDraft` minus its identity, which had already
+  drifted to a narrower `basis`) and for `MemoryViewRecord`, `ContextBudgetError`,
+  `ReviewMember` and `LookupMemoryEntityEntry`, each a second name for a generated type. The
+  renames are invisible to a by-name replacement; comparing every hand-written object type's
+  field set against every generated one is what found them.
+
+* *A field the mirror dropped.* `V2LegacyPreview.records`, `PendingProject.sourcePath` and
+  `.sourceFingerprint` were on the wire and in neither hand-written type. Nothing compared
+  the two, so nothing noticed.
+
+* *A field the mirror declared optional that Rust always writes* — or required that Rust
+  omits. Both directions occurred, and both were caught by the compiler rather than by
+  review.
+
+The generator itself had bugs, and they were of one kind: a check that matched instead of
+identifying. The omission list was re-derived from the Rust source, but the scan could not
+see an enum variant's field — `marks` on `TypedReplacementInline` and `offset` on four of
+`LookupRead`'s variants were invisible to it, and the generated TypeScript promised a value
+the wire omits. Marking an omission inserted the `?` at the first occurrence of a name,
+which for an enum is one variant of several. And the migration script's own steps went
+silent rather than failing: reseeding a group's list was destructive and would have cut
+`conversation` from 47 types to 6, registering a group in `groups()` matched a hardcoded
+list that stopped matching at the fourth group, and the closure pass ran before the file it
+closes against existed. All four are fixed and the crate doc records them.
+
+What specta actually keys the `?` on is narrower than the plan assumed and is now pinned in
+`tests/variant_fields.rs`: an `Option` with an omission attribute, or a bare
+`#[serde(default)]` on anything. A `Vec` skipped when empty gets nothing, which is exactly
+the gap `OMITTED_WHEN_EMPTY` fills. The residual known widening is `| null` on the 141
+`Option` fields whose `None` is skipped — the wire omits those rather than sending `null`.
+It is left in place deliberately: the same type often travels both ways, `null` is accepted
+on the way in, and the cost is a defensive check rather than a missed one.
+
 ### 4.5 Shell
 
 `Workspace.tsx` (D7) reduces to routing and layout. Library CRUD moves to
