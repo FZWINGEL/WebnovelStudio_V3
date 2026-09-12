@@ -50,15 +50,15 @@
 //!   frontend tail from 83 errors to 24 in one step, which is most of what that
 //!   tail was.
 //!
-//! * **A field Rust omits when empty cannot be expressed, and that is the last
-//!   blocker.** `#[serde(default, skip_serializing_if = "Vec::is_empty")]` means
-//!   the field is *absent* on the wire, so the frontend reads `undefined` where
-//!   the generated type promises an array. That is a latent crash, not a type
-//!   error. `#[specta(optional)]` marks `Option` fields and does nothing for the
-//!   rest — `tests/variant_fields.rs` pins both halves. The honest fixes are to
-//!   make those Rust fields `Option<Vec<T>>`, or to hand-write the optionality
-//!   in the frontend; either is a decision to take deliberately, and it is what
-//!   stands between the workshop group's remaining 24 errors and zero.
+//! * **A field Rust omits when empty needs telling, not inferring.**
+//!   `#[serde(default, skip_serializing_if = "Vec::is_empty")]` means the field
+//!   is *absent* on the wire, so a generated `string[]` is a latent crash: the
+//!   frontend reads `undefined` where the type promised an array. specta cannot
+//!   express it — `tests/variant_fields.rs` pins the four attribute spellings
+//!   that do nothing — so [`OMITTED_WHEN_EMPTY`] lists the fields and
+//!   `tests/omitted.rs` re-derives the list from the Rust source and fails when
+//!   the two disagree. That test found three the first scan had missed, which
+//!   is the argument for deriving it rather than writing it down.
 //!
 //! **Let the compiler close both lists.** The workshop's derives converged in 6
 //!   rounds (workshop → story vocabulary → run vocabulary → provider and context
@@ -107,7 +107,8 @@ pub fn group(
     for (_, text) in exported {
         for block in split_declarations(&text?) {
             if let Some(name) = declaration_name(&block) {
-                declarations.entry(name).or_insert(block);
+                let marked = mark_omitted(&name, &block);
+                declarations.entry(name).or_insert(marked);
             }
         }
     }
@@ -124,6 +125,95 @@ pub fn render(group: &Group) -> String {
     for (_, block) in &group.types {
         out.push_str(block.trim_end());
         out.push_str("\n\n");
+    }
+    out
+}
+
+/// Fields Rust omits when empty, as `(Rust type, Rust field)`.
+///
+/// `#[serde(default, skip_serializing_if = "…")]` on a non-`Option` field means
+/// the field is *absent* on the wire, so the generated TypeScript has to mark
+/// it optional or the frontend reads `undefined` where the type promised an
+/// array. specta cannot express that — `tests/variant_fields.rs` pins the four
+/// attribute spellings that do not work — so the generator is told here.
+///
+/// `tests/omitted.rs` re-scans the Rust source and asserts this list is exactly
+/// what it finds, so a field added or changed without the list fails the build.
+pub const OMITTED_WHEN_EMPTY: &[(&str, &str)] = &[
+    ("ChatGroupEffectsOutput", "impacts"),
+    ("ChatGroupEffectsOutput", "placements"),
+    ("ChatGroupEffectsOutput", "relationships"),
+    ("ChatGroupEffectsOutput", "supersessions"),
+    ("DiscussionDraft", "intent"),
+    ("DocumentRecord", "role"),
+    ("FrozenContext", "guidance"),
+    ("FrozenContext", "navigation_views"),
+    ("FrozenContext", "reviewed_evidence"),
+    ("FrozenContext", "reviewed_knowledge"),
+    ("FrozenContext", "reviewed_promises"),
+    ("FrozenContext", "reviewed_summaries"),
+    ("FrozenProjectChat", "dispositions"),
+    ("HistoricalConversationItem", "draft_revisions"),
+    ("HistoricalConversationItem", "messages"),
+    ("HistoricalConversationItem", "source_revisions"),
+    ("PacketOptions", "max_output_tokens"),
+    ("PacketReceipt", "conversation_message_ids"),
+    ("PacketReceipt", "guidance_handles"),
+    ("PacketReceipt", "mandatory_source_handles"),
+    ("PacketReceipt", "navigation_omissions"),
+    ("PacketReceipt", "navigation_views"),
+    ("PacketReceipt", "omitted_discussion_turns"),
+    ("PacketReceipt", "reviewed_evidence"),
+    ("PacketReceipt", "reviewed_evidence_omissions"),
+    ("PacketReceipt", "reviewed_knowledge_omissions"),
+    ("PacketReceipt", "reviewed_summary_omissions"),
+    ("PacketReceipt", "reviewed_knowledge"),
+    ("PacketReceipt", "reviewed_promise_omissions"),
+    ("PacketReceipt", "reviewed_promises"),
+    ("PacketReceipt", "reviewed_summaries"),
+    ("PreviewWorkshopAdoption", "impact_drafts"),
+    ("PreviewWorkshopAdoption", "relationships"),
+    ("Proposal", "kind"),
+    ("SaveDiscussionDraft", "intent"),
+    ("StartDiscussion", "intent"),
+    ("WorkshopAdoptionPreview", "endpoint_sources"),
+    ("WorkshopAdoptionPreview", "impacts"),
+    ("WorkshopAdoptionPreview", "relationships"),
+    ("WorkshopContext", "story_possibilities"),
+    ("WorkshopPacketMetadata", "story_possibilities"),
+    ("WorkshopSession", "story_possibilities"),
+];
+
+/// `story_possibilities` -> `storyPossibilities`.
+fn camel(field: &str) -> String {
+    let mut out = String::new();
+    let mut upper = false;
+    for c in field.chars() {
+        if c == '_' {
+            upper = true;
+        } else if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Mark the fields of `declaration` that Rust omits when empty.
+fn mark_omitted(name: &str, block: &str) -> String {
+    let mut out = block.to_owned();
+    for (ty, field) in OMITTED_WHEN_EMPTY {
+        if *ty != name {
+            continue;
+        }
+        let key = camel(field);
+        // `storyPossibilities:` -> `storyPossibilities?:`, once.
+        let needle = format!("{key}:");
+        if let Some(at) = out.find(&needle) {
+            out.insert(at + key.len(), '?');
+        }
     }
     out
 }

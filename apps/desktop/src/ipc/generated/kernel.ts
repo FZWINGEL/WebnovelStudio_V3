@@ -20,7 +20,7 @@ export type CoreError = { code: string; detail: string; currentHead?: Head | nul
  * crate under decomposition. The serde attributes are unchanged: they are what
  * keeps historical serialized records byte-compatible.
  */
-export type DocumentRecord = { head: Head; title: string; kind: string; metadataVersion: string; body: any; lastCheckpointId: string | null; role: DocumentRole }
+export type DocumentRecord = { head: Head; title: string; kind: string; metadataVersion: string; body: any; lastCheckpointId: string | null; role?: DocumentRole }
 
 /**
  * Authority role for a document row.  This is deliberately an enum rather
