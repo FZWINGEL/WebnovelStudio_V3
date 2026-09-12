@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Editor } from '@tiptap/core';
 import { EditorContent } from '@tiptap/react';
-import type { Inline } from '../editor/document';
-import { canonicalJson, safeHref } from '../editor/document';
-import { editorExtensions } from '../editor/schema';
-import { structuredEditorBlocks, structuredFromEditor } from '../editor/structured';
+import type { Inline } from '../editor';
+import { canonicalJson, safeHref } from '../editor';
+import { editorExtensions } from '../editor';
+import { structuredEditorBlocks, structuredFromEditor } from '../editor';
 import type { StructuredBlock } from '../ipc/proposals';
 
 function content(blocks: StructuredBlock[]) {

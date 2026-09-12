@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { DocumentSession } from '../editor/session';
+import type { DocumentSession } from '../editor';
 import { readSourcePins, saveSourcePins, type SaveSourcePins, type SourceChoice, type SourcePinScope, type SourcePinSet, type SourcePinsView } from '../ipc/sourcePins';
 
 const labels: Record<SourcePinScope, string> = { document: 'This document', project: 'This project' };

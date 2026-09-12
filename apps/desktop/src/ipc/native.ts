@@ -1,5 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { bodyHash, canonicalJson, type SnapshotReceipt, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type SnapshotReceipt, type WnsDocument } from '../editor';
 
 export interface RuntimeInfo { host: string; appVersion: string; webviewVersion: string; persistence: boolean; editorTrial: boolean }
 export async function runtimeInfo(): Promise<RuntimeInfo> {

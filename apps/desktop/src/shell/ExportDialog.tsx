@@ -1,6 +1,6 @@
 import { errorCode, errorTextFor } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
-import { bodyHash } from '../editor/document';
+import { bodyHash } from '../editor';
 import type { DraftExportPreview, DraftFormat } from '../ipc/exports';
 import type { ProjectAccess } from '../ipc/projects';
 

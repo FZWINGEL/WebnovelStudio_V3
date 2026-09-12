@@ -66,7 +66,7 @@ export type {
 };
 
 import { invoke } from '@tauri-apps/api/core';
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../editor';
 import type { CheckpointRequest, DocumentRecord, Head, ProjectAccess, ReconcileRequest, ReconciledDocument, Revision, SaveAck, SaveSnapshot } from './projects';
 import type { DiscussionRun, DiscussionStart, DiscussionScope, FeedbackIntent, SafeBriefInput } from './discussions';
 import type { MockContextBudget } from './context';

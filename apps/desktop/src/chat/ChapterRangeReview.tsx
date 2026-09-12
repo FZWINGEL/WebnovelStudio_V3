@@ -1,7 +1,7 @@
 import type { DiscussionScope } from '../ipc/discussions';
 import type { Head } from '../ipc/projects';
-import type { WnsDocument } from '../editor/document';
-import { blockText } from '../editor/revisionScope';
+import type { WnsDocument } from '../editor';
+import { blockText } from '../editor';
 
 export interface SuggestedChapterRange {
   target: Head;

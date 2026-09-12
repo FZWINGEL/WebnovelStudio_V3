@@ -23,7 +23,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { DocumentSession } from '../editor/session';
+import type { DocumentSession } from '../editor';
 import {
   appCloseStatus, beginAppClose, cancelAppClose, finishAppClose, stopAppJobs,
   type AppCloseStatus,

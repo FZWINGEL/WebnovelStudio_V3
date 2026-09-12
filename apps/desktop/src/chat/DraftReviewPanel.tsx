@@ -2,14 +2,14 @@ import { createElement, forwardRef, useEffect, useImperativeHandle, useMemo, use
 import { Editor, Extension } from '@tiptap/core';
 import { EditorContent } from '@tiptap/react';
 import { Plugin } from '@tiptap/pm/state';
-import { editorExtensions } from '../editor/schema';
-import { snapshotFromEditor, type Inline, type WnsDocument } from '../editor/document';
-import { DocumentSession, type SessionState } from '../editor/session';
+import { editorExtensions } from '../editor';
+import { snapshotFromEditor, type Inline, type WnsDocument } from '../editor';
+import { DocumentSession, type SessionState } from '../editor';
 import { validateSnapshot } from '../ipc/native';
 import { checkpointAssistantDraft, reconcileAssistantDraft, saveAssistantDraft, type AssistantDraft } from '../ipc/projectChat';
 import type { DocumentRecord, Head, OpenedProject, ProjectTransport } from '../ipc/projects';
 import type { ChatAdoptionPreview, ProjectChatDraftRef } from '../ipc/projectChat';
-import { ContextInspector } from '../assistant/ContextInspector';
+import { ContextInspector } from '../assistant';
 import { chatViewPreferenceKey, readChatViewPreferences, writeChatViewPreferences } from './viewPreferences';
 import { DraftReviewDiff } from './DraftReviewDiff';
 import { ChatAdoptionEffects } from './ChatAdoptionEffects';

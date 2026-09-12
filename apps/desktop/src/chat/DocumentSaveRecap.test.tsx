@@ -6,7 +6,7 @@ import { DocumentSaveRecap } from './DocumentSaveRecap';
 import type { ChatDocumentSave } from '../ipc/projectChat';
 import type { ProjectAccess, Revision } from '../ipc/projects';
 const read = vi.hoisted(() => vi.fn());
-vi.mock('../ipc/history', () => ({ readDocumentRevision: read }));
+vi.mock('../ipc/history', async importOriginal => ({ ...await importOriginal<typeof import('../ipc/history')>(), readDocumentRevision: read }));
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'space', session: 'session', writerLease: 'lease' };
 const save: ChatDocumentSave = { operationId: 'save', head: { documentId: 'note', version: '5', bodyHash: 'hash' }, title: 'The captain', createdAt: '', revisionId: 'revision' };
 const revision: Revision = { id: 'revision', head: save.head, body: { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'p' }, content: [{ type: 'text', text: 'Retained author wording' }] }] } }, reason: 'manual', parentId: null };

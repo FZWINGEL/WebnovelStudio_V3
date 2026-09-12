@@ -13,17 +13,17 @@ import { saveViewState, type DocumentRecord, type Endpoint, type Head, type Revi
 import { captureSelection, prepareScopedReplacement, type Scope } from '../editor/selection';
 import { prepareContinuationProposal, prepareProposal, prepareStructuredProposal, readProposals, type PrepareContinuation, type PrepareStructured, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { captureRevisionScope } from '../editor/revisionScope';
-import { ProposalPanel } from '../assistant/ProposalPanel';
+import { ProposalPanel } from '../assistant';
 import type { ProjectChapterComposer } from '../ipc/projectChat';
 import { readProjectChapterFeedback, type ChapterDiscussionFeedback } from '../ipc/projectChat';
-import { ChapterRangeReview, suggestedChapterRange } from '../chat/ChapterRangeReview';
-import { confirmChapterRange } from '../chat/confirmChapterRange';
-import { FeedbackPanel } from '../assistant/FeedbackPanel';
+import { ChapterRangeReview, suggestedChapterRange } from '../chat';
+import { confirmChapterRange } from '../chat';
+import { FeedbackPanel } from '../assistant';
 import { HistoryPanel } from './HistoryPanel';
 import { ReviewPanel } from './ReviewPanel';
-import { ChapterMemory } from '../story/ChapterMemory';
+import { ChapterMemory } from '../story';
 import { RecoveryCopy } from './RecoveryCopy';
-import { DocumentAliases } from '../story/DocumentAliases';
+import { DocumentAliases } from '../story';
 import type { SourceChoice } from '../ipc/sourcePins';
 
 const Manuscript = memo(({ editor }: { editor: Editor }) => <EditorContent editor={editor} />);

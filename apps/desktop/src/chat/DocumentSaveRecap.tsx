@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChatDocumentSave } from '../ipc/projectChat';
 import type { DocumentRecord, ProjectAccess, Revision } from '../ipc/projects';
 import { readDocumentRevision } from '../ipc/history';
-import { SavedProse } from '../editor/HistoryPanel';
+import { SavedProse } from '../editor';
 import { sameDocumentHead } from '../kernel';
 
 /** A projection of retained save receipts, never added to model history. */

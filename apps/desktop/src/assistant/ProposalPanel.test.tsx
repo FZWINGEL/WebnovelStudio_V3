@@ -8,9 +8,7 @@ import type { WnsDocument } from '../editor/document';
 import type { ScopeGrant } from '../ipc/context';
 import type { Head, ProjectAccess } from '../ipc/projects';
 
-vi.mock('../ipc/proposals', () => ({
-  rejectProposal: vi.fn(),
-}));
+vi.mock('../ipc/proposals', async importOriginal => ({ ...await importOriginal<typeof import('../ipc/proposals')>(), rejectProposal: vi.fn() }));
 
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 const source: WnsDocument = { schemaVersion: 1, body: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'paragraph-1' }, content: [{ type: 'text', text: 'The original passage.' }] }] } };

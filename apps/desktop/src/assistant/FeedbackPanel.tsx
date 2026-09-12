@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Scope } from '../editor/selection';
-import { bodyHash, canonicalJson, snapshotFromEditor } from '../editor/document';
-import { captureRevisionScope } from '../editor/revisionScope';
-import type { DocumentSession, SessionState } from '../editor/session';
+import type { Scope } from '../editor';
+import { bodyHash, canonicalJson, snapshotFromEditor } from '../editor';
+import { captureRevisionScope } from '../editor';
+import type { DocumentSession, SessionState } from '../editor';
 import { DEFAULT_LOOKUP_ALLOWANCE, discussionRetry, readDiscussion, retryDiscussionSave, saveDiscussionDraft, startDiscussion, stopDiscussion, type ComposerBody, type DiscussionRun, type DiscussionView, type LookupAllowance, type StartDiscussion } from '../ipc/discussions';
 import { readProposals, type PreparedProposal, type Proposal } from '../ipc/proposals';
 import { ComposerSession, composerIntent, emptyComposer } from './composer';
@@ -13,7 +13,7 @@ import { ProposalPanel } from './ProposalPanel';
 import { SourcePinsPanel } from './SourcePinsPanel';
 import { SafeBriefEditor, validBriefText } from './SafeBriefEditor';
 import type { SourceChoice } from '../ipc/sourcePins';
-import { useProviders } from '../providers/ProviderContext';
+import { useProviders } from '../providers';
 import { sameModel } from '../ipc/providers';
 
 function detail(reason: unknown): string { return reason && typeof reason === 'object' && 'detail' in reason ? String(reason.detail) : reason instanceof Error ? reason.message : 'The discussion could not be updated. Your text is retained.'; }

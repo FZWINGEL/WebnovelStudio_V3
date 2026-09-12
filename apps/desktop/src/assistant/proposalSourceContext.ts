@@ -1,5 +1,5 @@
-import type { Block, Inline, WnsDocument } from '../editor/document';
-import { blockText, blocksQuote } from '../editor/revisionScope';
+import type { Block, Inline, WnsDocument } from '../editor';
+import { blockText, blocksQuote } from '../editor';
 import type { ScopeGrant } from '../ipc/context';
 import type { Head } from '../ipc/projects';
 import type { StructuredBlock } from '../ipc/proposals';

@@ -263,6 +263,38 @@ go through a feature's public `index.ts`**, and the lint rule enforces it. Today
 `shell/Writer.tsx` reaches into three features (D7); after the split that becomes an explicit,
 reviewable edge.
 
+**Done, with two deviations stated rather than elided.**
+
+The slices exist and are named as above, but they sit directly under `src/` rather than under
+`src/features/`. The nesting is cosmetic — nothing about the rule depends on it — and moving
+eight directories is churn that buys nothing a test can see. `shell/` remains a sibling of the
+features rather than outside them, and the rule below carries what that distinction was for:
+nothing but the entry point may import `shell/`.
+
+**There was no lint rule, so there was no rule.** `featureBoundary.test.ts` is the enforcement
+instead — the same shape as `crates/architecture/tests/layering.rs`, reading the real import
+graph rather than a list. It asserts that no feature reaches past another feature's root, that
+no feature imports `shell`, and that every feature another feature uses publishes a surface.
+It was confirmed to fail on a deliberately deepened import and to name the file.
+
+Writing it found 59 cross-feature edges with nothing distinguishing a deliberate one from a
+stray, and the by-name work of giving each feature an `index.ts` is what converted them into
+declared surfaces: 80 import statements across 26 files now resolve to a feature root.
+
+Two things the change surfaced and did not paper over:
+
+* The surfaces widen the import graph, because importing a barrel evaluates it. Four test
+  files had partial `vi.mock` factories that only worked while the graph was narrow, and
+  broke. They now spread the real module and override the one function they stub, which is
+  the form that cannot break this way again.
+
+* **Cycles between features are not forbidden, and four pairs have them**: `assistant` with
+  `chat` and with `editor`, `chat` with `editor`, and `editor` with `story`. Five further
+  edges are one-way. The rule here is that each direction goes through a declared surface;
+  breaking the cycles is the same discharge the Rust side needed and is *not* done — it is the
+  remaining design question of §4.1, and it is the same one §3.5 faced, where the answer was to
+  move the half the higher layer calls down to the seam.
+
 ### 4.2 `kernel/`
 
 Directly removes D9: one `sameHead`, one `errorCode`, one `errorText`, one bigint version
@@ -1531,9 +1563,11 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
 
-On the frontend, §4.1 (feature slices), §4.4 (generated IPC) and §4.5 (shell reduction) remain.
-§4.4 is the largest remaining correctness win: D6 — 255 hand-written type mirrors across 22
-files with one tested — is untouched.
+On the frontend, §4.1 (feature slices), §4.4 (generated IPC) and §4.5 (shell reduction) were
+the remaining work when this was written, and all three are now complete — see each section's
+**Done** paragraph. §4.4 was the largest correctness win of the three: D6, 255 hand-written
+type mirrors across 22 files with one tested, is closed, and the mirrors it replaced had
+already drifted in ways nothing could see.
 
 **One thing this branch does not claim.** The `SourceEpoch` type named in §2 does not exist yet
 — it is a target for the invariant work, not a delivered type, and the current fencing is still

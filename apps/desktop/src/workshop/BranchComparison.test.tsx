@@ -9,7 +9,7 @@ import type { DiscussionRun } from '../ipc/discussions';
 import type { WorkshopCandidate, WorkshopDecision, WorkshopRelationship, WorkshopResult, WorkshopSession, WorkshopState } from '../ipc/workshop';
 import { BranchComparison } from './BranchComparison';
 
-vi.mock('../ipc/history', () => ({ readDocumentRevision: vi.fn() }));
+vi.mock('../ipc/history', async importOriginal => ({ ...await importOriginal<typeof import('../ipc/history')>(), readDocumentRevision: vi.fn() }));
 
 const access: ProjectAccess = { projectId: 'project', operationNamespace: 'namespace', session: 'session', writerLease: 'lease' };
 const textBody = (text: string): WnsDocument => ({

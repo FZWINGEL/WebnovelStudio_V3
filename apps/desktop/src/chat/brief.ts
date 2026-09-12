@@ -1,4 +1,4 @@
-import { bodyHash } from '../editor/document';
+import { bodyHash } from '../editor';
 import type { DiscussionScope, SafeBriefInput } from '../ipc/discussions';
 
 /**

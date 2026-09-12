@@ -1,6 +1,6 @@
-import { bodyHash, canonicalJson } from '../editor/document';
-import type { DocumentSession } from '../editor/session';
-import { captureRevisionScope } from '../editor/revisionScope';
+import { bodyHash, canonicalJson } from '../editor';
+import type { DocumentSession } from '../editor';
+import { captureRevisionScope } from '../editor';
 import type { ProjectChapterComposer } from '../ipc/projectChat';
 import type { SuggestedChapterRange } from './ChapterRangeReview';
 

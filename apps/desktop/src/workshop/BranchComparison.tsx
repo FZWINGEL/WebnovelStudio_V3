@@ -1,7 +1,7 @@
 import { sameHead } from '../kernel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { readDocumentRevision } from '../ipc/history';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../editor';
 import type { DocumentRecord, Head, OpenedProject } from '../ipc/projects';
 import type { WorkshopDecision, WorkshopRelationship, WorkshopResult, WorkshopSession, WorkshopState } from '../ipc/workshop';
 import { describeWorkshopError } from './store';

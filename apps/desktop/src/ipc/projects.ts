@@ -44,7 +44,7 @@ export type SaveSnapshot = Omit<WireSaveSnapshot, 'body'> & { body: WnsDocument 
 export type ReconciledDocument = Omit<WireReconciledDocument, 'document'> & { document: DocumentRecord };
 
 import { invoke } from '@tauri-apps/api/core';
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../editor';
 import { validateSnapshot } from './native';
 import { applyProposal, type AppliedDecision, type ApplyAck, type ApplyProposal } from './proposals';
 import { restoreRevision, type RestoredDecision, type RestoreAck, type RestoreRevision } from './history';

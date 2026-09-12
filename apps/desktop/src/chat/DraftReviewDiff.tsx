@@ -1,5 +1,5 @@
 import type { DocumentRecord } from '../ipc/projects';
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../editor';
 
 type DiffToken = { kind: 'same' | 'removed' | 'added'; text: string };
 

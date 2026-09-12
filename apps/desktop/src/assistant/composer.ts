@@ -1,5 +1,5 @@
 import type { ComposerBody, DiscussionDraft, FeedbackIntent, SaveDiscussionDraft } from '../ipc/discussions';
-import { canonicalJson } from '../editor/document';
+import { canonicalJson } from '../editor';
 import { createSaveLoop } from '../kernel';
 import type { ProjectAccess } from '../ipc/projects';
 

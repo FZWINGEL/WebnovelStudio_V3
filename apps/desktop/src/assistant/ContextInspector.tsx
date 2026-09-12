@@ -5,7 +5,7 @@ import {
   type AppServerDelivery, type CompiledPacket, type FrozenContext, type FrozenNavigationView, type ReviewedEvidenceSet, type SourceDescriptor, type SourceRead, type SourceRef,
 } from '../ipc/context';
 import type { ProjectAccess } from '../ipc/projects';
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../editor';
 import { EvidenceHistoryView } from './EvidenceHistoryView';
 import { PromiseHistoryView } from './PromiseHistoryView';
 import { KnowledgeHistoryView } from './KnowledgeHistoryView';

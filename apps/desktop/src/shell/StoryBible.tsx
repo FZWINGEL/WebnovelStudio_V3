@@ -2,10 +2,10 @@ import { sameHead } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
 import { readDocument, type DocumentRecord, type OpenedProject } from '../ipc/projects';
 import { readDocumentRevision } from '../ipc/history';
-import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
+import { bodyHash, canonicalJson, type WnsDocument } from '../editor';
 import { readWorkshop, type WorkshopDecision } from '../ipc/workshop';
-import { describeWorkshopError } from '../workshop/store';
-import { plainText } from '../workshop/text';
+import { describeWorkshopError } from '../workshop';
+import { plainText } from '../workshop';
 
 type StoryBibleItem = {
   decision: WorkshopDecision;

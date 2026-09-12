@@ -1,6 +1,6 @@
 import { errorCode } from '../kernel';
 import { useEffect, useRef, useState } from 'react';
-import type { DocumentSession } from '../editor/session';
+import type { DocumentSession } from '../editor';
 import {
   readGuidance,
   saveGuidance,

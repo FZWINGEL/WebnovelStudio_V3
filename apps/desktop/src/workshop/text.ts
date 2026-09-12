@@ -1,4 +1,4 @@
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../editor';
 
 export function plainText(document: WnsDocument): string {
   return document.body.content.map(block => 'content' in block ? block.content?.map(node => node.type === 'text' ? node.text : '\n').join('') ?? '' : '').join('\n\n');

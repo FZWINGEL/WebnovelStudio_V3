@@ -110,7 +110,7 @@ export type {
 };
 
 import { invoke } from '@tauri-apps/api/core';
-import type { WnsDocument } from '../editor/document';
+import type { WnsDocument } from '../editor';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { FrozenGuidance } from './guidance';
 import type { DigestCandidate } from './memory';

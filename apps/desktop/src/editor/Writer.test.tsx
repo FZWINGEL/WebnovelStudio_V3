@@ -21,7 +21,7 @@ vi.mock('../ipc/context', async importOriginal => {
 });
 vi.mock('../ipc/projects', () => ({ saveViewState: mocks.saveViewState }));
 vi.mock('../ipc/proposals', () => ({ prepareContinuationProposal: vi.fn(), prepareProposal: vi.fn(), prepareStructuredProposal: vi.fn(), readProposals: vi.fn(async () => []) }));
-vi.mock('../ipc/projectChat', () => ({ readProjectChapterFeedback: mocks.readProjectChapterFeedback }));
+vi.mock('../ipc/projectChat', async importOriginal => ({ ...await importOriginal<typeof import('../ipc/projectChat')>(), readProjectChapterFeedback: mocks.readProjectChapterFeedback }));
 vi.mock('../assistant/FeedbackPanel', () => ({ FeedbackPanel: () => null }));
 vi.mock('./HistoryPanel', () => ({ HistoryPanel: () => null }));
 vi.mock('./ReviewPanel', () => ({ ReviewPanel: () => null }));

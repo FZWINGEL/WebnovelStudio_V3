@@ -2,11 +2,11 @@ import { sameHead } from '../kernel';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { readStoryContextSource, type AppServerDelivery, type SourceRead } from '../ipc/context';
 import { readMemory, readMemorySource, retryMemorySave, startMemory, stopMemory, type DigestCandidate, type MemoryJob, type MemoryRead, type MemoryViewRecord, type StartMemory } from '../ipc/memory';
-import type { DocumentSession, SessionState } from '../editor/session';
-import { bodyHash, canonicalJson, type Block, type WnsDocument } from '../editor/document';
+import type { DocumentSession, SessionState } from '../editor';
+import { bodyHash, canonicalJson, type Block, type WnsDocument } from '../editor';
 import { localModel, sameModel, type StoryMemoryView, type ModelSelection } from '../ipc/providers';
-import { useProviders } from '../providers/ProviderContext';
-import { ContextInspector } from '../assistant/ContextInspector';
+import { useProviders } from '../providers';
+import { ContextInspector } from '../assistant';
 import { MemoryPanel, type MemoryInspectedSource, type MemoryItem, type MemoryPanelState, type MemoryView } from './MemoryPanel';
 
 const MEMORY_BUDGET = { modelId: 'mock-story-context' as const, contextWindowTokens: '200000', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' };

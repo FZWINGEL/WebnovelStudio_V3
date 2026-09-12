@@ -2,7 +2,7 @@ import { errorCode } from '../kernel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { rejectProposal, type PreparedProposal, type Proposal, type StructuredBlock } from '../ipc/proposals';
 import type { ProjectAccess } from '../ipc/projects';
-import { canonicalJson } from '../editor/document';
+import { canonicalJson } from '../editor';
 import { deriveProposalSourceContext, type ProposalSourceContext } from './proposalSourceContext';
 import { StructuredProse, StructuredSuggestionEditor } from './StructuredSuggestionEditor';
 
