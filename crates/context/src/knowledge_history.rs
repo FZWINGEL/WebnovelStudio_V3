@@ -18,7 +18,7 @@ use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct KnowledgeHistory {
     pub character_id: String,
@@ -29,7 +29,7 @@ pub struct KnowledgeHistory {
     pub incomplete: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct KnowledgeHistoryObservation {
     pub record_id: String,
@@ -46,7 +46,7 @@ pub struct KnowledgeHistoryObservation {
     pub evidence: EvidenceAnchor,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum KnowledgeHistoryUncertainty {
     NoEligibleObservations,

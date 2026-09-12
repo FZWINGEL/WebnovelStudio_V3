@@ -32,14 +32,14 @@ pub const VOICE_GUIDANCE_DIMENSIONS: [&str; 5] = [
     "Dialogue rhythm",
 ];
 /// document while holding the actor's CAS boundary.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopWorkingSelection {
     pub from: u32,
     pub to: u32,
     pub text: String,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopExploration {
     pub session_id: String,
@@ -53,14 +53,14 @@ pub struct WorkshopExploration {
     pub working_selection: Option<WorkshopWorkingSelection>,
 }
 /// preservation remains reviewable author work.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopLiteral {
     pub text: String,
     pub fixed: bool,
 }
 /// renderer supplied IDs are never used as source authority.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopContext {
     pub expected: Head,
@@ -93,7 +93,7 @@ pub struct WorkshopContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relationship: Option<WorkshopRelationship>,
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopPacketMetadata {
     pub exploration: WorkshopExploration,
@@ -122,7 +122,7 @@ pub struct WorkshopPacketMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relationship: Option<WorkshopRelationship>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopVoiceGuidance {
     pub sample: String,

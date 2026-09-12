@@ -17,7 +17,7 @@
 use serde::{Deserialize, Serialize};
 use wns_kernel::Head;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 
 #[serde(rename_all = "camelCase")]
 pub enum Lens {
@@ -28,41 +28,41 @@ pub enum Lens {
     Possibilities,
     Notebook,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkshopDepth {
     Sketch,
     Develop,
     Document,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum PreferencePolarity {
     Neutral,
     Want,
     Avoid,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum PreferenceStrength {
     Soft,
     Hard,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum PreferenceScope {
     Project,
     Element,
     Exploration,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum CandidateChoiceStatus {
     Saved,
     Rejected,
     Archived,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkshopQuestionStatus {
     Open,
@@ -70,21 +70,21 @@ pub enum WorkshopQuestionStatus {
     NotRelevant,
     KeepMysterious,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum UnknownTo {
     Author,
     Reader,
     Both,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkshopRelationshipStatus {
     Tentative,
     Chosen,
     Archived,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopPreference {
     pub id: String,
@@ -99,7 +99,7 @@ pub struct WorkshopPreference {
     pub target_id: Option<String>,
     pub confirmed: bool,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopQuestion {
     pub id: String,
@@ -108,20 +108,20 @@ pub struct WorkshopQuestion {
     pub status: WorkshopQuestionStatus,
     pub unknown_to: UnknownTo,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum StoryPossibilityKind {
     UnresolvedQuestion,
     IntendedPayoff,
     PossibleArc,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum StoryPossibilityStatus {
     Open,
     Archived,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoryPossibility {
     pub id: String,
@@ -129,7 +129,7 @@ pub struct StoryPossibility {
     pub text: String,
     pub status: StoryPossibilityStatus,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopRelationship {
     pub id: String,
@@ -155,14 +155,14 @@ pub struct WorkshopRelationship {
 // Re-exported from `wns_workshop::workshop`, which is where every existing
 // path — core, the desktop app, and six integration-test files — names them.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkshopBranchKind {
     Working,
     WhatIf,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkshopDecisionStatus {
     Chosen,
@@ -170,7 +170,7 @@ pub enum WorkshopDecisionStatus {
     Superseded,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkshopImpactKind {
     Contradiction,
@@ -179,7 +179,7 @@ pub enum WorkshopImpactKind {
     StyleSuggestion,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkshopImpactStatus {
     NeedsReview,
@@ -187,7 +187,7 @@ pub enum WorkshopImpactStatus {
     Intentional,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SelectedDetail {
     pub id: String,
@@ -196,7 +196,7 @@ pub struct SelectedDetail {
     pub fixed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CandidateChoice {
     pub candidate_id: String,
@@ -205,7 +205,7 @@ pub struct CandidateChoice {
     pub include_in_context: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopSession {
     pub id: String,
@@ -239,7 +239,7 @@ pub struct WorkshopSession {
     pub story_possibilities: Vec<StoryPossibility>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopDecision {
     pub id: String,
@@ -257,7 +257,7 @@ pub struct WorkshopDecision {
     pub supersedes_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopImpact {
     pub id: String,
@@ -272,7 +272,7 @@ pub struct WorkshopImpact {
     pub relationship_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopPreset {
     pub id: String,
@@ -280,7 +280,7 @@ pub struct WorkshopPreset {
     pub preferences: Vec<WorkshopPreference>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopState {
     pub schema_version: u32,

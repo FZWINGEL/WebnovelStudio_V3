@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 /// The bounded result of looking up one project-local object identity in a
 /// frozen context. An empty result means that this frozen evidence did not
 /// contain an observation; it does not mean the object never existed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EvidenceHistory {
     pub object_id: String,
@@ -35,7 +35,7 @@ pub struct EvidenceHistory {
 /// One exact author-reviewed observation, retained in frozen source order.
 /// The holder is the recorded value and is intentionally not a current-owner
 /// assertion.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EvidenceHistoryObservation {
     pub record_id: String,
@@ -53,7 +53,7 @@ pub struct EvidenceHistoryObservation {
 /// Conditions that keep the observation list from supporting a stronger
 /// conclusion. These are status markers only; no variant asserts a current
 /// holder or an inferred transfer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum EvidenceHistoryUncertainty {
     DisclosureLimited,

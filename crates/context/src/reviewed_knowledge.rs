@@ -22,7 +22,7 @@ use std::collections::HashSet;
 pub const MAX_REVIEWED_KNOWLEDGE_RECORDS: usize = 64;
 pub const MAX_REVIEWED_KNOWLEDGE_BYTES: usize = 64 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedKnowledgeSet {
     pub project_id: String,

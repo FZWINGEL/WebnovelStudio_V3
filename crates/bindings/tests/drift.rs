@@ -8,10 +8,10 @@
 fn generated_bindings_match_the_rust_types() {
     let directory = wns_bindings::workspace_root().join(wns_bindings::OUTPUT_DIR);
     let mut stale = Vec::new();
-    for group in wns_bindings::groups().expect("generate bindings") {
-        let path = directory.join(format!("{}.ts", group.file));
+    for (name, text) in wns_bindings::render_all().expect("generate bindings") {
+        let path = directory.join(&name);
         let committed = std::fs::read_to_string(&path).unwrap_or_default();
-        if committed != wns_bindings::render(&group) {
+        if committed != text {
             stale.push(path.display().to_string());
         }
     }

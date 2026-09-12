@@ -7,6 +7,11 @@ description = "Not a layer: generates the frontend's IPC bindings from the Rust 
 [dependencies]
 specta = "1.0.5"
 wns-kernel = { path = "../kernel" }
+wns-documents = { path = "../documents" }
+wns-providers = { path = "../providers" }
+wns-context = { path = "../context" }
+wns-workshop = { path = "../workshop" }
+wns-story = { path = "../story" }
 
 [dev-dependencies]
 serde = { version = "=1.0.229", features = ["derive"] }

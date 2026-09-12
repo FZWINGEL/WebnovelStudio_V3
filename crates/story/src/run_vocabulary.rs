@@ -29,7 +29,7 @@ use wns_providers::vocabulary::{
     ProviderCleanup, ProviderDeliveryReceipt, ProviderOutcomeStatus, ProviderUsage,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RunOwner {
     pub project_id: String,
@@ -37,7 +37,7 @@ pub struct RunOwner {
     pub run_id: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum DiscussionRunStatus {
     Queued,
@@ -84,7 +84,7 @@ impl DiscussionRunStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum DiscussionMessageRole {
     User,
@@ -110,7 +110,7 @@ impl DiscussionMessageRole {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionMessage {
     pub id: String,
@@ -123,7 +123,7 @@ pub struct DiscussionMessage {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderTerminalReport {
     pub owner: RunOwner,
@@ -152,7 +152,7 @@ pub struct ProviderTerminalReport {
     pub app_server: Option<wns_providers::codex_app_server::AppServerDelivery>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderResult {
     pub run_id: String,
@@ -176,14 +176,14 @@ pub struct ProviderResult {
     pub app_server: Option<wns_providers::codex_app_server::AppServerDelivery>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderDiscussionSettlement {
     pub run: DiscussionRun,
     pub provider_result: ProviderResult,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionRun {
     pub id: String,
@@ -212,7 +212,7 @@ pub struct DiscussionRun {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionStart {
     pub thread_id: String,
@@ -220,7 +220,7 @@ pub struct DiscussionStart {
     pub user_message: DiscussionMessage,
     pub packet: CompiledPacket,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum LookupInvocationState {
     Prepared,
@@ -262,7 +262,7 @@ impl LookupInvocationState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LookupInvocationSummary {
     pub ordinal: String,
@@ -275,7 +275,7 @@ pub struct LookupInvocationSummary {
     pub response: Option<Value>,
     pub error: Option<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LookupRunSummary {
     pub allowance: LookupAllowance,

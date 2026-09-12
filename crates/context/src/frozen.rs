@@ -45,7 +45,7 @@ use wns_kernel::{
 };
 use wns_storage::{checkpoint_at, read_document, read_document_with_role};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrozenContext {
     pub snapshot: StorySnapshot,
@@ -79,7 +79,7 @@ pub struct FrozenContext {
     pub project_chat: Option<FrozenProjectChat>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourcePassage {
     pub handle: String,
@@ -89,7 +89,7 @@ pub struct SourcePassage {
     pub text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceRead {
     pub descriptor: SourceDescriptor,
@@ -98,7 +98,7 @@ pub struct SourceRead {
     pub used_validated_projection: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum SearchMode {
     Literal,
@@ -106,7 +106,7 @@ pub enum SearchMode {
     ExactAlias,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchStory {
     pub access: ProjectAccess,
@@ -116,7 +116,7 @@ pub struct SearchStory {
     pub limit: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchHit {
     pub passage: SourcePassage,
@@ -124,7 +124,7 @@ pub struct SearchHit {
     pub end_utf16: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchResult {
     pub snapshot_id: String,
@@ -1120,7 +1120,7 @@ pub fn require_blank_anchor(db: &Connection, document_id: &str) -> CoreResult<Do
 // anything above L3, which is the whole reason the cycle can be discharged.
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FreezeStory {
     pub access: ProjectAccess,

@@ -25,7 +25,7 @@ pub const MAX_PROMISE_NOTE_BYTES: usize = 1024;
 /// A complete immutable promise-observation set selected from one reviewed
 /// bundle and one exact saved source.  Restricted packets project this set to
 /// reader-approved observations while retaining the complete hash.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedPromiseSet {
     pub project_id: String,

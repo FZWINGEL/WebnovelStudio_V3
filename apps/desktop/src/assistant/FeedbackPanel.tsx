@@ -422,7 +422,8 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
   const contextDelivered = selectedLookup ? lookupPacketDelivered(selectedLookup.inputDelivered) : latest?.lookup && lookupInvocations.length > 0
     ? lookupPacketDelivered(lookupInvocations.find(item => item.packetId === latestPacketId)?.inputDelivered ?? false)
     : latest?.dispatchState === 'delivered';
-  const contextAppServerDelivery = contextPacketId === latestPacketId ? latest?.providerResult?.appServer : undefined;
+  // The wire carries `null` for an absent delivery; the prop takes `undefined`.
+  const contextAppServerDelivery = (contextPacketId === latestPacketId ? latest?.providerResult?.appServer : undefined) ?? undefined;
   const latestIsCurrentProject = latest?.owner.projectId === session.projectAccess.projectId && latest?.owner.operationNamespace === session.projectAccess.operationNamespace;
   const pin = (id: string) => { if (!locked && controller.current && !controller.current.body.pinnedDocumentIds.includes(id)) update({ ...controller.current.body, pinnedDocumentIds: [...controller.current.body.pinnedDocumentIds, id] }); };
   const canIncludeTransientSource = documentKind !== 'chapter' || currentIntent === 'discuss';

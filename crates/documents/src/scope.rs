@@ -14,7 +14,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use wns_kernel::{SnapshotReceipt, sha256_hex, validate_snapshot_json};
 
 /// A UTF-16 endpoint inside one block's inline content.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Endpoint {
     pub block_id: String,
@@ -22,7 +22,7 @@ pub struct Endpoint {
 }
 
 /// The kind of structural authority granted to a prepared replacement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum ScopeKind {
     Passage,
@@ -33,7 +33,7 @@ pub enum ScopeKind {
 
 /// A source-bound scope grant. Endpoints are required for passage and blocks;
 /// whole-document grants cover the canonical document token stream.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScopeGrant {
     pub kind: ScopeKind,
@@ -54,7 +54,7 @@ pub struct ScopeGrant {
 ///
 /// The request has one explicit source and one explicit prepared result. The
 /// serialized names are the camelCase IPC contract.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScopeValidationRequest {
     pub source_snapshot: Value,
@@ -66,7 +66,7 @@ pub struct ScopeValidationRequest {
 /// A machine-readable validation failure. `validate_scope` returns this as a
 /// string for parity with the W0 snapshot validator; callers that need a typed
 /// IPC response can serialize this value directly.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScopeValidationError {
     pub code: String,
@@ -85,24 +85,28 @@ impl std::error::Error for ScopeValidationError {}
 ///
 /// `Scalar` and `HardBreak` carry the enclosing block style so a replacement
 /// cannot alter an unselected suffix by changing its paragraph/heading type.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum StructuralToken {
+    #[specta(rename_all = "camelCase")]
     OpenBlock {
         id: String,
         #[serde(rename = "type")]
         block_type: String,
         attrs: Value,
     },
+    #[specta(rename_all = "camelCase")]
     Scalar {
         scalar: String,
         marks: Vec<Value>,
         style: BlockStyle,
     },
+    #[specta(rename_all = "camelCase")]
     HardBreak {
         style: BlockStyle,
     },
     CloseBlock,
+    #[specta(rename_all = "camelCase")]
     SceneBreak {
         id: String,
         attrs: Value,
@@ -110,7 +114,7 @@ pub enum StructuralToken {
 }
 
 /// Block rendering style carried by inline tokens.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BlockStyle {
     #[serde(rename = "type")]
@@ -120,7 +124,7 @@ pub struct BlockStyle {
 }
 
 /// A successful source/result scope check.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScopeReceipt {
     pub accepted: bool,

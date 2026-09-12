@@ -1,14 +1,28 @@
+import type {
+  DiscussionRun,
+  FeedbackIntent,
+  LookupAllowance,
+  LookupInvocationState,
+  LookupInvocationSummary,
+  LookupRunSummary,
+  ProviderResult,
+} from './generated/workshop';
+export type {
+  DiscussionRun,
+  FeedbackIntent,
+  LookupAllowance,
+  LookupInvocationState,
+  LookupInvocationSummary,
+  LookupRunSummary,
+  ProviderResult,
+};
+
 import { invoke } from '@tauri-apps/api/core';
 import type { AppServerDelivery, CompiledPacket, MockContextBudget, ProviderBinding, ScopeGrant } from './context';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { ModelSelection } from './providers';
 
 /** Author-authorized, bounded story lookups for a working-room discussion. */
-export interface LookupAllowance {
-  maxAdditionalInvocations: number;
-  totalInputBytes: string;
-  totalOutputBytes: string;
-}
 
 export const DEFAULT_LOOKUP_ALLOWANCE: LookupAllowance = {
   maxAdditionalInvocations: 2,
@@ -17,7 +31,6 @@ export const DEFAULT_LOOKUP_ALLOWANCE: LookupAllowance = {
 };
 
 /** The author action encoded in a discussion's immutable context packet. */
-export type FeedbackIntent = 'discuss' | 'proposeEdits' | 'continue';
 export type ContinuationBasis = 'working' | 'reviewed';
 export const DEFAULT_FEEDBACK_INTENT: FeedbackIntent = 'discuss';
 
@@ -32,28 +45,6 @@ export interface SafeBriefInput {
 export interface ComposerBody { text: string; scope: DiscussionScope | null; pinnedDocumentIds: string[]; intent?: FeedbackIntent; basis?: ContinuationBasis | null; previousRunId?: string | null; safeBrief?: SafeBriefInput | null; lookup?: LookupAllowance }
 export interface DiscussionDraft extends ComposerBody { documentId: string; version: string; updatedAt: string }
 export interface DiscussionMessage { id: string; threadId: string; runId: string | null; role: 'user' | 'assistant'; content: string; scope: ScopeGrant | null; packetId: string | null; createdAt: string }
-export interface DiscussionRun {
-  id: string; threadId: string; owner: { projectId: string; operationNamespace: string; runId: string };
-  operationId: string; intent?: FeedbackIntent; basis?: ContinuationBasis | null; payloadHash: string; target: Head; packetId: string; previousRunId: string | null;
-  status: 'queued' | 'running' | 'stopping' | 'completed' | 'stopped' | 'failed' | 'interrupted';
-  dispatchState: string; sequence: string; outputText: string; stopReason: string | null; createdAt: string; updatedAt: string;
-  providerBinding?: ProviderBinding; providerResult?: ProviderResult; lookup?: LookupRunSummary;
-}
-export type LookupInvocationState = 'prepared' | 'claimed' | 'needsContext' | 'completed' | 'failed' | 'stopped' | 'unknown';
-export interface LookupInvocationSummary {
-  ordinal: string; packetId: string; state: LookupInvocationState; inputDelivered: boolean; response: unknown | null; error: string | null;
-}
-export interface LookupRunSummary { allowance: LookupAllowance; invocations: LookupInvocationSummary[] }
-export interface ProviderResult {
-  delivery?: { bodyHash: string; bodyBytes: string; submission: 'notSent' | 'uncertain' | 'responseReceived'; usage?: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null } };
-  /** App-server delivery is separate from exec/HTTP evidence and may remain unresolved. */
-  appServer?: AppServerDelivery;
-  /** The provider-reported model is evidence about the response, separate from the requested binding. */
-  reportedModel?: string;
-  binding: ProviderBinding; status: 'completed' | 'stopped' | 'timedOut' | 'outputLimit' | 'failed';
-  confirmedStdinBytes: string; cleanup: 'settled' | 'unresolved'; error: string | null; effectiveIdentity: string | null;
-  usage: { inputTokens: number; cachedInputTokens: number; cacheWriteInputTokens: number; outputTokens: number; reasoningOutputTokens: number } | null;
-}
 export interface DiscussionView { documentId: string; threadId: string | null; messages: DiscussionMessage[]; runs: DiscussionRun[]; draft: DiscussionDraft | null; workerIssues?: Array<{ runId: string; detail: string }> }
 export interface StartDiscussion {
   modelSelection?: ModelSelection;

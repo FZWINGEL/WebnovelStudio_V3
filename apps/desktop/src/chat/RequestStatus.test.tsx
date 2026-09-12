@@ -22,7 +22,7 @@ afterEach(async () => {
 describe('RequestStatus local recovery actions', () => {
   it('keeps failure, chapter target, and scope visible while technical request data stays collapsed', async () => {
     const run = {
-      id: 'run-failed', operationId: 'operation-failed', packetId: 'packet-failed', payloadHash: 'p'.repeat(64),
+      id: 'run-failed', operationId: 'operation-failed', intent: 'discuss', packetId: 'packet-failed', payloadHash: 'p'.repeat(64),
       target: { documentId: 'chapter-2', version: '9', bodyHash: 'h'.repeat(64) }, status: 'failed',
       providerBinding: { providerId: 'codex', modelId: 'gpt-5.6-luna', reasoning: 'max', serviceTier: 'flex' },
       providerResult: { reportedModel: 'gpt-5.6-luna', effectiveIdentity: 'codex-account-2', delivery: { bodyHash: 'd'.repeat(64) } },

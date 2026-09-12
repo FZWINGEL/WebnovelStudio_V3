@@ -68,7 +68,7 @@ function startResult(session: DocumentSession, runId = 'run-1', operationId = 'o
   return {
     threadId: `thread-${runId}`,
     userMessage: { id: `message-${runId}`, threadId: `thread-${runId}`, runId, role: 'user', content: 'Make this moment more emotional.', scope: null, packetId, createdAt: 'now' },
-    run: { id: runId, threadId: `thread-${runId}`, owner, operationId, payloadHash: 'payload', target: requestHead, packetId, previousRunId: null, status: 'queued', dispatchState: 'pending', sequence: '0', outputText: '', stopReason: null, createdAt: 'now', updatedAt: 'now' },
+    run: { id: runId, threadId: `thread-${runId}`, owner, operationId, intent: 'discuss', payloadHash: 'payload', target: requestHead, packetId, previousRunId: null, status: 'queued', dispatchState: 'pending', sequence: '0', outputText: '', stopReason: null, createdAt: 'now', updatedAt: 'now' },
     packet: { messages: [], options: { modelId: 'mock-story-context', maxOutputTokens: '100', tokenAccountingMethod: 'mock' }, receipt: { packetId, sessionId: 'context', snapshotId: 'snapshot', invocationOrdinal: '0', sourceHandles: [], coverage: [], omissions: [], inputHash: 'input', inputTokens: '1', tokenAccountingMethod: 'mock' } },
   };
 }
@@ -279,7 +279,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     vi.mocked(discussions.startDiscussion).mockImplementation(async request => {
       const response = startResult(session,'live-run',request.operationId);
       response.packet.options = { ...response.packet.options, modelId:binding.modelId,providerBinding:binding };
-      response.run = { ...response.run,providerBinding:binding,status:'completed',providerResult:{binding,status:'completed',confirmedStdinBytes:'100',usage:null,cleanup:'settled',error:null,effectiveIdentity:null} };
+      response.run = { ...response.run,providerBinding:binding,status:'completed',providerResult: {runId:'run-1',packetId:'packet-run-1',eventId:'event-1',expectedSequence:'0',assistantText:'',createdAt:'now',binding,status:'completed',confirmedStdinBytes:'100',usage:null,cleanup:'settled',error:null,effectiveIdentity:null} };
       vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'),runs:[response.run],messages:[response.userMessage,{ ...response.userMessage,id:'live-answer',role:'assistant',content:'The promise can deepen this scene.' }] });
       return response;
     });
@@ -296,7 +296,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     vi.mocked(discussions.startDiscussion).mockImplementation(async request => {
       const response = startResult(session, 'http-run', request.operationId);
       response.packet.options = { ...response.packet.options, modelId: httpBinding.modelId, providerBinding: httpBinding };
-      response.run = { ...response.run, providerBinding: httpBinding, status: 'completed', providerResult: { binding: httpBinding, status: 'completed', confirmedStdinBytes: '0', usage: null, cleanup: 'settled', error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission: 'responseReceived' } } };
+      response.run = { ...response.run, providerBinding: httpBinding, status: 'completed', providerResult: {runId:'run-1',packetId:'packet-run-1',eventId:'event-1',expectedSequence:'0',assistantText:'',createdAt:'now', binding: httpBinding, status: 'completed', confirmedStdinBytes: '0', usage: null, cleanup: 'settled', error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission: 'responseReceived' } } };
       vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: response.threadId, runs: [response.run], messages: [response.userMessage, { ...response.userMessage, id: 'http-answer', role: 'assistant', content: 'The endpoint returned a response.' }] });
       return response;
     });
@@ -316,7 +316,7 @@ describe('persistent FeedbackPanel safeguards', () => {
       const response = startResult(session, 'invalid-http-run', request.operationId);
       const bindings = bindingsFor(httpBinding);
       response.packet.options = { ...response.packet.options, modelId: bindings.packet.modelId, providerBinding: bindings.packet };
-      response.run = { ...response.run, providerBinding: bindings.run, status: 'completed', providerResult: { binding: bindings.run, status: 'completed', confirmedStdinBytes: '0', usage: null, cleanup: 'settled', error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission: 'responseReceived' } } };
+      response.run = { ...response.run, providerBinding: bindings.run, status: 'completed', providerResult: {runId:'run-1',packetId:'packet-run-1',eventId:'event-1',expectedSequence:'0',assistantText:'',createdAt:'now', binding: bindings.run, status: 'completed', confirmedStdinBytes: '0', usage: null, cleanup: 'settled', error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission: 'responseReceived' } } };
       return response;
     });
     await renderWithProvider(session); await typeInstruction('Discuss the endpoint response.'); await click('Send');
@@ -328,7 +328,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     ['uncertain', 'failed' as const, 'uncertain' as const, 'The request may have reached the API, but delivery could not be confirmed. It was not automatically retried.'],
   ])('labels %s HTTP delivery separately from local cleanup and reports unknown usage', async (_label, status, submission, deliveryLabel) => {
     const session = await makeSession(); const started = startResult(session, `http-${_label}`);
-    const run = { ...started.run, status, providerBinding: httpBinding, providerResult: { binding: httpBinding, status, confirmedStdinBytes: '0', usage: null, cleanup: 'settled' as const, error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission } } };
+    const run = { ...started.run, status, providerBinding: httpBinding, providerResult: {runId:'run-1',packetId:'packet-run-1',eventId:'event-1',expectedSequence:'0',assistantText:'',createdAt:'now', binding: httpBinding, status, confirmedStdinBytes: '0', usage: null, cleanup: 'settled' as const, error: null, effectiveIdentity: null, delivery: { bodyHash: 'body-hash', bodyBytes: '100', submission } } };
     vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), threadId: started.threadId, runs: [run], messages: [started.userMessage, { ...started.userMessage, id: `http-${_label}-answer`, role: 'assistant', content: 'The endpoint response was saved.' }] });
     await renderPanel(session);
     expect(host.textContent).toContain('Usage is unavailable for this response.');
@@ -339,7 +339,7 @@ describe('persistent FeedbackPanel safeguards', () => {
   });
   it('describes a completed reusable app-server turn without claiming a local process finished', async () => {
     const session = await makeSession(); const started = startResult(session, 'app-server-complete');
-    const run = { ...started.run, status: 'completed' as const, providerBinding: appServerBinding, providerResult: {
+    const run = { ...started.run, status: 'completed' as const, providerBinding: appServerBinding, providerResult: {runId:'run-1',packetId:'packet-run-1',eventId:'event-1',expectedSequence:'0',assistantText:'',createdAt:'now',
       binding: appServerBinding, status: 'completed' as const, confirmedStdinBytes: '0', usage: null, cleanup: 'settled' as const,
       error: null, effectiveIdentity: null, appServer: { dispatch: appServerDispatch, submission: 'acknowledged' as const, turnId: 'turn-1', terminal: 'completed' as const, requestSettled: true, connection: 'reusable' as const },
     } };
@@ -353,7 +353,7 @@ describe('persistent FeedbackPanel safeguards', () => {
   });
   it('keeps uncertain app-server start delivery unresolved and does not imply an automatic retry', async () => {
     const session = await makeSession(); const started = startResult(session, 'app-server-uncertain');
-    const run = { ...started.run, status: 'failed' as const, providerBinding: appServerBinding, providerResult: {
+    const run = { ...started.run, status: 'failed' as const, providerBinding: appServerBinding, providerResult: {runId:'run-1',packetId:'packet-run-1',eventId:'event-1',expectedSequence:'0',assistantText:'',createdAt:'now',
       binding: appServerBinding, status: 'failed' as const, confirmedStdinBytes: '0', usage: null, cleanup: 'unresolved' as const,
       error: null, effectiveIdentity: null, appServer: { dispatch: appServerDispatch, submission: 'uncertain' as const, turnId: null, terminal: null, requestSettled: false, connection: 'unresolved' as const },
     } };

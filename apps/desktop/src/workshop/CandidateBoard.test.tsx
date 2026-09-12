@@ -11,7 +11,7 @@ let root: Root;
 
 const run = (overrides: Partial<DiscussionRun> = {}): DiscussionRun => ({
   id: 'run-1', threadId: 'thread-1', owner: { projectId: 'project', operationNamespace: 'workshop', runId: 'run-1' },
-  operationId: 'op-1', payloadHash: 'hash', target: { documentId: 'doc', version: '1', bodyHash: 'body' }, packetId: 'packet', previousRunId: null,
+  operationId: 'op-1', intent: 'discuss', payloadHash: 'hash', target: { documentId: 'doc', version: '1', bodyHash: 'body' }, packetId: 'packet', previousRunId: null,
   status: 'completed', dispatchState: 'delivered', sequence: '1', outputText: '', stopReason: null, createdAt: '2026-09-07T00:00:00Z', updatedAt: '2026-09-07T00:00:00Z', ...overrides,
 });
 const candidate = (id: string, content = `A direction for ${id}. A second paragraph with a detail.`): WorkshopCandidate => ({ id, title: `Direction ${id}`, content, dimensionValue: `Value ${id}`, implications: [{ text: 'A possible consequence', basis: 'the chosen mechanism', assumption: 'people can act on it' }], assumptions: ['Access remains uneven.'], affectedTargets: [], preservedDetails: ['The central pressure'], changedDetails: ['The daily practice'] });

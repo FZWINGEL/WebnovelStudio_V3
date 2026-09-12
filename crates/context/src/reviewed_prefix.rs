@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 use wns_kernel::Head;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewPrefixItem {
     pub document_id: String,

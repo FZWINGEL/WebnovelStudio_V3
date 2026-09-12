@@ -24,7 +24,7 @@ pub const MAX_EVIDENCE_QUOTE_BYTES: usize = 4096;
 /// Maximum UTF-8 bytes in an uncertainty note.
 pub const MAX_UNCERTAINTY_BYTES: usize = 512;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DigestCandidate {
     pub schema_version: String,
@@ -32,7 +32,7 @@ pub struct DigestCandidate {
     pub items: Vec<DigestItem>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DigestItem {
     pub text: String,
@@ -40,7 +40,7 @@ pub struct DigestItem {
     pub uncertainty: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DigestEvidence {
     pub block_id: String,

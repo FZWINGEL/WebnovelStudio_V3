@@ -127,7 +127,7 @@ const CONTINUATION_RESPONSE_INSTRUCTION: &str = r#"Response contract: continuati
 /// A model-independent total context window and the reservations that must be
 /// left for output and protocol framing.  All counters are decimal strings so
 /// this contract can cross the JavaScript boundary without losing precision.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MockContextBudget {
     pub model_id: String,
@@ -158,7 +158,7 @@ impl MockContextBudget {
 /// the compiler checks every one against the frozen manifest before using it.
 /// The target read is selected by `frozen.snapshot.target`, never by a
 /// client-provided handle.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PacketRequest {
     pub packet_id: String,
@@ -192,7 +192,7 @@ pub struct PacketRequest {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CompiledPacket {
     pub messages: Vec<PacketMessage>,
@@ -202,18 +202,21 @@ pub struct CompiledPacket {
 
 /// Errors retain the eligibility and budget contracts rather than flattening
 /// them into provider-shaped strings.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum PacketError {
+    #[specta(rename_all = "camelCase")]
     InvalidRequest {
         message: String,
     },
+    #[specta(rename_all = "camelCase")]
     SourceBinding {
         code: String,
         message: String,
         handle: Option<String>,
     },
     Eligibility(EligibilityError),
+    #[specta(rename_all = "camelCase")]
     ScopeValidation {
         message: String,
     },

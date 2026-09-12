@@ -7,9 +7,9 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory = wns_bindings::workspace_root().join(wns_bindings::OUTPUT_DIR);
     std::fs::create_dir_all(&directory)?;
-    for group in wns_bindings::groups()? {
-        let path = directory.join(format!("{}.ts", group.file));
-        std::fs::write(&path, wns_bindings::render(&group))?;
+    for (name, text) in wns_bindings::render_all()? {
+        let path = directory.join(&name);
+        std::fs::write(&path, text)?;
         println!("wrote {}", path.display());
     }
     Ok(())

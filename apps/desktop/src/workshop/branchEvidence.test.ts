@@ -19,7 +19,7 @@ const candidate = (id: string): WorkshopCandidate => ({
 
 const run = (id: string, overrides: Partial<DiscussionRun> = {}): DiscussionRun => ({
   id, threadId: id, owner: { projectId: 'project', operationNamespace: 'workshop', runId: id },
-  operationId: `operation-${id}`, payloadHash: 'hash', target: { documentId: 'anchor', version: '1', bodyHash: 'hash' },
+  operationId: `operation-${id}`, intent: 'discuss', payloadHash: 'hash', target: { documentId: 'anchor', version: '1', bodyHash: 'hash' },
   packetId: `packet-${id}`, previousRunId: null, status: 'completed', dispatchState: 'delivered', sequence: '1',
   outputText: '', stopReason: null, createdAt: '2026-09-07T00:00:00Z', updatedAt: '2026-09-07T00:00:00Z', ...overrides,
 });

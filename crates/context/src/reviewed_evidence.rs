@@ -24,7 +24,7 @@ pub const MAX_REVIEWED_EVIDENCE_BYTES: usize = 64 * 1024;
 /// exact saved source. The array is provenance, not a claim that every record
 /// is permitted in every audience. Restricted packets project it to reader
 /// records before serialization and report only aggregate disclosure.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedEvidenceSet {
     pub project_id: String,
@@ -62,7 +62,7 @@ pub fn from_storage_parts(
 }
 
 /// Receipt coverage for the records that actually reached the provider.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedEvidenceCoverage {
     pub source_handle: String,
@@ -77,7 +77,7 @@ pub struct ReviewedEvidenceCoverage {
     pub record_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum ReviewedEvidenceOmissionReason {
     Budget,
@@ -86,7 +86,7 @@ pub enum ReviewedEvidenceOmissionReason {
 
 /// Omitted records are aggregated per set and reason.  This keeps private
 /// record identifiers out of RestrictedWriting packets and inspector data.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedEvidenceOmission {
     pub source_handle: String,

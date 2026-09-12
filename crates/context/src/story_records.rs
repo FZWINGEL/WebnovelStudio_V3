@@ -17,7 +17,7 @@ pub const MAX_QUOTE_BYTES: usize = 4096;
 pub const MAX_PROMISE_NOTE_BYTES: usize = 1024;
 pub const MAX_KNOWLEDGE_STATEMENT_BYTES: usize = 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoryEntityRef {
     /// Project-local opaque identity.  Labels never merge two identities.
@@ -25,7 +25,7 @@ pub struct StoryEntityRef {
     pub label: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum PossessionTiming {
     AtPassage,
@@ -33,14 +33,14 @@ pub enum PossessionTiming {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum EvidenceAudience {
     AuthorRoom,
     Reader,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EvidenceAnchor {
     pub block_id: String,
@@ -50,7 +50,7 @@ pub struct EvidenceAnchor {
     pub quote_hash: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PossessionRecord {
     pub id: String,
@@ -64,7 +64,7 @@ pub struct PossessionRecord {
 /// Explicit author-entered promise observations. A phase is an observation at
 /// the cited passage; it is never interpreted as a current truth or inferred
 /// transfer/state machine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum PromisePhase {
     Setup,
@@ -73,7 +73,7 @@ pub enum PromisePhase {
     Unclear,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PromiseRecord {
     pub id: String,
@@ -89,7 +89,7 @@ pub struct PromiseRecord {
 /// exact prose passage.  This is an observation about the character's mental
 /// state, never an inferred fact about the world or a permission to read the
 /// surrounding chapter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum KnowledgeAttitude {
     Knows,
@@ -100,7 +100,7 @@ pub enum KnowledgeAttitude {
     Unclear,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct KnowledgeRecord {
     pub id: String,

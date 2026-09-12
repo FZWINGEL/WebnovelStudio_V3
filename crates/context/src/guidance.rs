@@ -28,7 +28,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use wns_kernel::{CoreError, CoreResult, check_id, sha256_hex};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum GuidanceScope {
     Request,
@@ -36,7 +36,7 @@ pub enum GuidanceScope {
     Project,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GuidanceVersion {
     pub guidance_id: String,
@@ -53,7 +53,7 @@ pub struct GuidanceVersion {
 
 /// An exact author-room instruction selected when a request freezes. The
 /// referenced version also survives in its own authoritative local store.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrozenGuidance {
     pub handle: String,
@@ -117,7 +117,7 @@ pub const MAX_GUIDANCE_BYTES: usize = 16 * 1024;
 /// converted by [`head_to_version`], which is also where every identity,
 /// fingerprint and target rule is enforced. Nothing else may construct a
 /// [`GuidanceVersion`] from a row.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, specta::Type)]
 pub struct GuidanceHead {
     pub guidance_id: String,
     pub version_id: String,

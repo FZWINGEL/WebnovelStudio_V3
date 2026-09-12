@@ -10,7 +10,7 @@ pub const ACCOUNTING_METHOD: &str = "utf8-byte-count/codex-app-server-applicatio
 
 /// Non-secret identity of the process-level isolation and account contract.
 /// The selected model descriptor remains in ProviderRuntimeIdentity.catalog_sha256.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppServerRuntimeIdentity {
     pub account_sha256: String,
@@ -36,7 +36,7 @@ pub fn is_app_server(binding: &crate::vocabulary::ProviderBinding) -> bool {
 
 /// Committed before writing turn/start. The provider thread has been created,
 /// but this record alone cannot authorize another external start after recovery.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppServerDispatch {
     pub server_generation: String,
@@ -109,7 +109,7 @@ fn valid_hash(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AppServerSubmission {
     NotSent,
@@ -117,7 +117,7 @@ pub enum AppServerSubmission {
     Acknowledged,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AppServerTerminal {
     Completed,
@@ -128,7 +128,7 @@ pub enum AppServerTerminal {
 /// Connection state is distinct from settlement of this one request. Closing
 /// a server after a failed interrupt can settle ownership without establishing
 /// whether its upstream generation completed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AppServerConnectionSettlement {
     Reusable,
@@ -136,7 +136,7 @@ pub enum AppServerConnectionSettlement {
     Unresolved,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppServerDelivery {
     pub dispatch: Option<AppServerDispatch>,

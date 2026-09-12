@@ -16,7 +16,7 @@ vi.mock('../ipc/context', () => mocks);
 const access: ProjectAccess = { projectId: 'project-1', session: 'session-1', writerLease: 'lease-1', operationNamespace: 'namespace-1' };
 const run = (id: string, packetId = `packet-${id}`): DiscussionRun => ({
   id, threadId: 'thread-1', owner: { projectId: access.projectId, operationNamespace: access.operationNamespace, runId: id },
-  operationId: `operation-${id}`, target: { documentId: 'chapter-1', version: '1', bodyHash: 'hash' }, packetId,
+  intent: 'discuss', operationId: `operation-${id}`, target: { documentId: 'chapter-1', version: '1', bodyHash: 'hash' }, packetId,
   payloadHash: 'payload', previousRunId: null, status: 'running', dispatchState: 'delivered', sequence: '1', outputText: '', stopReason: null,
   createdAt: '2026-09-09T00:00:00Z', updatedAt: '2026-09-09T00:00:00Z',
 });

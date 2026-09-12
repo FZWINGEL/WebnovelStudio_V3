@@ -34,7 +34,7 @@ pub const REVIEWED_MEMORY_CAPABILITY: &str = "reviewed-memory.v1";
 pub const MAX_MEMORY_OFFSET: u32 = 100_000;
 pub const MAX_MEMORY_LIMIT: u32 = 20;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum LookupErrorCode {
     InvalidJson,
@@ -45,7 +45,7 @@ pub enum LookupErrorCode {
     InvalidCapability,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LookupError {
     pub code: LookupErrorCode,
@@ -85,7 +85,7 @@ impl fmt::Display for LookupErrorCode {
 /// Application byte allowances for the initial lookup request and its
 /// bounded context-expansion invocations. These are serialized decimal byte
 /// caps, not provider token or billing limits.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LookupAllowance {
     pub max_additional_invocations: u8,
@@ -93,7 +93,7 @@ pub struct LookupAllowance {
     pub total_output_bytes: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum MemoryEntityKind {
     Character,
@@ -102,7 +102,7 @@ pub enum MemoryEntityKind {
     Promise,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryEntityEntry {
     pub entity: crate::story_records::StoryEntityRef,
@@ -159,7 +159,7 @@ impl LookupAllowance {
 
 /// One application-executed lookup request. The provider cannot supply a
 /// path, command, source body, or arbitrary tool arguments.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -167,12 +167,14 @@ impl LookupAllowance {
     deny_unknown_fields
 )]
 pub enum LookupRead {
+    #[specta(rename_all = "camelCase")]
     Search {
         id: String,
         query: String,
         mode: SearchMode,
         limit: u32,
     },
+    #[specta(rename_all = "camelCase")]
     Read {
         id: String,
         handle: String,
@@ -184,6 +186,7 @@ pub enum LookupRead {
         )]
         block_ids: Option<Vec<String>>,
     },
+    #[specta(rename_all = "camelCase")]
     FindEntities {
         id: String,
         entity_kind: MemoryEntityKind,
@@ -192,6 +195,7 @@ pub enum LookupRead {
         offset: u32,
         limit: u32,
     },
+    #[specta(rename_all = "camelCase")]
     KnowledgeHistory {
         id: String,
         character_id: String,
@@ -205,6 +209,7 @@ pub enum LookupRead {
         offset: u32,
         limit: u32,
     },
+    #[specta(rename_all = "camelCase")]
     PromiseHistory {
         id: String,
         promise_id: String,
@@ -212,6 +217,7 @@ pub enum LookupRead {
         offset: u32,
         limit: u32,
     },
+    #[specta(rename_all = "camelCase")]
     PossessionHistory {
         id: String,
         object_id: String,
@@ -229,7 +235,7 @@ pub type LookupReadRequest = LookupRead;
 /// The application result for one previously authorized lookup request.
 /// Search results and passages retain their Rust-owned source identities; a
 /// provider cannot manufacture an arbitrary path, title, or source body.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -237,15 +243,18 @@ pub type LookupReadRequest = LookupRead;
     deny_unknown_fields
 )]
 pub enum LookupReadResult {
+    #[specta(rename_all = "camelCase")]
     Search {
         result: SearchResult,
     },
+    #[specta(rename_all = "camelCase")]
     Read {
         handle: String,
         source: SourceRef,
         passages: Vec<SourcePassage>,
         complete: bool,
     },
+    #[specta(rename_all = "camelCase")]
     FindEntities {
         entity_kind: MemoryEntityKind,
         query: String,
@@ -255,24 +264,28 @@ pub enum LookupReadResult {
         next_offset: Option<u32>,
         incomplete: bool,
     },
+    #[specta(rename_all = "camelCase")]
     KnowledgeHistory {
         history: KnowledgeHistory,
         offset: u32,
         total_observations: u32,
         next_offset: Option<u32>,
     },
+    #[specta(rename_all = "camelCase")]
     PromiseHistory {
         history: PromiseHistory,
         offset: u32,
         total_observations: u32,
         next_offset: Option<u32>,
     },
+    #[specta(rename_all = "camelCase")]
     PossessionHistory {
         history: EvidenceHistory,
         offset: u32,
         total_observations: u32,
         next_offset: Option<u32>,
     },
+    #[specta(rename_all = "camelCase")]
     Unavailable {
         code: String,
         detail: String,
@@ -284,7 +297,7 @@ pub enum LookupReadResult {
 /// application-executed expansion adds one authenticated exchange. The
 /// packet compiler owns semantic validation of request/result correspondence,
 /// source identity, and byte budgets.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LookupPacketInput {
     pub allowance: LookupAllowance,
@@ -343,14 +356,14 @@ pub fn reviewed_memory_enabled(lookup: Option<&LookupPacketInput>) -> bool {
 /// Exact, author-room-only labels for sources that actually appear in lookup
 /// read or search evidence. This is intentionally separate from the provider
 /// `story-lookup.v1` response contract.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LookupSourceProjection {
     pub schema_version: String,
     pub sources: Vec<LookupSourceProjectionSource>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LookupSourceProjectionSource {
     pub handle: String,
@@ -436,7 +449,7 @@ impl LookupSourceProjection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LookupExchange {
     pub request: LookupReadRequest,
@@ -446,14 +459,16 @@ pub struct LookupExchange {
 /// Strict provider response. A `needsContext` response contains only bounded
 /// read descriptors; a `discussion` response is final text and requests no
 /// application action.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum LookupEnvelope {
+    #[specta(rename_all = "camelCase")]
     NeedsContext {
         #[serde(rename = "schemaVersion")]
         schema_version: String,
         reads: Vec<LookupRead>,
     },
+    #[specta(rename_all = "camelCase")]
     Discussion {
         #[serde(rename = "schemaVersion")]
         schema_version: String,

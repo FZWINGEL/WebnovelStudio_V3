@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The editorial basis selected for a frozen request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum BasisKind {
     Working,
@@ -11,7 +11,7 @@ pub enum BasisKind {
 
 /// Whether the packet serves an author-room discussion or a restricted prose
 /// request. Author-room knowledge is never an Apply authorization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum Audience {
     AuthorRoom,
@@ -20,7 +20,7 @@ pub enum Audience {
 
 /// A request-scoped author direction. It is separate from story evidence and
 /// only enters a restricted writing packet after explicit confirmation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SafeBriefInput {
     pub text: String,
@@ -37,7 +37,7 @@ pub struct SafeBriefInput {
 /// Versioned provenance for a brief selected from the project conversation.
 /// The project owner authenticates every field before the brief can enter a
 /// restricted packet; a conversation label or copied text is not sufficient.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectBriefOrigin {
     pub version: String,
@@ -52,7 +52,7 @@ pub struct ProjectBriefOrigin {
 
 pub const MAX_SAFE_BRIEF_BYTES: usize = 16 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SafeBriefReceipt {
     pub text: String,
@@ -62,7 +62,7 @@ pub struct SafeBriefReceipt {
     pub project_origin: Option<ProjectBriefOrigin>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum ContextPurpose {
     Discuss,
@@ -76,7 +76,7 @@ pub enum ContextPurpose {
 /// The authority/provenance class resolved by the project owner. These are
 /// intentionally distinct: an observation or digest can assist retrieval but
 /// cannot become reviewed story authority merely by entering a packet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum SourceKind {
     CurrentDraft,
@@ -99,7 +99,7 @@ pub enum SourceKind {
 
 /// Coverage describes how a source may be represented in a later packet. A
 /// directory entry is navigable metadata, not semantic story evidence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum CoverageLabel {
     Verbatim,
@@ -109,7 +109,7 @@ pub enum CoverageLabel {
 
 /// A policy boundary for reader and character disclosure. All positions are
 /// decimal strings because they cross the JavaScript boundary.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InformationPolicy {
     /// Canonical decimal project disclosure-policy epoch, not a display label.
@@ -125,7 +125,7 @@ pub struct InformationPolicy {
 /// An explicit grant that a limited-POV character may use a source already
 /// disclosed to the reader at or before the stated frontier. It never bypasses
 /// the reader frontier and never uses story time as a disclosure shortcut.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterGrant {
     pub character_id: String,
@@ -135,7 +135,7 @@ pub struct CharacterGrant {
 
 /// Exact identity of one source revision. Display names and labels live on the
 /// resolved descriptor, so Unicode source names remain lossless here.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceRef {
     pub project_id: String,
@@ -145,7 +145,7 @@ pub struct SourceRef {
 }
 
 /// Reader-disclosure metadata is separate from optional fictional story time.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Disclosure {
     pub reader_position: Option<String>,
@@ -156,7 +156,7 @@ pub struct Disclosure {
 
 /// Optional fictional chronology. Eligibility never uses it to override the
 /// reader disclosure frontier.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoryTime {
     pub label: String,
@@ -167,7 +167,7 @@ pub struct StoryTime {
 /// eligibility kernel does not accept a client-side "safe" or "reviewed"
 /// claim; it checks this descriptor against the frozen snapshot and all of its
 /// exact source dependencies.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceDescriptor {
     pub handle: String,
@@ -187,7 +187,7 @@ pub struct SourceDescriptor {
 /// continuation. The source descriptors still carry the prose references;
 /// this manifest preserves the selected bundle identity so a later snapshot
 /// cannot be mistaken for a different reaffirmation of the same revision.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedBasisManifest {
     pub project_id: String,
@@ -195,7 +195,7 @@ pub struct ReviewedBasisManifest {
     pub prefix: Vec<ReviewedBasisMember>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedBasisMember {
     pub document_id: String,
@@ -206,7 +206,7 @@ pub struct ReviewedBasisMember {
 }
 
 /// Immutable source and policy basis for one context request.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StorySnapshot {
     pub snapshot_id: String,
@@ -228,7 +228,7 @@ pub struct StorySnapshot {
 /// resolved by the Rust project owner before this request is constructed;
 /// callers cannot use this type to assert that an arbitrary client source is
 /// current, reviewed, or disclosed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EligibilityRequest {
     pub snapshot: StorySnapshot,
@@ -238,7 +238,7 @@ pub struct EligibilityRequest {
 }
 
 /// A packet coverage item records what representation was actually delivered.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CoverageEntry {
     pub handle: String,
@@ -248,7 +248,7 @@ pub struct CoverageEntry {
 
 /// Exact durable receipt contract for a compiled packet. C2 owns packet
 /// construction; C0 defines the fields that must remain auditable.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PacketReceipt {
     /// Exact read requests/results supplied separately from ordinary packing.
@@ -316,7 +316,7 @@ pub struct PacketReceipt {
     pub token_accounting_method: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum BudgetErrorCode {
     MandatoryContextTooLarge,
@@ -326,7 +326,7 @@ pub enum BudgetErrorCode {
 
 /// Structured budget failures preserve decimal counters and explicit gaps;
 /// callers must not silently shorten a mandatory target into a different task.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BudgetError {
     pub code: BudgetErrorCode,

@@ -1,3 +1,26 @@
+import type {
+  AppServerConnectionSettlement,
+  AppServerDelivery,
+  AppServerDispatch,
+  AppServerRuntimeIdentity,
+  AppServerSubmission,
+  AppServerTerminal,
+  LookupAllowance,
+  ProviderBinding,
+  ProviderRuntimeIdentity,
+} from './generated/workshop';
+export type {
+  AppServerConnectionSettlement,
+  AppServerDelivery,
+  AppServerDispatch,
+  AppServerRuntimeIdentity,
+  AppServerSubmission,
+  AppServerTerminal,
+  LookupAllowance,
+  ProviderBinding,
+  ProviderRuntimeIdentity,
+};
+
 import { invoke } from '@tauri-apps/api/core';
 import type { WnsDocument } from '../editor/document';
 import type { Endpoint, Head, ProjectAccess } from './projects';
@@ -125,11 +148,6 @@ export interface StorySearchResult {
   hasMore: boolean;
   coverage: string;
 }
-export interface LookupAllowance {
-  maxAdditionalInvocations: number;
-  totalInputBytes: string;
-  totalOutputBytes: string;
-}
 export type LookupSearchMode = 'literal' | 'lexical' | 'exactAlias';
 export type LookupMemoryEntityKind = 'character' | 'topic' | 'object' | 'promise';
 export interface LookupMemoryEntityEntry {
@@ -229,42 +247,6 @@ export interface CompiledPacket {
   messages: Array<{ role: string; content: string }>;
   options: { modelId: string; maxOutputTokens?: string; tokenAccountingMethod: string; providerBinding?: ProviderBinding };
   receipt: PacketReceipt;
-}
-export interface AppServerRuntimeIdentity {
-  accountSha256: string;
-  securityConfigSha256: string;
-  restrictiveCatalogSha256: string;
-}
-export interface ProviderRuntimeIdentity {
-  cliVersion: string;
-  executableSha256: string;
-  catalogSha256?: string;
-  appServer?: AppServerRuntimeIdentity;
-}
-export type AppServerSubmission = 'notSent' | 'uncertain' | 'acknowledged';
-export type AppServerTerminal = 'completed' | 'interrupted' | 'failed';
-export type AppServerConnectionSettlement = 'reusable' | 'closed' | 'unresolved';
-export interface AppServerDispatch {
-  serverGeneration: string;
-  threadId: string;
-  rpcId: string;
-  packetHash: string;
-  requestHash: string;
-}
-export interface AppServerDelivery {
-  dispatch: AppServerDispatch | null;
-  submission: AppServerSubmission;
-  turnId: string | null;
-  terminal: AppServerTerminal | null;
-  requestSettled: boolean;
-  connection: AppServerConnectionSettlement;
-}
-export interface ProviderBinding {
-  runtime?: ProviderRuntimeIdentity;
-  http?: { baseUrl: string; configRevision: string; stream: boolean; responseFormat: 'text' | 'jsonObject' };
-  providerId: string; modelId: string; reasoning: string | null; serviceTier: string | null;
-  profileVersion: string; inputLimitBytes: string; reservedOutputBytes: string;
-  reservedProtocolBytes: string; outputLimitBytes: string; accountingMethod: string;
 }
 export interface ContextBudgetError {
   code: 'mandatoryContextTooLarge' | 'budgetExhausted' | 'invalidBudget';

@@ -28,7 +28,7 @@ function state(sessions: WorkshopSession[], decisions: WorkshopDecision[] = []):
 
 function run(id: string, overrides: Partial<DiscussionRun> = {}): DiscussionRun {
   return {
-    id, threadId: `thread-${id}`, owner: { projectId: 'project', operationNamespace: 'workshop', runId: id }, operationId: `operation-${id}`,
+    id, threadId: `thread-${id}`, owner: { projectId: 'project', operationNamespace: 'workshop', runId: id }, operationId: `operation-${id}`, intent: 'discuss',
     payloadHash: `payload-${id}`, target: { documentId: `workshop-${id}`, version: '1', bodyHash: `hash-workshop-${id}-1` }, packetId: `packet-${id}`,
     previousRunId: null, status: 'completed', dispatchState: 'delivered', sequence: '1', outputText: '', stopReason: null,
     createdAt: '2026-09-07T00:00:00Z', updatedAt: '2026-09-07T00:00:00Z', ...overrides,

@@ -116,17 +116,62 @@ pub fn group(
 }
 
 /// Render one group as a TypeScript module.
-pub fn render(group: &Group) -> String {
+///
+/// A group's types reference types from the layers below it — the workshop's
+/// snapshot embeds a `DocumentRecord` — so the header imports whatever another
+/// group declares. Without it each file would re-declare them, which is the
+/// drift this crate exists to remove.
+pub fn render(group: &Group, others: &[Group]) -> String {
+    let own: Vec<&str> = group.types.iter().map(|(n, _)| n.as_str()).collect();
+    let mut imports: Vec<(&str, Vec<&str>)> = Vec::new();
+    for other in others {
+        if other.file == group.file {
+            continue;
+        }
+        let referenced: Vec<&str> = other
+            .types
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .filter(|n| !own.contains(n))
+            .filter(|name| {
+                group.types.iter().any(|(_, block)| {
+                    block.match_indices(*name).any(|(i, _)| {
+                        let before = block[..i].chars().last();
+                        let after = block[i + name.len()..].chars().next();
+                        !before.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                            && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                    })
+                })
+            })
+            .collect();
+        if !referenced.is_empty() {
+            imports.push((other.file, referenced));
+        }
+    }
+
     let mut out = format!(
         "// Generated from `{}` by `crates/bindings`. Do not edit.\n\
-         // Change the Rust type and run `cargo run -p wns-bindings`.\n\n",
+         // Change the Rust type and run `cargo run -p wns-bindings`.\n",
         group.crate_name
     );
+    for (file, names) in &imports {
+        out.push_str(&format!("import type {{ {} }} from './{}';\n", names.join(", "), file));
+    }
+    out.push('\n');
     for (_, block) in &group.types {
         out.push_str(block.trim_end());
         out.push_str("\n\n");
     }
     out
+}
+
+/// Render every group, each importing what it needs from the others.
+pub fn render_all() -> Result<Vec<(String, String)>, specta::ts::TsExportError> {
+    let groups = groups()?;
+    Ok(groups
+        .iter()
+        .map(|g| (format!("{}.ts", g.file), render(g, &groups)))
+        .collect())
 }
 
 /// Fields Rust omits when empty, as `(Rust type, Rust field)`.
@@ -255,7 +300,7 @@ fn declaration_name(block: &str) -> Option<String> {
 
 /// Every group the frontend has been migrated onto.
 pub fn groups() -> Result<Vec<Group>, specta::ts::TsExportError> {
-    Ok(vec![wns_groups::kernel()?])
+    Ok(vec![wns_groups::kernel()?, wns_groups::workshop()?])
 }
 
 /// The workspace root, from this crate's manifest directory.
@@ -286,6 +331,94 @@ mod wns_groups {
                 ("AppliedDecision", one::<wns_kernel::AppliedDecision>()),
                 ("StoredResult", one::<wns_kernel::StoredResult>()),
                 ("SnapshotReceipt", one::<wns_kernel::SnapshotReceipt>()),
+            ],
+        )
+    }
+
+    /// `wns-workshop`'s IPC closure.
+    ///
+    /// Not only the crate's own types: the record vocabulary moved to
+    /// `wns-story` when the two crates stopped being able to reach sideways,
+    /// the snapshot reaches `DiscussionRun`, and that reaches the provider and
+    /// context vocabularies. `export` renders a type and *references* its named
+    /// dependencies without always declaring them, so every name the generated
+    /// file mentions is listed here — closed against the frontend compiler
+    /// rather than by hand.
+    pub fn workshop() -> Result<Group, specta::ts::TsExportError> {
+        group(
+            "workshop",
+            "wns-workshop",
+            vec![
+                ("WorkshopRelationshipDraft", one::<wns_workshop::workshop::WorkshopRelationshipDraft>()),
+                ("WorkshopImpactDraft", one::<wns_workshop::workshop::WorkshopImpactDraft>()),
+                ("WorkshopAdoptionImpact", one::<wns_workshop::workshop::WorkshopAdoptionImpact>()),
+                ("WorkshopSnapshot", one::<wns_workshop::workshop::WorkshopSnapshot>()),
+                ("WorkshopCandidateImplication", one::<wns_workshop::workshop::WorkshopCandidateImplication>()),
+                ("WorkshopCandidateAffectedTarget", one::<wns_workshop::workshop::WorkshopCandidateAffectedTarget>()),
+                ("WorkshopCandidate", one::<wns_workshop::workshop::WorkshopCandidate>()),
+                ("WorkshopOutputInterpretation", one::<wns_workshop::workshop::WorkshopOutputInterpretation>()),
+                ("WorkshopOutput", one::<wns_workshop::workshop::WorkshopOutput>()),
+                ("WorkshopResult", one::<wns_workshop::workshop::WorkshopResult>()),
+                ("WorkshopView", one::<wns_workshop::workshop::WorkshopView>()),
+                ("SaveWorkshop", one::<wns_workshop::workshop::SaveWorkshop>()),
+                ("WorkshopAdoptionTarget", one::<wns_workshop::workshop::WorkshopAdoptionTarget>()),
+                ("AdoptionMode", one::<wns_workshop::workshop::AdoptionMode>()),
+                ("PreviewWorkshopAdoption", one::<wns_workshop::workshop::PreviewWorkshopAdoption>()),
+                ("WorkshopAdoptionPreview", one::<wns_workshop::workshop::WorkshopAdoptionPreview>()),
+                ("WorkshopAdoptionAck", one::<wns_workshop::workshop::WorkshopAdoptionAck>()),
+                ("WorkshopDepth", one::<wns_story::workshop_vocabulary::WorkshopDepth>()),
+                ("PreferencePolarity", one::<wns_story::workshop_vocabulary::PreferencePolarity>()),
+                ("PreferenceStrength", one::<wns_story::workshop_vocabulary::PreferenceStrength>()),
+                ("PreferenceScope", one::<wns_story::workshop_vocabulary::PreferenceScope>()),
+                ("CandidateChoiceStatus", one::<wns_story::workshop_vocabulary::CandidateChoiceStatus>()),
+                ("WorkshopQuestionStatus", one::<wns_story::workshop_vocabulary::WorkshopQuestionStatus>()),
+                ("UnknownTo", one::<wns_story::workshop_vocabulary::UnknownTo>()),
+                ("WorkshopRelationshipStatus", one::<wns_story::workshop_vocabulary::WorkshopRelationshipStatus>()),
+                ("WorkshopPreference", one::<wns_story::workshop_vocabulary::WorkshopPreference>()),
+                ("WorkshopQuestion", one::<wns_story::workshop_vocabulary::WorkshopQuestion>()),
+                ("StoryPossibilityKind", one::<wns_story::workshop_vocabulary::StoryPossibilityKind>()),
+                ("StoryPossibilityStatus", one::<wns_story::workshop_vocabulary::StoryPossibilityStatus>()),
+                ("StoryPossibility", one::<wns_story::workshop_vocabulary::StoryPossibility>()),
+                ("WorkshopRelationship", one::<wns_story::workshop_vocabulary::WorkshopRelationship>()),
+                ("WorkshopBranchKind", one::<wns_story::workshop_vocabulary::WorkshopBranchKind>()),
+                ("WorkshopDecisionStatus", one::<wns_story::workshop_vocabulary::WorkshopDecisionStatus>()),
+                ("WorkshopImpactKind", one::<wns_story::workshop_vocabulary::WorkshopImpactKind>()),
+                ("WorkshopImpactStatus", one::<wns_story::workshop_vocabulary::WorkshopImpactStatus>()),
+                ("SelectedDetail", one::<wns_story::workshop_vocabulary::SelectedDetail>()),
+                ("CandidateChoice", one::<wns_story::workshop_vocabulary::CandidateChoice>()),
+                ("WorkshopSession", one::<wns_story::workshop_vocabulary::WorkshopSession>()),
+                ("WorkshopDecision", one::<wns_story::workshop_vocabulary::WorkshopDecision>()),
+                ("WorkshopImpact", one::<wns_story::workshop_vocabulary::WorkshopImpact>()),
+                ("WorkshopPreset", one::<wns_story::workshop_vocabulary::WorkshopPreset>()),
+                ("WorkshopState", one::<wns_story::workshop_vocabulary::WorkshopState>()),
+                ("DiscussionRun", one::<wns_story::run_vocabulary::DiscussionRun>()),
+                ("Lens", one::<wns_story::workshop_vocabulary::Lens>()),
+                ("WorkshopWorkingSelection", one::<wns_story::workshop_metadata::WorkshopWorkingSelection>()),
+                ("BasisKind", one::<wns_context::contracts::BasisKind>()),
+                ("DiscussionRunStatus", one::<wns_story::run_vocabulary::DiscussionRunStatus>()),
+                ("FeedbackIntent", one::<wns_story::discussion_vocabulary::FeedbackIntent>()),
+                ("LookupRunSummary", one::<wns_story::run_vocabulary::LookupRunSummary>()),
+                ("ProviderBinding", one::<wns_providers::vocabulary::ProviderBinding>()),
+                ("ProviderResult", one::<wns_story::run_vocabulary::ProviderResult>()),
+                ("RunOwner", one::<wns_story::run_vocabulary::RunOwner>()),
+                ("AppServerDelivery", one::<wns_providers::codex_app_server::AppServerDelivery>()),
+                ("HttpProviderBinding", one::<wns_providers::vocabulary::HttpProviderBinding>()),
+                ("LookupAllowance", one::<wns_context::lookup::LookupAllowance>()),
+                ("LookupInvocationSummary", one::<wns_story::run_vocabulary::LookupInvocationSummary>()),
+                ("ProviderCleanup", one::<wns_providers::vocabulary::ProviderCleanup>()),
+                ("ProviderDeliveryReceipt", one::<wns_providers::vocabulary::ProviderDeliveryReceipt>()),
+                ("ProviderOutcomeStatus", one::<wns_providers::vocabulary::ProviderOutcomeStatus>()),
+                ("ProviderRuntimeIdentity", one::<wns_providers::vocabulary::ProviderRuntimeIdentity>()),
+                ("ProviderUsage", one::<wns_providers::vocabulary::ProviderUsage>()),
+                ("AppServerConnectionSettlement", one::<wns_providers::codex_app_server::AppServerConnectionSettlement>()),
+                ("AppServerDispatch", one::<wns_providers::codex_app_server::AppServerDispatch>()),
+                ("AppServerRuntimeIdentity", one::<wns_providers::codex_app_server::AppServerRuntimeIdentity>()),
+                ("AppServerSubmission", one::<wns_providers::codex_app_server::AppServerSubmission>()),
+                ("AppServerTerminal", one::<wns_providers::codex_app_server::AppServerTerminal>()),
+                ("HttpDeliverySubmission", one::<wns_providers::vocabulary::HttpDeliverySubmission>()),
+                ("HttpProviderUsage", one::<wns_providers::vocabulary::HttpProviderUsage>()),
+                ("HttpResponseFormat", one::<wns_providers::vocabulary::HttpResponseFormat>()),
+                ("LookupInvocationState", one::<wns_story::run_vocabulary::LookupInvocationState>()),
             ],
         )
     }

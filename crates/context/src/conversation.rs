@@ -8,7 +8,7 @@ use std::collections::HashSet;
 pub const MAX_CONTEXT_TURNS: usize = 4;
 pub const MAX_CONTEXT_BYTES: usize = 16 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConversationMessage {
     pub id: String,
@@ -16,7 +16,7 @@ pub struct ConversationMessage {
     pub scope: Option<ScopeGrant>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConversationTurn {
     pub run_id: String,
@@ -27,7 +27,7 @@ pub struct ConversationTurn {
     pub assistant: ConversationMessage,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrozenConversation {
     pub project_id: String,

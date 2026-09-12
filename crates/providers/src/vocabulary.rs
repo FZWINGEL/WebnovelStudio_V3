@@ -69,7 +69,7 @@ pub const HTTP_OUTPUT_LIMIT_BYTES: usize = 2 * 1024 * 1024;
 /// Provider-specific adapters may replace these fixed profiles with separately
 /// qualified contracts; this slice accepts only the explicit Codex and
 /// OpenAI-compatible contracts below.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderBinding {
     pub provider_id: String,
@@ -97,7 +97,7 @@ pub struct ProviderBinding {
     pub http: Option<HttpProviderBinding>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HttpProviderBinding {
     /// The normalized endpoint base URL.  Credentials, query strings, and
@@ -110,14 +110,14 @@ pub struct HttpProviderBinding {
     pub response_format: HttpResponseFormat,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum HttpResponseFormat {
     Text,
     JsonObject,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderRuntimeIdentity {
     pub cli_version: String,
@@ -675,7 +675,7 @@ pub(crate) fn validate_http_text(value: &str, max_bytes: usize, label: &str) -> 
 }
 /// Provider-facing chat message. The evidence message is a canonical JSON
 /// context envelope; the final user content is the instruction byte-for-byte.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PacketMessage {
     pub role: String,
@@ -684,7 +684,7 @@ pub struct PacketMessage {
 
 /// Exact options sent with the deterministic packet. Provider-specific
 /// options are intentionally deferred until a qualified adapter exists.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PacketOptions {
     pub model_id: String,
@@ -733,7 +733,7 @@ use wns_kernel::{CoreError, CoreResult};
 /// The provider-side outcome is kept separate from the discussion lifecycle.
 /// For example, a timed-out provider request with settled cleanup becomes a
 /// durable failed discussion while retaining any validated prefix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderOutcomeStatus {
     Completed,
@@ -769,7 +769,7 @@ impl ProviderOutcomeStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderCleanup {
     Settled,
@@ -799,7 +799,7 @@ impl ProviderCleanup {
 /// Evidence about the HTTP request itself.  This is intentionally separate
 /// from Codex's local stdin count: an HTTP request can be accepted by a remote
 /// server even when the local process loses the response before it is parsed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum HttpDeliverySubmission {
     NotSent,
@@ -807,7 +807,7 @@ pub enum HttpDeliverySubmission {
     ResponseReceived,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HttpProviderUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -818,7 +818,7 @@ pub struct HttpProviderUsage {
     pub total_tokens: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderDeliveryReceipt {
     pub body_hash: String,
@@ -830,7 +830,7 @@ pub struct ProviderDeliveryReceipt {
 
 /// Raw provider usage is optional. Missing usage is an explicit unknown value;
 /// no estimate is substituted from the packet's byte accounting.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderUsage {
     pub input_tokens: u64,

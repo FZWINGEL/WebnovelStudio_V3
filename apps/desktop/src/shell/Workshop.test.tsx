@@ -84,7 +84,7 @@ function view(overrides: Partial<WorkshopView> = {}): WorkshopView {
 function run(overrides: Partial<DiscussionRun> = {}): DiscussionRun {
   return {
     id: 'run-1', threadId: 'thread-1', owner: { projectId: access.projectId, operationNamespace: access.operationNamespace, runId: 'run-1' },
-    operationId: 'operation-1', payloadHash: 'payload-hash', target: { documentId: 'workshop-session-1', version: '1', bodyHash: 'body-hash' },
+    operationId: 'operation-1', intent: 'discuss', payloadHash: 'payload-hash', target: { documentId: 'workshop-session-1', version: '1', bodyHash: 'body-hash' },
     packetId: 'packet-1', previousRunId: null, status: 'completed', dispatchState: 'delivered', sequence: '1', outputText: '', stopReason: null,
     createdAt: '2026-09-07T00:00:00Z', updatedAt: '2026-09-07T00:00:00Z', ...overrides,
   };

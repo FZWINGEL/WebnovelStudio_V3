@@ -73,7 +73,7 @@ fn storage_valid_id(value: &str) -> bool {
 /// A relationship proposed as part of an atomic adoption.  This remains a
 /// request shape until the adoption commits the exact endpoint heads into a
 /// `WorkshopRelationship` record.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopRelationshipDraft {
     pub id: String,
@@ -91,7 +91,7 @@ pub struct WorkshopRelationshipDraft {
 /// An author classification supplied with an adoption preview.  It is tied
 /// to a candidate affected target and becomes an immutable impact provenance
 /// record when the adoption commits.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopImpactDraft {
     pub document_id: String,
@@ -99,7 +99,7 @@ pub struct WorkshopImpactDraft {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopAdoptionImpact {
     pub candidate_id: String,
@@ -112,14 +112,14 @@ pub struct WorkshopAdoptionImpact {
 
 
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopSnapshot {
     pub version: String,
     pub state: WorkshopState,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopCandidateImplication {
     pub text: String,
@@ -127,14 +127,14 @@ pub struct WorkshopCandidateImplication {
     pub assumption: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopCandidateAffectedTarget {
     pub document_id: String,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopCandidate {
     pub id: String,
@@ -148,7 +148,7 @@ pub struct WorkshopCandidate {
     pub changed_details: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopOutputInterpretation {
     pub you_said: String,
@@ -156,7 +156,7 @@ pub struct WorkshopOutputInterpretation {
     pub still_open: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopOutput {
     pub schema_version: String,
@@ -168,7 +168,7 @@ pub struct WorkshopOutput {
     pub candidates: Vec<WorkshopCandidate>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopResult {
     pub run: DiscussionRun,
@@ -182,7 +182,7 @@ pub struct WorkshopResult {
     pub stale: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopView {
     pub version: String,
@@ -190,7 +190,7 @@ pub struct WorkshopView {
     pub results: Vec<WorkshopResult>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveWorkshop {
     pub access: ProjectAccess,
@@ -199,7 +199,7 @@ pub struct SaveWorkshop {
     pub state: WorkshopState,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopAdoptionTarget {
     pub document_id: String,
@@ -210,14 +210,14 @@ pub struct WorkshopAdoptionTarget {
     pub mode: AdoptionMode,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AdoptionMode {
     Add,
     Replace,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewWorkshopAdoption {
     pub access: ProjectAccess,
@@ -233,7 +233,7 @@ pub struct PreviewWorkshopAdoption {
     pub impact_drafts: Vec<WorkshopImpactDraft>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopAdoptionPreview {
     pub id: String,
@@ -252,7 +252,7 @@ pub struct WorkshopAdoptionPreview {
     pub impacts: Vec<WorkshopAdoptionImpact>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkshopAdoptionAck {
     pub snapshot: WorkshopSnapshot,

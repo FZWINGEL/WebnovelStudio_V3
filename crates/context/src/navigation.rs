@@ -16,7 +16,7 @@ use std::collections::HashSet;
 
 pub const MAX_FROZEN_NAVIGATION_VIEWS: usize = 64;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NavigationViewRef {
     pub view_id: String,
@@ -26,7 +26,7 @@ pub struct NavigationViewRef {
     pub content_hash: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrozenNavigationView {
     pub reference: NavigationViewRef,
@@ -37,7 +37,7 @@ pub struct FrozenNavigationView {
     pub candidate: DigestCandidate,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum NavigationOmissionReason {
     OriginalTextIncluded,
@@ -46,7 +46,7 @@ pub enum NavigationOmissionReason {
     NotSmaller,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NavigationViewOmission {
     pub view_id: String,

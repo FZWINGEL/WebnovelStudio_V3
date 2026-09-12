@@ -19,7 +19,7 @@ use wns_kernel::{CoreError, CoreResult, Head, ProjectAccess};
 /// The two author-room actions supported by a discussion request.  `Discuss`
 /// is intentionally the wire default so older clients produce the same
 /// request hash they did before intent was added to the contract.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum FeedbackIntent {
     #[default]
@@ -84,7 +84,7 @@ pub fn skip_default_feedback_intent(intent: &FeedbackIntent) -> bool {
     intent.is_discuss()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscussionScopeInput {
     pub kind: ScopeKind,
@@ -94,7 +94,7 @@ pub struct DiscussionScopeInput {
     pub source_body_hash: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartDiscussion {
     pub access: ProjectAccess,

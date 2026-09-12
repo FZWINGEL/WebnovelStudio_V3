@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_SUMMARY_BYTES: usize = 16 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum SummaryAudience {
     AuthorRoom,
@@ -21,9 +21,10 @@ pub enum SummaryAudience {
 /// An explicit author decision about the summary attached to a staged review.
 /// The optional field on [`super::reviewed_story::StageAuthorReview`] is
 /// omitted when absent so legacy request payload hashes remain unchanged.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum SummaryChange {
+    #[specta(rename_all = "camelCase")]
     Set {
         text: String,
         audience: SummaryAudience,
@@ -33,7 +34,7 @@ pub enum SummaryChange {
 
 /// Immutable summary text bound to one exact staged chapter revision and its
 /// exact earlier reviewed prefix.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SummaryRevision {
     pub id: String,

@@ -314,7 +314,7 @@ function Transcript({ store, documents, activeDocument, onDisposition, onStageAs
             {item.kind === 'chapterRequest' && onOpenChapterResult && run.status === 'completed' && <button type="button" className="chat-open-chapter-result" onClick={() => void onOpenChapterResult(typedRun)}>Open chapter result</button>}
             {canAdapt && assistantMessageId && answerText && <button type="button" className="chat-adapt-brief" onClick={() => onAdaptBrief?.(assistantMessageId, answerText)}>Adapt answer as writing brief</button>}
             {item.kind === 'request' && typedRun.status === 'completed' && output?.chapterHandoff && assistantMessageId && onPrepareHandoff && <ChapterHandoff proposal={output.chapterHandoff} documents={documents} onPrepare={(targetId, title) => onPrepareHandoff(output.chapterHandoff!, assistantMessageId, targetId, title)} />}
-            {typedRun.packetId && <details className="chat-context-inspection"><summary>Inspect supplied context</summary><ContextInspector access={store.access} packetId={typedRun.packetId} delivered={typedRun.dispatchState === 'delivered'} appServerDelivery={typedRun.providerResult?.appServer} refreshKey={`${typedRun.id}:${typedRun.updatedAt}`} showVersionLinks /></details>}
+            {typedRun.packetId && <details className="chat-context-inspection"><summary>Inspect supplied context</summary><ContextInspector access={store.access} packetId={typedRun.packetId} delivered={typedRun.dispatchState === 'delivered'} appServerDelivery={typedRun.providerResult?.appServer ?? undefined} refreshKey={`${typedRun.id}:${typedRun.updatedAt}`} showVersionLinks /></details>}
           </article>
         </div>;
       }

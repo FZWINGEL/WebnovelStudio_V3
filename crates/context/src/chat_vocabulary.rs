@@ -20,7 +20,7 @@ use wns_kernel::{CoreError, CoreResult, Head, check_id};
 /// The bounded story surface to which a question decision applies. A missing
 /// scope on an older client means `project`; references are authenticated
 /// against the producing conversation before the event is stored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ChatDispositionScopeKind {
     Project,
@@ -29,7 +29,7 @@ pub enum ChatDispositionScopeKind {
     Document,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatDispositionScope {
     pub kind: ChatDispositionScopeKind,
@@ -73,7 +73,7 @@ impl Default for ChatDispositionScope {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ChatUnknownTo {
     Author,
@@ -84,7 +84,7 @@ pub enum ChatUnknownTo {
 /// An unadopted assistant draft may be attached only by its exact current
 /// draft head and disposition version.  A draft reference is never inferred
 /// from a title, a document ID supplied by the renderer, or a quoted answer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectChatDraftRef {
     pub head: Head,
@@ -94,7 +94,7 @@ pub struct ProjectChatDraftRef {
 /// Frozen project-chat identity stored inside the immutable context manifest.
 /// `source_refs` and `task_draft_refs` retain the exact request claims after
 /// the project owner has authenticated them against SQLite.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrozenProjectChat {
     pub conversation_id: String,
@@ -113,7 +113,7 @@ pub struct FrozenProjectChat {
     pub dispositions: Vec<FrozenProjectChatDisposition>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrozenProjectChatDisposition {
     pub item_id: String,
@@ -138,7 +138,7 @@ pub struct FrozenProjectChatDisposition {
 /// project-chat vocabulary. `story_context` builds one while freezing a
 /// snapshot and `project_chat_context` builds one while dispatching a request,
 /// so it can sit in neither of the two modules that name it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectChatFreeze {
     pub conversation_id: String,

@@ -5282,7 +5282,12 @@ version = "3.0.0"
 dependencies = [
  "serde",
  "specta",
+ "wns-context",
+ "wns-documents",
  "wns-kernel",
+ "wns-providers",
+ "wns-story",
+ "wns-workshop",
 ]
 
 [[package]]
@@ -5293,6 +5298,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "specta",
  "unicode-segmentation",
  "uuid",
  "wns-documents",
@@ -5325,6 +5331,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "specta",
  "unicode-segmentation",
  "wns-kernel",
  "wns-storage",
@@ -5370,6 +5377,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "specta",
  "tokio",
  "unicode-segmentation",
  "url",
@@ -5396,6 +5404,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "specta",
  "wns-context",
  "wns-documents",
  "wns-kernel",
@@ -5430,6 +5439,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "specta",
  "wns-context",
  "wns-documents",
  "wns-kernel",

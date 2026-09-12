@@ -9,7 +9,7 @@ use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedSummarySet {
     pub project_id: String,
@@ -20,7 +20,7 @@ pub struct ReviewedSummarySet {
     pub summary: SummaryRevision,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedSummaryCoverage {
     pub source_handle: String,
@@ -29,7 +29,7 @@ pub struct ReviewedSummaryCoverage {
     pub summary_hash: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ReviewedSummaryOmissionReason {
     Budget,
@@ -38,7 +38,7 @@ pub enum ReviewedSummaryOmissionReason {
     NotSmaller,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedSummaryOmission {
     // No summary text, revision ID or hash is disclosed for private summaries.
