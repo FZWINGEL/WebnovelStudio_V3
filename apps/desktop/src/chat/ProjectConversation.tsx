@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ComponentProps, type ReactNode, type UIEvent } from 'react';
 import { useSyncExternalStore } from 'react';
 import { useProviders } from '../providers/ProviderContext';
 import type { MockContextBudget } from '../ipc/context';
@@ -13,6 +13,7 @@ import { conversationItems, draftRefs, ProjectConversationStore } from './conver
 import { DraftReviewPanel, type DraftReviewPanelHandle } from './DraftReviewPanel';
 import { ProjectDocumentsPanel } from './ProjectDocumentsPanel';
 import { DocumentSaveRecap } from './DocumentSaveRecap';
+import { Writer } from '../editor/Writer';
 import { RequestStatus } from './RequestStatus';
 import { useStoryFreshness } from './useStoryFreshness';
 import { ChapterHandoff, parseChapterHandoff, type ChapterHandoffProposal } from './ChapterHandoff';
@@ -40,7 +41,14 @@ export interface ProjectConversationProps {
   onCreateNote?(): Promise<void> | void;
   onOpenChapterResult?(run: DiscussionRun): Promise<void> | void;
   onAccessChanged?(access: ProjectAccess): Promise<void> | void;
-  documentEditor?: ReactNode;
+  /// The document surface's inputs. The chat renders `<Writer>` itself rather
+  /// than receiving a built node, so the shell no longer assembles a feature's
+  /// JSX and the conversation wiring below is the chat's own, not a round trip
+  /// through the shell's ref.
+  editor?: Omit<ComponentProps<typeof Writer>, 'conversation'>;
+  /// The chapter run whose review the editor should surface, if any. Set by the
+  /// shell, which owns the navigation that produces it.
+  reviewRunId?: string | null;
   budget?: MockContextBudget;
 }
 
@@ -349,7 +357,7 @@ function Transcript({ store, documents, activeDocument, onDisposition, onStageAs
   </div>;
 }
 
-export const ProjectConversation = forwardRef<ProjectConversationHandle, ProjectConversationProps>(function ProjectConversation({ project, activeDocument = null, onOpenDocument, onPrepareSource, onPrepareChapter, onDocumentsChanged, onEarlierWorkshop, onBeforeAdoption, onAdoptionFailure, onCreateChapter, onCreateNote, onOpenChapterResult, onAccessChanged, documentEditor, budget = defaultBudget }, ref) {
+export const ProjectConversation = forwardRef<ProjectConversationHandle, ProjectConversationProps>(function ProjectConversation({ project, activeDocument = null, onOpenDocument, onPrepareSource, onPrepareChapter, onDocumentsChanged, onEarlierWorkshop, onBeforeAdoption, onAdoptionFailure, onCreateChapter, onCreateNote, onOpenChapterResult, onAccessChanged, editor, reviewRunId = null, budget = defaultBudget }, ref) {
   const provider = useProviders();
   const selection = provider.state?.settings.active ?? null;
   const modelReady = !provider.busy && !!provider.state && provider.state.dispatch.kind !== 'blocked' && !!selection;
@@ -364,12 +372,23 @@ export const ProjectConversation = forwardRef<ProjectConversationHandle, Project
   const store = storeRef.current;
   const draftReviewRef = useRef<DraftReviewPanelHandle>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const stageChapter = useCallback(async (chapter: ProjectChapterComposer) => {
+    await store.stageChapter(chapter);
+    if (!mounted.current || storeRef.current !== store) return;
+    setMobileSurface('chat');
+    setTimeout(() => { if (mounted.current && storeRef.current === store) composerRef.current?.focus(); }, 0);
+  }, [store]);
+  const attachSource = useCallback(async (head: Head) => {
+    await store.attachSource(head);
+    composerRef.current?.focus();
+  }, [store]);
+
   useImperativeHandle(ref, () => ({
     refresh: async () => { await store.refresh(); },
     flush: async () => { await draftReviewRef.current?.flush(); await store.flush(); },
-    stageChapter: async chapter => { await store.stageChapter(chapter); if (!mounted.current || storeRef.current !== store) return; setMobileSurface('chat'); setTimeout(() => { if (mounted.current && storeRef.current === store) composerRef.current?.focus(); }, 0); },
-    attachSource: async head => { await store.attachSource(head); composerRef.current?.focus(); },
-  }), [store]);
+    stageChapter,
+    attachSource,
+  }), [store, stageChapter, attachSource]);
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const storyFreshness = useStoryFreshness({
     access: project.access,
@@ -744,7 +763,7 @@ export const ProjectConversation = forwardRef<ProjectConversationHandle, Project
       } right={<section className={`chat-document-surface ${mobileSurface !== 'chat' ? 'mobile-visible' : ''} chat-mobile-${mobileSurface}`}>
         <nav className="chat-right-mode-tabs" aria-label="Document workspace mode"><button type="button" aria-selected={rightMode === 'document'} onClick={() => void switchRightMode('document')}>Document</button><button type="button" aria-selected={rightMode === 'review'} onClick={() => void switchRightMode('review')}>Review drafts{drafts.length ? ` (${drafts.length})` : ''}</button></nav>
         <div className={`chat-document-view ${rightMode === 'review' ? 'is-hidden' : ''}`}>
-          <div className="chat-document-editor">{documentEditor ?? <div className="chat-empty"><h2>Open a document</h2><p>Select a chapter, world note, character, or draft from the document panel.</p></div>}</div>
+          <div className="chat-document-editor">{editor ? <Writer key={`${project.project.projectId}:${editor.active.record.head.documentId}`} {...editor} conversation={{ stageChapter, attachSource, reviewRunId: reviewRunId ?? null }} /> : <div className="chat-empty"><h2>Open a document</h2><p>Select a chapter, world note, character, or draft from the document panel.</p></div>}</div>
           <ProjectDocumentsPanel project={project} activeDocument={activeDocument} drafts={drafts} relatedDocumentIds={state.composer.sourceRefs.map(head => head.documentId)} onOpenDocument={onOpenDocument} onOpenDraft={openDraft} onAttachSource={attachDocument} chapterTaskActive={!!chapter} onCreateChapter={onCreateChapter} />
         </div>
         <div className={`chat-review-view ${rightMode === 'document' ? 'is-hidden' : ''}`}>

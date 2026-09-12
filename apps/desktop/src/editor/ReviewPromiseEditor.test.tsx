@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scope } from '../editor/selection';
 import type { PromiseRecord, ReviewedEntityChoice } from '../ipc/reviews';
-import { ReviewPromiseEditor } from './ReviewPromiseEditor';
+import { ReviewPromiseEditor } from '../editor/ReviewPromiseEditor';
 import { evidenceQuoteHash } from './reviewEvidence';
 
 const quote = 'Ren promised the key.';

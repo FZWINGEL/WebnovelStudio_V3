@@ -7,7 +7,7 @@ import { DocumentSession } from '../editor/session';
 import type { DocumentRecord, ProjectAccess, ProjectTransport } from '../ipc/projects';
 import * as ipc from '../ipc/reviews';
 import * as history from '../ipc/history';
-import { ReviewPanel } from './ReviewPanel';
+import { ReviewPanel } from '../editor/ReviewPanel';
 
 vi.mock('../ipc/reviews', async importOriginal => ({ ...await importOriginal<typeof ipc>(), reviewedPromiseCatalog: vi.fn(), reviewedKnowledgeCharacterCatalog: vi.fn(), reviewedKnowledgeTopicCatalog: vi.fn(), chapterReviewStatus: vi.fn(), stageAuthorReview: vi.fn(), readReviewedRecordSet: vi.fn(), reviewedEntityCatalog: vi.fn(), readReviewStage: vi.fn(), markReady: vi.fn() }));
 vi.mock('../ipc/history', () => ({ readDocumentRevision: vi.fn(), listDocumentHistory: vi.fn() }));

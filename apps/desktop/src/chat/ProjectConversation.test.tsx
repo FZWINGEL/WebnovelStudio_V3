@@ -11,6 +11,8 @@ const saveProjectComposer = vi.hoisted(() => vi.fn());
 const startProjectChapter = vi.hoisted(() => vi.fn());
 const setChatDisposition = vi.hoisted(() => vi.fn());
 
+// The chat renders the editor itself; this suite is about the chat around it.
+vi.mock('../editor/Writer', () => ({ Writer: () => <div data-testid="mounted-editor">Working text stays mounted.</div> }));
 vi.mock('../ipc/projectChat', async () => {
   const actual = await vi.importActual<typeof import('../ipc/projectChat')>('../ipc/projectChat');
   return { ...actual, readProjectConversation, saveProjectComposer, startProjectChapter, setChatDisposition };
@@ -231,7 +233,7 @@ describe('ProjectConversation context inspection', () => {
       target: null, disposition: 'pending', dispositionVersion: '1', stale: false,
     };
     readProjectConversation.mockResolvedValue({ ...view, drafts: [draft] });
-    await act(async () => root.render(<ProjectConversation project={project} activeDocument={chapterDocument} documentEditor={<div data-testid="mounted-editor">Working text stays mounted.</div>} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
+    await act(async () => root.render(<ProjectConversation project={project} activeDocument={chapterDocument} editor={{ active: { record: chapterDocument, session: null as never, viewState: null }, sources: [], onError: () => {}, onRename: () => {} }} onOpenDocument={() => {}} onDocumentsChanged={() => {}} onEarlierWorkshop={() => {}} />));
     expect(host.querySelector('.chat-document-view')?.classList.contains('is-hidden')).toBe(false);
     expect(host.querySelector('.chat-review-view')?.classList.contains('is-hidden')).toBe(true);
     expect(host.querySelector('[data-testid="mounted-editor"]')?.textContent).toBe('Working text stays mounted.');

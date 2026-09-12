@@ -6,6 +6,7 @@ import type { DocumentRecord, OpenedProject, ProjectAccess } from '../ipc/projec
 import { projectTabPreferenceKey, writeProjectTabs } from './projectTabs';
 import { Workspace } from './Workspace';
 
+import { Writer } from '../editor/Writer';
 const mocks = vi.hoisted(() => {
   const events: string[] = [];
   const sessions: any[] = [];
@@ -100,7 +101,7 @@ vi.mock('./App', () => ({ App: () => null }));
 vi.mock('./ExportDialog', () => ({ ExportDialog: () => null }));
 vi.mock('./V2ImportDialog', () => ({ V2ImportDialog: () => null }));
 vi.mock('../chat/ProjectConversation', () => ({
-  ProjectConversation: forwardRef(function MockProjectConversation({ project, documentEditor, onBeforeAdoption, onAdoptionFailure, onDocumentsChanged, onCreateNote }: any, ref) {
+ProjectConversation: forwardRef(function MockProjectConversation({ project, editor, onBeforeAdoption, onAdoptionFailure, onDocumentsChanged, onCreateNote }: any, ref) {
     useImperativeHandle(ref, () => ({ flush: async () => { mocks.events.push('chat:flush'); }, stageChapter: async () => {}, attachSource: async () => {} }), []);
     const document = project.documents[0];
     const target = document ? {
@@ -109,7 +110,7 @@ vi.mock('../chat/ProjectConversation', () => ({
       kind: document.kind, before: document, body: document.body,
     } : null;
     return <section data-testid="project-conversation">
-      {documentEditor}
+      {editor ? <Writer {...editor} /> : null}
       {onCreateNote && <button type="button" onClick={() => void onCreateNote()}>Bring a note</button>}
       {target && <>
         <button type="button" onClick={() => void onBeforeAdoption?.([target])}>Prepare adoption</button>
@@ -124,7 +125,7 @@ vi.mock('./StoryBible', () => ({ StoryBible: () => <section data-testid="story-b
 vi.mock('./AppCloseDialog', () => ({ AppCloseDialog: ({ phase, message, onStop, onStayOpen }: any) => <div data-testid="app-close-dialog"><p>{message}</p>{phase === 'waiting' && <button onClick={onStop}>Stop replies and close</button>}<button onClick={onStayOpen}>Stay open</button></div> }));
 vi.mock('../providers/ModelSelector', () => ({ ModelSelector: () => null }));
 vi.mock('../providers/ModelSettings', () => ({ ModelSettings: () => null }));
-vi.mock('./Writer', () => ({
+vi.mock('../editor/Writer', () => ({
   Writer: ({ active, navigation }: any) => <section data-testid="writer">
     <strong>{active.record.title}</strong>
     {navigation?.previous && <button onClick={navigation.previous}>Previous chapter</button>}

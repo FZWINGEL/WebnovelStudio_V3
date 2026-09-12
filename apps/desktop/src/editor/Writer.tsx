@@ -21,7 +21,7 @@ import { confirmChapterRange } from '../chat/confirmChapterRange';
 import { FeedbackPanel } from '../assistant/FeedbackPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { ReviewPanel } from './ReviewPanel';
-import { ChapterMemory } from './ChapterMemory';
+import { ChapterMemory } from '../story/ChapterMemory';
 import { RecoveryCopy } from './RecoveryCopy';
 import { DocumentAliases } from '../story/DocumentAliases';
 import type { SourceChoice } from '../ipc/sourcePins';

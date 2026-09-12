@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
 import { DocumentSession } from '../editor/session';
 import type { DocumentRecord, Head, ProjectAccess, ProjectTransport, SaveAck, SaveSnapshot, ViewState } from '../ipc/projects';
-import { Writer } from './Writer';
+import { Writer } from '../editor/Writer';
 import type { ProjectChapterComposer } from '../ipc/projectChat';
 
 const mocks = vi.hoisted(() => ({

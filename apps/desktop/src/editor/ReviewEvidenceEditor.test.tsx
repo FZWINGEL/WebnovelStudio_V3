@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scope } from '../editor/selection';
 import type { PossessionRecord } from '../ipc/reviews';
-import { ReviewEvidenceEditor } from './ReviewEvidenceEditor';
+import { ReviewEvidenceEditor } from '../editor/ReviewEvidenceEditor';
 
 const scope = (start = 'p', end = start): Scope => ({ generation: 1, from: 1, to: 8, quote: 'Mei held the key.', source: {} as Scope['source'], start: { blockId: start, utf16Offset: 0 }, end: { blockId: end, utf16Offset: 17 }, inlineOnly: start === end, replacementAllowed: true, uniformMarks: [], formattingNote: '' });
 const record = (id: string, label: string): PossessionRecord => ({ id, object: { id, label }, holder: { id: 'mei', label: 'Mei' }, timing: 'unknown', audience: 'authorRoom', evidence: { blockId: 'p', fromUtf16: 0, toUtf16: 17, quote: 'Mei held the key.', quoteHash: 'a'.repeat(64) } });

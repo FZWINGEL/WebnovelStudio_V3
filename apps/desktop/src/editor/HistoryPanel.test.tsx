@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HistoryPanel } from './HistoryPanel';
+import { HistoryPanel } from '../editor/HistoryPanel';
 import * as ipc from '../ipc/history';
 import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
 import type { ProjectAccess, Revision } from '../ipc/projects';

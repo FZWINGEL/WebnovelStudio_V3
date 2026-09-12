@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SourceRef } from '../ipc/context';
 import * as memory from '../ipc/memory';
 import type { ProjectAccess } from '../ipc/projects';
-import { ReviewSummaryEditor, type ReviewSummaryDraft } from './ReviewSummaryEditor';
+import { ReviewSummaryEditor, type ReviewSummaryDraft } from '../editor/ReviewSummaryEditor';
 
 vi.mock('../ipc/memory', async importOriginal => ({ ...await importOriginal<typeof memory>(), readMemory: vi.fn() }));
 

@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { bodyHash, canonicalJson, type WnsDocument } from '../editor/document';
-import { RecoveryCopy } from './RecoveryCopy';
+import { RecoveryCopy } from '../editor/RecoveryCopy';
 import type { RecoveryCopyResult } from '../ipc/recovery';
 
 const { save } = vi.hoisted(() => ({ save: vi.fn() }));

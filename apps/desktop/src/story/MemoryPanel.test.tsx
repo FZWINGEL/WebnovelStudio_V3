@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryPanel, type MemoryPanelProps, type MemoryPanelState, type MemoryView } from './MemoryPanel';
+import { MemoryPanel, type MemoryPanelProps, type MemoryPanelState, type MemoryView } from '../story/MemoryPanel';
 
 const view = (kind: MemoryView['kind'], id?: string): MemoryView => ({
   id: id ?? kind, kind, createdAt: '2026-09-06T12:00:00Z', sourceLabel: kind === 'revoked' ? 'Private notes' : 'The return',

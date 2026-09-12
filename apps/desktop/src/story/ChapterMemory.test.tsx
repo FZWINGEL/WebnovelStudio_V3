@@ -8,7 +8,7 @@ import type { ProjectAccess, Head } from '../ipc/projects';
 import type { DigestCandidate, MemoryJob, MemoryRead, MemoryViewRecord } from '../ipc/memory';
 import * as memory from '../ipc/memory';
 import * as context from '../ipc/context';
-import { ChapterMemory } from './ChapterMemory';
+import { ChapterMemory } from '../story/ChapterMemory';
 import * as providerIpc from '../ipc/providers';
 import { ProviderSettingsProvider } from '../providers/ProviderContext';
 

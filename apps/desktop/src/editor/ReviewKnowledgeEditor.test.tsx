@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scope } from '../editor/selection';
 import type { KnowledgeRecord, ReviewedEntityChoice } from '../ipc/reviews';
-import { ReviewKnowledgeEditor } from './ReviewKnowledgeEditor';
+import { ReviewKnowledgeEditor } from '../editor/ReviewKnowledgeEditor';
 import { evidenceQuoteHash } from './reviewEvidence';
 
 const quote = 'Mei knows the gate is watched.';
