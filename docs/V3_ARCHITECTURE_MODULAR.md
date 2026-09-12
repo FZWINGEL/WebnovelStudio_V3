@@ -249,9 +249,10 @@ two whole-packet attempts are functions: `try_full_eligible_packet` returns `Som
 complete set fits and nothing is excerpted, `try_mandatory_packet` is the smaller packet whose
 failure is terminal.
 
-`compile_packet_with_schema` is **638 lines from 1,007**. Eight stages and both attempts are
-out; what remains is the sequence that calls them, and the identity, contract and budget
-validation that opens the function.
+`validate_request` is everything a request must satisfy before any of it is read, and
+`resolve_sources` reads its sources and checks them. `compile_packet_with_schema` is **465
+lines from 1,007**: what it holds now is the order the stages run in and the budget they share,
+which is what the function is *for*.
 
 One thing the split taught, worth keeping: extracting `try_mandatory_packet` silently changed
 the error message it reports -- the string ran across two source lines and I reflowed it while
