@@ -1,0 +1,9 @@
+[package]
+name = "wns-bindings"
+version.workspace = true
+edition = "2024"
+description = "Not a layer: generates the frontend's IPC bindings from the Rust types."
+
+[dependencies]
+specta = "1.0.5"
+wns-kernel = { path = "../kernel" }

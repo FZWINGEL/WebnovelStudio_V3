@@ -5277,6 +5277,14 @@ name = "wns-architecture"
 version = "3.0.0"
 
 [[package]]
+name = "wns-bindings"
+version = "3.0.0"
+dependencies = [
+ "specta",
+ "wns-kernel",
+]
+
+[[package]]
 name = "wns-context"
 version = "3.0.0"
 dependencies = [

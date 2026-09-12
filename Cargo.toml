@@ -25,6 +25,8 @@ members = [
     "crates/architecture",
     # Not a layer: the fixtures Rust and TypeScript both read.
     "contracts",
+    # Not a layer: generates the frontend bindings from the Rust types.
+    "crates/bindings",
     # The crate under decomposition, plus the app shell.
     "crates/core",
     "apps/desktop/src-tauri",
