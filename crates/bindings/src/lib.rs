@@ -26,7 +26,8 @@
 //!   provider parser state — and those hold private types that cannot be
 //!   derived at all. The wire surface is a choice per type; the kernel's eleven
 //!   needed no skips because each was chosen.
-//!//! * **A group carries a frontend tail, and it is where the value is.** The
+//!
+//! * **A group carries a frontend tail, and it is where the value is.** The
 //!   workshop group converged at 131 types, and replacing its mirrors then
 //!   failed to typecheck in ~57 places — not because the generation was wrong,
 //!   but because the mirrors were. `BasisKind` and `ContinuationBasis` are
