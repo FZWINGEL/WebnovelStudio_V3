@@ -293,10 +293,10 @@ export class ProjectConversationStore {
     this.assertActive();
     if (!this.snapshot.view) await this.load();
     this.assertActive();
-    const existing = this.snapshot.composer.sourceRefs.some(item => item.documentId === head.documentId);
+    const existing = (this.snapshot.composer.sourceRefs ?? []).some(item => item.documentId === head.documentId);
     const sourceRefs = existing
-      ? this.snapshot.composer.sourceRefs.map(item => item.documentId === head.documentId ? copy(head) : item)
-      : [...this.snapshot.composer.sourceRefs, copy(head)];
+      ? (this.snapshot.composer.sourceRefs ?? []).map(item => item.documentId === head.documentId ? copy(head) : item)
+      : [...(this.snapshot.composer.sourceRefs ?? []), copy(head)];
     // Attaching material is an explicit return to the broad project context.
     // It must not leave a restricted chapter task attached to the next send.
     this.updateComposer({ sourceRefs: copy(sourceRefs), chapter: null });

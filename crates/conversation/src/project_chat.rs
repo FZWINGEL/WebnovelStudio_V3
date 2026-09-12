@@ -72,7 +72,7 @@ pub fn validate_chat_workshop_snapshot(
     adoption::validate_chat_workshop_snapshot(connection, origin, state, previous_state)
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectComposer {
     pub text: String,
@@ -88,7 +88,7 @@ pub struct ProjectComposer {
     pub chapter: Option<ProjectChapterComposer>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectChapterComposer {
     pub target: Head,
@@ -101,7 +101,7 @@ pub struct ProjectChapterComposer {
     pub safe_brief: Option<SafeBriefInput>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectComposerSnapshot {
     pub conversation_id: String,
@@ -109,7 +109,7 @@ pub struct ProjectComposerSnapshot {
     pub body: ProjectComposer,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConversationItem {
     pub id: String,
@@ -120,7 +120,7 @@ pub struct ConversationItem {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AssistantDraft {
     pub document: DocumentRecord,
@@ -139,7 +139,7 @@ pub struct AssistantDraft {
     pub stale: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectConversation {
     pub id: String,
@@ -160,7 +160,7 @@ pub struct ProjectConversation {
 /// opening another project, attaching a renderer, or returning any story
 /// content.  The active-work count is combined with the existing
 /// `background_work` census by the native command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectChatActivity {
     pub pending_drafts: usize,
@@ -169,7 +169,7 @@ pub struct ProjectChatActivity {
 /// Read-only, source-bound feedback from an unscoped chapter discussion. The
 /// range is a suggestion for the writer; it is not a scope grant and cannot be
 /// adopted without a fresh editor-captured request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChapterDiscussionFeedback {
     pub run_id: String,
@@ -181,7 +181,7 @@ pub struct ChapterDiscussionFeedback {
     pub range_error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReadProjectConversation {
     pub access: ProjectAccess,
@@ -194,7 +194,7 @@ fn page_size() -> u32 {
     40
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveProjectComposer {
     pub access: ProjectAccess,
@@ -204,7 +204,7 @@ pub struct SaveProjectComposer {
     pub body: ProjectComposer,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartProjectChat {
     pub access: ProjectAccess,
@@ -217,7 +217,7 @@ pub struct StartProjectChat {
     pub provider_binding: Option<ProviderBinding>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartProjectChapter {
     pub access: ProjectAccess,
@@ -230,7 +230,7 @@ pub struct StartProjectChapter {
     pub provider_binding: Option<ProviderBinding>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveAssistantDraft {
     pub conversation_id: String,
@@ -238,7 +238,7 @@ pub struct SaveAssistantDraft {
     pub snapshot: SaveSnapshot,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SetChatDisposition {
     pub access: ProjectAccess,
@@ -262,7 +262,7 @@ pub struct SetChatDisposition {
     pub unknown_to: Option<ChatUnknownTo>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatMaterialization {
     pub run_id: String,
@@ -274,7 +274,7 @@ pub struct ChatMaterialization {
     pub group_effects: Option<ChatGroupEffectsOutput>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PrepareChatAdoption {
     pub access: ProjectAccess,
@@ -290,7 +290,7 @@ pub struct PrepareChatAdoption {
 
 pub const CHAT_ADOPTION_EFFECTS_VERSION: &str = "chat-adoption-effects.v1";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatRelationshipDependency {
     pub relationship_id: String,
@@ -301,7 +301,7 @@ pub struct ChatRelationshipDependency {
     pub to_head: Head,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatAdoptionRelationship {
     pub key: String,
@@ -316,7 +316,7 @@ pub struct ChatAdoptionRelationship {
     pub to_head: Head,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatAdoptionImpact {
     pub target_document_id: String,
@@ -328,7 +328,7 @@ pub struct ChatAdoptionImpact {
     pub relationship_key: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatAdoptionSupersession {
     pub target_document_id: String,
@@ -336,7 +336,7 @@ pub struct ChatAdoptionSupersession {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatAdoptionPlacement {
     pub target_document_id: String,
@@ -346,7 +346,7 @@ pub struct ChatAdoptionPlacement {
     pub after_document_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatProtectedContent {
     pub target_document_id: String,
@@ -358,7 +358,7 @@ pub struct ChatProtectedContent {
 /// Complete immutable grouped-adoption manifest. Relationship dependencies
 /// are read-only drift fences; proposed effects are explicit author-review
 /// material and are never inferred from document prose.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatAdoptionEffects {
     pub version: String,
@@ -371,7 +371,7 @@ pub struct ChatAdoptionEffects {
     pub placements: Vec<ChatAdoptionPlacement>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatAdoptionTarget {
     pub draft: ProjectChatDraftRef,
@@ -383,7 +383,7 @@ pub struct ChatAdoptionTarget {
     pub body: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatAdoptionPreview {
     pub id: String,
@@ -399,7 +399,7 @@ pub struct ChatAdoptionPreview {
     pub effects: Option<ChatAdoptionEffects>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AdoptChatPreview {
     pub access: ProjectAccess,
@@ -410,7 +410,7 @@ pub struct AdoptChatPreview {
     pub preview_digest: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatAdoptionAck {
     pub preview_id: String,

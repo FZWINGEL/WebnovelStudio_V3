@@ -1,4 +1,18 @@
 import type {
+  DiscussionDraft,
+  DiscussionMessage as GeneratedDiscussionMessage,
+  DiscussionScopeInput,
+  SafeBriefInput as GeneratedSafeBriefInput,
+  SaveDiscussionDraft,
+} from './generated/conversation';
+export type {
+  DiscussionDraft,
+  DiscussionScopeInput,
+  SaveDiscussionDraft,
+};
+
+import type {
+  BasisKind,
   DiscussionRun,
   FeedbackIntent,
   LookupAllowance,
@@ -8,6 +22,7 @@ import type {
   ProviderResult,
 } from './generated/workshop';
 export type {
+  BasisKind,
   DiscussionRun,
   FeedbackIntent,
   LookupAllowance,
@@ -30,30 +45,28 @@ export const DEFAULT_LOOKUP_ALLOWANCE: LookupAllowance = {
   totalOutputBytes: '196608',
 };
 
-/** The author action encoded in a discussion's immutable context packet. */
-export type ContinuationBasis = 'working' | 'reviewed';
 export const DEFAULT_FEEDBACK_INTENT: FeedbackIntent = 'discuss';
 
-export interface DiscussionScope { kind: ScopeGrant['kind']; start: Endpoint | null; end: Endpoint | null; quote: string; sourceBodyHash: string }
-export interface SafeBriefInput {
-  text: string; originMessageId: string | null; confirmed: boolean;
-  projectOrigin?: {
-    version: 'project-conversation-brief.v1'; projectId: string; operationNamespace: string;
-    conversationId: string; messageId: string; target: Head; scopeHash: string; textHash: string;
-  } | null;
-}
-export interface ComposerBody { text: string; scope: DiscussionScope | null; pinnedDocumentIds: string[]; intent?: FeedbackIntent; basis?: ContinuationBasis | null; previousRunId?: string | null; safeBrief?: SafeBriefInput | null; lookup?: LookupAllowance }
-export interface DiscussionDraft extends ComposerBody { documentId: string; version: string; updatedAt: string }
-export interface DiscussionMessage { id: string; threadId: string; runId: string | null; role: 'user' | 'assistant'; content: string; scope: ScopeGrant | null; packetId: string | null; createdAt: string }
+export type DiscussionScope = DiscussionScopeInput;
+export type SafeBriefInput = GeneratedSafeBriefInput;
+/**
+ * The composer body is exactly a draft without its identity.
+ *
+ * It used to be a hand-written copy of those fields, and it had drifted: the
+ * copy typed `basis` as `'working' | 'reviewed'` while the draft's is Rust's
+ * `BasisKind`, which also carries `explicitHistory`. Deriving it means the two
+ * cannot disagree again.
+ */
+export type ComposerBody = Omit<DiscussionDraft, 'documentId' | 'version' | 'updatedAt'>;
+export type DiscussionMessage = GeneratedDiscussionMessage;
 export interface DiscussionView { documentId: string; threadId: string | null; messages: DiscussionMessage[]; runs: DiscussionRun[]; draft: DiscussionDraft | null; workerIssues?: Array<{ runId: string; detail: string }> }
 export interface StartDiscussion {
   modelSelection?: ModelSelection;
   access: ProjectAccess; operationId: string; expected: Head; instruction: string; scope: DiscussionScope | null;
-  intent?: FeedbackIntent; basis?: ContinuationBasis | null; pinnedDocumentIds: string[]; budget: MockContextBudget; previousRunId: string | null;
-  safeBrief?: SafeBriefInput | null; lookup?: LookupAllowance;
+  intent?: FeedbackIntent; basis?: BasisKind | null; pinnedDocumentIds: string[]; budget: MockContextBudget; previousRunId: string | null;
+  safeBrief?: SafeBriefInput | null; lookup?: LookupAllowance | null;
 }
 export interface DiscussionStart { threadId: string; run: DiscussionRun; userMessage: DiscussionMessage; packet: CompiledPacket }
-export interface SaveDiscussionDraft extends ComposerBody { access: ProjectAccess; operationId: string; documentId: string; expectedVersion: string }
 export const readDiscussion = (access: ProjectAccess, documentId: string): Promise<DiscussionView> => invoke('read_discussion', { access, documentId });
 export const retryDiscussionSave = (access: ProjectAccess, documentId: string, runId: string): Promise<DiscussionView> => invoke('retry_discussion_save', { access, documentId, runId });
 export const discussionRetry = (access: ProjectAccess, runId: string): Promise<ComposerBody & { previousRunId: string }> => invoke('discussion_retry', { access, runId });

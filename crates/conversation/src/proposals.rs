@@ -25,7 +25,7 @@ use wns_documents::{
 };
 use wns_story::run_vocabulary::DiscussionRun;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProposalCandidate {
     pub title: String,
@@ -36,7 +36,7 @@ pub struct ProposalCandidate {
 /// A structured candidate replaces complete blocks selected by an explicit
 /// blocks or whole-document scope. IDs are deliberately absent; the editor
 /// allocates fresh identities while preparing the complete result snapshot.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StructuredProposalCandidate {
     pub title: String,
@@ -47,7 +47,7 @@ pub struct StructuredProposalCandidate {
 /// The durable kind discriminator is read before parsing candidate JSON.  The
 /// untagged wire representation preserves legacy passage bytes while allowing
 /// continuation candidates to use their paragraph payload directly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ProposalKind {
     #[default]
@@ -82,7 +82,7 @@ impl ProposalKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(untagged)]
 pub enum ProposalContent {
     Passage(ProposalCandidate),
@@ -90,20 +90,20 @@ pub enum ProposalContent {
     Structured(StructuredProposalCandidate),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProposalOutput {
     pub suggestions: Vec<ProposalCandidate>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StructuredProposalOutput {
     pub schema_version: String,
     pub suggestions: Vec<StructuredProposalCandidate>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreparedProposal {
     pub id: String,
@@ -123,7 +123,7 @@ pub struct PreparedProposal {
 // `proposals::AppliedDecision` resolves as before.
 pub use wns_kernel::AppliedDecision;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProposalDecision {
     pub id: String,
@@ -134,7 +134,7 @@ pub struct ProposalDecision {
     pub after_revision_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Proposal {
     pub id: String,
@@ -153,7 +153,7 @@ pub struct Proposal {
     pub decision: Option<ProposalDecision>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PrepareProposal {
     pub access: ProjectAccess,
@@ -165,7 +165,7 @@ pub struct PrepareProposal {
     pub body: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PrepareContinuation {
     pub access: ProjectAccess,
@@ -177,7 +177,7 @@ pub struct PrepareContinuation {
     pub body: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PrepareStructured {
     pub access: ProjectAccess,
@@ -189,7 +189,7 @@ pub struct PrepareStructured {
     pub body: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApplyProposal {
     pub access: ProjectAccess,
@@ -201,7 +201,7 @@ pub struct ApplyProposal {
     pub local_generation: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RejectProposal {
     pub access: ProjectAccess,
@@ -211,7 +211,7 @@ pub struct RejectProposal {
 
 /// The operation's historical result and latest document are deliberately
 /// separate. A duplicate Apply never asks the editor to replay an old change.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApplyAck {
     pub access: ProjectAccess,

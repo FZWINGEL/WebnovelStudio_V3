@@ -19,7 +19,7 @@ use std::collections::HashSet;
 
 const HISTORY_PAGE_SIZE: u32 = 40;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HistoricalConversationRef {
     pub project_id: String,
@@ -27,7 +27,7 @@ pub struct HistoricalConversationRef {
     pub conversation_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReadProjectChatHistory {
     pub access: ProjectAccess,
@@ -38,7 +38,7 @@ pub struct ReadProjectChatHistory {
     pub limit: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HistoricalConversationSummary {
     pub conversation: HistoricalConversationRef,
@@ -104,7 +104,7 @@ pub(super) fn list(
     Ok(summaries)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HistoricalSourceRevision {
     pub handle: String,
@@ -113,7 +113,7 @@ pub struct HistoricalSourceRevision {
     pub revision: Revision,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HistoricalDraftRevision {
     pub document_id: String,
@@ -121,7 +121,7 @@ pub struct HistoricalDraftRevision {
     pub revision: Revision,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HistoricalConversationItem {
     pub item: ConversationItem,
@@ -135,7 +135,7 @@ pub struct HistoricalConversationItem {
     pub draft_revisions: Vec<HistoricalDraftRevision>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HistoricalConversation {
     pub conversation: HistoricalConversationRef,

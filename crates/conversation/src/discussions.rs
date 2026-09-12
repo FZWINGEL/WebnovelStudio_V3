@@ -74,14 +74,14 @@ const STOP_UNRESOLVED_MESSAGE: &str =
 
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionDispatch {
     pub run: DiscussionRun,
     pub packet: CompiledPacket,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscussionFail {
     pub owner: RunOwner,
@@ -90,7 +90,7 @@ pub struct DiscussionFail {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionDraft {
     pub document_id: String,
@@ -111,7 +111,7 @@ pub struct DiscussionDraft {
     pub lookup: Option<LookupAllowance>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionRetry {
     pub text: String,
@@ -127,7 +127,7 @@ pub struct DiscussionRetry {
     pub lookup: Option<LookupAllowance>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveDiscussionDraft {
     pub access: ProjectAccess,
@@ -149,7 +149,7 @@ pub struct SaveDiscussionDraft {
     pub lookup: Option<LookupAllowance>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionView {
     pub document_id: String,
@@ -159,7 +159,7 @@ pub struct DiscussionView {
     pub draft: Option<DiscussionDraft>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscussionOutputAppend {
     pub owner: RunOwner,
@@ -168,7 +168,7 @@ pub struct DiscussionOutputAppend {
     pub chunk: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscussionFinish {
     pub owner: RunOwner,
@@ -177,14 +177,14 @@ pub struct DiscussionFinish {
     pub assistant_text: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum DiscussionStopCleanup {
     Settled,
     Unresolved,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscussionStopSettled {
     pub owner: RunOwner,
@@ -194,13 +194,13 @@ pub struct DiscussionStopSettled {
     pub cleanup: DiscussionStopCleanup,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscussionStop {
     pub run: DiscussionRun,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscussionBegin {
     pub owner: RunOwner,

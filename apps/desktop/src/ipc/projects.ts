@@ -27,13 +27,28 @@ export type DocumentRecord = Omit<WireDocumentRecord, 'body' | 'role'> & {
   role?: DocumentRole;
 };
 
+import type {
+  CheckpointRequest,
+  OperationReceipt,
+  ReconcileRequest,
+  ReconciledDocument as WireReconciledDocument,
+  SaveAck,
+  SaveSnapshot as WireSaveSnapshot,
+  ViewState,
+} from './generated/documents';
+export type { CheckpointRequest, OperationReceipt, ReconcileRequest, SaveAck, ViewState };
+// As above, and for the same reason: the wire says `any` where the editor knows
+// the body is a `WnsDocument`, and where the document is the editor's narrower
+// `DocumentRecord` rather than the raw wire one.
+export type SaveSnapshot = Omit<WireSaveSnapshot, 'body'> & { body: WnsDocument };
+export type ReconciledDocument = Omit<WireReconciledDocument, 'document'> & { document: DocumentRecord };
+
 import { invoke } from '@tauri-apps/api/core';
 import type { WnsDocument } from '../editor/document';
 import { validateSnapshot } from './native';
 import { applyProposal, type AppliedDecision, type ApplyAck, type ApplyProposal } from './proposals';
 import { restoreRevision, type RestoredDecision, type RestoreAck, type RestoreRevision } from './history';
 
-export interface ViewState { documentId: string; head: Head; anchor: Endpoint; focus: Endpoint }
 export interface ProjectMetadata { project: ProjectInfo; metadataVersion: string; libraryWarning?: string | null }
 export interface OpenedProject { project: ProjectInfo; access: ProjectAccess; documents: DocumentRecord[]; metadataVersion: string; viewState: ViewState | null; libraryWarning: string | null }
 /**
@@ -42,25 +57,6 @@ export interface OpenedProject { project: ProjectInfo; access: ProjectAccess; do
  * when the first renderer invocation lost its acknowledgment.
  */
 export interface CreateDocumentIntent { operationId: string; documentId: string; title: string; kind: string; body: WnsDocument }
-export interface SaveSnapshot {
-  access: ProjectAccess; operationId: string; expected: Head; localGeneration: string;
-  body: WnsDocument; cause: 'typing' | 'undo' | 'redo';
-}
-export interface SaveAck {
-  projectId: string; documentId: string; session: string; operationNamespace: string;
-  operationId: string; head: Head; savedGeneration: string;
-}
-export interface OperationReceipt {
-  operationId: string; operationKind: string; payloadHash: string;
-  result: { head: Head; savedGeneration: string; applied?: AppliedDecision; restored?: RestoredDecision };
-}
-export interface ReconcileRequest {
-  projectId: string; operationNamespace: string; session: string; documentId: string; pendingOperationIds: string[];
-}
-export interface ReconciledDocument { access: ProjectAccess; document: DocumentRecord; receipts: OperationReceipt[] }
-export interface CheckpointRequest {
-  access: ProjectAccess; expected: Head; reason: 'manual' | 'switch' | 'close' | 'source' | 'export' | 'interval';
-}
 export interface ProjectTransport {
   validate(body: WnsDocument): Promise<void>;
   save(request: SaveSnapshot): Promise<SaveAck>;

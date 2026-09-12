@@ -1,4 +1,56 @@
 import type {
+  AssistantDraft as WireAssistantDraft,
+  ChapterDiscussionFeedback,
+  ChatAdoptionAck,
+  ChatAdoptionEffects,
+  ChatAdoptionImpact,
+  ChatAdoptionPlacement,
+  ChatAdoptionPreview,
+  ChatAdoptionRelationship,
+  ChatAdoptionSupersession,
+  ChatAdoptionTarget as WireChatAdoptionTarget,
+  ChatDocumentSave,
+  ChatProtectedContent,
+  ChatRelationshipDependency,
+  ConversationItem as WireConversationItem,
+  ProjectChapterComposer,
+  ProjectComposer,
+  ProjectComposerSnapshot,
+  SaveProjectComposer,
+  StartProjectChapter,
+  StartProjectChat,
+} from './generated/conversation';
+
+// Rust carries a document body as `serde_json::Value` and an event payload as
+// an opaque value, so the generated shapes say `any`. The editor knows better,
+// and saying so once here is narrower than the hand-written mirror it replaces:
+// every *other* field still comes from Rust, so a rename there is still a
+// compile error rather than a runtime `undefined`. Same treatment as `Revision`
+// in `ipc/projects`.
+export type ConversationItem = Omit<WireConversationItem, 'payload'> & { payload: Record<string, unknown> };
+export type ChatAdoptionTarget = Omit<WireChatAdoptionTarget, 'body'> & { body: WnsDocument };
+export type AssistantDraft = Omit<WireAssistantDraft, 'document'> & { document: DocumentRecord };
+export type {
+  ChapterDiscussionFeedback,
+  ChatAdoptionAck,
+  ChatAdoptionEffects,
+  ChatAdoptionImpact,
+  ChatAdoptionPlacement,
+  ChatAdoptionPreview,
+  ChatAdoptionRelationship,
+  ChatAdoptionSupersession,
+  ChatDocumentSave,
+  ChatProtectedContent,
+  ChatRelationshipDependency,
+  ProjectChapterComposer,
+  ProjectComposer,
+  ProjectComposerSnapshot,
+  SaveProjectComposer,
+  StartProjectChapter,
+  StartProjectChat,
+};
+
+import type {
   ChatDispositionScope,
   ChatDispositionScopeKind,
   ChatUnknownTo,
@@ -16,69 +68,22 @@ export type {
 import { invoke } from '@tauri-apps/api/core';
 import type { WnsDocument } from '../editor/document';
 import type { CheckpointRequest, DocumentRecord, Head, ProjectAccess, ReconcileRequest, ReconciledDocument, Revision, SaveAck, SaveSnapshot } from './projects';
-import type { DiscussionRun, DiscussionStart, DiscussionScope, FeedbackIntent, ContinuationBasis, SafeBriefInput } from './discussions';
+import type { DiscussionRun, DiscussionStart, DiscussionScope, FeedbackIntent, SafeBriefInput } from './discussions';
 import type { MockContextBudget } from './context';
 import type { ModelSelection } from './providers';
 
-export interface ProjectChapterComposer {
-  target: Head; intent: FeedbackIntent; basis?: ContinuationBasis | null;
-  scope?: DiscussionScope | null; safeBrief?: SafeBriefInput | null;
-}
-export interface ProjectComposer { text: string; sourceRefs: Head[]; taskDraftRefs: ProjectChatDraftRef[]; focusedDocumentRef?: Head; chapter?: ProjectChapterComposer | null }
-export interface ProjectComposerSnapshot { conversationId: string; version: string; body: ProjectComposer }
-export interface ConversationItem { id: string; sequence: string; kind: string; referenceId: string | null; payload: Record<string, unknown>; createdAt: string }
-export interface AssistantDraft {
-  document: DocumentRecord; conversationId: string; originRunId: string; packetId: string;
-  initialRevisionId: string; predecessorDocumentId?: string | null; target: Head | null; disposition: 'pending' | 'rejected' | 'adopted' | 'superseded'; dispositionVersion: string; stale: boolean;
-}
 export interface ProjectConversationView {
   id: string; composer: ProjectComposerSnapshot; items: ConversationItem[]; olderBefore: string | null;
   activeRun: DiscussionRun | null; drafts: AssistantDraft[]; sourceEpoch: string; policyEpoch: string; earlierWorkshop: boolean;
   workerIssues: { runId: string; detail: string }[];
   documentSaves?: ChatDocumentSave[];
 }
-export interface ChatDocumentSave { operationId: string; head: Head; title: string; createdAt: string; revisionId: string | null }
-export interface SaveProjectComposer { access: ProjectAccess; operationId: string; conversationId: string; expectedVersion: string; body: ProjectComposer }
-export interface StartProjectChat { access: ProjectAccess; operationId: string; conversationId: string; expectedComposerVersion: string; composer: ProjectComposer; budget: MockContextBudget }
-export interface StartProjectChapter extends StartProjectChat {}
 export interface ChapterRangeProposal {
   sourceHead: Head;
   firstBlockId: string;
   lastBlockId: string;
   quote: string;
 }
-export interface ChapterDiscussionFeedback {
-  runId: string;
-  target: Head;
-  answer: string;
-  rangeProposal?: ChapterRangeProposal | null;
-  rangeError?: string | null;
-}
-export interface ChatRelationshipDependency { relationshipId: string; fromDocumentId: string; toDocumentId: string; relationshipType: string; fromHead: Head; toHead: Head }
-export interface ChatAdoptionRelationship { key: string; relationshipId: string; fromDocumentId: string; toDocumentId: string; type: string; description: string; uncertainty: string; fromHead: Head; toHead: Head }
-export interface ChatAdoptionImpact { targetDocumentId: string; kind: string; reason: string; relationshipId?: string | null; relationshipKey?: string | null }
-export interface ChatAdoptionSupersession { targetDocumentId: string; supersededDocumentId: string; reason: string }
-export interface ChatAdoptionPlacement { targetDocumentId: string; beforeDocumentId?: string | null; afterDocumentId?: string | null }
-export interface ChatProtectedContent { targetDocumentId: string; sourceHead: Head; text: string; textHash: string }
-/** Read-only proof attached to an immutable adoption preview. */
-export interface ChatAdoptionEffects {
-  version: string;
-  sourceOutputHash: string;
-  relationshipDependencies: ChatRelationshipDependency[];
-  protectedContent: ChatProtectedContent[];
-  proposedRelationships: ChatAdoptionRelationship[];
-  impacts: ChatAdoptionImpact[];
-  supersessions: ChatAdoptionSupersession[];
-  placements: ChatAdoptionPlacement[];
-}
-export interface ChatAdoptionTarget { draft: ProjectChatDraftRef; draftRevisionId: string; documentId: string; title: string; kind: string; before: DocumentRecord | null; body: WnsDocument }
-export interface ChatAdoptionPreview {
-  id: string; version: string; digest: string; projectId: string; operationNamespace: string; conversationId: string;
-  sourceEpoch: string; policyEpoch: string; workshopVersion: string; targets: ChatAdoptionTarget[];
-  /** Current previews carry this complete manifest; absent means legacy preview data. */
-  effects?: ChatAdoptionEffects | null;
-}
-export interface ChatAdoptionAck { previewId: string; documents: DocumentRecord[]; decisionId: string }
 export interface ChatDispositionOptions { scope?: ChatDispositionScope; unknownTo?: ChatUnknownTo }
 export const readChatAdoptionPreview = (access: ProjectAccess, conversationId: string, previewId: string): Promise<ChatAdoptionPreview> => invoke('read_chat_adoption_preview', { access, conversationId, previewId });
 export const emptyProjectComposer = (): ProjectComposer => ({ text: '', sourceRefs: [], taskDraftRefs: [] });

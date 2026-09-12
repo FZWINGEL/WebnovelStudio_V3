@@ -52,7 +52,7 @@ pub const MAX_CHAPTER_RANGE_ID_BYTES: usize = 256;
 pub const MAX_CHAPTER_RANGE_QUOTE_BYTES: usize = 32 * 1024;
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChapterDiscussionOutput {
     pub schema_version: String,
@@ -64,7 +64,7 @@ pub struct ChapterDiscussionOutput {
 /// Provider-owned range input. This is deliberately not a ScopeGrant: it is
 /// converted into a read-only projection only after Rust verifies it against
 /// the frozen chapter source.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChapterRangeProposalInput {
     pub source_head: Head,
@@ -73,7 +73,7 @@ pub struct ChapterRangeProposalInput {
     pub quote: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChapterRangeProposal {
     pub source_head: Head,
@@ -85,7 +85,7 @@ pub struct ChapterRangeProposal {
 /// Read-only projection returned to the renderer. `range_error` preserves the
 /// answer when a provider supplied a malformed or stale hint, while making the
 /// hint unavailable for staging. It never grants a scope or changes a run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChapterDiscussionProjection {
     pub answer: String,
@@ -300,7 +300,7 @@ fn block_utf16_length(source_snapshot: &Value, block_id: &str) -> CoreResult<u32
 }
 
 /// A validated project-level assistant response.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectAssistantOutput {
     pub schema_version: String,
@@ -318,14 +318,14 @@ pub struct ProjectAssistantOutput {
     pub chapter_handoff: Option<ChatChapterHandoff>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatQuestion {
     pub key: String,
     pub text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatAssumption {
     pub key: String,
@@ -335,7 +335,7 @@ pub struct ChatAssumption {
 /// A bounded proposal to move from project conversation into chapter writing.
 /// `target_handle` is an exact frozen ordinary-chapter source handle when
 /// present; `None` asks the author to confirm a new blank chapter.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatChapterHandoff {
     pub target_handle: Option<String>,
@@ -346,7 +346,7 @@ pub struct ChatChapterHandoff {
 
 /// A document proposal from project chat. `target_handle` refers only to a
 /// frozen, caller-supplied handle; it is never an application document ID.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatDraftOutput {
     pub key: String,
@@ -364,7 +364,7 @@ pub struct ChatDraftOutput {
 /// Provider-owned grouped-maintenance proposals. References are opaque
 /// frozen handles or response-local draft keys; Rust resolves them only after
 /// validating the complete response against the frozen request.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatGroupEffectsOutput {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -377,7 +377,7 @@ pub struct ChatGroupEffectsOutput {
     pub placements: Vec<ChatPlacementProposal>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatRelationshipProposal {
     pub key: String,
@@ -389,7 +389,7 @@ pub struct ChatRelationshipProposal {
     pub uncertainty: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatImpactProposal {
     pub target_ref: String,
@@ -399,7 +399,7 @@ pub struct ChatImpactProposal {
     pub relationship_key: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatSupersessionProposal {
     pub target_ref: String,
@@ -407,7 +407,7 @@ pub struct ChatSupersessionProposal {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatPlacementProposal {
     pub target_ref: String,

@@ -3,7 +3,7 @@
 use super::*;
 use rusqlite::{OptionalExtension, params};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatDocumentSave {
     pub operation_id: String,

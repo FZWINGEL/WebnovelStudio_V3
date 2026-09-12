@@ -315,7 +315,13 @@ fn declaration_name(block: &str) -> Option<String> {
 
 /// Every group the frontend has been migrated onto.
 pub fn groups() -> Result<Vec<Group>, specta::ts::TsExportError> {
-    Ok(vec![wns_groups::kernel()?, wns_groups::workshop()?, wns_groups::context()?, wns_groups::documents()?])
+    Ok(vec![
+        wns_groups::kernel()?,
+        wns_groups::workshop()?,
+        wns_groups::context()?,
+        wns_groups::documents()?,
+        wns_groups::conversation()?,
+    ])
 }
 
 /// The workspace root, from this crate's manifest directory.
@@ -572,6 +578,66 @@ mod wns_groups {
                 ("TypedReplacementHeadingAttrs", one::<wns_documents::structured::TypedReplacementHeadingAttrs>()),
                 ("TypedReplacementMark", one::<wns_documents::structured::TypedReplacementMark>()),
                 ("TypedReplacementLinkAttrs", one::<wns_documents::structured::TypedReplacementLinkAttrs>()),
+            ],
+        )
+    }
+
+    /// `conversation`'s IPC closure: every name its generated file mentions, closed
+    /// against the frontend compiler rather than typed by hand.
+    pub fn conversation() -> Result<Group, specta::ts::TsExportError> {
+        group(
+            "conversation",
+            "conversation",
+            vec![
+                ("ApplyAck", one::<wns_conversation::proposals::ApplyAck>()),
+                ("ApplyProposal", one::<wns_conversation::proposals::ApplyProposal>()),
+                ("AssistantDraft", one::<wns_conversation::project_chat::AssistantDraft>()),
+                ("ChapterDiscussionFeedback", one::<wns_conversation::project_chat::ChapterDiscussionFeedback>()),
+                ("ChapterRangeProposal", one::<wns_context::project_chat_output::ChapterRangeProposal>()),
+                ("ChatAdoptionAck", one::<wns_conversation::project_chat::ChatAdoptionAck>()),
+                ("ChatAdoptionEffects", one::<wns_conversation::project_chat::ChatAdoptionEffects>()),
+                ("ChatAdoptionImpact", one::<wns_conversation::project_chat::ChatAdoptionImpact>()),
+                ("ChatAdoptionPlacement", one::<wns_conversation::project_chat::ChatAdoptionPlacement>()),
+                ("ChatAdoptionPreview", one::<wns_conversation::project_chat::ChatAdoptionPreview>()),
+                ("ChatAdoptionRelationship", one::<wns_conversation::project_chat::ChatAdoptionRelationship>()),
+                ("ChatAdoptionSupersession", one::<wns_conversation::project_chat::ChatAdoptionSupersession>()),
+                ("ChatAdoptionTarget", one::<wns_conversation::project_chat::ChatAdoptionTarget>()),
+                ("ChatDocumentSave", one::<wns_conversation::project_chat::ChatDocumentSave>()),
+                ("ChatProtectedContent", one::<wns_conversation::project_chat::ChatProtectedContent>()),
+                ("ChatRelationshipDependency", one::<wns_conversation::project_chat::ChatRelationshipDependency>()),
+                ("ConversationItem", one::<wns_conversation::project_chat::ConversationItem>()),
+                ("DiscussionDraft", one::<wns_conversation::discussions::DiscussionDraft>()),
+                ("DiscussionMessage", one::<wns_story::run_vocabulary::DiscussionMessage>()),
+                ("DiscussionMessageRole", one::<wns_story::run_vocabulary::DiscussionMessageRole>()),
+                ("DiscussionScopeInput", one::<wns_story::discussion_vocabulary::DiscussionScopeInput>()),
+                ("DiscussionView", one::<wns_conversation::discussions::DiscussionView>()),
+                ("HistoricalConversation", one::<wns_conversation::project_chat::HistoricalConversation>()),
+                ("HistoricalConversationItem", one::<wns_conversation::project_chat::HistoricalConversationItem>()),
+                ("HistoricalConversationRef", one::<wns_conversation::project_chat::HistoricalConversationRef>()),
+                ("HistoricalConversationSummary", one::<wns_conversation::project_chat::HistoricalConversationSummary>()),
+                ("HistoricalDraftRevision", one::<wns_conversation::project_chat::HistoricalDraftRevision>()),
+                ("HistoricalSourceRevision", one::<wns_conversation::project_chat::HistoricalSourceRevision>()),
+                ("PrepareContinuation", one::<wns_conversation::proposals::PrepareContinuation>()),
+                ("PrepareProposal", one::<wns_conversation::proposals::PrepareProposal>()),
+                ("PrepareStructured", one::<wns_conversation::proposals::PrepareStructured>()),
+                ("PreparedProposal", one::<wns_conversation::proposals::PreparedProposal>()),
+                ("ProjectChapterComposer", one::<wns_conversation::project_chat::ProjectChapterComposer>()),
+                ("ProjectComposer", one::<wns_conversation::project_chat::ProjectComposer>()),
+                ("ProjectComposerSnapshot", one::<wns_conversation::project_chat::ProjectComposerSnapshot>()),
+                ("Proposal", one::<wns_conversation::proposals::Proposal>()),
+                ("ProposalCandidate", one::<wns_conversation::proposals::ProposalCandidate>()),
+                ("ProposalContent", one::<wns_conversation::proposals::ProposalContent>()),
+                ("ProposalDecision", one::<wns_conversation::proposals::ProposalDecision>()),
+                ("ProposalKind", one::<wns_conversation::proposals::ProposalKind>()),
+                ("ReadProjectChatHistory", one::<wns_conversation::project_chat::ReadProjectChatHistory>()),
+                ("SafeBriefInput", one::<wns_context::contracts::SafeBriefInput>()),
+                ("SaveDiscussionDraft", one::<wns_conversation::discussions::SaveDiscussionDraft>()),
+                ("SaveGuidance", one::<wns_conversation::guidance::SaveGuidance>()),
+                ("SaveProjectComposer", one::<wns_conversation::project_chat::SaveProjectComposer>()),
+                ("StartProjectChapter", one::<wns_conversation::project_chat::StartProjectChapter>()),
+                ("StartProjectChat", one::<wns_conversation::project_chat::StartProjectChat>()),
+                ("ContinuationCandidate", one::<wns_context::continuation::ContinuationCandidate>()),
+                ("StructuredProposalCandidate", one::<wns_conversation::proposals::StructuredProposalCandidate>()),
             ],
         )
     }

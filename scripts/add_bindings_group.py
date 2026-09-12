@@ -201,8 +201,23 @@ def bounds(s):
 
 
 def set_entries(entries):
+    """Seed a group's entry list — only when the group is new.
+
+    Seeding is DESTRUCTIVE: it replaces everything between the `vec![` and its
+    close. That is right once, for a group that does not exist yet, and wrong
+    every time after, because the seed is computed from the frontend's
+    *declarations* — and the migration's whole job is to delete those. Re-running
+    this script on a group whose mirrors have been replaced reseeds it from the
+    handful of names that survived and silently drops the rest of the closure;
+    the generated file then loses most of its types and every consumer that
+    imported them fails to resolve. It happened to `conversation`: the second run
+    cut the group from 47 types to 6. Once a group exists, the `tsc` closure loop
+    below extends its list and nothing here touches it.
+    """
     s = io.open(LIB, encoding='utf-8').read()
     anchor = '    pub fn %s() -> Result<Group, specta::ts::TsExportError> {' % GROUP
+    if anchor in s:
+        return
     if anchor not in s:
         s = s.rstrip('\n')
         s = s[:-1].rstrip('\n') + '''
@@ -219,12 +234,15 @@ def set_entries(entries):
     }
 }
 ''' % (GROUP, GROUP, GROUP, GROUP)
-        for old in ['Ok(vec![wns_groups::kernel()?, wns_groups::workshop()?, wns_groups::context()?])',
-                    'Ok(vec![wns_groups::kernel()?, wns_groups::workshop()?])',
-                    'Ok(vec![wns_groups::kernel()?])']:
-            if old in s:
-                s = s.replace(old, old[:-2] + ', wns_groups::%s()?])' % GROUP)
-                break
+        # Register the group in `groups()`. This used to be a list of the
+        # literal `Ok(vec![...])` shapes seen so far, and it went stale the
+        # moment a fourth group existed: none of the three strings matched, the
+        # loop fell through silently, and the group generated a file that
+        # nothing ever wrote. Anchor on the call itself instead.
+        m = re.search(r'(pub fn groups\(\)[^{]*\{\s*Ok\(vec!\[)(.*?)(\]\))', s, re.S)
+        assert m, 'groups() not found'
+        if 'wns_groups::%s()?' % GROUP not in m.group(2):
+            s = s[:m.end(2)] + 'wns_groups::%s()?, ' % GROUP + s[m.end(2):]
     open_vec, close_vec = bounds(s)
     s = s[:open_vec] + ''.join('                ("%s", one::<%s>()),\n' % e for e in entries) + s[close_vec:]
     io.open(LIB, 'w', encoding='utf-8', newline='\n').write(s)

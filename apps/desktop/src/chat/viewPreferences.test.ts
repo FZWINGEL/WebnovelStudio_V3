@@ -5,7 +5,7 @@ import type { ProjectAccess } from '../ipc/projects';
 import { chatViewPreferenceKey, readChatViewPreferences, writeChatViewPreferences } from './viewPreferences';
 
 const access: ProjectAccess = { projectId: 'project-1', operationNamespace: 'namespace-1', session: 'session-1', writerLease: 'lease-1' };
-const preview = { id: 'preview-1', version: '2', digest: 'digest', projectId: 'project-1', operationNamespace: 'namespace-1', conversationId: 'conversation-1', sourceEpoch: '1', policyEpoch: '1', workshopVersion: '1', targets: [] } as ChatAdoptionPreview;
+const preview = { id: 'preview-1', version: '2', digest: 'digest', projectId: 'project-1', operationNamespace: 'namespace-1', conversationId: 'conversation-1', sourceEpoch: '1', policyEpoch: '1', workshopVersion: '1', targets: [], effects: null } as ChatAdoptionPreview;
 
 beforeEach(() => localStorage.clear());
 

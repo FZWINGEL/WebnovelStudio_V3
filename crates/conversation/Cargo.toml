@@ -5,6 +5,7 @@ edition = "2024"
 description = "L5: discussions, project chat, proposals, guidance and the adoption transaction."
 
 [dependencies]
+specta = "1.0.5"
 wns-kernel = { path = "../kernel" }
 wns-storage = { path = "../storage" }
 wns-documents = { path = "../documents" }

@@ -22,7 +22,7 @@ pub const MAX_CONTINUATION_PARAGRAPH_UTF16: usize = 8192;
 /// Maximum UTF-16 units across one generated candidate.
 pub const MAX_CONTINUATION_TOTAL_UTF16: usize = 100_000;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContinuationCandidate {
     pub title: String,
@@ -30,7 +30,7 @@ pub struct ContinuationCandidate {
     pub explanation: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContinuationOutput {
     pub schema_version: String,
