@@ -26,6 +26,21 @@
 //!   provider parser state — and those hold private types that cannot be
 //!   derived at all. The wire surface is a choice per type; the kernel's eleven
 //!   needed no skips because each was chosen.
+//!//! * **A group carries a frontend tail, and it is where the value is.** The
+//!   workshop group converged at 131 types, and replacing its mirrors then
+//!   failed to typecheck in ~57 places — not because the generation was wrong,
+//!   but because the mirrors were. `BasisKind` and `ContinuationBasis` are
+//!   distinct Rust enums the hand-written TypeScript used one name for, and
+//!   several fields the mirrors declared optional are required in Rust. That is
+//!   D6 becoming visible the moment something can see it. A group is finished
+//!   when the frontend compiles against it, not when the file is generated; the
+//!   kernel group had no tail because its eleven types were already exact.
+//!
+//! **Let the compiler close both lists.** The workshop's derives converged in 6
+//!   rounds (workshop → story vocabulary → run vocabulary → provider and context
+//!   vocabularies) and the group's names in 6 more against `tsc`. Neither list
+//!   should be typed by hand, and both converge quickly when the gap is read
+//!   from the error output.
 //!
 //! ## What the frontend does with a narrower type
 //!
