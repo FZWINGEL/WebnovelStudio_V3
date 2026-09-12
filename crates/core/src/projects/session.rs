@@ -260,14 +260,22 @@ impl ProjectSession {
                                 let _ = reply.send(result);
                             }
                             Command::BackgroundWork(reply) => {
-                                let _ = reply.send(project.background_work());
+                                let _ = reply.send(
+                                    wns_conversation::background_work::background_work(&project),
+                                );
                             }
                             Command::StopBackgroundWork(expected, reply) => {
-                                let result = project.stop_background_work(expected);
+                                let result = wns_conversation::background_work::stop_background_work(
+                                    &mut project,
+                                    expected,
+                                );
                                 let _ = reply.send(result);
                             }
                             Command::InterruptBackgroundWork(expected, reply) => {
-                                let result = project.interrupt_background_work(expected);
+                                let result = wns_conversation::background_work::interrupt_background_work(
+                                    &mut project,
+                                    expected,
+                                );
                                 let _ = reply.send(result);
                             }
                             Command::Attach(session, reply) => {

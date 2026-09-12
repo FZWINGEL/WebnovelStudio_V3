@@ -27,5 +27,16 @@ pub trait StoryHost {
     /// The actor reads two fields off this (`project_id`, `operation_namespace`)
     /// to validate a runtime owner. Everything else it reaches for is a method.
     fn info(&self) -> &ProjectInfo;
+    /// The access of the renderer session currently attached, or the recovery
+    /// error that says there is none.
+    ///
+    /// Distinct from [`Self::check_access`], which validates an access the
+    /// caller already holds. Three concerns need this one — the chat activity
+    /// projection, the background-work census, and the assistant-draft
+    /// lifecycle — and each used to reach the actor's own `access` and
+    /// `needs_reopen` fields, which no other crate can see. It sits here
+    /// rather than on a concern's own host trait because the lowest consumer
+    /// is shared.
+    fn current_access(&self) -> CoreResult<ProjectAccess>;
 }
 

@@ -15,9 +15,6 @@ use wns_kernel::{CoreResult, ProjectAccess};
 use wns_story::host::StoryHost;
 
 pub trait ProjectChatHost: StoryHost {
-    /// The access of the attached renderer session, or the recovery error the
-    /// activity projection raises before it reads anything.
-    fn current_access(&self) -> CoreResult<ProjectAccess>;
     /// Take a renderer lease for an already-open project.
     fn attach(&mut self, session: String) -> CoreResult<ProjectAccess>;
     /// Reopen the connection after it was dropped, before a writer needs it.

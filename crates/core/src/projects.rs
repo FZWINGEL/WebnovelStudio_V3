@@ -2,7 +2,6 @@
 use crate::documents::Endpoint;
 use crate::{storage, validate_snapshot_json};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};

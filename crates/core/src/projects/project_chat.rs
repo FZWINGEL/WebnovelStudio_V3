@@ -193,19 +193,6 @@ pub use wns_conversation::project_chat::*;
 /// `OwnedProject`; the `Type::method` form is used deliberately so the
 /// delegation cannot be mistaken for the trait method it implements.
 impl wns_conversation::host::ProjectChatHost for OwnedProject {
-    fn current_access(&self) -> CoreResult<ProjectAccess> {
-        let missing = || {
-            CoreError::new(
-                "RecoveryRequired",
-                "Project activity requires an attached current project session.",
-            )
-        };
-        if self.needs_reopen {
-            return Err(missing());
-        }
-        self.access.clone().ok_or_else(missing)
-    }
-
     fn attach(&mut self, session: String) -> CoreResult<ProjectAccess> {
         OwnedProject::attach(self, session)
     }

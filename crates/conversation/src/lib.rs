@@ -62,3 +62,6 @@ pub mod discussions;
 
 /// The project conversation projection: references, composer CAS and decisions.
 pub mod project_chat;
+
+/// The active-work census, and the stop/interrupt intents over it.
+pub mod background_work;

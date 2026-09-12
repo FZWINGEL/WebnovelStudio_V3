@@ -63,6 +63,18 @@ impl wns_story::host::StoryHost for OwnedProject {
     fn context_source_epoch(&self) -> CoreResult<String> {
         OwnedProject::context_source_epoch(self)
     }
+    fn current_access(&self) -> CoreResult<ProjectAccess> {
+        let missing = || {
+            CoreError::new(
+                "RecoveryRequired",
+                "Project activity requires an attached current project session.",
+            )
+        };
+        if self.needs_reopen {
+            return Err(missing());
+        }
+        self.access.clone().ok_or_else(missing)
+    }
 }
 
 pub use wns_story::context_packets::*;
