@@ -37,6 +37,19 @@
 //!   when the frontend compiles against it, not when the file is generated; the
 //!   kernel group had no tail because its eleven types were already exact.
 //!
+//! * **specta does not honour `rename_all_fields`, and that is the largest
+//!   error class.** `LookupReadResult` and its neighbours carry
+//!   `#[serde(rename_all_fields = "camelCase")]`, so their struct-variant fields
+//!   really are camelCase on the wire — and the frontend was right to expect
+//!   that. specta 1.0 reads only `rename_all` on the *container* and never reads
+//!   serde's attributes at all, so it emitted `entity_kind` where the wire has
+//!   `entityKind`. The remedy is `#[specta(rename_all = "camelCase")]` on each
+//!   variant; it made no difference where it was tried, so check that against a
+//!   single known-good variant before applying it across the tree. Until it is
+//!   settled, every adjacent-tagged enum with struct variants generates fields
+//!   that do not match the wire, and the frontend tail is inflated by however
+//!   many of those there are.
+//!
 //! **Let the compiler close both lists.** The workshop's derives converged in 6
 //!   rounds (workshop → story vocabulary → run vocabulary → provider and context
 //!   vocabularies) and the group's names in 6 more against `tsc`. Neither list
