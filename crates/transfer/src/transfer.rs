@@ -35,7 +35,7 @@ const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 const DB_FILE: &str = "project.sqlite3";
 const MARKER_FILE: &str = "project.wns.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BackupManifest {
     pub format_version: u32,
@@ -50,7 +50,7 @@ pub struct BackupManifest {
     pub assets: Vec<AssetManifest>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentHeadManifest {
     pub document_id: String,
@@ -59,7 +59,7 @@ pub struct DocumentHeadManifest {
     pub last_checkpoint_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RevisionHeadManifest {
     pub revision_id: String,
@@ -69,7 +69,7 @@ pub struct RevisionHeadManifest {
     pub parent_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AssetManifest {
     pub path: String,
@@ -77,7 +77,7 @@ pub struct AssetManifest {
     pub size: u64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum DraftFormat {
     PlainText,
@@ -105,7 +105,7 @@ impl DraftFormat {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DraftExportPreview {
     pub id: String,
@@ -123,7 +123,7 @@ pub struct DraftExportPreview {
     pub review_bundle_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportRecord {
     pub id: String,
@@ -151,7 +151,7 @@ pub(crate) struct ProjectedDraft {
 
 /// Frozen source identity and document heads used to guard a duplicate
 /// against a live-project change between the UI read and the backup.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DuplicateBasis {
     pub project_id: String,
@@ -442,7 +442,7 @@ fn install_new_text_file(target: &Path, bytes: &[u8]) -> CoreResult<()> {
 /// A separate Markdown copy of an in-memory document, not a project save or
 /// backup. No project actor, database, writer lease, or current head is read:
 /// this must remain available when project storage itself has failed.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecoveryCopyReceipt {
     pub snapshot_hash: String,

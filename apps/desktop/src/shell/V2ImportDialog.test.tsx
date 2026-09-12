@@ -39,7 +39,7 @@ const preview: V2ImportPreview = {
       drafts: [{ sourceId: 'draft-2', version: 3, prose: 'A saved draft.', isApproved: false, createdAt: '2026-09-06T00:00:00Z' }],
     },
   ],
-  legacy: { recordCounts: { characters: 1 }, totalJsonBytes: 32 },
+  legacy: { recordCounts: { characters: 1 }, records: [], totalJsonBytes: 32 },
 };
 const opened = {
   project: { projectId: 'new-project', title: 'Imported story', slug: 'imported-story' },

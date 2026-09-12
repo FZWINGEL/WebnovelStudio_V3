@@ -322,7 +322,7 @@ pub fn groups() -> Result<Vec<Group>, specta::ts::TsExportError> {
         wns_groups::documents()?,
         wns_groups::conversation()?,
         wns_groups::story()?,
-    wns_groups::providers()?, ])
+    wns_groups::providers()?, wns_groups::transfer()?, ])
 }
 
 /// The workspace root, from this crate's manifest directory.
@@ -698,6 +698,32 @@ mod wns_groups {
                 ("CatalogSnapshot", one::<wns_providers::catalog::CatalogSnapshot>()),
                 ("DispatchResolution", one::<wns_providers::catalog::DispatchResolution>()),
                 ("ServiceTier", one::<wns_providers::catalog::ServiceTier>()),
+            ],
+        )
+    }
+
+    /// `transfer`'s IPC closure: every name its generated file mentions, closed
+    /// against the frontend compiler rather than typed by hand.
+    pub fn transfer() -> Result<Group, specta::ts::TsExportError> {
+        group(
+            "transfer",
+            "transfer",
+            vec![
+                ("DraftExportPreview", one::<wns_transfer::transfer::DraftExportPreview>()),
+                ("DraftFormat", one::<wns_transfer::transfer::DraftFormat>()),
+                ("V2ChapterBodyChoice", one::<wns_transfer::import::V2ChapterBodyChoice>()),
+                ("V2ChapterBodyDecision", one::<wns_transfer::import::V2ChapterBodyDecision>()),
+                ("V2ChapterPreview", one::<wns_transfer::v2_import::V2ChapterPreview>()),
+                ("V2DraftPreview", one::<wns_transfer::v2_import::V2DraftPreview>()),
+                ("V2ImportPreview", one::<wns_transfer::v2_import::V2ImportPreview>()),
+                ("V2ImportRequest", one::<wns_transfer::import::V2ImportRequest>()),
+                ("V2ProjectSummary", one::<wns_transfer::v2_import::V2ProjectSummary>()),
+                ("V2WorkingProse", one::<wns_transfer::v2_import::V2WorkingProse>()),
+                ("V2BodySelection", one::<wns_transfer::v2_import::V2BodySelection>()),
+                ("V2LegacyPreview", one::<wns_transfer::v2_import::V2LegacyPreview>()),
+                ("V2ProjectPreview", one::<wns_transfer::v2_import::V2ProjectPreview>()),
+                ("V2SourceManifest", one::<wns_transfer::v2_import::V2SourceManifest>()),
+                ("V2LegacyRecord", one::<wns_transfer::v2_import::V2LegacyRecord>()),
             ],
         )
     }

@@ -83,7 +83,7 @@ const TABLES: [&str; 18] = [
     "draft_segments",
 ];
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct V2ImportPreview {
     pub import_format_version: u32,
@@ -93,7 +93,7 @@ pub struct V2ImportPreview {
     pub legacy: V2LegacyPreview,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct V2SourceManifest {
     pub schema_version: i64,
@@ -103,7 +103,7 @@ pub struct V2SourceManifest {
     pub project_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct V2ProjectPreview {
     pub source_project_id: String,
@@ -112,7 +112,7 @@ pub struct V2ProjectPreview {
     pub chapter_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct V2ProjectSummary {
     pub source_project_id: String,
@@ -121,7 +121,7 @@ pub struct V2ProjectSummary {
     pub chapter_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct V2ChapterPreview {
     pub source_id: String,
@@ -136,7 +136,7 @@ pub struct V2ChapterPreview {
     pub drafts: Vec<V2DraftPreview>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct V2DraftPreview {
     pub source_id: String,
@@ -146,21 +146,21 @@ pub struct V2DraftPreview {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", tag = "state", content = "text")]
 pub enum V2WorkingProse {
     Missing,
     Present(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum V2BodySelection {
     WorkingProse,
     RequiresAuthorChoice,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct V2LegacyPreview {
     pub record_counts: BTreeMap<String, usize>,
@@ -168,7 +168,7 @@ pub struct V2LegacyPreview {
     pub total_json_bytes: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct V2LegacyRecord {
     pub table: String,

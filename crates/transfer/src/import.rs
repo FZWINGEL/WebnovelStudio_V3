@@ -19,24 +19,25 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum V2ChapterBodyChoice {
     Empty,
+    #[specta(rename_all = "camelCase")]
     Draft {
         #[serde(rename = "sourceDraftId")]
         source_draft_id: String,
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct V2ChapterBodyDecision {
     pub source_chapter_id: String,
     pub choice: V2ChapterBodyChoice,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct V2ImportRequest {
     pub operation_id: String,
@@ -61,7 +62,7 @@ pub(crate) struct StoredV2ImportOperation {
     pub choices: Vec<V2ChapterBodyDecision>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct V2ImportResult {
     pub operation_id: String,
