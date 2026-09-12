@@ -4,7 +4,7 @@
 //! author action and captures the selected model into the immutable core job.
 use crate::app_state::AppState;
 use crate::memory_recovery::MemoryRecovery;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use crate::provider_bindings::{binding_matches_choice, is_legacy_maintenance_choice, is_supported_choice};
 use serde::{Deserialize, Serialize};
 use tauri::State;

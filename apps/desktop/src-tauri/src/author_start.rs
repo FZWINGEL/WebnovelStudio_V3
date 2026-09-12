@@ -8,9 +8,9 @@
 //! machinery.
 
 // Defined with the commands it serves; the dispatch below is its only caller.
-use crate::discussion_commands::dispatch_started;
+use crate::commands::discussion_commands::dispatch_started;
 use crate::discussion_recovery::{DiscussionRecovery, PendingSave, SaveOutcome};
-use crate::library_commands::DesktopLibrary;
+use crate::commands::library_commands::DesktopLibrary;
 use crate::provider_runtime::{DesktopProviders};
 use crate::provider_bindings::{binding_matches_author_choice};
 use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, ProviderBinding, packet_input_hash};
@@ -159,7 +159,7 @@ pub(crate) fn start_author_native(
     let library_guard = library
         .0
         .lock()
-        .map_err(|_| crate::provider_commands::unavailable())?;
+        .map_err(|_| crate::commands::provider_commands::unavailable())?;
     {
         let active = library_guard.provider_state()?.settings.active;
         if active != selected {

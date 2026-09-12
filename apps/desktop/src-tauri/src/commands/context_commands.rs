@@ -1,6 +1,6 @@
 //! Context IPC carries identities, never client-asserted source authority.
 use crate::app_state::AppState;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use tauri::State;
 use webnovel_core::context::packet::CompiledPacket;
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};

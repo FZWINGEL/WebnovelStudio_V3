@@ -5,7 +5,7 @@
 //! changing it here never starts, stops, or retries generation.
 
 use crate::app_state::AppState;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use tauri::State;
 use webnovel_core::library::Library;
 use webnovel_core::library::codex_transport::{CodexTransport, CodexTransportSettings};

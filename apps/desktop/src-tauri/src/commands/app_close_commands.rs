@@ -3,7 +3,7 @@
 use crate::app_state::AppState;
 use crate::discussion_recovery::DiscussionRecovery;
 use crate::memory_recovery::MemoryRecovery;
-use crate::project_commands::{DesktopProjects, execute};
+use crate::commands::project_commands::{DesktopProjects, execute};
 use crate::provider_runtime::DesktopProviders;
 use serde::Serialize;
 use tauri::State;

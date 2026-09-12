@@ -18,9 +18,9 @@
 /// Every facade a command can reach.
 pub struct AppState {
     /// Open projects, keyed by project id.
-    pub projects: crate::project_commands::DesktopProjects,
+    pub projects: crate::commands::project_commands::DesktopProjects,
     /// The app-local library index. Opened in `setup`; see `main.rs`.
-    pub library: crate::library_commands::DesktopLibrary,
+    pub library: crate::commands::library_commands::DesktopLibrary,
     /// Live provider work and its cancellation tokens.
     pub providers: crate::provider_runtime::DesktopProviders,
     /// Discussion saves awaiting a materialization decision.
@@ -28,5 +28,5 @@ pub struct AppState {
     /// Memory writes awaiting the same.
     pub memory_recovery: crate::memory_recovery::MemoryRecovery,
     /// In-flight endpoint discovery probes.
-    pub endpoint_discovery: crate::endpoint_discovery::EndpointDiscovery,
+    pub endpoint_discovery: crate::commands::endpoint_discovery::EndpointDiscovery,
 }

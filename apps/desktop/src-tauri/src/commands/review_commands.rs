@@ -1,6 +1,6 @@
 //! Explicit author review. The core owns source validation and activation.
 use crate::app_state::AppState;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use tauri::State;
 use webnovel_core::projects::evidence_queries::{
     ReviewedEntityCatalog, ReviewedHistoryResult, ReviewedKnowledgeHistoryResult,

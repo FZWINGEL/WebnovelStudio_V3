@@ -1,6 +1,6 @@
 //! App-local endpoint setup. Credentials never enter project or renderer reads.
 use crate::app_state::AppState;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use webnovel_core::library::Library;
@@ -283,7 +283,7 @@ pub async fn endpoint_settings( state: State<'_, AppState>,
         Ok(state
             .0
             .lock()
-            .map_err(|_| crate::provider_commands::unavailable())?
+            .map_err(|_| crate::commands::provider_commands::unavailable())?
             .endpoint_profiles()?
             .into())
     })
@@ -302,7 +302,7 @@ pub async fn save_endpoint_settings(
             &mut *state
                 .0
                 .lock()
-                .map_err(|_| crate::provider_commands::unavailable())?,
+                .map_err(|_| crate::commands::provider_commands::unavailable())?,
             &WindowsCredentialStore,
             request,
         )
@@ -315,7 +315,7 @@ pub async fn discover_endpoint_models(
     profile_id: String,
     config_revision: String,
     discovery_id: String,
-    discovery: State<'_, crate::endpoint_discovery::EndpointDiscovery>, state: State<'_, AppState>,
+    discovery: State<'_, crate::commands::endpoint_discovery::EndpointDiscovery>, state: State<'_, AppState>,
 ) -> CoreResult<EndpointSettingsView> {
     let app = &*state;
     let state = &app.library;
@@ -328,7 +328,7 @@ pub async fn discover_endpoint_models(
         let library = read_state
             .0
             .lock()
-            .map_err(|_| crate::provider_commands::unavailable())?;
+            .map_err(|_| crate::commands::provider_commands::unavailable())?;
         let profile = library
             .endpoint_profiles()?
             .profiles
@@ -365,7 +365,7 @@ pub async fn discover_endpoint_models(
         let mut library = state
             .0
             .lock()
-            .map_err(|_| crate::provider_commands::unavailable())?;
+            .map_err(|_| crate::commands::provider_commands::unavailable())?;
         library.refresh_endpoint_models(&profile_id, &config_revision, ids)?;
         Ok(library.endpoint_profiles()?.into())
     })

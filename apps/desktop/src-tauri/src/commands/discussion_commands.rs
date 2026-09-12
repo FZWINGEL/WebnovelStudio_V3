@@ -8,8 +8,8 @@ use crate::app_state::AppState;
 use crate::discussion_recovery::{
     DesktopDiscussionView, DiscussionRecovery,
 };
-use crate::library_commands::DesktopLibrary;
-use crate::project_commands::execute;
+use crate::commands::library_commands::DesktopLibrary;
+use crate::commands::project_commands::execute;
 use crate::provider_runtime::DesktopProviders;
 use tauri::State;
 #[cfg(windows)]
@@ -201,7 +201,7 @@ pub async fn start_discussion(
             .clone()
             .unwrap_or_else(ModelSelection::local_mock);
         let existing = saved_request(&project, &request)?;
-        let library = library.0.lock().map_err(|_| crate::provider_commands::unavailable())?;
+        let library = library.0.lock().map_err(|_| crate::commands::provider_commands::unavailable())?;
         #[cfg(windows)]
         let mut app_server_request = None;
         #[cfg(windows)]

@@ -5,7 +5,7 @@
 //! dispatches that run through the existing provider/recovery workers.
 
 use crate::app_state::AppState;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use serde::Deserialize;
 use tauri::State;
 use webnovel_core::context::packet::MockContextBudget;
@@ -61,7 +61,7 @@ pub async fn start_workshop(
         .await;
     }
     execute(move || {
-        crate::discussion_commands::start_workshop_native(
+        crate::commands::discussion_commands::start_workshop_native(
             start, selected, project, recovery, library, runtime,
         )
     })

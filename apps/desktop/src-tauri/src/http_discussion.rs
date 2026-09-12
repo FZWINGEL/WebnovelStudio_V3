@@ -1,8 +1,8 @@
 //! One frozen OpenAI-compatible request. Only local outcome saves can be retried.
 use crate::author_start::AuthorStart;
 use crate::discussion_recovery::{DiscussionRecovery, PendingSave, SaveOutcome};
-use crate::library_commands::DesktopLibrary;
-use crate::project_commands::execute;
+use crate::commands::library_commands::DesktopLibrary;
+use crate::commands::project_commands::execute;
 use crate::provider_runtime::DesktopProviders;
 use webnovel_core::context::packet::{
     HTTP_INPUT_LIMIT_BYTES, HTTP_OUTPUT_LIMIT_BYTES, HTTP_PROFILE_VERSION,
@@ -64,7 +64,7 @@ pub async fn start(
         let (started, adapter) = {
             // Keep the saved choice, endpoint configuration and acceptance in
             // one local critical section. The worker captures its own client/key.
-            let library = library.0.lock().map_err(|_| crate::provider_commands::unavailable())?;
+            let library = library.0.lock().map_err(|_| crate::commands::provider_commands::unavailable())?;
             if let Some(existing) = &existing {
                 let binding = existing.provider_binding.as_ref().ok_or_else(|| CoreError::new("ProviderBindingMismatch", "This saved request used another provider."))?;
                 if !binding.is_http() || binding.provider_id != selected.provider_id || binding.model_id != selected.model_id {
@@ -86,7 +86,7 @@ pub async fn start(
                 if !profile.enabled || !(profile.manual_model_ids.contains(&selected.model_id) || profile.cached_model_ids.contains(&selected.model_id))
                     || selected.reasoning.is_some() || selected.service_tier.is_some()
                 { return Err(CoreError::new("ProviderUnavailable", "This API model or its selected options are unavailable. Check Settings.")); }
-                let adapter = crate::endpoint_commands::adapter_for_profile(&profile, &WindowsCredentialStore)?;
+                let adapter = crate::commands::endpoint_commands::adapter_for_profile(&profile, &WindowsCredentialStore)?;
                 request.provider_binding = Some(binding_for(&profile, &selected, request.intent));
                 (project.start_discussion(request)?, Some(adapter))
             }
@@ -156,7 +156,7 @@ pub async fn start_author(
             let library = library
                 .0
                 .lock()
-                .map_err(|_| crate::provider_commands::unavailable())?;
+                .map_err(|_| crate::commands::provider_commands::unavailable())?;
                 let state = library.provider_state()?;
                 if state.settings.active != selected {
                     return Err(CoreError::new(
@@ -186,7 +186,7 @@ pub async fn start_author(
                         "This API model or its selected options are unavailable. Check Settings.",
                     ));
                 }
-                let adapter = crate::endpoint_commands::adapter_for_profile(
+                let adapter = crate::commands::endpoint_commands::adapter_for_profile(
                     &profile,
                     &WindowsCredentialStore,
                 )?;

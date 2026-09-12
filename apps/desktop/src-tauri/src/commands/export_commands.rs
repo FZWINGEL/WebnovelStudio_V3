@@ -1,6 +1,6 @@
 //! Preview a frozen draft before the explicit native destination choice.
 use crate::app_state::AppState;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use serde::Serialize;
 use tauri::State;
 use webnovel_core::projects::{CoreResult, Head, ProjectAccess};

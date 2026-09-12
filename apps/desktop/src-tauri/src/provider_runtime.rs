@@ -2,7 +2,7 @@
 use crate::provider_bindings::{
     ClaudeConnectionView, ConnectionView, claude_binding_for_choice, memory_selection,
 };
-use crate::endpoint_commands::credential_available;
+use crate::commands::endpoint_commands::credential_available;
 use serde::Serialize;
 #[cfg(windows)]
 use std::collections::HashMap;

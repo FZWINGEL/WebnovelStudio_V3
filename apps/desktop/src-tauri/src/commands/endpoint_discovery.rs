@@ -35,7 +35,7 @@ impl EndpointDiscovery {
         let mut reads = self
             .0
             .lock()
-            .map_err(|_| crate::provider_commands::unavailable())?;
+            .map_err(|_| crate::commands::provider_commands::unavailable())?;
         if reads.len() >= 64 && !reads.contains_key(&id) {
             return Err(CoreError::new(
                 "DiscoveryBusy",
@@ -62,7 +62,7 @@ impl EndpointDiscovery {
         let mut reads = self
             .0
             .lock()
-            .map_err(|_| crate::provider_commands::unavailable())?;
+            .map_err(|_| crate::commands::provider_commands::unavailable())?;
         // Retain an early cancellation until its matching begin, but bound
         // these short-lived UI races. A later search always has a new ID.
         if reads.len() >= 64 && !reads.contains_key(&id) {

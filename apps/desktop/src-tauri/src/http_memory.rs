@@ -1,9 +1,9 @@
 //! One explicit API memory refresh, frozen before submission. Reconciliation
 //! only settles the saved operation and never reloads credentials or resends it.
-use crate::library_commands::DesktopLibrary;
-use crate::memory_commands::{StartMemoryRequest, check_maintenance_choice};
+use crate::commands::library_commands::DesktopLibrary;
+use crate::commands::memory_commands::{StartMemoryRequest, check_maintenance_choice};
 use crate::memory_recovery::MemoryRecovery;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use crate::provider_runtime::DesktopProviders;
 use webnovel_core::context::packet::{HTTP_MEMORY_MODEL_ID, ProviderBinding};
 use webnovel_core::projects::discussions::{
@@ -57,7 +57,7 @@ fn accept(
     let library = library
         .0
         .lock()
-        .map_err(|_| crate::provider_commands::unavailable())?;
+        .map_err(|_| crate::commands::provider_commands::unavailable())?;
     let (binding, adapter) = if let Some(existing) = existing {
         let binding = existing.provider_binding.ok_or_else(|| {
             CoreError::new(
@@ -103,7 +103,7 @@ fn accept(
                 "Enable this API connection and add gpt-6-astra to its models. The service must support low reasoning.",
             ));
         }
-        let adapter = crate::endpoint_commands::adapter_for_profile(&profile, store)?;
+        let adapter = crate::commands::endpoint_commands::adapter_for_profile(&profile, store)?;
         (binding_for(&profile), Some(adapter))
     };
     let job = project.start_memory(StartMemory {

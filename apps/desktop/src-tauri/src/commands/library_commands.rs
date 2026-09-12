@@ -1,5 +1,5 @@
 use crate::app_state::AppState;
-use crate::project_commands::{OpenedProject, execute};
+use crate::commands::project_commands::{OpenedProject, execute};
 use serde::Serialize;
 use std::{
     path::PathBuf,

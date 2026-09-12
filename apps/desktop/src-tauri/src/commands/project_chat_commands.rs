@@ -2,7 +2,7 @@
 use crate::app_state::AppState;
 use crate::author_start::{AuthorStart, start_author_native};
 use crate::discussion_recovery::{PendingSave, SaveOutcome, WorkerIssue};
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use serde::Serialize;
 use tauri::State;
 use webnovel_core::projects::discussions::{DiscussionRun, DiscussionStart};
@@ -311,7 +311,7 @@ mod tests {
     use super::*;
     use crate::author_start::{AuthorStart, start_author_native};
     use crate::discussion_recovery::DiscussionRecovery;
-    use crate::library_commands::DesktopLibrary;
+    use crate::commands::library_commands::DesktopLibrary;
     use crate::provider_runtime::DesktopProviders;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};

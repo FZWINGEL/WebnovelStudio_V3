@@ -1,6 +1,6 @@
 //! Tauri adapters for the durable Story Workshop actor boundary.
 use crate::app_state::AppState;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;

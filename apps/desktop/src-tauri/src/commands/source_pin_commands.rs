@@ -1,6 +1,6 @@
 //! AuthorRoom persistent source-pin commands.
 use crate::app_state::AppState;
-use crate::project_commands::execute;
+use crate::commands::project_commands::execute;
 use tauri::State;
 use webnovel_core::projects::source_pins::{SaveSourcePins, SourcePinSet, SourcePinsView};
 use webnovel_core::projects::{CoreResult, ProjectAccess};

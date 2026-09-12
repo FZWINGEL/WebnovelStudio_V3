@@ -191,7 +191,7 @@ impl DesktopProjects {
         Ok(())
     }
 }
-pub(super) async fn execute<T: Send + 'static>(
+pub(crate) async fn execute<T: Send + 'static>(
     work: impl FnOnce() -> CoreResult<T> + Send + 'static,
 ) -> CoreResult<T> {
     tauri::async_runtime::spawn_blocking(work)
@@ -330,7 +330,7 @@ pub async fn rename_project(
     access: ProjectAccess,
     expected_metadata_version: String,
     title: String, state: State<'_, AppState>,
-    library: State<'_, crate::library_commands::DesktopLibrary>,
+    library: State<'_, crate::commands::library_commands::DesktopLibrary>,
 ) -> CoreResult<ProjectMetadataResult> {
     let app = &*state;
     let state = &app.projects;
