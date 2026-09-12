@@ -1,4 +1,89 @@
 import type {
+  CompiledPacket,
+  ContextEpochs,
+  ContextPurpose,
+  ConversationMessage,
+  ConversationTurn,
+  EvidenceHistory,
+  EvidenceHistoryObservation,
+  FrozenContext,
+  FrozenConversation,
+  FrozenNavigationView,
+  InformationPolicy,
+  KnowledgeHistory,
+  KnowledgeHistoryObservation,
+  LookupExchange,
+  LookupPacketInput,
+  LookupSourceProjection,
+  MockContextBudget,
+  NavigationViewOmission,
+  NavigationViewRef,
+  PacketReceipt,
+  PromiseHistory,
+  PromiseHistoryObservation,
+  ReviewedBasisManifest,
+  ReviewedEvidenceCoverage,
+  ReviewedEvidenceOmission,
+  ReviewedEvidenceSet,
+  ReviewedHistoryResult,
+  ReviewedKnowledgeHistoryResult,
+  ReviewedKnowledgeSet,
+  ReviewedPromiseHistoryResult,
+  ReviewedPromiseSet,
+  ReviewedSummaryCoverage,
+  ReviewedSummaryOmission,
+  ReviewedSummarySet,
+  ScopeGrant,
+  SourceDescriptor,
+  SourcePassage,
+  SourceRead,
+  SourceRef,
+  StorySnapshot,
+} from './generated/context';
+export type {
+  CompiledPacket,
+  ContextEpochs,
+  ContextPurpose,
+  ConversationMessage,
+  ConversationTurn,
+  EvidenceHistory,
+  EvidenceHistoryObservation,
+  FrozenContext,
+  FrozenConversation,
+  FrozenNavigationView,
+  InformationPolicy,
+  KnowledgeHistory,
+  KnowledgeHistoryObservation,
+  LookupExchange,
+  LookupPacketInput,
+  LookupSourceProjection,
+  MockContextBudget,
+  NavigationViewOmission,
+  NavigationViewRef,
+  PacketReceipt,
+  PromiseHistory,
+  PromiseHistoryObservation,
+  ReviewedBasisManifest,
+  ReviewedEvidenceCoverage,
+  ReviewedEvidenceOmission,
+  ReviewedEvidenceSet,
+  ReviewedHistoryResult,
+  ReviewedKnowledgeHistoryResult,
+  ReviewedKnowledgeSet,
+  ReviewedPromiseHistoryResult,
+  ReviewedPromiseSet,
+  ReviewedSummaryCoverage,
+  ReviewedSummaryOmission,
+  ReviewedSummarySet,
+  ScopeGrant,
+  SourceDescriptor,
+  SourcePassage,
+  SourceRead,
+  SourceRef,
+  StorySnapshot,
+};
+
+import type {
   AppServerConnectionSettlement,
   AppServerDelivery,
   AppServerDispatch,
@@ -28,118 +113,17 @@ import type { FrozenGuidance } from './guidance';
 import type { DigestCandidate } from './memory';
 import type { KnowledgeRecord, PossessionRecord, PromiseRecord, StoryEntityRef, SummaryRevision } from './reviews';
 
-export interface EvidenceHistoryObservation extends Pick<PossessionRecord, 'object' | 'holder' | 'timing' | 'audience' | 'evidence'> {
-  recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
-}
-export interface EvidenceHistory {
-  objectId: string; labelVariants: string[]; observations: EvidenceHistoryObservation[];
-  uncertainty: ('disclosureLimited' | 'excludedSources' | 'earlierTiming' | 'unknownTiming' | 'unknownHolder' | 'differingHolders')[];
-  incomplete: boolean;
-}
-export interface ReviewedHistoryResult { snapshotId: string; current: boolean; history: EvidenceHistory }
 export const reviewedEvidenceHistory = (access: ProjectAccess, snapshotId: string, objectId: string): Promise<ReviewedHistoryResult> => invoke('reviewed_evidence_history', { access, snapshotId, objectId });
-export interface PromiseHistoryObservation extends Pick<PromiseRecord, 'promise' | 'phase' | 'timing' | 'note' | 'audience' | 'evidence'> {
-  recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
-}
-export interface PromiseHistory {
-  promiseId: string; labelVariants: string[]; observations: PromiseHistoryObservation[];
-  uncertainty: ('disclosureLimited' | 'excludedSources' | 'earlierTiming' | 'unknownTiming' | 'unclearObservation' | 'conflictingOutcomes')[];
-  incomplete: boolean; hasRecordedPayoff: boolean;
-}
-export interface ReviewedPromiseHistoryResult { snapshotId: string; current: boolean; history: PromiseHistory }
 export const reviewedPromiseHistory = (access: ProjectAccess, snapshotId: string, promiseId: string): Promise<ReviewedPromiseHistoryResult> => invoke('reviewed_promise_history', { access, snapshotId, promiseId });
-export interface KnowledgeHistoryObservation extends Pick<KnowledgeRecord, 'character' | 'topic' | 'attitude' | 'statement' | 'timing' | 'audience' | 'evidence'> {
-  recordId: string; sourceHandle: string; source: SourceRef; sourceDisplayName: string; sourceOrder: number;
-}
-export interface KnowledgeHistory {
-  characterId: string; topicId: string | null; labelVariants: string[];
-  observations: KnowledgeHistoryObservation[]; incomplete: true;
-  uncertainty: ('noEligibleObservations' | 'earlierOrUnknownTiming' | 'multipleRecordedAttitudes' | 'disclosureLimited')[];
-}
-export interface ReviewedKnowledgeHistoryResult { snapshotId: string; current: boolean; history: KnowledgeHistory }
 export const reviewedKnowledgeHistory = (access: ProjectAccess, snapshotId: string, characterId: string, topicId: string | null = null): Promise<ReviewedKnowledgeHistoryResult> => invoke('reviewed_knowledge_history', { access, snapshotId, characterId, topicId });
 
-export type ContextPurpose = 'discuss' | 'revise' | 'continue' | 'plan' | 'storyQuestion' | 'memoryAnalysis';
 export type ContextAudience = 'authorRoom' | 'restrictedWriting';
 export type ContextBasis = 'working' | 'reviewed' | 'explicitHistory';
 export type CoverageDetail = 'verbatim' | 'digest' | 'directoryOnly';
-export interface SourceRef { projectId: string; documentId: string; revisionId: string; bodyHash: string }
-export interface InformationPolicy {
-  version: string;
-  audience: ContextAudience;
-  readerFrontier: string | null;
-  characterId: string | null;
-  characterGrants: Array<{ characterId: string; sourceHandle: string; readerFrontier: string }>;
-  allowAlternatives: boolean;
-  allowHistorical: boolean;
-}
-export interface SourceDescriptor {
-  handle: string;
-  source: SourceRef;
-  displayName: string;
-  kind: 'currentDraft' | 'reviewedAuthority' | 'explicitRule' | 'adoptedGuidance' | 'generatedObservation' | 'generatedDigest' | 'planAlternative' | 'historical' | 'privateFuture' | 'authorRoomDiscussion';
-  current: boolean;
-  coverage: CoverageDetail;
-  disclosure: { readerPosition: string | null; visibleToCharacters: string[]; authorOnly: boolean; futurePrivate: boolean };
-  storyTime: { label: string; position: string | null } | null;
-  dependencies: SourceRef[];
-}
-export interface ReviewedBasisManifest {
-  projectId: string; operationNamespace: string;
-  prefix: Array<{ documentId: string; bundleId: string; revisionId: string; version: string; bodyHash: string }>;
-}
-export interface StorySnapshot {
-  snapshotId: string; projectId: string; basis: ContextBasis; target: SourceRef;
-  contextSourceEpoch: string; orderingEpoch: string; disclosurePolicyVersion: string;
-  sources: SourceDescriptor[];
-  reviewedBasis?: ReviewedBasisManifest;
-}
-export interface FrozenContext {
-  snapshot: StorySnapshot; policy: InformationPolicy; purpose: ContextPurpose;
-  aliases: Record<string, string[]>; excludedSourceCount: number;
-  guidance?: FrozenGuidance[];
-  conversation?: FrozenConversation;
-  navigationViews?: FrozenNavigationView[];
-  reviewedEvidence?: ReviewedEvidenceSet[];
-  reviewedPromises?: ReviewedPromiseSet[];
-  reviewedKnowledge?: ReviewedKnowledgeSet[];
-  reviewedSummaries?: ReviewedSummarySet[];
-}
-export interface ContextEpochs { source: string; policy: string }
 export interface DocumentAliasesRead { documentId: string; aliases: string[]; sourceEpoch: string }
-export interface ReviewedSummarySet {
-  projectId: string; operationNamespace: string; bundleId: string; summaryHash: string;
-  sourceHandle: string; summary: SummaryRevision;
-}
-export interface ReviewedSummaryCoverage { sourceHandle: string; bundleId: string; summaryId: string; summaryHash: string }
-export interface ReviewedSummaryOmission { sourceHandle: string; reason: 'budget' | 'disclosure' | 'originalTextIncluded' | 'notSmaller' }
-export interface ReviewedEvidenceSet {
-  projectId: string; operationNamespace: string; bundleId: string; recordsHash: string;
-  sourceHandle: string; source: SourceRef; records: PossessionRecord[];
-}
-export interface ReviewedEvidenceCoverage {
-  sourceHandle: string; bundleId: string; recordsHash: string; projectionHash: string;
-  completeRecordSet: boolean; recordIds: string[];
-}
-export interface ReviewedPromiseSet extends Omit<ReviewedEvidenceSet, 'records'> { records: PromiseRecord[] }
-export interface ReviewedKnowledgeSet extends Omit<ReviewedEvidenceSet, 'records'> { records: KnowledgeRecord[] }
-export interface ReviewedEvidenceOmission {
-  sourceHandle: string; bundleId: string; recordsHash: string; reason: 'budget' | 'disclosure'; count: number;
-}
 export interface ReviewedKnowledgeOmission {
   sourceHandle: string; bundleId: string; recordsHash: string; reason: 'budget' | 'disclosure'; count: number;
 }
-export interface NavigationViewRef { viewId: string; projectId: string; operationNamespace: string; contentHash: string }
-export interface FrozenNavigationView {
-  reference: NavigationViewRef; sourceContextEpoch: string; disclosurePolicyVersion: string;
-  dependencies: SourceRef[]; candidate: DigestCandidate;
-}
-export interface NavigationViewOmission { viewId: string; reason: 'originalTextIncluded' | 'acceptedSummaryIncluded' | 'budget' | 'notSmaller' }
-export interface ConversationMessage { id: string; content: string; scope: ScopeGrant | null }
-export interface ConversationTurn { runId: string; packetId: string; sourceSnapshotId: string; policyVersion: string; user: ConversationMessage; assistant: ConversationMessage }
-export interface FrozenConversation { projectId: string; operationNamespace: string; documentId: string; threadId: string; turns: ConversationTurn[]; omittedTurns: number }
-export interface SourcePassage { handle: string; source: SourceRef; blockId: string; blockOrder: number; text: string }
-export interface SourceRead { descriptor: SourceDescriptor; passages: SourcePassage[]; body: WnsDocument; usedValidatedProjection: boolean }
 export interface StorySearchResult {
   snapshotId: string;
   hits: Array<{ passage: SourcePassage; startUtf16: number; endUtf16: number }>;
@@ -202,52 +186,6 @@ export type LookupResult =
   | { kind: 'read'; handle: string; source: SourceRef; passages: SourcePassage[]; complete: boolean }
   | LookupMemoryResult
   | { kind: 'unavailable'; code: string; detail: string };
-export interface LookupExchange { request: LookupRequest; result: LookupResult }
-export interface LookupSourceProjection {
-  schemaVersion: 'story-lookup-source.v1';
-  sources: Array<{ handle: string; source: SourceRef; displayName: string }>;
-}
-export interface LookupPacketInput {
-  allowance: LookupAllowance;
-  completedInvocations: number;
-  exchanges: LookupExchange[];
-  reviewedMemory?: 'reviewed-memory.v1';
-  sourceProjection?: LookupSourceProjection;
-}
-export interface ScopeGrant {
-  kind: 'passage' | 'blocks' | 'wholeDocument' | 'append';
-  start: Endpoint | null; end: Endpoint | null;
-  sourceHash: string; quote: string; quoteHash: string; prefix: string | null; suffix: string | null;
-}
-export interface MockContextBudget {
-  modelId: 'mock-story-context'; contextWindowTokens: string;
-  reservedOutputTokens: string; reservedProtocolTokens: string;
-}
-export interface PacketReceipt {
-  lookup?: LookupPacketInput;
-  packetId: string; sessionId: string; snapshotId: string; invocationOrdinal: string;
-  sourceHandles: string[]; mandatorySourceHandles?: string[]; coverage: Array<{ handle: string; label: string; detail: CoverageDetail }>;
-  guidanceHandles?: string[];
-  navigationViews?: NavigationViewRef[];
-  navigationOmissions?: NavigationViewOmission[];
-  reviewedEvidence?: ReviewedEvidenceCoverage[];
-  reviewedEvidenceOmissions?: ReviewedEvidenceOmission[];
-  reviewedPromises?: ReviewedEvidenceCoverage[];
-  reviewedPromiseOmissions?: ReviewedEvidenceOmission[];
-  reviewedKnowledge?: ReviewedEvidenceCoverage[];
-  reviewedKnowledgeOmissions?: ReviewedKnowledgeOmission[];
-  reviewedSummaries?: ReviewedSummaryCoverage[];
-  reviewedSummaryOmissions?: ReviewedSummaryOmission[];
-  safeBrief?: { text: string; textHash: string; originMessageId: string | null };
-  conversationMessageIds?: string[];
-  omittedDiscussionTurns?: number;
-  omissions: string[]; inputHash: string; inputTokens: string; tokenAccountingMethod: string;
-}
-export interface CompiledPacket {
-  messages: Array<{ role: string; content: string }>;
-  options: { modelId: string; maxOutputTokens?: string; tokenAccountingMethod: string; providerBinding?: ProviderBinding };
-  receipt: PacketReceipt;
-}
 export interface ContextBudgetError {
   code: 'mandatoryContextTooLarge' | 'budgetExhausted' | 'invalidBudget';
   message: string; requiredInputTokens: string; availableInputTokens: string; mandatoryHandles: string[];

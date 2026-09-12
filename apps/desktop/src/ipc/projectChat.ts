@@ -1,3 +1,18 @@
+import type {
+  ChatDispositionScope,
+  ChatDispositionScopeKind,
+  ChatUnknownTo,
+  ProjectBriefOrigin,
+  ProjectChatDraftRef,
+} from './generated/context';
+export type {
+  ChatDispositionScope,
+  ChatDispositionScopeKind,
+  ChatUnknownTo,
+  ProjectBriefOrigin,
+  ProjectChatDraftRef,
+};
+
 import { invoke } from '@tauri-apps/api/core';
 import type { WnsDocument } from '../editor/document';
 import type { CheckpointRequest, DocumentRecord, Head, ProjectAccess, ReconcileRequest, ReconciledDocument, Revision, SaveAck, SaveSnapshot } from './projects';
@@ -5,11 +20,6 @@ import type { DiscussionRun, DiscussionStart, DiscussionScope, FeedbackIntent, C
 import type { MockContextBudget } from './context';
 import type { ModelSelection } from './providers';
 
-export interface ProjectChatDraftRef { head: Head; dispositionVersion: string }
-export interface ProjectBriefOrigin {
-  version: 'project-conversation-brief.v1'; projectId: string; operationNamespace: string;
-  conversationId: string; messageId: string; target: Head; scopeHash: string; textHash: string;
-}
 export interface ProjectChapterComposer {
   target: Head; intent: FeedbackIntent; basis?: ContinuationBasis | null;
   scope?: DiscussionScope | null; safeBrief?: SafeBriefInput | null;
@@ -69,9 +79,6 @@ export interface ChatAdoptionPreview {
   effects?: ChatAdoptionEffects | null;
 }
 export interface ChatAdoptionAck { previewId: string; documents: DocumentRecord[]; decisionId: string }
-export type ChatDispositionScopeKind = 'project' | 'task' | 'chapter' | 'document';
-export interface ChatDispositionScope { kind: ChatDispositionScopeKind; referenceId?: string }
-export type ChatUnknownTo = 'author' | 'reader' | 'both';
 export interface ChatDispositionOptions { scope?: ChatDispositionScope; unknownTo?: ChatUnknownTo }
 export const readChatAdoptionPreview = (access: ProjectAccess, conversationId: string, previewId: string): Promise<ChatAdoptionPreview> => invoke('read_chat_adoption_preview', { access, conversationId, previewId });
 export const emptyProjectComposer = (): ProjectComposer => ({ text: '', sourceRefs: [], taskDraftRefs: [] });

@@ -60,14 +60,14 @@ use wns_context::{
 };
 use std::collections::{BTreeMap, HashSet};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContextEpochs {
     pub source: String,
     pub policy: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentAliases {
     pub document_id: String,
@@ -78,7 +78,7 @@ pub struct DocumentAliases {
 /// Explicit reviewed-story continuation preparation. The target is the
 /// current working chapter where output would be placed; only its earlier
 /// selected author-reviewed prefix supplies reviewed authority.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FreezeReviewedContinuation {
     pub access: ProjectAccess,

@@ -1,54 +1,42 @@
+import type {
+  EvidenceAnchor,
+  KnowledgeAttitude,
+  KnowledgeRecord,
+  PossessionRecord,
+  PromisePhase,
+  PromiseRecord,
+  StoryEntityRef,
+  SummaryRevision,
+} from './generated/context';
+export type {
+  EvidenceAnchor,
+  KnowledgeAttitude,
+  KnowledgeRecord,
+  PossessionRecord,
+  PromisePhase,
+  PromiseRecord,
+  StoryEntityRef,
+  SummaryRevision,
+};
+
 import { invoke } from '@tauri-apps/api/core';
 import type { Head, ProjectAccess, Revision } from './projects';
 import type { SourceRef } from './context';
 
-export interface StoryEntityRef { id: string; label: string }
 export interface ReviewedEntityChoice { entity: StoryEntityRef; labelVariants: string[]; firstDocumentId: string; firstDocumentTitle: string }
 export interface ReviewedEntityCatalog { projectId: string; operationNamespace: string; sourceEpoch: string; entities: ReviewedEntityChoice[] }
 export const reviewedEntityCatalog = (access: ProjectAccess): Promise<ReviewedEntityCatalog> => invoke('reviewed_entity_catalog', { access });
 export const reviewedPromiseCatalog = (access: ProjectAccess): Promise<ReviewedEntityCatalog> => invoke('reviewed_promise_catalog', { access });
 export const reviewedKnowledgeCharacterCatalog = (access: ProjectAccess): Promise<ReviewedEntityCatalog> => invoke('reviewed_knowledge_character_catalog', { access });
 export const reviewedKnowledgeTopicCatalog = (access: ProjectAccess): Promise<ReviewedEntityCatalog> => invoke('reviewed_knowledge_topic_catalog', { access });
-export interface EvidenceAnchor { blockId: string; fromUtf16: number; toUtf16: number; quote: string; quoteHash: string }
-export interface PossessionRecord {
-  id: string;
-  object: StoryEntityRef;
-  holder: StoryEntityRef | null;
-  timing: 'atPassage' | 'earlier' | 'unknown';
-  audience: 'authorRoom' | 'reader';
-  evidence: EvidenceAnchor;
-}
-export type PromisePhase = 'setup' | 'payoff' | 'cancelled' | 'unclear';
-export interface PromiseRecord {
-  id: string; promise: StoryEntityRef; phase: PromisePhase; timing: PossessionRecord['timing'];
-  note: string; audience: PossessionRecord['audience']; evidence: EvidenceAnchor;
-}
-export type KnowledgeAttitude = 'knows' | 'believes' | 'suspects' | 'rejects' | 'unaware' | 'unclear';
 export const knowledgeAttitudeLabels: Record<KnowledgeAttitude, string> = {
   knows: 'Knows', believes: 'Believes', suspects: 'Suspects', rejects: 'Rejects', unaware: 'Explicitly unaware', unclear: 'Unclear',
 };
-export interface KnowledgeRecord {
-  id: string;
-  character: StoryEntityRef;
-  topic: StoryEntityRef;
-  attitude: KnowledgeAttitude;
-  statement: string;
-  timing: PossessionRecord['timing'];
-  audience: PossessionRecord['audience'];
-  evidence: EvidenceAnchor;
-}
 export const promisePhaseLabels: Record<PromisePhase, string> = {
   setup: 'Promise introduced', payoff: 'Payoff recorded', cancelled: 'Cancellation recorded', unclear: 'Outcome unclear',
 };
 export interface ReviewMember { documentId: string; title: string; bundleId: string; revisionId: string; head: Head }
 export type ReviewSummaryAudience = 'authorRoom' | 'reader';
-export interface SummaryRevision {
-  id: string;
-  text: string;
-  audience: ReviewSummaryAudience;
-  source: SourceRef;
-  dependencies: ReviewMember[];
-}
 export type SummaryChange =
   | { kind: 'set'; text: string; audience: ReviewSummaryAudience }
   | { kind: 'clear' };

@@ -1,6 +1,13 @@
 // The wire shapes come from Rust. `cargo test -p wns-kernel --test bindings`
 // regenerates them and fails when they drift.
 import type {
+  Endpoint,
+} from './generated/context';
+export type {
+  Endpoint,
+};
+
+import type {
   DocumentRecord as WireDocumentRecord,
   DocumentRole,
   Head,
@@ -26,7 +33,6 @@ import { validateSnapshot } from './native';
 import { applyProposal, type AppliedDecision, type ApplyAck, type ApplyProposal } from './proposals';
 import { restoreRevision, type RestoredDecision, type RestoreAck, type RestoreRevision } from './history';
 
-export interface Endpoint { blockId: string; utf16Offset: number }
 export interface ViewState { documentId: string; head: Head; anchor: Endpoint; focus: Endpoint }
 export interface ProjectMetadata { project: ProjectInfo; metadataVersion: string; libraryWarning?: string | null }
 export interface OpenedProject { project: ProjectInfo; access: ProjectAccess; documents: DocumentRecord[]; metadataVersion: string; viewState: ViewState | null; libraryWarning: string | null }

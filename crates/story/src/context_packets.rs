@@ -13,7 +13,7 @@ use wns_documents::ScopeGrant;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PrepareContext {
     pub access: ProjectAccess,
@@ -38,13 +38,15 @@ pub struct PrepareContext {
     pub lookup: Option<wns_context::lookup::LookupPacketInput>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "status", rename_all = "camelCase", deny_unknown_fields)]
 pub enum PreparationResult {
+    #[specta(rename_all = "camelCase")]
     Prepared {
         packet: Box<CompiledPacket>,
         current: bool,
     },
+    #[specta(rename_all = "camelCase")]
     BudgetRejected {
         error: BudgetError,
     },

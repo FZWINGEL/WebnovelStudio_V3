@@ -5,6 +5,7 @@ import {
   type AppServerDelivery, type CompiledPacket, type FrozenContext, type FrozenNavigationView, type ReviewedEvidenceSet, type SourceDescriptor, type SourceRead, type SourceRef,
 } from '../ipc/context';
 import type { ProjectAccess } from '../ipc/projects';
+import type { WnsDocument } from '../editor/document';
 import { EvidenceHistoryView } from './EvidenceHistoryView';
 import { PromiseHistoryView } from './PromiseHistoryView';
 import { KnowledgeHistoryView } from './KnowledgeHistoryView';
@@ -334,7 +335,7 @@ export function ContextInspector({ access, packetId, delivered, appServerDeliver
       {history && <EvidenceHistoryView key={`${history.snapshotId}/${history.history.objectId}`} result={history} onClose={() => setHistory(null)} onRead={handle => { const item = items.find(source => source.handle === handle); if (item) void read(item); }} />}
       {promiseHistory && <PromiseHistoryView key={`${promiseHistory.snapshotId}/${promiseHistory.history.promiseId}`} result={promiseHistory} onClose={() => setPromiseHistory(null)} onRead={readHandle} />}
       {knowledgeHistory && <KnowledgeHistoryView key={`${knowledgeHistory.snapshotId}/${knowledgeHistory.history.characterId}/${knowledgeHistory.history.topicId ?? 'all'}`} result={knowledgeHistory} onClose={() => setKnowledgeHistory(null)} onRead={readHandle} />}
-      {source && <section className="context-source" aria-label="Saved story source"><div className="header-actions"><h3>{source.descriptor.displayName}</h3><button onClick={() => setSource(null)}>Close source</button></div><p className="small-copy">Exact source version retained with this request.</p>{source.passages.map(passage => source.body.body.content.find(block => block.attrs.id === passage.blockId)?.type === 'sceneBreak' ? <hr key={passage.blockId} /> : <p key={passage.blockId}>{passage.text || <br />}</p>)}</section>}
+      {source && <section className="context-source" aria-label="Saved story source"><div className="header-actions"><h3>{source.descriptor.displayName}</h3><button onClick={() => setSource(null)}>Close source</button></div><p className="small-copy">Exact source version retained with this request.</p>{source.passages.map(passage => (source.body as WnsDocument).body.content.find(block => block.attrs.id === passage.blockId)?.type === 'sceneBreak' ? <hr key={passage.blockId} /> : <p key={passage.blockId}>{passage.text || <br />}</p>)}</section>}
     </>}
   </details>;
 }

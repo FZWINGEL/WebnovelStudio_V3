@@ -1,3 +1,14 @@
+import type {
+  DigestCandidate,
+  DigestEvidence,
+  DigestItem,
+} from './generated/context';
+export type {
+  DigestCandidate,
+  DigestEvidence,
+  DigestItem,
+};
+
 import { invoke } from '@tauri-apps/api/core';
 import type { AppServerDelivery, MockContextBudget, ProviderBinding, SourceRead, SourceRef } from './context';
 import type { ProviderResult } from './discussions';
@@ -8,9 +19,6 @@ export type MemoryJobStatus = 'queued' | 'running' | 'stopping' | 'completed' | 
 export type MemoryDispatchState = 'pending' | 'dispatched';
 export type MemoryProviderOutcome = 'completed' | 'stopped' | 'timedOut' | 'outputLimit' | 'failed';
 
-export interface DigestEvidence { blockId: string; fromUtf16: number; toUtf16: number; quote: string }
-export interface DigestItem { text: string; evidence: DigestEvidence[]; uncertainty: string | null }
-export interface DigestCandidate { schemaVersion: string; source: SourceRef; items: DigestItem[] }
 export interface MemoryOwner { projectId: string; operationNamespace: string; jobId: string }
 export interface MemoryResult {
   jobId: string; eventId: string; rawOutput: string | null; outcome: MemoryProviderOutcome;

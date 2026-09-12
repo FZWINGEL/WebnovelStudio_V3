@@ -12,7 +12,7 @@ use wns_context::promise_history::{PromiseHistory, query_promise_history};
 use crate::reviewed_story::ReviewedRecordSet;
 use wns_context::story_records::StoryEntityRef;
 use std::collections::HashMap;
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedEntityChoice {
     pub entity: StoryEntityRef,
@@ -21,7 +21,7 @@ pub struct ReviewedEntityChoice {
     pub first_document_title: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedEntityCatalog {
     pub project_id: String,
@@ -30,7 +30,7 @@ pub struct ReviewedEntityCatalog {
     pub entities: Vec<ReviewedEntityChoice>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedHistoryResult {
     pub snapshot_id: String,
@@ -38,7 +38,7 @@ pub struct ReviewedHistoryResult {
     pub history: EvidenceHistory,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedPromiseHistoryResult {
     pub snapshot_id: String,
@@ -46,7 +46,7 @@ pub struct ReviewedPromiseHistoryResult {
     pub history: PromiseHistory,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedKnowledgeHistoryResult {
     pub snapshot_id: String,

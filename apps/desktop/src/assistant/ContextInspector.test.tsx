@@ -195,7 +195,7 @@ describe('historical context inspection', () => {
     };
     const lookup: context.LookupPacketInput = {
       allowance: { maxAdditionalInvocations: 2, totalInputBytes: '73728', totalOutputBytes: '196608' }, completedInvocations: 1, reviewedMemory: 'reviewed-memory.v1',
-      exchanges: [{ request: { kind: 'knowledgeHistory', id: 'history-1', characterId: 'character-id', topicId: 'topic-id', limit: 1 }, result: { kind: 'knowledgeHistory', history: memoryHistory, offset: 0, totalObservations: 1, nextOffset: null } }],
+      exchanges: [{ request: { kind: 'knowledgeHistory', id: 'history-1', characterId: 'character-id', topicId: 'topic-id',  offset: 0,limit: 1 }, result: { kind: 'knowledgeHistory', history: memoryHistory, offset: 0, totalObservations: 1, nextOffset: null } }],
     };
     vi.mocked(context.preparedStoryContext).mockResolvedValue({ ...packet, receipt: { ...packet.receipt, lookup } });
     vi.mocked(context.readStoryContextSource).mockResolvedValue({ descriptor: first, usedValidatedProjection: true, body: { schemaVersion: 1, body: { type: 'doc', content: [] } }, passages: [] });

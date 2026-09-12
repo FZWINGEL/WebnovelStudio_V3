@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { readStoryContextSource, type AppServerDelivery, type SourceRead } from '../ipc/context';
 import { readMemory, readMemorySource, retryMemorySave, startMemory, stopMemory, type DigestCandidate, type MemoryJob, type MemoryRead, type MemoryViewRecord, type StartMemory } from '../ipc/memory';
 import type { DocumentSession, SessionState } from '../editor/session';
-import { bodyHash, canonicalJson } from '../editor/document';
+import { bodyHash, canonicalJson, type Block, type WnsDocument } from '../editor/document';
 import { localModel, sameModel, type StoryMemoryView, type ModelSelection } from '../ipc/providers';
 import { useProviders } from '../providers/ProviderContext';
 import { ContextInspector } from '../assistant/ContextInspector';
@@ -136,7 +136,9 @@ async function sourceMatches(read: SourceRead, target: { source: MemoryViewRecor
   if (read.descriptor.handle !== target.source.revisionId || !sameSource(read.descriptor.source, target.source)) return false;
   const hash = await bodyHash(canonicalJson(read.body));
   if (hash !== target.source.bodyHash || hash !== read.descriptor.source.bodyHash) return false;
-  const blocks = read.body.body.content;
+  // Rust carries a body as `serde_json::Value`, so the generated type says
+  // `any`; the editor's own model is the narrower truth here.
+  const blocks: Block[] = (read.body as WnsDocument).body.content;
   return read.passages.length === blocks.length && read.passages.every((passage, index) => {
     const block = blocks[index];
     const text = block.type === 'sceneBreak' ? '' : (block.content ?? []).map(node => node.type === 'hardBreak' ? '\n' : node.text).join('');

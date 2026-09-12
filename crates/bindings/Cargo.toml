@@ -12,6 +12,7 @@ wns-providers = { path = "../providers" }
 wns-context = { path = "../context" }
 wns-workshop = { path = "../workshop" }
 wns-story = { path = "../story" }
+wns-conversation = { path = "../conversation" }
 
 [dev-dependencies]
 serde = { version = "=1.0.229", features = ["derive"] }
