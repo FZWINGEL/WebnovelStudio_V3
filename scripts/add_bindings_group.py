@@ -14,6 +14,20 @@ every error so far has been the *mirror* being wrong rather than the
 generation — a renamed enum, a field the wire carries as `null`, a fixture
 built from fields Rust never sends. Do that part by hand, reading each error.
 
+THE THING TO KNOW BEFORE STARTING, learned twice the hard way: the frontend's
+`ipc/*.ts` types mirror the *Tauri command surface*, not the core crate types.
+The shell declares its own DTOs and augments core's:
+
+    DesktopMemoryRead { #[serde(flatten)] read: MemoryRead, pending_save, pending_job_ids }
+    StartMemoryRequest { ..., model_selection, maintenance_revision }
+    WorkerIssue / DiscussionView's worker_issues  (discussion_recovery.rs)
+
+So a frontend type is generated from core only where the command passes a core
+type through unchanged. Where the shell wraps, flattens or adds fields, the
+frontend type belongs to the shell and replacing it with the generated core
+type silently drops what the shell adds. `MemoryRead` and `DiscussionView` are
+both that shape, and both were nearly migrated anyway.
+
 Two traps this script already avoids, both found by having them:
 
 * `ensure_dep` must be given a *file* path, not a Rust path. Handing it
