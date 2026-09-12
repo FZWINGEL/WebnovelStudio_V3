@@ -1,0 +1,392 @@
+# Chat-first implementation status
+
+This record describes the current implementation of the [chat-first
+specification](../V3_CHAT_FIRST_UX_SPEC.md) and [implementation
+plan](../V3_CHAT_FIRST_UX_IMPLEMENTATION_PLAN.md). The architecture decision is
+recorded in [ADR 0034](ADR_0034_PROJECT_CONVERSATION.md). These documents remain
+the product contract; this file records what is implemented and what still
+needs qualification.
+
+## Current state — 9 September 2026
+
+### Coauthor Desk verified checkpoint
+
+The author-selected **Let's build your story** direction is implemented in the
+opt-in conversation. It adds a project/material rail, guarded new-project and
+material navigation, a quieter conversation with real draft links, named
+Read/Changes review tabs, and one pinned exact-adoption action. Draft editors
+retain distinct sessions, and receiving a reply does not replace an ordinary
+editor or switch a narrow-screen author away from the composer. The
+[surface record](COAUTHOR_DESK_DESIGN.md) includes the chosen concept and native
+captures.
+
+The frontend suite passes **713 tests across 74 files**. TypeScript, the
+production frontend build, debug native build and diff checks pass. Log:
+`.local/coauthor-frontend-final-tests.log`; native build log:
+`.local/coauthor-native-final-build.log`. The existing large frontend chunk
+warning remains. No Rust behavior changed in this visual slice, so the Rust
+and tooling counts in the earlier checkpoint below remain prior evidence.
+
+The rebuilt development executable passes **24 native chat checks in 30.751
+seconds**, including exact grouped adoption, lost-acknowledgment recovery,
+independent projects and composers, source attachment, scoped chapter feedback,
+native close/reopen, an 800×600 window and actual 200% WebView2 zoom. A new
+geometry assertion prevents the new-reply affordance from covering the narrow
+composer. The harness follows the visible jump-to-latest control before acting
+on a new response at 200% zoom. Zero page errors were recorded and owned-process
+cleanup was confirmed. No live model calls were made.
+
+This is the Coauthor Desk slice based on `4320ac1`, committed as **`e902532`**
+("Refine the chat workspace into the selected Coauthor Desk direction") on
+11 September 2026 — 26 files changed, 1,338 insertions. It is not a newly
+published release. The executable is **54,886,400 bytes**, built at **14:49:52
+UTC on 9 September 2026**, SHA-256
+**`f845cee782b601521dce0e892b017426d9776339664109dffb4b61c7616d659e`**.
+Runtime: WebView2 **152.0.4191.66**. Final launcher:
+`.local/isolated-native-launch/20260909-145214178-20568/launch.json`.
+The final report and geometry records are under `.local/native-results/chat/`.
+
+Earlier attempts exposed stale harness selectors and genuine compact-layout
+overflow/overlap; those were corrected before this checkpoint. The separate
+live-provider harness has since been rerun and **passes 27 live Codex Exec
+checks across exactly two requests** in default mode. Each request
+materialized exactly one reviewable draft, preserved the named detail `Mei`,
+and left its packet unchanged after terminal materialization; neither request
+ran a hidden retry or fallback, and zero renderer page errors were recorded.
+The run records its own provenance: commit `e902532`, executable SHA-256
+`f845cee782b601521dce0e892b017426d9776339664109dffb4b61c7616d659e`,
+WebView2 **152.0.4191.66**, and Codex CLI **`0.154.0-alpha.6.1`** through
+`codex-stdin.author.v1` at Luna/xhigh/priority. The CLI still reports no
+effective model or tier. Report, source identity, and per-request packets:
+`.local/native-results/chat-live/`. Human formative evaluation, screen-reader
+and installed-package qualification remain open; the default workspace remains
+unchanged and chat remains opt-in.
+
+### Earlier recovery checkpoint
+
+The recovery and history repairs pass the complete local gate: **929 Rust
+tests** (122 core, 719 integration, 88 desktop; one additional intentional
+ignore), **701 frontend tests across 74 files**, and **25 tooling checks**,
+with formatting, strict Clippy, TypeScript and production build. Log:
+`.local/chat-recovery-final-check.log`. The existing large frontend chunk
+warning remains. The earlier gate and corrected argument-count lint failure
+are retained separately in `.local/chat-recovery-before-review-check.log` and
+`.local/chat-recovery-clippy-failure.log`.
+
+The final rebuilt native chat harness passes **24 checks in 29.144 seconds**
+on implementation commit **`6e4ac07e0839ceccab61af2726da83fa82f1dae3`**.
+The 3.0.0 executable is **54,870,016 bytes**, SHA-256
+**`4f75e233666f2036b1b4d82dbd09d09c814465aec94b8fcc16f4962481fa508a`**,
+built at 03:30 UTC and qualified on WebView2 **152.0.4191.66**. Build log:
+`.local/chat-recovery-final-build.log`.
+Added cases cover exact-source follow-up after adoption, world-first and
+character-first blank-project entry, word/sentence scope, explicit Apply with
+a protected ending, and typing while a request retains its older source.
+Launcher: `.local/isolated-native-launch/20260909-033147717-23700/launch.json`.
+This is synthetic native workflow evidence, with no page errors and confirmed
+owned-process cleanup; it does not measure narrative quality. The preceding
+harness qualification passed 24 checks in 28.749 seconds on the earlier
+executable; its evidence remains at
+`.local/isolated-native-launch/20260909-031332338-37972/launch.json`.
+
+### Windows Sandbox qualification follow-up
+
+A dedicated Windows Sandbox CLI **0.8.107.0** environment was used against
+source HEAD **`ccec4bb22d9c098131320be93b98f30ad855dde5`** and the unchanged
+executable SHA-256 **`4f75e233666f2036b1b4d82dbd09d09c814465aec94b8fcc16f4962481fa508a`**.
+Networking, clipboard, audio, video and vGPU sharing were disabled; only
+synthetic input and output mappings were exposed. The guest capability probe
+confirmed `WDAGUtilityAccount` session 1 with an owned WinForms foreground
+window (HWND `131458`, PID `12528`) on the `Default` thread and input
+desktops.
+
+The app launched by the unchanged `native-interruption.mjs` exited with code
+**101 before the first scenario**; the harness reported exit code 1.
+WebView2 reported HRESULT **`0x80070002`**, “Package
+dependency criteria could not be resolved.” The installed WebView2 directory
+reported **152.0.4191.66**. A Microsoft-signed cached standalone installer
+(SHA-256 `e7fa35755196ad9223596ef021a1ce6799509142eaa40ba35f634026be50b831`)
+settled nonzero with **`-2147219198`**, and a local-disk retry failed
+identically. Consequently, zero application scenarios qualified in this
+guest; the chat suite did not start and no model calls occurred. Evidence is
+under `.local/sandbox-probe-41324b3c-bf67-460e-abb9-4403e893cc24/`, including
+`output/window.json`, `output/native-run-3.json`,
+`output/native-fixture-3/.local/native-results/interruption/qualification.json`,
+and `output/webview-install.json`.
+
+The sandbox was then stopped by its exact environment ID and the Windows
+Sandbox environment list confirmed empty; no author data was touched. This
+does not change the separate 24-check native chat result above. Physical input,
+screen-reader, installed-package and formative-author gates remain open. The
+exact-head hosted CI run [34307555201](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34307555201)
+also failed before job steps with the recorded billing/spending-limit
+admission error, so it supplies no replacement qualification evidence.
+
+### Additional recovery qualification
+
+The native normal-close suite passes **2 checks in 10.489 seconds**, including
+dirty manuscript flush and exact reopen, and two-project pending discussion /
+memory work with Stay open followed by Stop and close. Its fixture now uses an
+isolated Codex home, selects the local mock only for fresh settings, and waits
+for admitted startup discovery to settle before testing a no-job close. This
+fixes a fixture assumption; production close protection was working correctly.
+Launcher: `.local/isolated-native-launch/20260909-030034910-37328/launch.json`.
+
+The existing independent recovery suite passes **4 checks in 3.665 seconds**:
+project A is backed up and recovered under a new identity while project B's
+held request remains correctly owned, without replay or redirection. Launcher:
+`.local/isolated-native-launch/20260909-030111791-31644/launch.json`. Both suites
+used the development executable with SHA-256 `79e5232b90f532b505fb109045d5fbf666f9db3dd10f3e459919ff506256f0f4`
+and made zero live-model calls. This existing recovery scenario does not
+qualify the newly added chat relationship history.
+
+The interruption suite passed its first three scenarios: renderer loss after
+Save, process loss after committed Apply, and process loss during a held
+request. Its physical refresh-shortcut stage then refused input because the
+isolated non-input desktop reported foreground PID 0. The owned-window guard
+remains intact. The complete suite **did not pass**; shortcut qualification
+needs an interactive isolated Windows runner. Evidence:
+`.local/isolated-native-launch/20260909-030133261-15292/stdout.log`.
+
+Further grouped-transfer verification exposed and repaired a production
+defect: chat relationship snapshots lacked the Workshop receipt expected by
+history and backup readers. They now validate through their exact chat
+adoption receipt, preview, author decision, committed document revisions and
+relationship state transition. New snapshots bind to the stable command hash;
+earlier tuple-hash snapshots retain their bytes and use the explicit legacy
+validation described in ADR 0034. Later author edits preserve historical
+references. The focused transfer suite passes **10 tests**, including actual
+legacy recovery, altered snapshot/receipt hashes, mutable state drift,
+wrong-kind relationship endpoints, and a copied draft from another namespace
+with resealed hashes. Ordinary Workshop history also checks the exact saved
+receipt result. Prior grouped generation/adoption/reopen evidence alone did
+not establish these backup guarantees.
+
+### Earlier completion audit follow-up
+
+The second requirement audit found remaining review details beyond the earlier
+checkpoint. Assumption corrections can now be edited directly and staged in
+the unsent project composer. A separate Send remains necessary, and staging
+refuses an active restricted chapter task. Saved response decisions display
+their recorded scope, audience, rationale and version; historical events retain
+their own values, with reversal offered only for the latest disposition.
+
+Chapter suggestion review now displays the frozen source version, editable
+scope, and protected surrounding prose with its formatting. A deterministic
+return recap projects recent ordinary save receipts and can inspect an exact
+retained checkpoint. It creates no transcript messages or model requests.
+The complete frontend suite passes **701 tests across 74 files**
+(`.local/chat-audit-frontend.log`). The receipt recap's Rust reopen/isolation
+regression also passes. The integrated native build and current qualification
+are recorded below.
+
+The preceding complete local gate passes **920 Rust tests** (122 core, 710 grouped
+integration, 88 desktop; one additional test intentionally ignored), **701
+frontend tests across 74 files**, and **25 tooling checks**, plus formatting,
+strict Clippy, TypeScript, and the production build. Log:
+`.local/chat-audit-final-check.log`. The only build warning is the existing
+large frontend chunk warning. The first full run exposed an optional
+app-server readiness race: the driver acknowledged startup before publishing
+its Ready state. Both handshake paths now publish Ready first, with a
+deterministic ordering regression. The final concurrent suite passes; the
+failed run is retained at `.local/chat-audit-readiness-failure.log`.
+
+Grouped review now includes a versioned effects manifest with exact ordinary
+endpoint heads, relationship dependencies, and protected content. Rust derives
+the proposed relationships from the retained provider response; the renderer
+cannot substitute a different group. Up to three drafts from that response,
+their new or updated ordinary documents, supported relationships, decisions,
+and one source-epoch advance commit in the same transaction. Six focused tests
+cover exact heads, excluded endpoints, stale dependencies, replay, unsupported
+effects, and an injected SQL failure after document writes followed by a local
+retry. New requests use `project-chat-prompt.v3`; legacy and v2 packet bytes
+remain unchanged. Nonempty impacts, supersessions, and placements are refused
+before preview. Automatic organization and inferred semantic synchronization
+are outside this slice.
+
+The rebuilt native harness passed **17 checks in 19.647 seconds**, including
+the exact saved-document recap, explicit draft rejection, and request-scoped
+**Not now** followed by a fresh explicit request. The Writer suite passed
+**52 checks in 92.933 seconds**. The grouped live Codex Exec trial passed
+**24 assertions across one request in 25.030 seconds**, including visible
+relationship review, atomic two-document adoption, and retained relationships
+and exact committed heads after native restart. Its preceding one-request
+attempt completed generation and adoption but exposed a harness assertion
+using `relationshipType` instead of the persisted `type`; that test error is
+corrected and its original evidence retained.
+
+These three runs used the 3.0.0 development executable, **54,642,688 bytes**,
+SHA-256 **`2838910af9ffe81fb27a9e4ace2c37ffe300695734184604301fae95de9fdc2d`**,
+and WebView2 **152.0.4191.66**. Build log: `.local/chat-audit-native-build.log`.
+The live request selected Luna/xhigh/priority, recorded installed Codex
+**0.153.4**, and left effective model/tier unreported. It qualifies this bounded
+Exec contract, not narrative quality or the other transports. Launcher records:
+
+- Chat: `.local/isolated-native-launch/20260909-023916103-41520/launch.json`.
+- Writer: `.local/isolated-native-launch/20260909-024159707-33496/launch.json`.
+- Grouped live: `.local/isolated-native-launch/20260909-024100776-8124/launch.json`.
+
+Each launcher confirmed cleanup of its owned isolated processes. Actual native
+200% zoom geometry and the saved-document recap were also inspected on this
+build. All projects were synthetic; the author's running workspace was not
+used for qualification.
+
+The final rebuilt executable includes the app-server readiness correction:
+`target/debug/webnovel-desktop.exe`, **54,644,224 bytes**, SHA-256
+**`79e5232b90f532b505fb109045d5fbf666f9db3dd10f3e459919ff506256f0f4`**.
+Build log: `.local/chat-audit-final-build.log`. The Writer and live-grouped
+reports above retain their earlier executable identity; the only subsequent
+production change is readiness publication in the optional app-server runtime.
+The Exec adapter, request recipe, editor, and adoption code are unchanged
+between those builds.
+
+Implementation checkpoint: **`8bbef1a720a381635b82ab86543095ec778c5092`**.
+The final local gate and executable were built from the working tree recorded
+by that commit. This checkpoint includes the readiness fix; subsequent edits
+that record its identity are documentation only. The unrelated research note
+under `docs/research/` remains excluded. No hosted CI or installer result is
+claimed for this implementation commit.
+
+On the final executable, native chat again passes **17 checks in 20.173
+seconds** with confirmed owned-process cleanup. Report:
+`.local/native-results/chat/report.json`; launcher:
+`.local/isolated-native-launch/20260909-024821575-41792/launch.json`.
+
+The installed-package harness now includes unsent chat composer retention
+through normal close/reopen and same-version reinstall. Its PowerShell syntax
+check passes; these new installed steps have **not been executed**. Existing
+fail-closed runner and author-data checks remain intact. Same-version retention
+does not qualify an upgrade.
+
+The verified implementation and qualification record were pushed to
+`origin/codex/v3-persistence` at **`c06ab8c73c55cafa587ffb3be7dbcfeea88e3be8`**.
+The resulting [CI run 34304862328](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34304862328)
+and explicitly dispatched [Windows package run 34304862592](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34304862592)
+both completed with failure **before any job steps ran**. Their contracts,
+Windows-native, and package annotations report failed account payments or a
+spending limit that needs increasing. No build or test failure is inferred from
+this admission failure. The native consumer was skipped; no installer was
+built. Hosted/package qualification requires the GitHub account condition to
+be resolved and a new run on the intended source. Local checks above remain
+separate evidence, and no automatic workflow retry is pending.
+
+### Previous integrated checkpoint
+
+The chat-first project conversation is implemented as an **opt-in native
+development surface**. The default workspace remains unchanged while native
+and formative evidence is collected. A project conversation can handle normal
+project questions and chapter feedback in the same conversation. Chapter tasks
+retain their exact chapter and selected scope; they do not receive the private
+project transcript or assistant drafts implicitly.
+
+The implemented review path keeps assistant output isolated as task drafts.
+Drafts are inspectable and editable, then require an explicit review and
+adoption action. Up to three nonchapter targets can be adopted as one grouped
+operation with exact before/after previews and all-or-nothing persistence.
+Question and assumption dispositions are scoped decisions, and conversation
+history is available as a read-only historical surface. The current review
+inventory is complete rather than capped at an arbitrary first page, and older
+timeline items load through paging. A stale draft can be refreshed only through
+an explicit assistant action; its unchanged earlier adoption preview remains
+blocked after a source change. These features do not turn an assistant
+suggestion into story truth without author adoption.
+
+The completion audit added direct exact-source attachment from the document
+panel, a proposed chapter handoff with explicit target selection, approved
+writing brief and separate Send, and a keyboard-operable project panel resizer.
+Review now leads with a change summary, the original request and assumptions,
+affected documents, complete before/after text, and a deterministic diff. Old
+draft origins load through conversation paging. Stale previews offer an explicit
+comparison of saved targets and source/policy epochs; comparison cannot rebase
+a stale draft or renew its authority.
+
+The native journey exposed two brief-provenance defects: the versioned project
+origin also entered the legacy chapter-thread check, and continuation's derived
+append scope was compared with the author's null input scope. Both are repaired
+with native-shaped regressions. Additional fixes fence late project callbacks,
+cancel outdated asynchronous brief approvals, target local retries to the exact
+retained run, restore detached editors through fenced reconciliation, and make
+mobile Documents/Chapter navigation leave review mode reliably. Prompt recipe
+`project-chat-prompt.v2` is recorded on new requests; absent historical versions
+retain the exact legacy instructions and unknown versions are refused.
+
+The final workflow pass adds provider-free **Bring a note** entry, a recent
+project picker with verified activity and pending-draft badges, and persistent
+document-panel search and selection per project. Source links independently
+show the exact **Version discussed** and the **Current version** without
+changing the frozen request. Successful ordinary saves refresh the visible
+source-freshness status, including after a response has completed. Request
+status distinguishes the frozen model/settings from the next picker choice.
+
+Chapter-wide discussion can now propose one exact contiguous paragraph range
+through `chapter-discussion-output.v1`. Rust validates the frozen head, block
+identity, complete quotation, delivery status, and source/policy freshness.
+**Use this passage for an edit** flushes pending typing, revalidates the same
+result and current chapter, then stages a separate scoped request. It never
+sends that request or changes prose. Older response contracts retain their
+historical behavior. Shared provider-capability checks apply before either
+new chat contract is accepted.
+
+The current project reader floor is **schema 40**. Schema 39 adds document
+roles and schema 40 adds the per-project conversation, immutable items, and
+assistant-draft provenance. Existing documents and historical records retain
+their identities and bytes.
+
+## Work-package status
+
+| Work package | Current state |
+| --- | --- |
+| CF0 persistence and role boundaries | Implemented through schema 40; current transfer and role validation is covered by the Rust/frontend suites. |
+| CF1 project conversation and composer | Implemented, including persistent composer CAS, frozen request context, bounded output, and reopen/reconciliation paths. |
+| CF2 isolated drafts and adoption | Implemented, including exact previews, explicit single/grouped adoption, scoped dispositions, stale checks, and local recovery. |
+| CF3 chat/document shell | Implemented as an opt-in surface with direct note entry, recent-project activity, source attachment, persistent panel state, conversation/document resizing, original-request review, diff, original/current source comparison, pinned status, and responsive navigation. |
+| CF4 native provider and recovery path | Implemented with deterministic native recovery coverage and a current two-request Codex Exec trial for handoff and chapter-range contracts. Installed-package and broader live qualification remain open. |
+| CF5 chapter feedback and brief provenance | Implemented for same-conversation chapter requests, selected scope, confirmed assistant-suggested paragraphs, and the full proposed handoff → explicit target → approved brief → separate Send → chapter proposal path. Private project chat stays excluded. |
+| CF6 qualification and rollout | In progress. Default-on rollout, human formative evaluation, accessibility, broader live-provider support, and installed-release gates remain open. |
+
+## Earlier checkpoint evidence
+
+The following evidence predates the audit follow-up above. It remains useful
+for the recorded contracts and executable identities, but is not a substitute
+for qualification of later source changes.
+
+- The complete local gate exited 0 with **25 tooling checks, 121 core Rust tests, 703 integration Rust tests, 88 native-unit tests, and 683 frontend tests** across 72 frontend files, together with formatting, strict Clippy, TypeScript, and the production build. This is **912 passing Rust tests**, with one additional test ignored. Log: `.local/chat-completion-final-check.log`. The full frontend suite also passed after the initial layout repair (`.local/chat-layout-frontend.log`); subsequent CSS-only compact-layout corrections were verified by the rebuilt native smoke. The final spike build passes (`.local/chat-layout-final-build.log`).
+- The rebuilt native chat smoke passes **16 checks in 18.816 seconds** with the deterministic local provider and confirmed isolated-process cleanup. It covers lost start acknowledgment, failed local materialization recovery, lost two-document adoption acknowledgment with one receipt and epoch advance, selected scope, recent-project switching and badges, provider-free note entry, original/current source inspection, actual 800×600 resizing, guarded WM_CLOSE/restart with unsent typing, keyboard panel resizing, exact source attachment, confirmed paragraph-range staging, and the complete approved chapter handoff without private-chat leakage or automatic prose changes. Report: `.local/native-results/chat/report.json`; launcher: `.local/isolated-native-launch/20260909-015019984-42768/launch.json`.
+- Actual WebView2 **200% controller zoom** at the 800×600 native window produces a 400×300 CSS viewport. The status and composer remain in bounds, with zero page overflow and keyboard access to Send. The transcript retains a 55px visible region, its new-reply button stays entirely inside that region, and active Stop is reachable without scrolling request details. The root inspected an owned-window capture at `.local/native-results/chat/native-zoom-window.png`; geometry and active Stop measurements are adjacent JSON reports. CDP screenshots alone crop this zoomed WebView2 surface. This qualifies the measured development geometry, not screen-reader or physical author input.
+- The rebuilt Writer-focused native run passes **52 checks in 92.425 seconds**, with no reported errors and confirmed isolated-process cleanup. Report: `.local/native-results/report.json`, dated 9 September at 01:52 UTC; launcher: `.local/isolated-native-launch/20260909-015122842-19664/launch.json`. Existing project-menu and title selectors now distinguish the new recent-project picker from the original controls.
+- Both current native runs use WebView2 **152.0.4191.66** and the **3.0.0** development executable at `target/debug/webnovel-desktop.exe`, **53,868,032 bytes**, SHA-256 **`4fc9675197f73c4831ffe79a3019d91b7b73ca34ddea7adda850e7c2736d55d3`**. It was built from the working tree based on `06a8c38`, then recorded with the implementation checkpoint **`fe5eec18cc188dcf649e04defadc539d8cd4147b`**. The subsequent live trial records that checkpoint with a clean tracked tree; the unrelated untracked research note remains excluded. This is not a hosted CI or installed-release claim.
+- The earlier live Codex Exec trial passed **27 assertions across exactly two requests in 33.258 seconds** on artifact SHA `9cf23071e708f11def5018ac44c3b875333998e27bdd20b5e63446b20fa12e72`. Each request produced an isolated draft, and the follow-up recalled `Mei` without repeating the name in its instruction. It requested Luna/xhigh/priority through `codex-stdin.author.v1`; the CLI reported `0.153.4`, cleanup settled, and effective model/tier remained unreported. Report: `.local/native-results/chat-live/report.json`. This is historical evidence for the legacy project-chat prompt, **not live qualification of the new optional handoff recipe**.
+- The current Codex Exec contract trial passes **24 assertions across exactly two requests in 27.716 seconds**, on checkpoint `fe5eec1` and the same executable hash as the current native runs. Request one returns a `project-chat-prompt.v2` chapter handoff with no automatic chapter creation, adoption, or second call. Request two returns `chapter-discussion-output.v1` with an exact first-paragraph range. The getter-backed native review confirms and stages that range without a third request or changed ordinary heads. It requested Luna/xhigh/priority through `codex-stdin.author.v1`, observed CLI `0.153.4`, and retained both packets, outputs, and provider receipts. Effective model/tier were unreported. Report: `.local/native-results/chat-live-contracts/report.json`; confirmed isolated cleanup: `.local/isolated-native-launch/20260909-015532159-27084/launch.json`. This is a bounded response-contract trial, not a narrative-quality benchmark or app-server/Claude/HTTP qualification.
+- The current live trial used only those two explicit requests, with no automatic retry or fallback. Deterministic native regressions used synthetic projects and the local test model. Failed development runs were corrected before final passing runs; intermediate reports are not final qualification.
+
+These counts are development evidence. They do not qualify broad live-provider
+coverage or narrative quality, installed-package behavior, screen-reader
+behavior, or a human author trial. English-only authoring means
+IME qualification is not a product requirement. The chat-first surface remains
+opt-in until formative user evidence and the remaining release/accessibility
+gates are deliberately run and reviewed.
+
+The [author trial protocol](CHAT_FIRST_AUTHOR_TRIAL.md) is prepared but
+unexecuted. It defines matched Workshop/chat tasks across five entry paths,
+approximately 8–10 counterbalanced participants, next-day return, and separate
+accessibility observations. The current installed-release data directory
+contains author data, so the fail-closed installed-package harness must run in
+a clean Windows account/VM or hosted runner; it must not be bypassed by moving
+that data or spoofing CI flags. These external qualification gates keep CF6 and
+default rollout open. The entire specification is not declared complete.
+
+## Retained boundaries
+
+Codex remains unpinned because the installed CLI is expected to update. Exec
+remains the default author transport; optional app-server, Claude, and
+OpenAI-compatible HTTP adapters remain separate integrations. The live trial
+records the requested service tier but does not claim Fast/effective-tier
+delivery when the provider reports it as unknown. Maintenance and summary
+calls retain their dedicated GPT-6 Astra/low profile and do not inherit the
+author-facing picker.
+
+Runtime reuse does not imply upstream conversation-history reuse. Rust still
+owns project identity, source permissions, frozen packets, story truth,
+reconciliation, and explicit Apply/adoption. A local save retry never launches
+another generation, and an uncertain acknowledgment keeps the original
+operation identity for reconciliation.

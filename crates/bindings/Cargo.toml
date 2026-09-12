@@ -1,0 +1,23 @@
+[package]
+name = "wns-bindings"
+version.workspace = true
+edition = "2024"
+description = "Not a layer: generates the frontend's IPC bindings from the Rust types."
+
+[dependencies]
+heck = "=0.5.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+syn = { version = "=2.0.119", features = ["full", "visit"] }
+toml = "=0.8.2"
+specta = "1.0.5"
+wns-kernel = { path = "../kernel" }
+wns-storage = { path = "../storage" }
+wns-library = { path = "../library" }
+wns-transfer = { path = "../transfer" }
+wns-documents = { path = "../documents" }
+wns-providers = { path = "../providers" }
+wns-context = { path = "../context" }
+wns-workshop = { path = "../workshop" }
+wns-story = { path = "../story" }
+wns-conversation = { path = "../conversation" }

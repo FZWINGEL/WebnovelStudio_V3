@@ -1,0 +1,17 @@
+.endpoint-settings { border-top: 1px solid #d5dde7; margin-top: 24px; padding-top: 20px; }
+.endpoint-settings h3 { font-size: 16px; margin: 0; }
+.endpoint-list { margin: 8px 0 0; padding: 0; list-style: none; }
+.endpoint-list > li { padding: 14px 0; border-bottom: 1px solid #e3e7ec; }
+.endpoint-list > li > div:first-child { display: flex; flex-direction: column; gap: 5px; }
+.endpoint-list span { font-size: 13px; color: #526176; overflow-wrap: anywhere; }
+.endpoint-list small { color: #596879; font-size: 12px; }
+.endpoint-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.endpoint-form h4 { font-size: 16px; margin: 20px 0 16px; }
+.endpoint-form > label:not(.endpoint-check) { display: block; margin: 16px 0 6px; font-size: 14px; font-weight: 600; }
+.endpoint-form input:not([type=checkbox]), .endpoint-form textarea { box-sizing: border-box; width: 100%; border: 1px solid #aab7c5; border-radius: 4px; padding: 9px 10px; background: #fff; color: #243142; font: inherit; font-size: 14px; }
+.endpoint-form textarea { resize: vertical; min-height: 70px; max-height: 200px; }
+.endpoint-form small { font-weight: 400; color: #596879; }
+.endpoint-check { display: flex; gap: 8px; align-items: center; margin-top: 14px; font-size: 14px; }
+.endpoint-check input { margin: 0; width: 16px; height: 16px; accent-color: #245ac5; flex-shrink: 0; }
+.endpoint-form input:focus-visible, .endpoint-form textarea:focus-visible { outline: 2px solid #245ac5; outline-offset: 2px; }
+.endpoint-settings .provider-connection-heading { flex-wrap: wrap; }

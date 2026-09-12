@@ -1,0 +1,12 @@
+[package]
+name = "wns-architecture"
+version.workspace = true
+edition = "2024"
+description = "Enforces the target layering using Cargo's package metadata."
+
+[dependencies]
+cargo_metadata = "=0.19.2"
+
+[dev-dependencies]
+proc-macro2 = "=1.0.107"
+syn = { version = "=2.0.119", features = ["full", "visit"] }

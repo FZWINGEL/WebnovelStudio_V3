@@ -1,0 +1,126 @@
+name: Windows package smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      installer_run_id:
+        description: 'Optional completed package run to retest after harness or documentation changes only'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  package-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Check out the package source
+        uses: actions/checkout@v7.0.1
+
+      - name: Select the pinned Node runtime
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Verify product versions before packaging
+        run: node --test scripts/check-versions.test.mjs scripts/prepare-package-retest.test.mjs
+
+      - name: Validate and retrieve the original installer
+        if: inputs.installer_run_id != ''
+        id: retest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTALLER_RUN_ID: ${{ inputs.installer_run_id }}
+        run: node scripts/prepare-package-retest.mjs
+
+      - name: Install the pinned Rust toolchain
+        if: inputs.installer_run_id == ''
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1
+
+      - name: Cache package Rust dependencies and build artifacts
+        if: inputs.installer_run_id == ''
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: v3-package-release-${{ runner.os }}-x86_64-pc-windows-msvc-rust-1.98.1
+          workspaces: |
+            . -> target
+          cache-on-failure: true
+          cache-bin: false
+
+      - name: Install locked frontend dependencies
+        if: inputs.installer_run_id == ''
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build the locked release NSIS installer
+        if: inputs.installer_run_id == ''
+        working-directory: apps/desktop
+        run: npm run desktop:package
+
+      - name: Retain the built installer
+        if: inputs.installer_run_id == ''
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: windows-installer
+          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Run the synthetic installed-release lifecycle
+        shell: pwsh
+        env:
+          RETEST_INSTALLER: ${{ steps.retest.outputs.installer_path }}
+          RETEST_METADATA: ${{ steps.retest.outputs.original_metadata_path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $qualificationRoot = Join-Path $env:RUNNER_TEMP 'webnovel-package-qualification'
+          $installerPath = $env:RETEST_INSTALLER
+          if ([string]::IsNullOrWhiteSpace($installerPath)) {
+            $bundleRoot = Join-Path $env:GITHUB_WORKSPACE 'target\x86_64-pc-windows-msvc\release\bundle\nsis'
+            $installers = @(Get-ChildItem -LiteralPath $bundleRoot -Filter '*-setup.exe' -File)
+            if ($installers.Count -ne 1) {
+              throw "Expected exactly one NSIS installer in $bundleRoot; found $($installers.Count)."
+            }
+            $installerPath = $installers[0].FullName
+          }
+          $harness = Join-Path $env:GITHUB_WORKSPACE 'scripts\windows-package-qualification.ps1'
+          $harnessArgs = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $harness, '-InstallerPath', $installerPath, '-QualificationRoot', $qualificationRoot)
+          if (-not [string]::IsNullOrWhiteSpace($env:RETEST_METADATA)) {
+            $harnessArgs += @('-OriginalBuildMetadataPath', $env:RETEST_METADATA)
+          }
+          & powershell.exe @harnessArgs
+          $harnessExitCode = $LASTEXITCODE
+          $resultFiles = @(Get-ChildItem -LiteralPath (Join-Path $qualificationRoot 'output') -Filter 'result.json' -File -Recurse)
+          if ($resultFiles.Count -ne 1) {
+            throw "Qualification harness exited with code $harnessExitCode and produced $($resultFiles.Count) result.json files."
+          }
+          $result = Get-Content -LiteralPath $resultFiles[0].FullName -Raw | ConvertFrom-Json
+          if ($harnessExitCode -ne 0 -and $result.status -eq 'passed') {
+            throw "Qualification harness exited with code $harnessExitCode despite a passed result."
+          }
+          if ($result.status -ne 'passed') {
+            throw "Qualification status was '$($result.status)'; only passed is accepted by this smoke job."
+          }
+          if ($result.sameVersionReinstall.forcedProcessStop) {
+            throw 'Qualification used forced process cleanup; normal-close evidence is required.'
+          }
+
+      - name: Upload package qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: windows-package-smoke-evidence
+          path: ${{ runner.temp }}/webnovel-package-qualification/output
+          include-hidden-files: true
+          if-no-files-found: warn

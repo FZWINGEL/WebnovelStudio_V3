@@ -1,6 +1,6 @@
 {
   "name": "webnovel-studio-desktop",
-  "version": "0.1.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,11 +12,21 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:native": "node scripts/native-smoke.mjs",
+    "test:native-http": "node scripts/native-http-smoke.mjs",
+    "test:native-close": "node scripts/native-app-close.mjs",
+    "test:native-interruption": "node scripts/native-interruption.mjs",
+    "test:native-menus": "node scripts/native-interruption.mjs --context-menu-only",
+    "test:native-recovery": "node scripts/native-project-recovery.mjs",
+    "test:native-workshop": "node scripts/native-workshop-smoke.mjs",
+    "test:native-chat": "node scripts/native-chat-smoke.mjs",
+    "test:native-memory-lookup": "node scripts/native-memory-lookup-smoke.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build --no-bundle",
+    "desktop:package": "node ../../scripts/run-desktop.mjs package",
     "desktop:spike": "tauri build --debug --no-bundle"
   },
   "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
     "@tauri-apps/api": "2.11.1",
     "@tiptap/core": "3.31.3",
     "@tiptap/pm": "3.31.3",
@@ -32,6 +42,7 @@
     "@vitejs/plugin-react": "6.1.1",
     "jsdom": "29.0.0",
     "playwright-core": "1.63.0",
+    "rolldown": "1.2.7",
     "typescript": "7.0.2",
     "vite": "8.2.2",
     "vitest": "5.0.0"

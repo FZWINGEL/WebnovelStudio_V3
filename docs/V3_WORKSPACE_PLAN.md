@@ -1,8 +1,10 @@
 # V3 workspace and implementation handoff
 
-**Decision date:** 5 September 2026. **User choice:** a separate V3 repository alongside V2. **Current execution:** W0 native editor spike implemented on `codex/v3-native-editor-spike`; remaining native author trials are recorded in [W0 qualification](W0_QUALIFICATION.md).
+**Decision date:** 5 September 2026. **User choice:** a separate V3 repository alongside V2. **Original handoff snapshot:** W0 native editor baseline retained while W1 Rust structural scope validation and W2 core file-backed project/session/save work proceeded on `codex/v3-persistence`. Current implementation and qualification evidence are maintained in [implementation status](IMPLEMENTATION_STATUS.md).
 
 **Language scope:** English authoring, UI, and export. Wuxia, xianxia, cultivation, and translated-Chinese-webnovel register/terminology are optional English writing styles. Chinese-language authoring and Pinyin qualification are not product requirements. Unicode regression fixtures remain internal correctness checks.
+
+This handoff predates the later persistence, review, continuation, evidence-history, and structured-suggestion slices. It remains the workspace arrangement and early dependency record; current behavior and qualification boundaries are maintained in [implementation status](IMPLEMENTATION_STATUS.md).
 
 ## 1. Repository boundary
 
@@ -19,11 +21,11 @@ A V2 worktree would still belong to V2's repository and share its Git history an
 
 Do not relocate V2, replace its `src/`, add Rust to its package scripts, or copy its `.git`, `node_modules`, caches, databases, local credentials, or old Spec Kit implementation checkboxes into V3. Migration consumes a consistent, explicitly selected snapshot through the importer. No application component should depend at runtime on `../WebnovelStudio_V2`.
 
-The foundation branch is `codex/v3-foundation`; current implementation is on `codex/v3-native-editor-spike`. No GitHub repository or remote was created during design work. When publishing is requested, create the V3 remote explicitly, choose its default branch, push the reviewed foundation, and verify its CI independently. Retain the V2 remote and release history.
+The foundation branch is `codex/v3-foundation`; the W0 implementation branch was `codex/v3-native-editor-spike`; the current implementation branch is `codex/v3-persistence`. The private GitHub repository is [FZWINGEL/WebnovelStudio_V3](https://github.com/FZWINGEL/WebnovelStudio_V3), with `main` as its default branch. Current source and CI checkpoints are maintained in the repository and [implementation status](IMPLEMENTATION_STATUS.md). V2 retains its own remote and release history.
 
 ## 2. Planned source layout
 
-This is the full planned layout. W0 has created the two Cargo members, one frontend package, restricted editor/IPC/shell modules, shared fixtures, and executable checks. Later project/provider/storage modules in this tree remain planned:
+This is the full planned layout and early scaffold record. W0 created the two Cargo members, one frontend package, restricted editor/IPC/shell modules, shared fixtures, and executable checks; later slices added durable project/session/save work, review/continuation, context/evidence history, and structured suggestions. Broader provider and release qualification remain separately gated:
 
 ```text
 WebnovelStudio_V3/
@@ -66,14 +68,14 @@ Contracts use a small explicit document schema and typed DTOs. Generate types fr
 
 | Data | Planned location/policy |
 | --- | --- |
-| Production app registry and nonsecret settings | `%LOCALAPPDATA%\WebnovelStudioV3` using the selected application identifier |
+| Production app registry and nonsecret settings | `%LOCALAPPDATA%\com.webnovelstudio.v3`, from Tauri's app-local-data path and stable release identifier |
 | Suggested new-project destination | `%USERPROFILE%\WebnovelStudio\Projects`; author can choose another local folder |
 | Manual backup destination | Author-selected native destination; explain that a copy on the same drive is not drive-loss protection |
 | Development app registry and projects | `%LOCALAPPDATA%\WebnovelStudioV3-Dev\<checkout-id>`; a different namespace for every development worktree |
 | Automated test projects | Unique temporary directories per test, never the production registry or author folders |
 | Credentials | OS credential store or the provider's managed login; core-owned references, no project/export secrets |
 
-These are planned defaults; the design bootstrap created no author-data folders. Development builds must show that they use development data. Their New Project destination is inside their development root, not the production default. Test-only path overrides and fault controls must be excluded from shipping builds. A separate app identifier prevents production and development single-instance activation from redirecting into each other.
+The design bootstrap created no author-data folders. The current native implementation uses separate release and development data roots; debug windows show **Development** in the title. Their New Project destination is inside their development root. Test-only path overrides and the harness debugging endpoint are compiled only in debug builds. No single-instance activation plugin is enabled. The stable release identifier and package configuration are recorded in [Windows package qualification](WINDOWS_PACKAGE_QUALIFICATION.md).
 
 Every project session owns a resolved path, project ID, current operation namespace, connection, and OS-held lock. Runtime code never resolves a write through a mutable global "current project" path. Project-folder identity checks cover aliases/junctions and duplicate embedded IDs. Same-project stale callbacks are fenced; cross-project callbacks are routed by their captured ownership.
 
@@ -110,7 +112,7 @@ Keep the first editor instance mounted across unrelated shell/chat updates. Afte
 
 ## 6. CI, review, and acceptance
 
-V3 now has its own `.github/workflows/ci.yml`. The repository has no remote yet, so the workflow has not run on GitHub. Core and shared-contract tests can run on Windows/Linux; actual Windows MSVC/Tauri builds and native journeys are a separate lane. Browser frontend checks do not certify native WebView2 keyboard or accessibility behavior. Live-provider trials use explicit opt-in and credentials outside normal CI; narrative evaluation remains a separate result.
+V3 has its own `.github/workflows/ci.yml` and the private GitHub repository uses `main` as its default branch. CI run [33969395869](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33969395869) passed Ubuntu and Windows core/frontend contract jobs, Windows workspace Clippy/tests, and the native Tauri build. Native smoke failed before the UI because CDP startup exceeded 20 seconds and the connection was refused; native smoke remains open. Browser frontend checks do not certify native WebView2 keyboard or accessibility behavior. Live-provider trials use explicit opt-in and credentials outside normal CI; narrative evaluation remains a separate result.
 
 Document-only checks validate links, source hashes, status/scope consistency, and whitespace. Do not add empty passing runtime jobs to imply an application exists. Every later failure gate becomes executable with its owning feature; absent deferred features have no visible action until implemented and tested.
 

@@ -1,0 +1,7 @@
+[package]
+name = "contracts"
+version.workspace = true
+edition = "2024"
+description = "The cross-language golden fixtures, shipped as data."
+
+[dependencies]

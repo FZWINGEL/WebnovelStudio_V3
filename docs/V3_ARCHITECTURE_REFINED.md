@@ -2,7 +2,7 @@
 
 **Architecture decision record · 5 September 2026**
 
-**Status:** integrated V3 design baseline with the W0 editor spike now implemented; see [W0 qualification](W0_QUALIFICATION.md) for executed evidence and remaining native trials. Durable storage, providers, and later contracts remain implementation work. This document does not modify V2 `AGENTS.md`.
+**Status:** integrated V3 design baseline. The W0 editor, durable storage, reviewed-story/export/continuation slices, schema-22 structured suggestions, and bounded Codex path now exist at documented development boundaries; broader provider, native, release, and later story contracts remain qualification work. See [implementation status](IMPLEMENTATION_STATUS.md) for executed evidence. This document does not modify V2 `AGENTS.md`.
 
 **Companions:** [Delivery plan](V3_FIRST_SLICE_PLAN.md) · [Workspace plan](V3_WORKSPACE_PLAN.md) · [V2 migration evidence](V2_MIGRATION_EVIDENCE.md).
 **Reading path:** §§4–8 define the editing/persistence contract; §12 exercises it; the companion orders implementation and acceptance.
@@ -45,7 +45,7 @@ The repository ledger describes remote source/document inspection of ten reposit
 
 Unless expressly attributed, proposed schemas, policies, UX labels, thresholds, and algorithms below are architectural decisions. They are not benchmark results or research-derived universal rules. The `[A…]` and `[S…]` references preserve source provenance from the Pro review; they do not turn this baseline into a fresh test or provider qualification.
 
-The user selected the separate `D:\WebnovelStudio_V3` repository. The workspace plan records the resulting layout and read-only host inventory. The delivery plan scopes A Writing, B Feedback, and C Release qualification. This architecture also defines later features; their presence here does not require enabling them in A/B. Import, batch Apply, and reviewed-story machinery remain absent until their named gates are implemented. An optional author-only review checkpoint does not imply the full ready-bundle system exists.
+The user selected the separate `D:\WebnovelStudio_V3` repository. The workspace plan records the resulting layout and read-only host inventory. The delivery plan scopes A Writing, B Feedback, and C Release qualification. This architecture also defines later features; their presence here does not require enabling them in A/B. V2 import, reviewed-story, continuation, and structured-suggestion slices now exist at documented development boundaries. Batch Apply, broader ready-bundle workflows, and full qualification remain gated. An optional author-only review checkpoint does not imply the full ready-bundle system exists.
 
 ## 1. Decision table
 
@@ -569,7 +569,7 @@ A portable project is a directory:
 
 ```text
 My Novel/
-  project.wns                  # fixed-format project marker; not a second title DB
+  project.wns.json             # implemented JSON identity marker; title authority remains SQLite
   project.sqlite3              # authoritative project data
   assets/<content-hash>         # immutable referenced attachments, when supported
   legacy/                      # explicitly preserved V2/import evidence
@@ -672,6 +672,10 @@ For a known dependency, show evidence: “Chapter 12's key possession claim cite
 A changed global rule may conservatively affect all applicable chapters; changed chapter ordering may affect disclosure-dependent material even with unchanged prose. The initial design favors understandable over-invalidation over false claims of complete dependency coverage. Measuring unnecessary review work is a later optimization target.
 
 ## 10. Context assembly and knowledge boundaries
+
+The adopted [Story Context system](V3_STORY_CONTEXT_SYSTEM.md) and [first-slice plan](V3_STORY_CONTEXT_FIRST_SLICE.md) are the maintained §10 extension for context-specific behavior. They replace the minimal context-compiler treatment below where the two documents are more precise, while preserving this architecture's existing document, save, Apply, lifecycle, and authority contracts. C0–C3 are planned before or alongside W4: freeze snapshots and exact sources, bind a source epoch, use deterministic exact retrieval with dirty-index fallback, reject mandatory-budget overflow, carry scoped author guidance, and persist the actual packet with an inspectable receipt. C4/C5 belong to F3 (with C5 depending on F2), C6 is additional W8 qualification, F1 imports evidence and rebuilds projections, and F5 validates a common snapshot/policy/epoch in one atomic batch. None of C0–C6 is implemented by this design note.
+
+The public promise remains layered: stored evidence is not the same as a permitted source available for lookup, which is not the same as the packet actually delivered to a model; what the model understood is an evaluation question. The extension does not introduce paid analysis on autosave, automatic canon, or replacement of source text with a large rolling summary. The first live-provider qualification uses one deterministic packet before any bounded read loop is considered.
 
 ### 10.1 One compiler, task-specific recipes
 

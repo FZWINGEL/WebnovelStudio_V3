@@ -1,9 +1,40 @@
 [workspace]
-members = ["crates/core", "apps/desktop/src-tauri"]
+members = [
+    # Layer numbers are ordinals in a partial order, not a taxonomy; each was
+    # raised when a measurement showed the crate sits above something it had
+    # been declared beside. `crates/architecture` holds the table and the rule.
+    # L0 — foundation
+    "crates/kernel",
+    # L1
+    "crates/storage",
+    "crates/providers",
+    # L2
+    "crates/documents",
+    # L3
+    "crates/context",
+    # L4
+    "crates/story",
+    # L5
+    "crates/conversation",
+    "crates/workshop",
+    # L6 — a pure consumer of every concern's storage validator
+    "crates/transfer",
+    # L7 — drives the V2 installer above the portability crate
+    "crates/library",
+    # Not a layer: enforces the layering rule itself.
+    "crates/architecture",
+    # Not a layer: the fixtures Rust and TypeScript both read.
+    "contracts",
+    # Not a layer: generates the frontend bindings from the Rust types.
+    "crates/bindings",
+    # The crate under decomposition, plus the app shell.
+    "crates/core",
+    "apps/desktop/src-tauri",
+]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "3.0.0"
 edition = "2024"
 
 [profile.release]

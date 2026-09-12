@@ -4,9 +4,9 @@ import { EditorContent } from '@tiptap/react';
 import { Plugin, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { closeHistory, redo, undo, undoDepth, redoDepth } from '@tiptap/pm/history';
-import { sample, snapshotFromEditor } from '../editor/document';
-import { editorExtensions } from '../editor/schema';
-import { captureSelection, generation, prepareReplacement, type Scope } from '../editor/selection';
+import { sample, snapshotFromEditor } from '../editor';
+import { editorExtensions } from '../editor';
+import { captureSelection, generation, prepareReplacement, type Scope } from '../editor';
 import { runtimeInfo, validateSnapshot, type RuntimeInfo } from '../ipc/native';
 
 const Manuscript = memo(({ editor }: { editor: Editor }) => <EditorContent editor={editor} />);

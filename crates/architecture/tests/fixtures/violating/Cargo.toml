@@ -1,0 +1,6 @@
+[workspace]
+members = ["context", "core", "kernel", "providers", "storage", "story", "workshop"]
+resolver = "3"
+
+[workspace.dependencies]
+inherited_story = { package = "wns-story", path = "story" }

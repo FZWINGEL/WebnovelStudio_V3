@@ -1,0 +1,34 @@
+{
+  "audit_commit": "c83a127423512b0963eefebb992fefe719280cb2",
+  "run_id": 34067931031,
+  "run_head": "63770b9122f598b3e32ea1b0f5f4020c4325115f",
+  "windows_job_id": 101579887315,
+  "ubuntu_job_id": 101579887227,
+  "windows_total_seconds": 930,
+  "ubuntu_total_seconds": 204,
+  "windows_steps_seconds": {
+    "Restore Rust cache": 38,
+    "Windows Clippy": 71,
+    "Windows Rust tests, including compilation": 289,
+    "Tauri debug app build": 68,
+    "Main native suite": 182,
+    "HTTP native": 14,
+    "Normal close native": 15,
+    "Interruption native": 94,
+    "Recovery native": 17,
+    "Memory lookup native": 8,
+    "Frontend tests": 46,
+    "npm install": 12,
+    "Evidence upload": 8,
+    "Post-job npm cache": 28
+  },
+  "other_overhead_seconds": 40,
+  "native_total_seconds": 330,
+  "rust_log_breakdown_seconds": {
+    "test_compilation": 98,
+    "core_unit_tests": 1.77,
+    "core_integration_tests": 165.95,
+    "desktop_tests": 20.15
+  },
+  "sample_note": "One latest successful push run, not a multi-run median. Dependency cache hit does not imply workspace artifacts cached. Internal timings transcribed from its job log."
+}

@@ -1,0 +1,17 @@
+[package]
+name = "wns-documents"
+version.workspace = true
+edition = "2024"
+description = "L2: document model, structural scope validation, structured blocks, editor contract, revision history."
+
+[dependencies]
+wns-kernel = { path = "../kernel" }
+# Raised from L1 to L2 by the revision-history move. Document lifecycle reads
+# and writes document rows, so it depends on the layer that owns the schema;
+# wns-storage stays at L1 and the edge points strictly downward.
+wns-storage = { path = "../storage" }
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+unicode-segmentation = "=1.13.3"
+specta = "1.0.5"

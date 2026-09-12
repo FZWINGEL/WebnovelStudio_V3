@@ -1,0 +1,198 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "valid-inline-with-marks-and-link",
+      "valid": true,
+      "request": {
+        "sourceSnapshot": {
+          "schemaVersion": 1,
+          "body": {"type": "doc", "content": [
+            {"type": "paragraph", "attrs": {"id": "p"}, "content": [
+              {"type": "text", "text": "Before "},
+              {"type": "text", "text": "quoted", "marks": [{"type": "bold"}]},
+              {"type": "text", "text": " after", "marks": [{"type": "link", "attrs": {"href": "https://example.com"}}]}
+            ]}
+          ]}
+        },
+        "resultSnapshot": {
+          "schemaVersion": 1,
+          "body": {"type": "doc", "content": [
+            {"type": "paragraph", "attrs": {"id": "p"}, "content": [
+              {"type": "text", "text": "Before "},
+              {"type": "text", "text": "changed", "marks": [{"type": "bold"}]},
+              {"type": "text", "text": " after", "marks": [{"type": "link", "attrs": {"href": "https://example.com"}}]}
+            ]}
+          ]}
+        },
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 7}, "end": {"blockId": "p", "utf16Offset": 13}, "quote": "quoted", "prefix": "Before ", "suffix": " after", "sourceHash": "b2bc8fdd019c1797c58652964066a72938311c8fa610329d8db33f2807d72ffb", "quoteHash": "809c20168de2d0cfc489a867f3ed2fb628fe213955a309198bd8653ac92b6021"}
+      }
+    },
+    {
+      "name": "rejects-unselected-text-change",
+      "valid": false,
+      "errorContains": "before the granted scope",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before target after"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "BROKEN target after"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 7}, "end": {"blockId": "p", "utf16Offset": 13}, "prefix": "before ", "suffix": " after", "sourceHash": "5c84f1ca80f742aef0ba0a0328c3bc6dcd7ceb501e4af7906986aa2be3e5cedb", "quote": "target", "quoteHash": "3e5a77e4c8679b9ef812bb2a43ed0ef7488f692355872dd2b0e00eebb7c47c78"}
+      }
+    },
+    {
+      "name": "rejects-unselected-mark-change",
+      "valid": false,
+      "errorContains": "after the granted scope",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before "}, {"type": "text", "text": "target", "marks": [{"type": "bold"}]}, {"type": "text", "text": " after"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before "}, {"type": "text", "text": "target", "marks": [{"type": "italic"}]}, {"type": "text", "text": " after"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 0}, "end": {"blockId": "p", "utf16Offset": 7}, "prefix": "", "suffix": "target after", "sourceHash": "f0c05e9732598dca2c5b4c02c68878a791c7c2228cae1d528bcc7ffb531de31c", "quote": "before ", "quoteHash": "215b4ab714cfd48dcfa2c7454b69d080225e7b3a8ffc364749fd49a61174b915"}
+      }
+    },
+    {
+      "name": "rejects-unselected-link-change",
+      "valid": false,
+      "errorContains": "after the granted scope",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before target "}, {"type": "text", "text": "link", "marks": [{"type": "link", "attrs": {"href": "https://example.com"}}]}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before target "}, {"type": "text", "text": "link", "marks": [{"type": "link", "attrs": {"href": "https://other.example"}}]}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 7}, "end": {"blockId": "p", "utf16Offset": 13}, "prefix": "before ", "suffix": " link", "sourceHash": "35b89d093feb4bd6cfbd251ebecdb1d259ea0e7bd6251831f50cdcf9906a064e", "quote": "target", "quoteHash": "3e5a77e4c8679b9ef812bb2a43ed0ef7488f692355872dd2b0e00eebb7c47c78"}
+      }
+    },
+    {
+      "name": "rejects-unselected-block-style-change",
+      "valid": false,
+      "errorContains": "after the granted scope",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before target after"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before target"}]}, {"type": "heading", "attrs": {"id": "q", "level": 2}, "content": [{"type": "text", "text": "after"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 7}, "end": {"blockId": "p", "utf16Offset": 13}, "prefix": "before ", "suffix": " after", "sourceHash": "5c84f1ca80f742aef0ba0a0328c3bc6dcd7ceb501e4af7906986aa2be3e5cedb", "quote": "target", "quoteHash": "3e5a77e4c8679b9ef812bb2a43ed0ef7488f692355872dd2b0e00eebb7c47c78"}
+      }
+    },
+    {
+      "name": "rejects-unselected-id-change",
+      "valid": false,
+      "errorContains": "after the granted scope",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before target"}]}, {"type": "paragraph", "attrs": {"id": "tail"}, "content": [{"type": "text", "text": "after"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before changed"}]}, {"type": "paragraph", "attrs": {"id": "tail2"}, "content": [{"type": "text", "text": "after"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 7}, "end": {"blockId": "p", "utf16Offset": 13}, "prefix": "before ", "suffix": "", "sourceHash": "b7df7765ecc7dad62604fbb083c45ef8f47ea3e3f478c2c9ca186c3e4a7d0b1d", "quote": "target", "quoteHash": "3e5a77e4c8679b9ef812bb2a43ed0ef7488f692355872dd2b0e00eebb7c47c78"}
+      }
+    },
+    {
+      "name": "valid-cross-paragraph-merge",
+      "valid": true,
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "left"}, "content": [{"type": "text", "text": "left"}]}, {"type": "paragraph", "attrs": {"id": "right"}, "content": [{"type": "text", "text": "right"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "left"}, "content": [{"type": "text", "text": "left right"}]}]}},
+        "scope": {"kind": "blocks", "start": {"blockId": "left", "utf16Offset": 0}, "end": {"blockId": "right", "utf16Offset": 5}, "prefix": "", "suffix": "", "sourceHash": "89b3c7de9062181633d73d8eddbd248894b8efbcb00509a4f78a38fecc6096e2", "quote": "left\n\nright", "quoteHash": "9bfd95b7a3ab0b2e1d9740c95d2c0fd3ad891dd58d9146ebae81305ec4c88a52"}
+      }
+    },
+    {
+      "name": "rejects-right-id-retained-on-merge",
+      "valid": false,
+      "errorContains": "left block id",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "left"}, "content": [{"type": "text", "text": "left"}]}, {"type": "paragraph", "attrs": {"id": "right"}, "content": [{"type": "text", "text": "right"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "right"}, "content": [{"type": "text", "text": "left right"}]}]}},
+        "scope": {"kind": "blocks", "start": {"blockId": "left", "utf16Offset": 0}, "end": {"blockId": "right", "utf16Offset": 5}, "prefix": "", "suffix": "", "sourceHash": "89b3c7de9062181633d73d8eddbd248894b8efbcb00509a4f78a38fecc6096e2", "quote": "left\n\nright", "quoteHash": "9bfd95b7a3ab0b2e1d9740c95d2c0fd3ad891dd58d9146ebae81305ec4c88a52"}
+      }
+    },
+    {
+      "name": "valid-empty-boundary-insertion",
+      "valid": true,
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "new"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 0}, "end": {"blockId": "p", "utf16Offset": 0}, "prefix": "", "suffix": "", "sourceHash": "ae1f2a9907562fc452f04208f98299ccd2e33afa3a2c1f90ea0e265dc7df77ed", "quote": "", "quoteHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
+      }
+    },
+    {
+      "name": "rejects-combining-split",
+      "valid": false,
+      "errorContains": "grapheme",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "élan"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "élan"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 1}, "end": {"blockId": "p", "utf16Offset": 1}, "sourceHash": "", "quote": "", "quoteHash": ""}
+      }
+    },
+    {
+      "name": "rejects-zwj-split",
+      "valid": false,
+      "errorContains": "grapheme",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "👩‍💻"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "👩‍💻"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 2}, "end": {"blockId": "p", "utf16Offset": 2}, "sourceHash": "", "quote": "", "quoteHash": ""}
+      }
+    },
+    {
+      "name": "repeated-quote-targets-second-occurrence",
+      "valid": true,
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "repeat and repeat"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "repeat and changed"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 11}, "end": {"blockId": "p", "utf16Offset": 17}, "quote": "repeat", "prefix": "repeat and ", "suffix": "", "sourceHash": "4e2b9fb3e13f834edf8fd459ac76694cc04ee52bfb69fe430c419737fdcb8426", "quoteHash": "59b3eeef77a510f3b71d7ded3ade4c3824810693b7118adbe7e84e2e09033da9"}
+      }
+    },
+    {
+      "name": "rejects-unselected-scene-boundary-change",
+      "valid": false,
+      "errorContains": "after the granted scope",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before"}]}, {"type": "sceneBreak", "attrs": {"id": "break"}}, {"type": "paragraph", "attrs": {"id": "tail"}, "content": [{"type": "text", "text": "after"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before"}]}, {"type": "paragraph", "attrs": {"id": "tail"}, "content": [{"type": "text", "text": "after"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 0}, "end": {"blockId": "p", "utf16Offset": 6}, "prefix": "", "suffix": "", "sourceHash": "eaa980b1f149c9e7509e79bcff22b94f4180a8b1853cb098bd26920c46603dbb", "quote": "before", "quoteHash": "39e7bdcaf28824fbf2caf60767fa83d41f3b6897407e966bfd95a7f119b0118a"}
+      }
+    },
+    {
+      "name": "rejects-source-hash-mismatch",
+      "valid": false,
+      "errorContains": "sourceHash",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before target after"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before changed after"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 7}, "end": {"blockId": "p", "utf16Offset": 13}, "prefix": "before ", "suffix": " after", "sourceHash": "0000000000000000000000000000000000000000000000000000000000000000", "quote": "target", "quoteHash": "3e5a77e4c8679b9ef812bb2a43ed0ef7488f692355872dd2b0e00eebb7c47c78"}
+      }
+    },
+    {
+      "name": "rejects-structured-quote-hash-mismatch",
+      "valid": false,
+      "errorContains": "quoteHash",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before target after"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before changed after"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 7}, "end": {"blockId": "p", "utf16Offset": 13}, "prefix": "before ", "suffix": " after", "sourceHash": "5c84f1ca80f742aef0ba0a0328c3bc6dcd7ceb501e4af7906986aa2be3e5cedb", "quote": "target", "quoteHash": "0000000000000000000000000000000000000000000000000000000000000000"}
+      }
+    },
+    {
+      "name": "rejects-prefix-context-mismatch",
+      "valid": false,
+      "errorContains": "prefix",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before target after"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "before changed after"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 7}, "end": {"blockId": "p", "utf16Offset": 13}, "prefix": "wrong", "suffix": " after", "sourceHash": "5c84f1ca80f742aef0ba0a0328c3bc6dcd7ceb501e4af7906986aa2be3e5cedb", "quote": "target", "quoteHash": "3e5a77e4c8679b9ef812bb2a43ed0ef7488f692355872dd2b0e00eebb7c47c78"}
+      }
+    },
+    {
+      "name": "rejects-surrogate-pair-split",
+      "valid": false,
+      "errorContains": "surrogate",
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "🙂"}]}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "🙂"}]}]}},
+        "scope": {"kind": "passage", "start": {"blockId": "p", "utf16Offset": 1}, "end": {"blockId": "p", "utf16Offset": 1}, "prefix": "", "suffix": "", "sourceHash": "", "quote": "", "quoteHash": ""}
+      }
+    },
+    {
+      "name": "valid-whole-document-rewrite-with-fresh-ids",
+      "valid": true,
+      "request": {
+        "sourceSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "p"}, "content": [{"type": "text", "text": "old"}]}, {"type": "sceneBreak", "attrs": {"id": "break"}}]}},
+        "resultSnapshot": {"schemaVersion": 1, "body": {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": "new"}, "content": [{"type": "text", "text": "new"}]}]}},
+        "scope": {"kind": "wholeDocument", "prefix": "", "suffix": "", "sourceHash": "3bf7a63c75286c71d9ed6319a1385e43874cf333790d6dd21e6b28261a31b985", "quote": "old", "quoteHash": "fa34a169d4af2ce090e3b1bb98e75440cef2db21281e43014457a39f4ebf5b1c"}
+      }
+    }
+  ]
+}

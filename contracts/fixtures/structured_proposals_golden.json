@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "selected-heading-paragraph-scene-preserves-neighbors",
+      "scope": {
+        "kind": "blocks",
+        "start": { "blockId": "old-heading", "utf16Offset": 0 },
+        "end": { "blockId": "old-scene", "utf16Offset": 0 },
+        "quote": "Old heading\n\nOld body",
+        "sourceHash": "",
+        "quoteHash": "",
+        "prefix": null,
+        "suffix": null
+      },
+      "expectedQuote": "Old heading\n\nOld body",
+      "replacementBlocks": [
+        {
+          "type": "heading",
+          "attrs": { "level": 1 },
+          "content": [
+            { "type": "text", "text": "New heading", "marks": [{ "type": "italic" }] }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "New " },
+            { "type": "text", "text": "body", "marks": [{ "type": "bold" }] },
+            { "type": "hardBreak" },
+            { "type": "text", "text": "continues", "marks": [{ "type": "link", "attrs": { "href": "https://example.com/scene" } }] }
+          ]
+        },
+        { "type": "sceneBreak" }
+      ],
+      "replacementIds": ["new-heading", "new-body", "new-scene"],
+      "sourceSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": { "id": "before" },
+              "content": [
+                { "type": "text", "text": "Outside bold", "marks": [{ "type": "bold" }] },
+                { "type": "text", "text": " and " },
+                { "type": "text", "text": "link", "marks": [{ "type": "italic" }, { "type": "link", "attrs": { "href": "https://example.com/outside" } }] }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": { "id": "old-heading", "level": 2 },
+              "content": [{ "type": "text", "text": "Old heading" }]
+            },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "old-body" },
+              "content": [{ "type": "text", "text": "Old body" }]
+            },
+            { "type": "sceneBreak", "attrs": { "id": "old-scene" } },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "after" },
+              "content": [{ "type": "text", "text": "Outside after", "marks": [{ "type": "italic" }, { "type": "link", "attrs": { "href": "https://example.com/after" } }] }]
+            }
+          ]
+        }
+      },
+      "resultSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": { "id": "before" },
+              "content": [
+                { "type": "text", "text": "Outside bold", "marks": [{ "type": "bold" }] },
+                { "type": "text", "text": " and " },
+                { "type": "text", "text": "link", "marks": [{ "type": "italic" }, { "type": "link", "attrs": { "href": "https://example.com/outside" } }] }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": { "id": "new-heading", "level": 1 },
+              "content": [{ "type": "text", "text": "New heading", "marks": [{ "type": "italic" }] }]
+            },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "new-body" },
+              "content": [
+                { "type": "text", "text": "New " },
+                { "type": "text", "text": "body", "marks": [{ "type": "bold" }] },
+                { "type": "hardBreak" },
+                { "type": "text", "text": "continues", "marks": [{ "type": "link", "attrs": { "href": "https://example.com/scene" } }] }
+              ]
+            },
+            { "type": "sceneBreak", "attrs": { "id": "new-scene" } },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "after" },
+              "content": [{ "type": "text", "text": "Outside after", "marks": [{ "type": "italic" }, { "type": "link", "attrs": { "href": "https://example.com/after" } }] }]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "whole-chapter-heading-paragraphs-unicode",
+      "scope": {
+        "kind": "wholeDocument",
+        "start": null,
+        "end": null,
+        "quote": "Volume 1 — 霜火\n\nMei held\nthe seal🙂\n\nIt answered.",
+        "sourceHash": "",
+        "quoteHash": "",
+        "prefix": null,
+        "suffix": null
+      },
+      "expectedQuote": "Volume 1 — 霜火\n\nMei held\nthe seal🙂\n\nIt answered.",
+      "replacementBlocks": [
+        {
+          "type": "heading",
+          "attrs": { "level": 2 },
+          "content": [{ "type": "text", "text": "霜火 Returns", "marks": [{ "type": "italic" }] }]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "The " },
+            { "type": "text", "text": "seal", "marks": [{ "type": "bold" }] },
+            { "type": "hardBreak" },
+            { "type": "text", "text": "answered🙂", "marks": [{ "type": "italic" }, { "type": "link", "attrs": { "href": "mailto:mei@example.com" } }] }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [{ "type": "text", "text": "The lanterns woke." }]
+        }
+      ],
+      "replacementIds": ["whole-heading", "whole-first", "whole-second"],
+      "sourceSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "heading",
+              "attrs": { "id": "chapter-heading", "level": 1 },
+              "content": [{ "type": "text", "text": "Volume 1 — 霜火" }]
+            },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "chapter-first" },
+              "content": [
+                { "type": "text", "text": "Mei " },
+                { "type": "text", "text": "held", "marks": [{ "type": "bold" }] },
+                { "type": "hardBreak" },
+                { "type": "text", "text": "the seal🙂" }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "chapter-second" },
+              "content": [{ "type": "text", "text": "It answered." }]
+            }
+          ]
+        }
+      },
+      "resultSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "heading",
+              "attrs": { "id": "whole-heading", "level": 2 },
+              "content": [{ "type": "text", "text": "霜火 Returns", "marks": [{ "type": "italic" }] }]
+            },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "whole-first" },
+              "content": [
+                { "type": "text", "text": "The " },
+                { "type": "text", "text": "seal", "marks": [{ "type": "bold" }] },
+                { "type": "hardBreak" },
+                { "type": "text", "text": "answered🙂", "marks": [{ "type": "italic" }, { "type": "link", "attrs": { "href": "mailto:mei@example.com" } }] }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "whole-second" },
+              "content": [{ "type": "text", "text": "The lanterns woke." }]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "selected-block-deletion-preserves-outside",
+      "scope": {
+        "kind": "blocks",
+        "start": { "blockId": "remove", "utf16Offset": 0 },
+        "end": { "blockId": "remove", "utf16Offset": 25 },
+        "quote": "Remove this chapter beat.",
+        "sourceHash": "",
+        "quoteHash": "",
+        "prefix": null,
+        "suffix": null
+      },
+      "expectedQuote": "Remove this chapter beat.",
+      "replacementBlocks": [],
+      "replacementIds": [],
+      "sourceSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": { "id": "keep-before" },
+              "content": [{ "type": "text", "text": "Keep before.", "marks": [{ "type": "bold" }] }]
+            },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "remove" },
+              "content": [{ "type": "text", "text": "Remove this chapter beat." }]
+            },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "keep-after" },
+              "content": [{ "type": "text", "text": "Keep after.", "marks": [{ "type": "italic" }] }]
+            }
+          ]
+        }
+      },
+      "resultSnapshot": {
+        "schemaVersion": 1,
+        "body": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": { "id": "keep-before" },
+              "content": [{ "type": "text", "text": "Keep before.", "marks": [{ "type": "bold" }] }]
+            },
+            {
+              "type": "paragraph",
+              "attrs": { "id": "keep-after" },
+              "content": [{ "type": "text", "text": "Keep after.", "marks": [{ "type": "italic" }] }]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

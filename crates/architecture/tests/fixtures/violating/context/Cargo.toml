@@ -1,0 +1,15 @@
+[package]
+name = "wns-context"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies.higher]
+package = "wns-story"
+path = "../story"
+optional = true
+
+[target.'cfg(windows)'.dependencies]
+legacy = { package = "webnovel-core", path = "../core" }
+
+[build-dependencies]
+build_workshop = { package = "wns-workshop", path = "../workshop" }

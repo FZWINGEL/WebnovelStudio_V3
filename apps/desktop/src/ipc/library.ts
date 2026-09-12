@@ -1,0 +1,20 @@
+import type {
+  LibraryEntry,
+  PendingProject,
+} from './generated/library';
+export type {
+  LibraryEntry,
+  PendingProject,
+};
+
+import { invoke } from '@tauri-apps/api/core';
+import type { OpenedProject, ProjectAccess } from './projects';
+export interface LibrarySnapshot { entries: LibraryEntry[]; pending: PendingProject[] }
+export const librarySnapshot = (): Promise<LibrarySnapshot> => invoke('library_snapshot');
+export const libraryCreate = (operationId: string, title: string, session: string): Promise<OpenedProject> => invoke('library_create', { operationId, title, session });
+export const libraryOpen = (path: string | null, session: string): Promise<OpenedProject | null> => invoke('library_open', { path, session });
+export const libraryArchive = (projectId: string, archived: boolean): Promise<void> => invoke('library_archive', { projectId, archived });
+export const libraryRecover = (operationId: string, title: string, session: string): Promise<OpenedProject | null> => invoke('library_recover', { operationId, title, session });
+export const libraryDuplicate = (operationId: string, access: ProjectAccess | null, title: string, session: string): Promise<OpenedProject> => invoke('library_duplicate', { operationId, access, title, session });
+export const libraryResumeImport = (operationId: string, session: string): Promise<OpenedProject> => invoke('library_resume_import', { operationId, session });
+export const projectBackup = (access: ProjectAccess): Promise<string | null> => invoke('project_backup', { access });

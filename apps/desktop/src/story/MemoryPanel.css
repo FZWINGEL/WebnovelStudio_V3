@@ -1,0 +1,53 @@
+.memory-panel { width: min(390px, 100%); }
+.memory-heading { padding-top: 22px; gap: 12px; }
+.memory-heading button { font-size: 12px; }
+.memory-back { white-space: nowrap; }
+.memory-controls { padding: 0 22px 14px; border-bottom: 1px solid var(--line); }
+.memory-model-details { margin: 0 0 12px; font-size: 12px; line-height: 1.5; }
+.memory-model-details>div { display: flex; justify-content: space-between; gap: 12px; }
+.memory-model-details dt { color: var(--muted); }
+.memory-model-details dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.memory-model-unavailable { margin: 0 0 12px; color: #805009; background: #fff4dc; border-radius: 5px; padding: 9px 10px; font-size: 11px; line-height: 1.5; }
+.memory-refresh { width: 100%; }
+.memory-run-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+.memory-run-status p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.memory-run-status button { flex-shrink: 0; }
+.memory-error, .memory-status, .memory-reconcile { padding: 12px 22px; margin: 0; font-size: 12px; line-height: 1.6; }
+.memory-error { color: #863535; }
+.memory-status { color: var(--muted); }
+.memory-reconcile { color: #805009; background: #fff4dc; }
+.memory-reconcile p { margin: 0 0 9px; }
+.memory-scroll { flex: 1; min-height: 0; overflow: auto; padding: 22px; background: #fff; scrollbar-color: #b1bfd0 transparent; scrollbar-width: thin; }
+.memory-empty { padding: 16px 0 28px; }
+.memory-empty h3 { margin: 0 0 9px; font-size: 16px; }
+.memory-empty p, .memory-loading { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.memory-view { padding: 0 0 20px; margin: 0 0 20px; border-bottom: 1px solid var(--line); }
+.memory-view:last-child { margin-bottom: 0; }
+.memory-view-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.memory-view-heading h3 { min-width: 0; margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.memory-view-date { flex-shrink: 0; color: var(--muted); font-size: 10px; text-align: right; }
+.memory-view-source, .memory-view-note { margin: 7px 0 0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.memory-view-source { color: var(--muted); }
+.memory-view-note { color: #805009; }
+.memory-view-revoked .memory-view-note { color: var(--muted); }
+.memory-items { list-style: none; margin: 12px 0 0; padding: 0; }
+.memory-item { padding: 11px 0 13px; border-top: 1px solid #e7ebf1; }
+.memory-item:first-child { border-top: 0; padding-top: 0; }
+.memory-item-text { margin: 0; font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-item-uncertainty { margin: 8px 0 0; color: #805009; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.memory-evidence { margin-top: 9px; font-size: 11px; }
+.memory-evidence summary { cursor: pointer; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.memory-evidence-list { margin-top: 8px; }
+.memory-evidence figure { margin: 0 0 10px; }
+.memory-evidence blockquote { margin: 0; padding: 10px; font-size: 13px; line-height: 1.65; }
+.memory-evidence figcaption { margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.memory-inspect { margin-top: 12px; text-align: left; }
+.memory-inspect-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.memory-inspect-actions .memory-inspect { margin-top: 0; }
+.memory-source { margin: 0 0 22px; padding: 0 0 18px; border-bottom: 1px solid var(--line); }
+.memory-source-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.memory-source-heading h3 { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.memory-source>p:not(.small-copy) { font-family: Georgia, "Times New Roman", serif; font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-packet { margin: 0 0 22px; padding: 0 0 18px; border-bottom: 1px solid var(--line); }
+.memory-packet .context-inspector { margin-top: 10px; }
+@media (max-width: 900px) { .memory-panel { width: 320px; } }

@@ -34,3 +34,9 @@ Thumbs.db
 *.wnsbackup
 
 # Cargo.lock and the frontend package-lock.json belong in version control.
+.conductor/detours.log
+.conductor/write-conflicts.log
+.conductor/write-conflicts.latch
+.conductor/commit-watch.json
+.conductor/session-claim.json
+.conductor/activity/

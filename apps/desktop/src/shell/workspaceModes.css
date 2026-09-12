@@ -1,0 +1,149 @@
+.persistent-workspace .project-navigation {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.workspace-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 48px;
+}
+
+.workspace-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7f9fc;
+}
+
+.workspace-mode-switch [role='tab'] {
+  min-width: 84px;
+  padding: 7px 14px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-mode-switch [aria-selected='true'] {
+  color: var(--accent);
+  background: #e7efff;
+  box-shadow: 0 1px 2px #25334414;
+}
+
+.story-bible-action {
+  padding: 7px 10px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.workspace-mode-choice,
+.workspace-develop {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.workspace-mode-choice {
+  display: grid;
+  place-items: center;
+  padding: 48px 24px;
+  background: #f9fafc;
+}
+
+.workspace-mode-choice-card {
+  width: min(560px, 100%);
+  padding: 34px 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px #2533440d;
+}
+
+.workspace-mode-kicker {
+  margin: 0 0 9px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.workspace-mode-choice-card h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.workspace-mode-choice-card > p:not(.workspace-mode-kicker) {
+  max-width: 44em;
+  margin: 12px 0 24px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.workspace-mode-choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.workspace-develop {
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-develop > .sr-only {
+  position: absolute;
+}
+
+.workspace-chat { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.chat-history-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: #10213a66; padding: 24px; }
+.chat-history-dialog { box-sizing: border-box; width: min(100%, 960px); max-height: calc(100dvh - 48px); overflow: auto; background: white; color: #172d48; border: 1px solid #c5d4e5; border-radius: 10px; padding: 24px; box-shadow: 0 16px 56px #10213a40; }
+.chat-history-dialog > header { display: flex; justify-content: space-between; align-items: start; gap: 20px; }
+.chat-history-dialog h2 { margin: 0; font-size: 20px; }
+.chat-history-dialog nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 20px 0; }
+.chat-history-dialog button { padding: 8px 12px; border: 1px solid #b8c8dd; background: #f4f7fd; border-radius: 4px; color: #164da9; }
+.historical-conversation__item { padding: 18px 0; border-top: 1px solid #d6dfeb; }
+.historical-conversation__item header { display: flex; gap: 16px; justify-content: space-between; }
+.historical-conversation__message p, .historical-conversation__item pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
+.chat-history-dialog button:focus-visible, .chat-history-dialog summary:focus-visible { outline: 2px solid #235ccb; outline-offset: 2px; }
+.workspace-chat > .chat-project-conversation { flex: 1; min-width: 0; }
+.persistent-workspace:has(.workspace-chat) .brand { max-width: 100%; }
+.persistent-workspace:has(.workspace-chat) .assistant-controls { min-width: 0; max-width: 100%; }
+.persistent-workspace:has(.workspace-chat) .model-selector { min-width: 0; }
+.persistent-workspace:has(.workspace-chat) .model-trigger { max-width: min(220px, 42vw); }
+.chat-document-editor { display: flex; flex-direction: column; min-height: 0; }
+.chat-document-editor .writing { min-height: 420px; }
+.chat-chapter-proposals { padding: 18px; border-top: 1px solid var(--line); }
+
+@media (max-width: 700px) {
+  .workspace-mode-row {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .workspace-mode-choice {
+    padding: 28px 16px;
+  }
+
+  .workspace-mode-choice-card {
+    padding: 26px 24px;
+  }
+}
+
+@media (max-height: 520px) {
+  .persistent-workspace:has(.workspace-chat) .app-header { min-height: 32px; gap: 2px 8px; padding: 3px 10px; }
+  .persistent-workspace:has(.workspace-chat) .app-header button { padding-block: 3px; }
+  .persistent-workspace:has(.workspace-chat) .project-navigation { padding-inline: 6px; }
+  .persistent-workspace:has(.workspace-chat) .workspace-mode-row { min-height: 30px; gap: 5px; }
+  .persistent-workspace:has(.workspace-chat) .workspace-mode-switch { padding: 1px; }
+  .persistent-workspace:has(.workspace-chat) .workspace-mode-switch [role='tab'] { min-width: auto; padding: 4px 6px; white-space: nowrap; }
+  .persistent-workspace:has(.workspace-chat) .story-bible-action { padding: 4px 6px; white-space: nowrap; }
+  .persistent-workspace:has(.workspace-chat) .project-tools summary { padding: 4px 6px; white-space: nowrap; }
+  .persistent-workspace:has(.workspace-chat) .recent-project-picker > summary { display: inline-flex; align-items: baseline; gap: 6px; }
+}

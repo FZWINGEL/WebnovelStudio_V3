@@ -1,0 +1,9 @@
+{
+  "scope": "Isolated Node process on Linux; not Windows native CI",
+  "node": "v22.16.0",
+  "platform": "linux",
+  "exitCode": null,
+  "signalCode": "SIGTERM",
+  "originalRepeatedCleanupMs": 5005.58,
+  "guardedRepeatedCleanupMs": 0
+}

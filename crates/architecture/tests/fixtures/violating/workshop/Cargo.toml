@@ -1,0 +1,4 @@
+[package]
+name = "wns-workshop"
+version = "0.0.0"
+edition = "2024"

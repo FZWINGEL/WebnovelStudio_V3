@@ -1,0 +1,16 @@
+[package]
+name = "wns-story"
+version.workspace = true
+edition = "2024"
+description = "L4: story memory, reviewed story, evidence and promise history, accepted summaries."
+
+[dependencies]
+wns-kernel = { path = "../kernel" }
+wns-storage = { path = "../storage" }
+wns-documents = { path = "../documents" }
+wns-providers = { path = "../providers" }
+wns-context = { path = "../context" }
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+specta = "1.0.5"

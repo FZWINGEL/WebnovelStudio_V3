@@ -1,17 +1,16 @@
-export type Mark = { type: 'bold' | 'italic' } | { type: 'link'; attrs: { href: string } };
-export type Inline = { type: 'text'; text: string; marks?: Mark[] } | { type: 'hardBreak' };
+import type { SnapshotReceipt as WireSnapshotReceipt } from '../ipc/generated/kernel';
+import type { TypedReplacementInline, TypedReplacementMark } from '../ipc/generated/documents';
+
+export type Mark = TypedReplacementMark;
+export type Inline = TypedReplacementInline;
 export type Block =
   | { type: 'paragraph'; attrs: { id: string }; content?: Inline[] }
   | { type: 'heading'; attrs: { id: string; level: number }; content?: Inline[] }
   | { type: 'sceneBreak'; attrs: { id: string } };
 export interface WnsDocument { schemaVersion: 1; body: { type: 'doc'; content: Block[] } }
-export interface SnapshotReceipt {
-  snapshot: WnsDocument;
-  canonicalJson: string;
-  hash: string;
-  utf16Units: number;
-  blockCount: number;
-}
+// Generated from Rust; the snapshot body is narrowed to the editor's model,
+// which is the same refinement `ipc/projects` makes for a document.
+export type SnapshotReceipt = Omit<WireSnapshotReceipt, 'snapshot'> & { snapshot: WnsDocument };
 
 export function safeHref(href: string): boolean {
   if (!/^(https?:\/\/|mailto:)/iu.test(href) || /[\s\p{Cc}]/u.test(href) || href.includes('\\')) return false;
@@ -59,7 +58,7 @@ export function snapshotFromEditor(body: unknown): WnsDocument {
   return { schemaVersion: 1, body: result };
 }
 
-export function canonicalJson(snapshot: WnsDocument): string { return JSON.stringify(sorted(snapshot)); }
+export function canonicalJson(snapshot: unknown): string { return JSON.stringify(sorted(snapshot)); }
 export async function bodyHash(json: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(json));
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -85,3 +84,21 @@ export const sample: WnsDocument['body'] = {
     ] },
   ],
 };
+
+/** One line per block, for comparing two revisions of the same document. */
+function inlineText(value: { type: string; text?: string }): string {
+  return value.type === 'hardBreak' ? '\n' : value.text ?? '';
+}
+
+/**
+ * The text of each block, in order, with a scene break as an em dash.
+ *
+ * It lived in `chat/DraftReviewDiff` and was imported from there by
+ * `assistant/SourceVersionComparison`, which made the two features mutually
+ * dependent for the sake of one pure function over a document. It is a
+ * document helper, so it belongs with the document model.
+ */
+export function documentBlocks(document: WnsDocument | null): string[] {
+  if (!document) return [];
+  return document.body.content.map(block => block.type === 'sceneBreak' ? '—' : (block.content ?? []).map(inlineText).join(''));
+}

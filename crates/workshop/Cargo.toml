@@ -1,0 +1,18 @@
+[package]
+name = "wns-workshop"
+version.workspace = true
+edition = "2024"
+description = "L5: the six-lens Story Workshop — candidates, decisions and generation."
+
+[dependencies]
+wns-kernel = { path = "../kernel" }
+wns-storage = { path = "../storage" }
+wns-documents = { path = "../documents" }
+wns-providers = { path = "../providers" }
+wns-context = { path = "../context" }
+wns-story = { path = "../story" }
+# The host trait names the connection the actor hands it.
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+specta = "1.0.5"
