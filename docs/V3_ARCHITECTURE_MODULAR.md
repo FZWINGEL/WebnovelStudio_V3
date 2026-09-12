@@ -221,18 +221,31 @@ names **thirteen** values from the enclosing scope: `request`, `target_handle`, 
 `delivered_summaries`, `options`. Two more — `available` and the delivered set itself — are
 mutable. That is not a block with a boundary; it is a segment of one computation.
 
-**The design that would work, for whoever picks this up.** Nine of those thirteen do not change
-once the selections are fixed, and they are the same nine repeated at each of the eleven
-`build_serialized` call sites. A `Pricing<'a>` holding them turns a call site from seven
-arguments into three and a stage from thirteen into four. The one that resists is
-`delivered_views`: it is built by the views stage and read by everything after it, so it cannot
-be borrowed into a context constructed once — it has to stay a parameter, or the context has
-to be rebuilt after the views stage. Settling that is the actual work, and it is a design
-decision about where the pipeline's phases begin, not a mechanical move.
+**The design is now built and three stages are out.** `Pricing<'a>` holds the eight values that
+are fixed once the selections are known; every one of the eleven `build_serialized` call sites
+lost four arguments to it, and the repeated `optional_omissions(optional_handles_without_views(…))`
+chain became one method. `Stage<'a>` holds what a *stage* needs beyond that.
 
-So this is the one item in §3.4 that is **not done**, and the honest statement of it is that
-the file is split, the pipeline is not, and the next step is a `Pricing` context plus a
-decision about where the views stage ends.
+The reviewed-records stage was the measurement above, and it is now `pack_reviewed_evidence`:
+six parameters where the block named thirteen enclosing values. Its two siblings are
+`pack_reviewed_promises` and `pack_reviewed_knowledge`, and they take what they read from the
+stages before them explicitly — which is the point of a stage split, and it made the pipeline's
+data flow visible for the first time. `compile_packet_with_schema` went 1,007 → 860 lines.
+
+Two things stopped it there, and both are decisions rather than mechanics.
+
+* `optional_handles` is **rebound** mid-pipeline, once the accepted summaries are known. A
+  context holding the earlier binding would price every later stage against the list the code
+  had already replaced — a silent behaviour change. The compiler caught it as a move-out-of-borrow;
+  it is a parameter on `Pricing::omissions` and a field on `Stage` only because `Stage` is built
+  after the rebinding. Anything that moves the stage boundary earlier has to revisit this.
+
+* The early stages cannot take `Stage`: the summaries stage *writes* `delivered_summaries` and
+  the views stage writes `delivered_views`, so neither can be borrowed into a context for its own
+  call. Either those stages take the pieces directly — an inconsistency worth avoiding — or
+  `Stage` is reshaped into what is genuinely constant (`schema`, `conversation_turns`) with the
+  delivered sets passed per stage. That is the next decision, and it is why the four-stage
+  boundary in this section is still not where the code puts it.
 
 **`projects/discussions.rs` (4,605) → `wns-conversation`.** Four concerns in one file: run
 lifecycle and settlement, recovery/lost-acknowledgment, lookup invocation, and packet

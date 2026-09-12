@@ -898,12 +898,23 @@ fn compile_packet_with_schema(
         reviewed_promise_omissions(&validated_reviewed_promises, &validated_reviewed_promises);
     let full_knowledge_omissions =
         reviewed_knowledge_omissions(&validated_reviewed_knowledge, &validated_reviewed_knowledge);
-    let full_packet = build_serialized(
+    // Everything the packing decisions are priced against, fixed from here on.
+    // `mandatory_sources` is not among them: it differs per call site, and the
+    // final stage moves it.
+    let pricing = Pricing {
         request,
-        &target_handle,
-        &target,
+        target_handle: &target_handle,
+        target: &target,
+        navigation_by_handle: &navigation_by_handle,
+        canonical_by_handle: &canonical_by_handle,
+        directory_omissions: &directory_omissions,
+        options: &options,
+    };
+    let full_packet = build_serialized(
+        &pricing,
         &full_sources,
         &full_omissions,
+
         Packing {
             schema,
             method: "fullText",
@@ -914,7 +925,6 @@ fn compile_packet_with_schema(
             reviewed_knowledge: &validated_reviewed_knowledge,
             accepted_summaries: &[],
         },
-        &options,
     )?;
     if full_packet.input_tokens <= available {
         return finish_packet(
@@ -965,11 +975,10 @@ fn compile_packet_with_schema(
         )
     };
     let mandatory_packet = build_serialized(
-        request,
-        &target_handle,
-        &target,
+        &pricing,
         &mandatory_sources,
         &mandatory_omissions,
+
         Packing {
             schema,
             method: "layeredExcerpt",
@@ -980,7 +989,6 @@ fn compile_packet_with_schema(
             reviewed_knowledge: &[],
             accepted_summaries: &[],
         },
-        &options,
     )?;
     if mandatory_packet.input_tokens > available {
         mandatory_handles.extend(
@@ -1005,11 +1013,10 @@ fn compile_packet_with_schema(
     let mut included_turns = 0;
     for count in 1..=total_turns {
         let candidate = build_serialized(
-            request,
-            &target_handle,
-            &target,
+            &pricing,
             &mandatory_sources,
             &mandatory_omissions,
+
             Packing {
                 schema,
                 method: "layeredExcerpt",
@@ -1020,7 +1027,6 @@ fn compile_packet_with_schema(
                 reviewed_knowledge: &[],
                 accepted_summaries: &[],
             },
-            &options,
         )?;
         if candidate.input_tokens > available {
             break;
@@ -1032,11 +1038,10 @@ fn compile_packet_with_schema(
         let promise_omissions = reviewed_promise_omissions(&validated_reviewed_promises, &[]);
         let knowledge_omissions = reviewed_knowledge_omissions(&validated_reviewed_knowledge, &[]);
         let packet = build_serialized(
-            request,
-            &target_handle,
-            &target,
+            &pricing,
             &mandatory_sources,
             &mandatory_omissions,
+
             Packing {
                 schema,
                 method: "layeredExcerpt",
@@ -1047,7 +1052,6 @@ fn compile_packet_with_schema(
                 reviewed_knowledge: &[],
                 accepted_summaries: &[],
             },
-            &options,
         )?;
         return finish_packet(
             packet,
@@ -1105,11 +1109,10 @@ fn compile_packet_with_schema(
         let mut candidate = delivered_summaries.clone();
         candidate.push(summary.clone());
         let packet = build_serialized(
-            request,
-            &target_handle,
-            &target,
+            &pricing,
             &mandatory_sources,
             &mandatory_omissions,
+
             Packing {
                 schema,
                 method: "layeredExcerpt",
@@ -1120,7 +1123,6 @@ fn compile_packet_with_schema(
                 reviewed_knowledge: &[],
                 accepted_summaries: &candidate,
             },
-            &options,
         )?;
         if packet.input_tokens > available {
             break;
@@ -1169,11 +1171,10 @@ fn compile_packet_with_schema(
             &navigation_by_handle,
         ));
         let packet = build_serialized(
-            request,
-            &target_handle,
-            &target,
+            &pricing,
             &mandatory_sources,
             &candidate_omissions,
+
             Packing {
                 schema,
                 method: "layeredExcerpt",
@@ -1184,7 +1185,6 @@ fn compile_packet_with_schema(
                 reviewed_knowledge: &[],
                 accepted_summaries: &delivered_summaries,
             },
-            &options,
         )?;
         if packet.input_tokens <= available {
             delivered_views = candidate_views;
@@ -1195,192 +1195,49 @@ fn compile_packet_with_schema(
         }
     }
 
-    // Reviewed records are accepted evidence rather than generated views.
-    // Select complete record values in stable bundle/record order, stopping at
-    // the first item that does not fit so more budget only extends coverage.
+    let stage = Stage {
+        schema,
+        conversation_turns: included_turns,
+        delivered_views: &delivered_views,
+        delivered_summaries: &delivered_summaries,
+        optional_handles: &optional_handles,
+    };
     let mut delivered_reviewed_evidence: Vec<PackedReviewedEvidence> = Vec::new();
-    let mut evidence_budget_blocked = false;
-    for evidence in &validated_reviewed_evidence {
-        if evidence_budget_blocked {
-            break;
-        }
-        for record in &evidence.records {
-            let mut candidate_evidence = delivered_reviewed_evidence.clone();
-            if let Some(existing) = candidate_evidence.iter_mut().find(|item| {
-                item.set.source_handle == evidence.set.source_handle
-                    && item.set.bundle_id == evidence.set.bundle_id
-                    && item.set.records_hash == evidence.set.records_hash
-            }) {
-                existing.records.push(record.clone());
-            } else {
-                candidate_evidence.push(PackedReviewedEvidence {
-                    set: evidence.set.clone(),
-                    records: vec![record.clone()],
-                    projection_hash: evidence.projection_hash.clone(),
-                });
-            }
-            let packet = build_serialized(
-                request,
-                &target_handle,
-                &target,
-                &mandatory_sources,
-                &optional_omissions(
-                    &optional_handles_without_views(
-                        &optional_handles,
-                        &delivered_views,
-                        &navigation_by_handle,
-                    ),
-                    &canonical_by_handle,
-                    &HashMap::new(),
-                    &directory_omissions,
-                ),
-                Packing {
-                    schema,
-                    method: "layeredExcerpt",
-                    conversation_turns: included_turns,
-                    navigation_views: &delivered_views,
-                    reviewed_evidence: &candidate_evidence,
-                    reviewed_promises: &[],
-                    reviewed_knowledge: &[],
-                    accepted_summaries: &delivered_summaries,
-                },
-                &options,
-            )?;
-            if packet.input_tokens <= available {
-                delivered_reviewed_evidence = candidate_evidence;
-            } else {
-                evidence_budget_blocked = true;
-                break;
-            }
-        }
-    }
+    pack_reviewed_evidence(
+        &pricing,
+        &stage,
+        &mandatory_sources,
+        &validated_reviewed_evidence,
+        &mut delivered_reviewed_evidence,
+        &mut available,
+    )?;
     let reviewed_evidence_omissions =
         reviewed_evidence_omissions(&validated_reviewed_evidence, &delivered_reviewed_evidence);
 
-    // Promise observations are packed after possession evidence, but retain a
-    // distinct envelope and receipt.  Each candidate is a prefix of the
-    // authenticated, policy-eligible order; a rejected candidate stops the
-    // promise stream so later observations cannot displace earlier ones.
     let mut delivered_reviewed_promises: Vec<PackedReviewedPromises> = Vec::new();
-    let mut promise_budget_blocked = false;
-    for promises in &validated_reviewed_promises {
-        if promise_budget_blocked {
-            break;
-        }
-        for record in &promises.records {
-            let mut candidate_promises = delivered_reviewed_promises.clone();
-            if let Some(existing) = candidate_promises.iter_mut().find(|item| {
-                item.set.source_handle == promises.set.source_handle
-                    && item.set.bundle_id == promises.set.bundle_id
-                    && item.set.records_hash == promises.set.records_hash
-            }) {
-                existing.records.push(record.clone());
-            } else {
-                candidate_promises.push(PackedReviewedPromises {
-                    set: promises.set.clone(),
-                    records: vec![record.clone()],
-                    projection_hash: promises.projection_hash.clone(),
-                });
-            }
-            let packet = build_serialized(
-                request,
-                &target_handle,
-                &target,
-                &mandatory_sources,
-                &optional_omissions(
-                    &optional_handles_without_views(
-                        &optional_handles,
-                        &delivered_views,
-                        &navigation_by_handle,
-                    ),
-                    &canonical_by_handle,
-                    &HashMap::new(),
-                    &directory_omissions,
-                ),
-                Packing {
-                    schema,
-                    method: "layeredExcerpt",
-                    conversation_turns: included_turns,
-                    navigation_views: &delivered_views,
-                    reviewed_evidence: &delivered_reviewed_evidence,
-                    reviewed_promises: &candidate_promises,
-                    reviewed_knowledge: &[],
-                    accepted_summaries: &delivered_summaries,
-                },
-                &options,
-            )?;
-            if packet.input_tokens <= available {
-                delivered_reviewed_promises = candidate_promises;
-            } else {
-                promise_budget_blocked = true;
-                break;
-            }
-        }
-    }
+    pack_reviewed_promises(
+        &pricing,
+        &stage,
+        &mandatory_sources,
+        &delivered_reviewed_evidence,
+        &validated_reviewed_promises,
+        &mut delivered_reviewed_promises,
+        &mut available,
+    )?;
     let reviewed_promise_omissions =
         reviewed_promise_omissions(&validated_reviewed_promises, &delivered_reviewed_promises);
 
-    // Knowledge observations preserve reported attitudes separately from world
-    // truth. They follow earlier evidence categories and retain a
-    // distinct envelope and receipt.  Each candidate is a prefix of the
-    // authenticated, policy-eligible order; a rejected candidate stops the
-    // knowledge stream so later observations cannot displace earlier ones.
     let mut delivered_reviewed_knowledge: Vec<PackedReviewedKnowledge> = Vec::new();
-    let mut knowledge_budget_blocked = false;
-    for knowledge in &validated_reviewed_knowledge {
-        if knowledge_budget_blocked {
-            break;
-        }
-        for record in &knowledge.records {
-            let mut candidate_knowledge = delivered_reviewed_knowledge.clone();
-            if let Some(existing) = candidate_knowledge.iter_mut().find(|item| {
-                item.set.source_handle == knowledge.set.source_handle
-                    && item.set.bundle_id == knowledge.set.bundle_id
-                    && item.set.records_hash == knowledge.set.records_hash
-            }) {
-                existing.records.push(record.clone());
-            } else {
-                candidate_knowledge.push(PackedReviewedKnowledge {
-                    set: knowledge.set.clone(),
-                    records: vec![record.clone()],
-                    projection_hash: knowledge.projection_hash.clone(),
-                });
-            }
-            let packet = build_serialized(
-                request,
-                &target_handle,
-                &target,
-                &mandatory_sources,
-                &optional_omissions(
-                    &optional_handles_without_views(
-                        &optional_handles,
-                        &delivered_views,
-                        &navigation_by_handle,
-                    ),
-                    &canonical_by_handle,
-                    &HashMap::new(),
-                    &directory_omissions,
-                ),
-                Packing {
-                    schema,
-                    method: "layeredExcerpt",
-                    conversation_turns: included_turns,
-                    navigation_views: &delivered_views,
-                    reviewed_evidence: &delivered_reviewed_evidence,
-                    reviewed_promises: &delivered_reviewed_promises,
-                    reviewed_knowledge: &candidate_knowledge,
-                    accepted_summaries: &delivered_summaries,
-                },
-                &options,
-            )?;
-            if packet.input_tokens <= available {
-                delivered_reviewed_knowledge = candidate_knowledge;
-            } else {
-                knowledge_budget_blocked = true;
-                break;
-            }
-        }
-    }
+    pack_reviewed_knowledge(
+        &pricing,
+        &stage,
+        &mandatory_sources,
+        &delivered_reviewed_evidence,
+        &delivered_reviewed_promises,
+        &validated_reviewed_knowledge,
+        &mut delivered_reviewed_knowledge,
+        &mut available,
+    )?;
     let reviewed_knowledge_omissions =
         reviewed_knowledge_omissions(&validated_reviewed_knowledge, &delivered_reviewed_knowledge);
 
@@ -1437,11 +1294,10 @@ fn compile_packet_with_schema(
                 &navigation_by_handle,
             ));
             let packet = build_serialized(
-                request,
-                &target_handle,
-                &target,
+                &pricing,
                 &replaced,
                 &candidate_omissions,
+
                 Packing {
                     schema,
                     method: "layeredExcerpt",
@@ -1452,7 +1308,6 @@ fn compile_packet_with_schema(
                     reviewed_knowledge: &delivered_reviewed_knowledge,
                     accepted_summaries: &delivered_summaries,
                 },
-                &options,
             )?;
             if packet.input_tokens <= available {
                 selected = replaced;
@@ -1469,11 +1324,10 @@ fn compile_packet_with_schema(
     // separate original-source omission so the receipt explains the
     // representation change.
     let packet = build_serialized(
-        request,
-        &target_handle,
-        &target,
+        &pricing,
         &selected,
         &omissions,
+
         Packing {
             schema,
             method: "layeredExcerpt",
@@ -1484,7 +1338,6 @@ fn compile_packet_with_schema(
             reviewed_knowledge: &delivered_reviewed_knowledge,
             accepted_summaries: &delivered_summaries,
         },
-        &options,
     )?;
     finish_packet(
         packet,
