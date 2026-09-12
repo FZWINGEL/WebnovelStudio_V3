@@ -5280,6 +5280,7 @@ version = "3.0.0"
 name = "wns-bindings"
 version = "3.0.0"
 dependencies = [
+ "serde",
  "specta",
  "wns-kernel",
 ]

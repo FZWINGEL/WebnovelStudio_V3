@@ -44,11 +44,21 @@
 //!   that. specta 1.0 reads only `rename_all` on the *container* and never reads
 //!   serde's attributes at all, so it emitted `entity_kind` where the wire has
 //!   `entityKind`. The remedy is `#[specta(rename_all = "camelCase")]` on each
-//!   variant; it made no difference where it was tried, so check that against a
-//!   single known-good variant before applying it across the tree. Until it is
-//!   settled, every adjacent-tagged enum with struct variants generates fields
-//!   that do not match the wire, and the frontend tail is inflated by however
-//!   many of those there are.
+//!   variant — settled against a minimal case in `tests/variant_fields.rs`, and
+//!   it works. A container-level attribute does not: its `rename_all` applies to
+//!   variant *names*. Applying this across the tree took the workshop group's
+//!   frontend tail from 83 errors to 24 in one step, which is most of what that
+//!   tail was.
+//!
+//! * **A field Rust omits when empty cannot be expressed, and that is the last
+//!   blocker.** `#[serde(default, skip_serializing_if = "Vec::is_empty")]` means
+//!   the field is *absent* on the wire, so the frontend reads `undefined` where
+//!   the generated type promises an array. That is a latent crash, not a type
+//!   error. `#[specta(optional)]` marks `Option` fields and does nothing for the
+//!   rest — `tests/variant_fields.rs` pins both halves. The honest fixes are to
+//!   make those Rust fields `Option<Vec<T>>`, or to hand-write the optionality
+//!   in the frontend; either is a decision to take deliberately, and it is what
+//!   stands between the workshop group's remaining 24 errors and zero.
 //!
 //! **Let the compiler close both lists.** The workshop's derives converged in 6
 //!   rounds (workshop → story vocabulary → run vocabulary → provider and context

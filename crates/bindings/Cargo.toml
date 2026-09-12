@@ -7,3 +7,6 @@ description = "Not a layer: generates the frontend's IPC bindings from the Rust 
 [dependencies]
 specta = "1.0.5"
 wns-kernel = { path = "../kernel" }
+
+[dev-dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
