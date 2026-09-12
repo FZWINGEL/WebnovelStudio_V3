@@ -482,3 +482,7 @@ pub fn insert_receipt(
     connection.execute("INSERT INTO command_receipts(operation_namespace,operation_id,document_id,payload_hash,operation_kind,result_json) VALUES(?,?,?,?,?,?)", params![namespace, id, result.head.document_id, payload, kind, serde_json::to_string(result)?])?;
     Ok(())
 }
+
+/// The creation record written beside a project database.
+pub mod creation;
+pub use creation::{CreationOrigin, read_creation_origin, write_creation_origin};

@@ -10,15 +10,11 @@
 //! split exists because the actor and the records change for different reasons,
 //! and a crate cannot be extracted from a namespace.
 
-use super::check_id;
 use crate::documents::Endpoint;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
 use wns_kernel::{
-    CoreError, CoreResult, DocumentRecord, Head, ProjectAccess, ProjectInfo,
+    DocumentRecord, Head, ProjectAccess, ProjectInfo,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -26,39 +22,6 @@ use wns_kernel::{
 pub struct ProjectMetadata {
     pub project: ProjectInfo,
     pub metadata_version: String,
-}
-/// Identity of the library operation that installed this independent folder.
-/// Kept beside the database so registry recovery does not require a schema upgrade.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CreationOrigin {
-    pub operation_namespace: String,
-    pub operation_id: String,
-}
-pub fn write_creation_origin(path: &Path, origin: &CreationOrigin) -> CoreResult<()> {
-    check_id(&origin.operation_namespace)?;
-    check_id(&origin.operation_id)?;
-    let mut file = File::create_new(path.join("creation.json"))?;
-    file.write_all(&serde_json::to_vec(origin)?)?;
-    file.sync_all()?;
-    Ok(())
-}
-pub fn read_creation_origin(path: &Path) -> CoreResult<CreationOrigin> {
-    use std::io::Read;
-    let mut bytes = Vec::new();
-    File::open(path.join("creation.json"))?
-        .take(4097)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() > 4096 {
-        return Err(CoreError::new(
-            "InvalidProject",
-            "Invalid project creation record.",
-        ));
-    }
-    let origin: CreationOrigin = serde_json::from_slice(&bytes)?;
-    check_id(&origin.operation_namespace)?;
-    check_id(&origin.operation_id)?;
-    Ok(origin)
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -103,3 +66,7 @@ pub use wns_documents::records::{
     CheckpointReason, CheckpointRequest, OperationReceipt, ReconcileRequest, ReconciledDocument,
     SaveAck, SaveCause, SaveSnapshot,
 };
+
+// The creation record moved to `wns-storage` (L1), beside the database it
+// describes. Re-exported at the historical path.
+pub use wns_storage::creation::{CreationOrigin, read_creation_origin, write_creation_origin};

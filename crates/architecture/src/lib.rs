@@ -31,7 +31,14 @@ pub const LAYERS: &[(&str, &str, u32)] = &[
     ("wns-story", "crates/story", 4),
     ("wns-conversation", "crates/conversation", 5),
     ("wns-workshop", "crates/workshop", 5),
-    ("wns-transfer", "crates/transfer", 5),
+    // Raised from L5 to L6. `transfer` is a pure CONSUMER: backup validation calls
+    // every concern's own storage validator, so it sits above all of them rather
+    // than beside them. Nothing depends on it except the app shell, so the raise
+    // costs no other crate a renumber. Its old charter said "L5, may depend on
+    // L0–L3" — that was aspirational; the module it was written for already
+    // reached `story_context`, `reviewed_story` and `memory` at L4 and the
+    // conversation and workshop validators at L5.
+    ("wns-transfer", "crates/transfer", 6),
     ("wns-library", "crates/library", 5),
 ];
 
