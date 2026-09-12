@@ -320,6 +320,23 @@ module, chat adoption bridging to `features/chat`. The `<Writer>`-as-ReactNode i
 (`Workspace.tsx:1182`) is replaced by the chat feature rendering the editor itself through
 the editor feature's public interface.
 
+**Done.** App-close orchestration is `shell/useAppClose.ts`; the chat renders `<Writer>`
+itself from the editor's inputs, with the document surface moved to `editor/` (and chapter
+memory to `story/`) so the edge is feature→feature. `Workspace.tsx` went 1,206 → 963.
+
+**Measured, not done — and the measurement changes the plan.** Library CRUD and the
+document-session cluster are not separable by moving functions. `activate` alone resets
+search, the create/rename/import dialogs, the project tab, the notice and the workspace
+mode; the cluster's other fifteen functions reach roughly twenty of `Workspace`'s state
+cells and setters between them. Extracting them as a hook with those as parameters
+produces a twenty-five-argument interface that holds `Workspace`'s state and merely
+returns it — the coupling is relocated, not removed.
+
+What these two items actually require is moving the *ownership* of `project` and `active`
+out of `Workspace` into a workspace-model hook, with the shell rendering from it. That is a
+larger change than this section describes, and it should be planned as its own step rather
+than attempted as an extraction.
+
 ---
 
 ## 5. Migration sequence
