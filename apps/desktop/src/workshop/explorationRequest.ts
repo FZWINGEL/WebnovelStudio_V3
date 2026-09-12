@@ -22,6 +22,6 @@ export function explorationRequest({ session, version, action, candidate, dimens
     action, instruction,
     selectedScope: action === 'voiceGuidance' ? 'Voice qualities from the sample' : candidate?.title ?? (isCurrentSession && capture ? 'Selected passage in working version' : session.selectedScope),
     selectedText: candidate?.content ?? (isCurrentSession ? capture?.text : undefined) ?? (action === 'voiceGuidance' && isCurrentSession ? session.workingText : ''),
-    workingSelection: action !== 'voiceGuidance' && !candidate && isCurrentSession && capture ? { from: capture.from, to: capture.to, text: capture.text } : null,
+    workingSelection: action !== 'voiceGuidance' && !candidate && isCurrentSession && capture ? { from: capture.from, to: capture.to, text: capture.text } : undefined,
   };
 }

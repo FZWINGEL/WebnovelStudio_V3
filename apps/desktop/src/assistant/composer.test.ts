@@ -101,7 +101,7 @@ describe('unsent discussion persistence', () => {
     const restored = new ComposerSession('document', ack(write.mock.calls[0][0]), () => access, write);
     expect(restored.body.intent).toBe('proposeEdits');
     expect(restored.dirty).toBe(false);
-    restored.update({ ...restored.body, intent: 'discuss', previousRunId: null });
+    restored.update({ ...restored.body, intent: 'discuss', previousRunId: undefined });
     expect(restored.dirty).toBe(true);
   });
 

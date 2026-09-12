@@ -13,14 +13,14 @@ export type ApplyAck = { access: ProjectAccess; operationId: string; alreadyAppl
 
 export type ApplyProposal = { access: ProjectAccess; operationId: string; proposalId: string; preparedId: string; expected: Head; resultHash: string; localGeneration: string }
 
-export type AssistantDraft = { document: DocumentRecord; conversationId: string; originRunId: string; packetId: string; initialRevisionId: string; target: Head | null; predecessorDocumentId?: string | null; disposition: string; dispositionVersion: string; stale: boolean }
+export type AssistantDraft = { document: DocumentRecord; conversationId: string; originRunId: string; packetId: string; initialRevisionId: string; target: Head | null; predecessorDocumentId?: string; disposition: string; dispositionVersion: string; stale: boolean }
 
 /**
  * Read-only, source-bound feedback from an unscoped chapter discussion. The
  * range is a suggestion for the writer; it is not a scope grant and cannot be
  * adopted without a fresh editor-captured request.
  */
-export type ChapterDiscussionFeedback = { runId: string; target: Head; answer: string; rangeProposal?: ChapterRangeProposal | null; rangeError?: string | null }
+export type ChapterDiscussionFeedback = { runId: string; target: Head; answer: string; rangeProposal?: ChapterRangeProposal; rangeError?: string }
 
 export type ChapterRangeProposal = { sourceHead: Head; firstBlockId: string; lastBlockId: string; quote: string }
 
@@ -33,9 +33,9 @@ export type ChatAdoptionAck = { previewId: string; documents: DocumentRecord[]; 
  */
 export type ChatAdoptionEffects = { version: string; sourceOutputHash: string; relationshipDependencies: ChatRelationshipDependency[]; protectedContent: ChatProtectedContent[]; proposedRelationships: ChatAdoptionRelationship[]; impacts: ChatAdoptionImpact[]; supersessions: ChatAdoptionSupersession[]; placements: ChatAdoptionPlacement[] }
 
-export type ChatAdoptionImpact = { targetDocumentId: string; kind: string; reason: string; relationshipId?: string | null; relationshipKey?: string | null }
+export type ChatAdoptionImpact = { targetDocumentId: string; kind: string; reason: string; relationshipId?: string; relationshipKey?: string }
 
-export type ChatAdoptionPlacement = { targetDocumentId: string; beforeDocumentId?: string | null; afterDocumentId?: string | null }
+export type ChatAdoptionPlacement = { targetDocumentId: string; beforeDocumentId?: string; afterDocumentId?: string }
 
 export type ChatAdoptionPreview = { id: string; version: string; digest: string; projectId: string; operationNamespace: string; conversationId: string; sourceEpoch: string; policyEpoch: string; workshopVersion: string; targets: ChatAdoptionTarget[]; effects: ChatAdoptionEffects | null }
 
@@ -55,7 +55,7 @@ export type ContinuationCandidate = { title: string; paragraphs: string[]; expla
 
 export type ConversationItem = { id: string; sequence: string; kind: string; referenceId: string | null; payload: any; createdAt: string }
 
-export type DiscussionDraft = { documentId: string; version: string; text: string; intent?: FeedbackIntent; basis?: BasisKind | null; scope: DiscussionScopeInput | null; pinnedDocumentIds: string[]; safeBrief?: SafeBriefInput | null; previousRunId?: string | null; updatedAt: string; lookup?: LookupAllowance | null }
+export type DiscussionDraft = { documentId: string; version: string; text: string; intent?: FeedbackIntent; basis?: BasisKind; scope: DiscussionScopeInput | null; pinnedDocumentIds: string[]; safeBrief?: SafeBriefInput; previousRunId?: string; updatedAt: string; lookup?: LookupAllowance }
 
 export type DiscussionMessage = { id: string; threadId: string; runId: string | null; role: DiscussionMessageRole; content: string; scope: ScopeGrant | null; packetId: string | null; createdAt: string }
 
@@ -67,7 +67,7 @@ export type DiscussionView = { documentId: string; threadId: string | null; mess
 
 export type HistoricalConversation = { conversation: HistoricalConversationRef; anchorDocumentId: string; items: HistoricalConversationItem[]; olderBefore: string | null }
 
-export type HistoricalConversationItem = { item: ConversationItem; run?: DiscussionRun | null; messages?: DiscussionMessage[]; sourceRevisions?: HistoricalSourceRevision[]; draftRevisions?: HistoricalDraftRevision[] }
+export type HistoricalConversationItem = { item: ConversationItem; run?: DiscussionRun; messages?: DiscussionMessage[]; sourceRevisions?: HistoricalSourceRevision[]; draftRevisions?: HistoricalDraftRevision[] }
 
 export type HistoricalConversationRef = { projectId: string; operationNamespace: string; conversationId: string }
 
@@ -83,11 +83,11 @@ export type PrepareProposal = { access: ProjectAccess; operationId: string; prop
 
 export type PrepareStructured = { access: ProjectAccess; operationId: string; proposalId: string; expectedPreparedVersion: string; blocks: TypedReplacementBlock[]; body: any }
 
-export type PreparedProposal = { id: string; proposalId: string; version: string; replacementText: string; paragraphs?: string[] | null; blocks?: TypedReplacementBlock[] | null; body: any; bodyHash: string }
+export type PreparedProposal = { id: string; proposalId: string; version: string; replacementText: string; paragraphs?: string[]; blocks?: TypedReplacementBlock[]; body: any; bodyHash: string }
 
-export type ProjectChapterComposer = { target: Head; intent: FeedbackIntent; basis?: BasisKind | null; scope?: DiscussionScopeInput | null; safeBrief?: SafeBriefInput | null }
+export type ProjectChapterComposer = { target: Head; intent: FeedbackIntent; basis?: BasisKind; scope?: DiscussionScopeInput; safeBrief?: SafeBriefInput }
 
-export type ProjectComposer = { text: string; sourceRefs?: Head[]; taskDraftRefs?: ProjectChatDraftRef[]; focusedDocumentRef?: Head | null; chapter?: ProjectChapterComposer | null }
+export type ProjectComposer = { text: string; sourceRefs?: Head[]; taskDraftRefs?: ProjectChatDraftRef[]; focusedDocumentRef?: Head; chapter?: ProjectChapterComposer }
 
 export type ProjectComposerSnapshot = { conversationId: string; version: string; body: ProjectComposer }
 
@@ -112,17 +112,17 @@ export type ReadProjectChatHistory = { access: ProjectAccess; conversation: Hist
  * A request-scoped author direction. It is separate from story evidence and
  * only enters a restricted writing packet after explicit confirmation.
  */
-export type SafeBriefInput = { text: string; originMessageId: string | null; confirmed: boolean; projectOrigin?: ProjectBriefOrigin | null }
+export type SafeBriefInput = { text: string; originMessageId: string | null; confirmed: boolean; projectOrigin?: ProjectBriefOrigin }
 
-export type SaveDiscussionDraft = { access: ProjectAccess; operationId: string; documentId: string; expectedVersion: string; text: string; intent?: FeedbackIntent; basis?: BasisKind | null; scope: DiscussionScopeInput | null; pinnedDocumentIds: string[]; safeBrief?: SafeBriefInput | null; previousRunId?: string | null; lookup?: LookupAllowance | null }
+export type SaveDiscussionDraft = { access: ProjectAccess; operationId: string; documentId: string; expectedVersion: string; text: string; intent?: FeedbackIntent; basis?: BasisKind; scope: DiscussionScopeInput | null; pinnedDocumentIds: string[]; safeBrief?: SafeBriefInput; previousRunId?: string; lookup?: LookupAllowance }
 
 export type SaveGuidance = { access: ProjectAccess; operationId: string; guidanceId: string; expectedVersion: string; text: string; scope: GuidanceScope; documentId: string | null; active: boolean; originMessageId: string | null }
 
 export type SaveProjectComposer = { access: ProjectAccess; operationId: string; conversationId: string; expectedVersion: string; body: ProjectComposer }
 
-export type StartProjectChapter = { access: ProjectAccess; operationId: string; conversationId: string; expectedComposerVersion: string; composer: ProjectComposer; budget: MockContextBudget; providerBinding?: ProviderBinding | null }
+export type StartProjectChapter = { access: ProjectAccess; operationId: string; conversationId: string; expectedComposerVersion: string; composer: ProjectComposer; budget: MockContextBudget; providerBinding?: ProviderBinding }
 
-export type StartProjectChat = { access: ProjectAccess; operationId: string; conversationId: string; expectedComposerVersion: string; composer: ProjectComposer; budget: MockContextBudget; providerBinding?: ProviderBinding | null }
+export type StartProjectChat = { access: ProjectAccess; operationId: string; conversationId: string; expectedComposerVersion: string; composer: ProjectComposer; budget: MockContextBudget; providerBinding?: ProviderBinding }
 
 /**
  * A structured candidate replaces complete blocks selected by an explicit

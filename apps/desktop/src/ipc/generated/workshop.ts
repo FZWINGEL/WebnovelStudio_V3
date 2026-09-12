@@ -38,7 +38,7 @@ export type CandidateChoice = { candidateId: string; status: CandidateChoiceStat
 
 export type CandidateChoiceStatus = "saved" | "rejected" | "archived"
 
-export type DiscussionRun = { id: string; threadId: string; owner: RunOwner; operationId: string; intent: FeedbackIntent; basis?: BasisKind | null; payloadHash: string; target: Head; packetId: string; providerBinding?: ProviderBinding | null; providerResult?: ProviderResult | null; lookup?: LookupRunSummary | null; previousRunId: string | null; status: DiscussionRunStatus; dispatchState: string; sequence: string; outputText: string; stopReason: string | null; createdAt: string; updatedAt: string }
+export type DiscussionRun = { id: string; threadId: string; owner: RunOwner; operationId: string; intent: FeedbackIntent; basis?: BasisKind; payloadHash: string; target: Head; packetId: string; providerBinding?: ProviderBinding; providerResult?: ProviderResult; lookup?: LookupRunSummary; previousRunId: string | null; status: DiscussionRunStatus; dispatchState: string; sequence: string; outputText: string; stopReason: string | null; createdAt: string; updatedAt: string }
 
 export type DiscussionRunStatus = "queued" | "running" | "stopping" | "completed" | "stopped" | "failed" | "interrupted"
 
@@ -58,7 +58,7 @@ export type HttpDeliverySubmission = "notSent" | "uncertain" | "responseReceived
 
 export type HttpProviderBinding = { baseUrl: string; configRevision: string; stream: boolean; responseFormat: HttpResponseFormat }
 
-export type HttpProviderUsage = { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null }
+export type HttpProviderUsage = { inputTokens?: number; outputTokens?: number; totalTokens?: number }
 
 export type HttpResponseFormat = "text" | "jsonObject"
 
@@ -92,11 +92,11 @@ export type PreviewWorkshopAdoption = { access: ProjectAccess; sessionId: string
  * qualified contracts; this slice accepts only the explicit Codex and
  * OpenAI-compatible contracts below.
  */
-export type ProviderBinding = { providerId: string; modelId: string; reasoning: string | null; serviceTier: string | null; profileVersion: string; inputLimitBytes: string; reservedOutputBytes: string; reservedProtocolBytes: string; outputLimitBytes: string; accountingMethod: string; runtime?: ProviderRuntimeIdentity | null; http?: HttpProviderBinding | null }
+export type ProviderBinding = { providerId: string; modelId: string; reasoning: string | null; serviceTier: string | null; profileVersion: string; inputLimitBytes: string; reservedOutputBytes: string; reservedProtocolBytes: string; outputLimitBytes: string; accountingMethod: string; runtime?: ProviderRuntimeIdentity; http?: HttpProviderBinding }
 
 export type ProviderCleanup = "settled" | "unresolved"
 
-export type ProviderDeliveryReceipt = { bodyHash: string; bodyBytes: string; submission: HttpDeliverySubmission; usage?: HttpProviderUsage | null }
+export type ProviderDeliveryReceipt = { bodyHash: string; bodyBytes: string; submission: HttpDeliverySubmission; usage?: HttpProviderUsage }
 
 /**
  * The provider-side outcome is kept separate from the discussion lifecycle.
@@ -105,9 +105,9 @@ export type ProviderDeliveryReceipt = { bodyHash: string; bodyBytes: string; sub
  */
 export type ProviderOutcomeStatus = "completed" | "stopped" | "timedOut" | "outputLimit" | "failed"
 
-export type ProviderResult = { runId: string; packetId: string; eventId: string; expectedSequence: string; assistantText: string; binding: ProviderBinding; status: ProviderOutcomeStatus; confirmedStdinBytes: string; usage: ProviderUsage | null; cleanup: ProviderCleanup; error: string | null; effectiveIdentity: string | null; reportedModel?: string | null; createdAt: string; delivery?: ProviderDeliveryReceipt | null; appServer?: AppServerDelivery | null }
+export type ProviderResult = { runId: string; packetId: string; eventId: string; expectedSequence: string; assistantText: string; binding: ProviderBinding; status: ProviderOutcomeStatus; confirmedStdinBytes: string; usage: ProviderUsage | null; cleanup: ProviderCleanup; error: string | null; effectiveIdentity: string | null; reportedModel?: string; createdAt: string; delivery?: ProviderDeliveryReceipt; appServer?: AppServerDelivery }
 
-export type ProviderRuntimeIdentity = { cliVersion: string; executableSha256: string; catalogSha256?: string | null; appServer?: AppServerRuntimeIdentity | null }
+export type ProviderRuntimeIdentity = { cliVersion: string; executableSha256: string; catalogSha256?: string; appServer?: AppServerRuntimeIdentity }
 
 /**
  * Raw provider usage is optional. Missing usage is an explicit unknown value;
@@ -151,7 +151,7 @@ export type WorkshopDecisionStatus = "chosen" | "archived" | "superseded"
 
 export type WorkshopDepth = "sketch" | "develop" | "document"
 
-export type WorkshopImpact = { id: string; decisionId: string; documentId: string; kind: WorkshopImpactKind; reason: string; status: WorkshopImpactStatus; candidateId?: string | null; relationshipId?: string | null }
+export type WorkshopImpact = { id: string; decisionId: string; documentId: string; kind: WorkshopImpactKind; reason: string; status: WorkshopImpactStatus; candidateId?: string; relationshipId?: string }
 
 /**
  * An author classification supplied with an adoption preview.  It is tied
@@ -187,9 +187,9 @@ export type WorkshopRelationshipDraft = { id: string; fromDocumentId: string; to
 
 export type WorkshopRelationshipStatus = "tentative" | "chosen" | "archived"
 
-export type WorkshopResult = { run: DiscussionRun; sessionId: string; workingGeneration: string; action: string; workingSelection?: WorkshopWorkingSelection | null; output: WorkshopOutput | null; validationError: string | null; stale: boolean }
+export type WorkshopResult = { run: DiscussionRun; sessionId: string; workingGeneration: string; action: string; workingSelection?: WorkshopWorkingSelection; output: WorkshopOutput | null; validationError: string | null; stale: boolean }
 
-export type WorkshopSession = { id: string; title: string; lens: Lens; parentSessionId: string | null; branchKind: WorkshopBranchKind; brief: string; direction: string; stillOpen: string; focusQuestion: string; focusReason: string; focusDocumentId: string | null; anchorDocumentId: string | null; depth: WorkshopDepth; outsideDirection: boolean; includedDocumentIds: string[]; workingText: string; workingTitle: string; workingGeneration: string; selectedDetails: SelectedDetail[]; choices: CandidateChoice[]; questions: WorkshopQuestion[]; composer: string; selectedScope: string; originalNotes: string; activeRunId: string | null; relationshipId?: string | null; storyPossibilities?: StoryPossibility[] }
+export type WorkshopSession = { id: string; title: string; lens: Lens; parentSessionId: string | null; branchKind: WorkshopBranchKind; brief: string; direction: string; stillOpen: string; focusQuestion: string; focusReason: string; focusDocumentId: string | null; anchorDocumentId: string | null; depth: WorkshopDepth; outsideDirection: boolean; includedDocumentIds: string[]; workingText: string; workingTitle: string; workingGeneration: string; selectedDetails: SelectedDetail[]; choices: CandidateChoice[]; questions: WorkshopQuestion[]; composer: string; selectedScope: string; originalNotes: string; activeRunId: string | null; relationshipId?: string; storyPossibilities?: StoryPossibility[] }
 
 export type WorkshopSnapshot = { version: string; state: WorkshopState }
 

@@ -59,7 +59,7 @@ const project: OpenedProject = {
 function completedRun(): DiscussionRun {
   return {
     id: 'run-1', threadId: 'thread-1', owner: { projectId: access.projectId, operationNamespace: access.operationNamespace, runId: 'run-1' },
-    operationId: 'operation-1', intent: 'discuss', basis: null, payloadHash: 'b'.repeat(64), target: head,
+    operationId: 'operation-1', intent: 'discuss', basis: undefined, payloadHash: 'b'.repeat(64), target: head,
     packetId: 'packet-exact', previousRunId: null, status: 'completed', dispatchState: 'delivered', sequence: '1',
     outputText: JSON.stringify({ schemaVersion: 'project-assistant-output.v1', answer: 'A readable answer.', questions: [], assumptions: [] }),
     stopReason: null, createdAt: '2026-09-09T00:00:00.000Z', updatedAt: '2026-09-09T00:00:01.000Z',

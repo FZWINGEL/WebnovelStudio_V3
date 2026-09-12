@@ -19,8 +19,8 @@ it('binds exact committed version and refuses stale captured text or generation'
 it('does not leak another exploration capture and treats voice guidance as a sample', () => {
   const session = { ...newSession(), workingText: 'The sample.' };
   const base = { session, version: '1', action: 'voiceGuidance', capture: null, subversion: '' };
-  expect(explorationRequest({ ...base, isCurrentSession: true })).toMatchObject({ selectedText: 'The sample.', workingSelection: null });
-  expect(explorationRequest({ ...base, isCurrentSession: false, capture: { from: 0, to: 6, text: 'secret', generation: '0' } })).toMatchObject({ selectedText: '', workingSelection: null });
+  expect(explorationRequest({ ...base, isCurrentSession: true })).toMatchObject({ selectedText: 'The sample.', workingSelection: undefined });
+  expect(explorationRequest({ ...base, isCurrentSession: false, capture: { from: 0, to: 6, text: 'secret', generation: '0' } })).toMatchObject({ selectedText: '', workingSelection: undefined });
 });
 it('organization and candidate comparison retain explicit scope and fixed-detail instructions', () => {
   const session = { ...newSession('notebook'), selectedScope: NOTES_ORGANIZATION_SCOPE, composer: 'Keep my wording.' };
@@ -31,5 +31,5 @@ it('organization and candidate comparison retain explicit scope and fixed-detail
   expect(compared.instruction).not.toContain(ORGANIZE_NOTES_INSTRUCTION);
   expect(compared.instruction).toContain('Preserve author-chosen invariants and Keep fixed details');
   expect(compared.instruction).toContain('Pace');
-  expect(compared).toMatchObject({ selectedScope: 'Option', selectedText: 'Provisional', workingSelection: null });
+  expect(compared).toMatchObject({ selectedScope: 'Option', selectedText: 'Provisional', workingSelection: undefined });
 });

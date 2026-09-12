@@ -122,10 +122,11 @@ pub struct OptionalForms {
 ///
 /// The `| null` on the two skipped fields is specta's rendering of `Option`,
 /// not something the wire does: a field skipped when `None` is *absent*, never
-/// `null`. Removing it would tighten 141 fields across 64 types, but the same
-/// type often travels both ways — a request may legitimately omit what a
-/// response always carries — and `null` is accepted on the way in. Left as a
-/// widening: it forces a defensive check, it cannot cause one to be missed.
+/// `null`. This test reads specta directly and so still shows the suffix;
+/// `group()` removes it for the fields [`SKIPPED_WHEN_NONE`] lists, and
+/// `tests/skipped.rs` re-derives that list from the Rust source. A caller that
+/// would have sent `null` omits the field instead, which `#[serde(default)]`
+/// reads identically.
 #[test]
 fn optional_is_an_option_plus_an_omission_attribute() {
     let text = specta::ts::export::<OptionalForms>(&cfg()).unwrap();

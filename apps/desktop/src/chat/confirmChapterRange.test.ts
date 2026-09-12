@@ -22,7 +22,7 @@ it('confirms exact paragraphs into a separate unsent edit request while preservi
   const { body, session, range, save } = await fixture();
   const stage = vi.fn(async () => { expect(session.state.editable).toBe(false); });
   await confirmChapterRange(session, range, async () => range, stage);
-  expect(stage).toHaveBeenCalledWith({ target: range.target, intent: 'proposeEdits', basis: null, scope: range.scope });
+  expect(stage).toHaveBeenCalledWith({ target: range.target, intent: 'proposeEdits', basis: undefined, scope: range.scope });
   expect(stage.mock.calls).toHaveLength(1); expect(save).not.toHaveBeenCalled();
   expect(session.body).toEqual(body); expect(range.scope.quote).not.toContain('ending'); expect(session.state.editable).toBe(true);
 });

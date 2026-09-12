@@ -620,7 +620,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     const hash = await bodyHash(canonicalJson(emptyBody));
     vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), draft: {
       documentId: 'document', version: '1', text: 'Tighten this passage.', intent: 'discuss',
-      scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 16 }, quote: 'A quiet chapter.', sourceBodyHash: hash }, pinnedDocumentIds: [], previousRunId: null, updatedAt: 'now',
+      scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 16 }, quote: 'A quiet chapter.', sourceBodyHash: hash }, pinnedDocumentIds: [], previousRunId: undefined, updatedAt: 'now',
     } });
     vi.mocked(discussions.startDiscussion).mockImplementation(async request => startResult(session, 'proposal-run', request.operationId));
     await renderPanel(session);
@@ -633,7 +633,7 @@ describe('persistent FeedbackPanel safeguards', () => {
 
     const noteSession = await makeSession('document-b');
     vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document-b'), draft: {
-      documentId: 'document-b', version: '1', text: 'Try this.', intent: 'proposeEdits', scope: null, pinnedDocumentIds: [], previousRunId: null, updatedAt: 'now',
+      documentId: 'document-b', version: '1', text: 'Try this.', intent: 'proposeEdits', scope: null, pinnedDocumentIds: [], previousRunId: undefined, updatedAt: 'now',
     } });
     await act(async () => root.render(<FeedbackPanel session={noteSession} state={noteSession.state} title="Note" documentKind="note" selection={null} visible onClose={() => {}} registerSaver={() => {}} />));
     await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
@@ -647,7 +647,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), draft: {
       documentId: 'document', version: '1', text: 'Keep the promise in view.', intent: 'discuss',
       scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 16 }, quote: 'A quiet chapter.', sourceBodyHash: hash },
-      pinnedDocumentIds: ['worldbuilding-1'], previousRunId: null, updatedAt: 'now',
+      pinnedDocumentIds: ['worldbuilding-1'], previousRunId: undefined, updatedAt: 'now',
     } });
     await renderPanel(session);
     await waitFor(() => expect(host.textContent).toContain('Selected passage'));
@@ -665,7 +665,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document-b'), draft: {
       documentId: 'document-b', version: '1', text: 'Keep this world detail.', intent: 'discuss',
       scope: { kind: 'wholeDocument', start: null, end: null, quote: 'A quiet chapter.', sourceBodyHash: hash },
-      pinnedDocumentIds: ['chapter-promise'], previousRunId: null, updatedAt: 'now',
+      pinnedDocumentIds: ['chapter-promise'], previousRunId: undefined, updatedAt: 'now',
     } });
     await act(async () => root.render(<FeedbackPanel session={session} state={session.state} title="World" documentKind="world" selection={null} visible onClose={() => {}} registerSaver={() => {}} />));
     await waitFor(() => expect(host.querySelector('#discussion-composer')).not.toBeNull());
@@ -694,7 +694,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), draft: {
       documentId: 'document', version: '1', text: 'Continue from this point.', intent: 'proposeEdits',
       scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 0 }, end: { blockId: 'paragraph-1', utf16Offset: 16 }, quote: 'A quiet chapter.', sourceBodyHash: hash },
-      pinnedDocumentIds: ['old-discussion-source'], previousRunId: null, updatedAt: 'now',
+      pinnedDocumentIds: ['old-discussion-source'], previousRunId: undefined, updatedAt: 'now',
     } });
     await renderPanel(session);
 
@@ -751,7 +751,7 @@ describe('persistent FeedbackPanel safeguards', () => {
     const hash = session.state.head.bodyHash;
     vi.mocked(discussions.readDiscussion).mockResolvedValue({ ...emptyView('document'), draft: {
       documentId: 'document', version: '1', text: 'Tighten this paragraph.', intent: 'proposeEdits',
-      scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 2 }, end: { blockId: 'paragraph-1', utf16Offset: 7 }, quote: 'quiet', sourceBodyHash: hash }, pinnedDocumentIds: [], previousRunId: null, updatedAt: 'now',
+      scope: { kind: 'passage', start: { blockId: 'paragraph-1', utf16Offset: 2 }, end: { blockId: 'paragraph-1', utf16Offset: 7 }, quote: 'quiet', sourceBodyHash: hash }, pinnedDocumentIds: [], previousRunId: undefined, updatedAt: 'now',
     } });
     vi.mocked(discussions.startDiscussion).mockImplementation(async request => startResult(session, 'blocks-run', request.operationId));
     await renderPanel(session);

@@ -21,15 +21,15 @@ export type MemoryOwner = { projectId: string; operationNamespace: string; jobId
 
 export type MemoryRead = { documentId: string; jobs: MemoryJob[]; views: MemoryView[]; pendingSave: boolean; pendingJobIds: string[] }
 
-export type MemoryResult = { appServer?: AppServerDelivery | null; jobId: string; eventId: string; rawOutput: string | null; outcome: ProviderOutcomeStatus; confirmedStdinBytes: string | null; usage: ProviderUsage | null; cleanup: ProviderCleanup | null; error: string | null; validationError: string | null; candidate: DigestCandidate | null; effectiveIdentity: string | null; delivery?: ProviderDeliveryReceipt | null; createdAt: string }
+export type MemoryResult = { appServer?: AppServerDelivery; jobId: string; eventId: string; rawOutput: string | null; outcome: ProviderOutcomeStatus; confirmedStdinBytes: string | null; usage: ProviderUsage | null; cleanup: ProviderCleanup | null; error: string | null; validationError: string | null; candidate: DigestCandidate | null; effectiveIdentity: string | null; delivery?: ProviderDeliveryReceipt; createdAt: string }
 
 export type MemoryView = { id: string; jobId: string; projectId: string; operationNamespace: string; documentId: string; target: Head; source: SourceRef; snapshotId: string; packetId: string; contextSourceEpoch: string; disclosurePolicyVersion: string; candidate: DigestCandidate | null; current: boolean; sourceChanged: boolean; policyAvailable: boolean; historical: boolean; createdAt: string }
 
 export type PreparationResult = { status: "prepared"; packet: CompiledPacket; current: boolean } | { status: "budgetRejected"; error: BudgetError }
 
-export type ReadyBundle = { id: string; projectId: string; operationNamespace: string; stageId: string; target: Head; records?: PossessionRecord[] | null; recordsHash?: string | null; promises?: PromiseRecord[] | null; promisesHash?: string | null; knowledge?: KnowledgeRecord[] | null; knowledgeHash?: string | null; summary?: SummaryRevision | null; summaryHash?: string | null; createdAt: string }
+export type ReadyBundle = { id: string; projectId: string; operationNamespace: string; stageId: string; target: Head; records?: PossessionRecord[]; recordsHash?: string; promises?: PromiseRecord[]; promisesHash?: string; knowledge?: KnowledgeRecord[]; knowledgeHash?: string; summary?: SummaryRevision; summaryHash?: string; createdAt: string }
 
-export type ReviewStage = { id: string; projectId: string; operationNamespace: string; target: Head; revision: Revision; previousBundleId: string | null; prefix: ReviewPrefixItem[]; records?: PossessionRecord[] | null; recordsHash?: string | null; promises?: PromiseRecord[] | null; promisesHash?: string | null; knowledge?: KnowledgeRecord[] | null; knowledgeHash?: string | null; summary?: SummaryRevision | null; summaryHash?: string | null; sourceEpoch: string; policyEpoch: string; createdAt: string }
+export type ReviewStage = { id: string; projectId: string; operationNamespace: string; target: Head; revision: Revision; previousBundleId: string | null; prefix: ReviewPrefixItem[]; records?: PossessionRecord[]; recordsHash?: string; promises?: PromiseRecord[]; promisesHash?: string; knowledge?: KnowledgeRecord[]; knowledgeHash?: string; summary?: SummaryRevision; summaryHash?: string; sourceEpoch: string; policyEpoch: string; createdAt: string }
 
 export type ReviewState = "noReview" | "ready" | "changedProse" | "earlierBasisChanged" | "reviewNeeded"
 
@@ -39,7 +39,7 @@ export type ReviewedEntityCatalog = { projectId: string; operationNamespace: str
 
 export type ReviewedEntityChoice = { entity: StoryEntityRef; labelVariants: string[]; firstDocumentId: string; firstDocumentTitle: string }
 
-export type ReviewedRecordSet = { bundleId: string; projectId: string; operationNamespace: string; target: Head; revision: Revision; records: PossessionRecord[]; recordsHash?: string | null; promises?: PromiseRecord[] | null; promisesHash?: string | null; knowledge?: KnowledgeRecord[] | null; knowledgeHash?: string | null; summary?: SummaryRevision | null; summaryHash?: string | null; current: boolean }
+export type ReviewedRecordSet = { bundleId: string; projectId: string; operationNamespace: string; target: Head; revision: Revision; records: PossessionRecord[]; recordsHash?: string; promises?: PromiseRecord[]; promisesHash?: string; knowledge?: KnowledgeRecord[]; knowledgeHash?: string; summary?: SummaryRevision; summaryHash?: string; current: boolean }
 
 export type SaveSourcePins = { access: ProjectAccess; operationId: string; scope: SourcePinScope; targetDocumentId: string | null; expectedVersion: string; sourceDocumentIds: string[] }
 
@@ -49,11 +49,11 @@ export type SourcePinSet = { scope: SourcePinScope; targetDocumentId: string | n
 
 export type SourcePinsView = { project: SourcePinSet; document: SourcePinSet }
 
-export type StageAuthorReview = { access: ProjectAccess; operationId: string; expected: Head; records?: PossessionRecord[] | null; promises?: PromiseRecord[] | null; knowledge?: KnowledgeRecord[] | null; summary?: SummaryChange | null }
+export type StageAuthorReview = { access: ProjectAccess; operationId: string; expected: Head; records?: PossessionRecord[]; promises?: PromiseRecord[]; knowledge?: KnowledgeRecord[]; summary?: SummaryChange }
 
-export type StartDiscussion = { access: ProjectAccess; operationId: string; expected: Head; instruction: string; intent?: FeedbackIntent; basis?: BasisKind | null; scope: DiscussionScopeInput | null; pinnedDocumentIds: string[]; safeBrief?: SafeBriefInput | null; budget: MockContextBudget; providerBinding?: ProviderBinding | null; previousRunId: string | null; lookup?: LookupAllowance | null }
+export type StartDiscussion = { access: ProjectAccess; operationId: string; expected: Head; instruction: string; intent?: FeedbackIntent; basis?: BasisKind; scope: DiscussionScopeInput | null; pinnedDocumentIds: string[]; safeBrief?: SafeBriefInput; budget: MockContextBudget; providerBinding?: ProviderBinding; previousRunId: string | null; lookup?: LookupAllowance }
 
-export type StartMemory = { access: ProjectAccess; operationId: string; expected: Head; budget: MockContextBudget; providerBinding?: ProviderBinding | null }
+export type StartMemory = { access: ProjectAccess; operationId: string; expected: Head; budget: MockContextBudget; providerBinding?: ProviderBinding }
 
 /**
  * An explicit author decision about the summary attached to a staged review.
@@ -62,5 +62,5 @@ export type StartMemory = { access: ProjectAccess; operationId: string; expected
  */
 export type SummaryChange = { kind: "set"; text: string; audience: SummaryAudience } | { kind: "clear" }
 
-export type WorkshopExploration = { sessionId: string; expectedVersion: string; workingGeneration: string; action: string; instruction: string; selectedScope: string; selectedText: string; workingSelection?: WorkshopWorkingSelection | null }
+export type WorkshopExploration = { sessionId: string; expectedVersion: string; workingGeneration: string; action: string; instruction: string; selectedScope: string; selectedText: string; workingSelection?: WorkshopWorkingSelection }
 

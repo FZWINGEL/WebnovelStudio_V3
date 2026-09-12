@@ -422,10 +422,17 @@ closes against existed. All four are fixed and the crate doc records them.
 What specta actually keys the `?` on is narrower than the plan assumed and is now pinned in
 `tests/variant_fields.rs`: an `Option` with an omission attribute, or a bare
 `#[serde(default)]` on anything. A `Vec` skipped when empty gets nothing, which is exactly
-the gap `OMITTED_WHEN_EMPTY` fills. The residual known widening is `| null` on the 141
-`Option` fields whose `None` is skipped — the wire omits those rather than sending `null`.
-It is left in place deliberately: the same type often travels both ways, `null` is accepted
-on the way in, and the cost is a defensive check rather than a missed one.
+the gap `OMITTED_WHEN_EMPTY` fills.
+
+There is a second list for the opposite error, and it was found the same way — by asking
+what the generated type claims rather than by a failing test. `Option<T>` with
+`skip_serializing_if = "Option::is_none"` never reaches the wire as `null`, but specta emits
+`| null` for every `Option` regardless, so 141 fields across 64 types promised a value that
+cannot arrive. `SKIPPED_WHEN_NONE` lists them, `group()` strips the suffix, and
+`tests/skipped.rs` re-derives the list from the Rust source the way `omitted.rs` does.
+Removing it is safe in the request direction too: a caller that would have passed `null`
+omits the field, and `#[serde(default)]` reads the two identically. The frontend tail was 25
+sites, every one of them passing a `null` the wire never carries.
 
 ### 4.5 Shell
 

@@ -10,7 +10,7 @@
  */
 export type AppliedDecision = { decisionId: string; proposalId: string; preparedId: string; beforeRevisionId: string; afterRevisionId: string }
 
-export type CoreError = { code: string; detail: string; currentHead?: Head | null }
+export type CoreError = { code: string; detail: string; currentHead?: Head }
 
 /**
  * One document row, typed.
@@ -85,5 +85,5 @@ export type SnapshotReceipt = { snapshot: any; canonicalJson: string; hash: stri
  * `wns-storage::insert_receipt` writes, so it lives at L0 with them rather
  * than beside any one command that produces one.
  */
-export type StoredResult = { head: Head; savedGeneration: string; applied?: AppliedDecision | null; restored?: RestoredDecision | null }
+export type StoredResult = { head: Head; savedGeneration: string; applied?: AppliedDecision; restored?: RestoredDecision }
 

@@ -2,7 +2,7 @@
 // Change the Rust type and run `cargo run -p wns-bindings`.
 import type { Head } from './kernel';
 
-export type DraftExportPreview = { id: string; projectId: string; operationNamespace: string; sourceHead: Head; revisionId: string; format: DraftFormat; formatVersion: number; utf8Bytes: number; sha256: string; formatLoss: string; previewText: string; reviewBundleId?: string | null }
+export type DraftExportPreview = { id: string; projectId: string; operationNamespace: string; sourceHead: Head; revisionId: string; format: DraftFormat; formatVersion: number; utf8Bytes: number; sha256: string; formatLoss: string; previewText: string; reviewBundleId?: string }
 
 export type DraftFormat = "plainText" | "markdown"
 

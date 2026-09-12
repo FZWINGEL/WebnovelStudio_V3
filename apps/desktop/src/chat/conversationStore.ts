@@ -299,7 +299,7 @@ export class ProjectConversationStore {
       : [...(this.snapshot.composer.sourceRefs ?? []), copy(head)];
     // Attaching material is an explicit return to the broad project context.
     // It must not leave a restricted chapter task attached to the next send.
-    this.updateComposer({ sourceRefs: copy(sourceRefs), chapter: null });
+    this.updateComposer({ sourceRefs: copy(sourceRefs), chapter: undefined });
     await this.flush();
   }
   setChapterIntent(intent: NonNullable<ProjectChapterComposer['intent']>): void {
@@ -307,7 +307,7 @@ export class ProjectConversationStore {
     if (!chapter) return;
     if (intent === 'proposeEdits' && !chapter.scope) { this.set({ error: 'Select text in the chapter before requesting edits.' }); return; }
     const safeBrief = chapter.safeBrief ? { ...copy(chapter.safeBrief), confirmed: false } : chapter.safeBrief;
-    this.updateComposer({ chapter: { ...copy(chapter), intent, basis: intent === 'continue' ? chapter.basis ?? 'working' : null, safeBrief } });
+    this.updateComposer({ chapter: { ...copy(chapter), intent, basis: intent === 'continue' ? chapter.basis ?? 'working' : undefined, safeBrief } });
   }
   setChapterBasis(basis: NonNullable<ProjectChapterComposer['basis']>): void {
     const chapter = this.snapshot.composer.chapter;
@@ -318,13 +318,13 @@ export class ProjectConversationStore {
   setChapterBrief(brief: SafeBriefInput | null): void {
     const chapter = this.snapshot.composer.chapter;
     if (!chapter) return;
-    this.updateComposer({ chapter: { ...copy(chapter), safeBrief: brief ? copy(brief) : null } });
+    this.updateComposer({ chapter: { ...copy(chapter), safeBrief: brief ? copy(brief) : undefined } });
   }
   async clearChapter(): Promise<void> {
     this.assertActive();
     if (!this.snapshot.view) await this.load();
     this.assertActive();
-    this.updateComposer({ chapter: null });
+    this.updateComposer({ chapter: undefined });
     await this.flush();
   }
   private updateComposer(changes: Partial<ProjectComposer>): void {

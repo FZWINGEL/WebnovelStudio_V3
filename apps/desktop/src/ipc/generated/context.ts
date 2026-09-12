@@ -24,7 +24,7 @@ export type BudgetErrorCode = "mandatoryContextTooLarge" | "budgetExhausted" | "
  */
 export type CharacterGrant = { characterId: string; sourceHandle: string; readerFrontier: string }
 
-export type ChatDispositionScope = { kind: ChatDispositionScopeKind; referenceId?: string | null }
+export type ChatDispositionScope = { kind: ChatDispositionScopeKind; referenceId?: string }
 
 /**
  * The bounded story surface to which a question decision applies. A missing
@@ -97,9 +97,9 @@ export type EvidenceHistoryObservation = { recordId: string; sourceHandle: strin
  */
 export type EvidenceHistoryUncertainty = "disclosureLimited" | "excludedSources" | "earlierTiming" | "unknownTiming" | "unknownHolder" | "differingHolders"
 
-export type FrozenContext = { snapshot: StorySnapshot; policy: InformationPolicy; purpose: ContextPurpose; aliases: { [key: string]: string[] }; excludedSourceCount: number; guidance?: FrozenGuidance[]; conversation?: FrozenConversation | null; navigationViews?: FrozenNavigationView[]; reviewedEvidence?: ReviewedEvidenceSet[]; reviewedPromises?: ReviewedPromiseSet[]; reviewedKnowledge?: ReviewedKnowledgeSet[]; reviewedSummaries?: ReviewedSummarySet[]; projectChat?: FrozenProjectChat | null }
+export type FrozenContext = { snapshot: StorySnapshot; policy: InformationPolicy; purpose: ContextPurpose; aliases: { [key: string]: string[] }; excludedSourceCount: number; guidance?: FrozenGuidance[]; conversation?: FrozenConversation; navigationViews?: FrozenNavigationView[]; reviewedEvidence?: ReviewedEvidenceSet[]; reviewedPromises?: ReviewedPromiseSet[]; reviewedKnowledge?: ReviewedKnowledgeSet[]; reviewedSummaries?: ReviewedSummarySet[]; projectChat?: FrozenProjectChat }
 
-export type FrozenConversation = { projectId: string; operationNamespace: string; documentId: string; projectConversationId?: string | null; threadId: string; turns: ConversationTurn[]; omittedTurns: number }
+export type FrozenConversation = { projectId: string; operationNamespace: string; documentId: string; projectConversationId?: string; threadId: string; turns: ConversationTurn[]; omittedTurns: number }
 
 /**
  * An exact author-room instruction selected when a request freezes. The
@@ -114,9 +114,9 @@ export type FrozenNavigationView = { reference: NavigationViewRef; sourceContext
  * `source_refs` and `task_draft_refs` retain the exact request claims after
  * the project owner has authenticated them against SQLite.
  */
-export type FrozenProjectChat = { conversationId: string; anchorDocumentId: string; operationNamespace: string; sourceRefs: Head[]; taskDraftRefs: ProjectChatDraftRef[]; promptRecipeVersion?: string | null; dispositions?: FrozenProjectChatDisposition[] }
+export type FrozenProjectChat = { conversationId: string; anchorDocumentId: string; operationNamespace: string; sourceRefs: Head[]; taskDraftRefs: ProjectChatDraftRef[]; promptRecipeVersion?: string; dispositions?: FrozenProjectChatDisposition[] }
 
-export type FrozenProjectChatDisposition = { itemId: string; payloadHash: string; referenceId: string; producerRunId: string; key: string; itemKind: string; text: string; disposition: string; version: string; rationale: string; scope?: ChatDispositionScope; unknownTo?: ChatUnknownTo | null }
+export type FrozenProjectChatDisposition = { itemId: string; payloadHash: string; referenceId: string; producerRunId: string; key: string; itemKind: string; text: string; disposition: string; version: string; rationale: string; scope?: ChatDispositionScope; unknownTo?: ChatUnknownTo }
 
 export type GuidanceScope = "request" | "document" | "project"
 
@@ -153,7 +153,7 @@ export type LookupExchange = { request: LookupRead; result: LookupReadResult }
  * packet compiler owns semantic validation of request/result correspondence,
  * source identity, and byte budgets.
  */
-export type LookupPacketInput = { allowance: LookupAllowance; completedInvocations: number; exchanges: LookupExchange[]; sourceProjection?: LookupSourceProjection | null; reviewedMemory?: string | null }
+export type LookupPacketInput = { allowance: LookupAllowance; completedInvocations: number; exchanges: LookupExchange[]; sourceProjection?: LookupSourceProjection; reviewedMemory?: string | null }
 
 /**
  * One application-executed lookup request. The provider cannot supply a
@@ -204,13 +204,13 @@ export type PacketMessage = { role: string; content: string }
  * Exact options sent with the deterministic packet. Provider-specific
  * options are intentionally deferred until a qualified adapter exists.
  */
-export type PacketOptions = { modelId: string; maxOutputTokens?: string; tokenAccountingMethod: string; providerBinding?: ProviderBinding | null }
+export type PacketOptions = { modelId: string; maxOutputTokens?: string; tokenAccountingMethod: string; providerBinding?: ProviderBinding }
 
 /**
  * Exact durable receipt contract for a compiled packet. C2 owns packet
  * construction; C0 defines the fields that must remain auditable.
  */
-export type PacketReceipt = { lookup?: LookupPacketInput | null; packetId: string; sessionId: string; snapshotId: string; invocationOrdinal: string; sourceHandles: string[]; mandatorySourceHandles?: string[]; guidanceHandles?: string[]; conversationMessageIds?: string[]; omittedDiscussionTurns?: number; safeBrief?: SafeBriefReceipt | null; coverage: CoverageEntry[]; omissions: string[]; navigationViews?: NavigationViewRef[]; navigationOmissions?: NavigationViewOmission[]; reviewedEvidence?: ReviewedEvidenceCoverage[]; reviewedEvidenceOmissions?: ReviewedEvidenceOmission[]; reviewedPromises?: ReviewedEvidenceCoverage[]; reviewedPromiseOmissions?: ReviewedEvidenceOmission[]; reviewedKnowledge?: ReviewedEvidenceCoverage[]; reviewedKnowledgeOmissions?: ReviewedEvidenceOmission[]; reviewedSummaries?: ReviewedSummaryCoverage[]; reviewedSummaryOmissions?: ReviewedSummaryOmission[]; inputHash: string; inputTokens: string; tokenAccountingMethod: string }
+export type PacketReceipt = { lookup?: LookupPacketInput; packetId: string; sessionId: string; snapshotId: string; invocationOrdinal: string; sourceHandles: string[]; mandatorySourceHandles?: string[]; guidanceHandles?: string[]; conversationMessageIds?: string[]; omittedDiscussionTurns?: number; safeBrief?: SafeBriefReceipt; coverage: CoverageEntry[]; omissions: string[]; navigationViews?: NavigationViewRef[]; navigationOmissions?: NavigationViewOmission[]; reviewedEvidence?: ReviewedEvidenceCoverage[]; reviewedEvidenceOmissions?: ReviewedEvidenceOmission[]; reviewedPromises?: ReviewedEvidenceCoverage[]; reviewedPromiseOmissions?: ReviewedEvidenceOmission[]; reviewedKnowledge?: ReviewedEvidenceCoverage[]; reviewedKnowledgeOmissions?: ReviewedEvidenceOmission[]; reviewedSummaries?: ReviewedSummaryCoverage[]; reviewedSummaryOmissions?: ReviewedSummaryOmission[]; inputHash: string; inputTokens: string; tokenAccountingMethod: string }
 
 export type PossessionRecord = { id: string; object: StoryEntityRef; holder: StoryEntityRef | null; timing: PossessionTiming; audience: EvidenceAudience; evidence: EvidenceAnchor }
 
@@ -303,7 +303,7 @@ export type ReviewedSummaryOmissionReason = "budget" | "disclosure" | "originalT
 
 export type ReviewedSummarySet = { projectId: string; operationNamespace: string; bundleId: string; summaryHash: string; sourceHandle: string; summary: SummaryRevision }
 
-export type SafeBriefReceipt = { text: string; textHash: string; originMessageId: string | null; projectOrigin?: ProjectBriefOrigin | null }
+export type SafeBriefReceipt = { text: string; textHash: string; originMessageId: string | null; projectOrigin?: ProjectBriefOrigin }
 
 /**
  * A source-bound scope grant. Endpoints are required for passage and blocks;
@@ -352,7 +352,7 @@ export type StoryEntityRef = { id: string; label: string }
 /**
  * Immutable source and policy basis for one context request.
  */
-export type StorySnapshot = { snapshotId: string; projectId: string; basis: BasisKind; target: SourceRef; contextSourceEpoch: string; orderingEpoch: string; disclosurePolicyVersion: string; sources: SourceDescriptor[]; reviewedBasis?: ReviewedBasisManifest | null }
+export type StorySnapshot = { snapshotId: string; projectId: string; basis: BasisKind; target: SourceRef; contextSourceEpoch: string; orderingEpoch: string; disclosurePolicyVersion: string; sources: SourceDescriptor[]; reviewedBasis?: ReviewedBasisManifest }
 
 /**
  * Optional fictional chronology. Eligibility never uses it to override the

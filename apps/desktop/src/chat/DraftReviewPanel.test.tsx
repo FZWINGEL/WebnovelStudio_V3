@@ -165,7 +165,7 @@ describe('DraftReviewPanel editor lifecycle', () => {
       effects: {
         version: 'chat-adoption-effects.v1', sourceOutputHash: 'output-hash', relationshipDependencies: [],
         protectedContent: [{ targetDocumentId: 'target-1', sourceHead: { ...head, documentId: 'target-1', version: '3' }, text: 'Preserve this metadata.', textHash: 'protected-hash' }],
-        proposedRelationships: [], impacts: [{ targetDocumentId: 'target-1', kind: 'possibleTension', reason: 'Review this consequence.', relationshipKey: null }], supersessions: [], placements: [],
+        proposedRelationships: [], impacts: [{ targetDocumentId: 'target-1', kind: 'possibleTension', reason: 'Review this consequence.', relationshipKey: undefined }], supersessions: [], placements: [],
       },
       targets: [{ draft: { head: { ...head, version: '7' }, dispositionVersion: '1' }, draftRevisionId: 'revision-7', documentId: 'target-1', title: 'World sketch', kind: 'world', before: null, body }],
     } as ChatAdoptionPreview;

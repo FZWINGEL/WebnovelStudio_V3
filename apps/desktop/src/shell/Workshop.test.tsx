@@ -378,7 +378,7 @@ describe('Story Workshop behavioral contracts', () => {
     expect(currentView.state.preferences).toEqual([preference, expect.objectContaining({ ...preference, id: expect.any(String), targetId: child.id })]);
     expect(currentView.state.preferences[1].id).not.toBe(preference.id);
     const request = mocks.startWorkshop.mock.calls[0][2];
-    expect(request).toMatchObject({ sessionId: child.id, action: 'directions', selectedScope: NOTES_ORGANIZATION_SCOPE, selectedText: '', workingSelection: null });
+    expect(request).toMatchObject({ sessionId: child.id, action: 'directions', selectedScope: NOTES_ORGANIZATION_SCOPE, selectedText: '', workingSelection: undefined });
     expect(request.instruction).toContain(ORGANIZE_NOTES_INSTRUCTION);
     expect(mocks.saveWorkshop.mock.invocationCallOrder.at(-1)!).toBeLessThan(mocks.startWorkshop.mock.invocationCallOrder[0]);
     expect(mocks.previewWorkshopAdoption).not.toHaveBeenCalled();
@@ -922,7 +922,7 @@ describe('Story Workshop behavioral contracts', () => {
     expect([...host.querySelectorAll('.candidate-card button')].some(button => button.textContent === 'Develop this')).toBe(false);
     await act(async () => exactButton('Propose voice guidance').click());
     await waitFor(() => expect(mocks.startWorkshop).toHaveBeenCalledOnce());
-    expect(mocks.startWorkshop.mock.calls[0][2]).toMatchObject({ action: 'voiceGuidance', selectedText: sample.content, selectedScope: 'Voice qualities from the sample', workingSelection: null });
+    expect(mocks.startWorkshop.mock.calls[0][2]).toMatchObject({ action: 'voiceGuidance', selectedText: sample.content, selectedScope: 'Voice qualities from the sample', workingSelection: undefined });
     expect(mocks.startWorkshop.mock.calls[0][2].instruction).toContain('STYLE instructions only');
     expect(currentView.state.sessions[0].workingText).toBe(source.workingText);
     expect(currentView.state.sessions[0].selectedDetails).toEqual([]);
@@ -1120,7 +1120,7 @@ describe('Story Workshop behavioral contracts', () => {
     await act(async () => exactButton('Bring existing notes').click());
     await act(async () => selectValue('Saved material', 'guild'));
     await waitFor(() => expect(currentView.state.sessions[0].selectedScope).toBe('Element: Repair guild'));
-    expect(currentView.state.sessions[0]).toMatchObject({ relationshipId: null, focusDocumentId: 'guild', workingText: fixture.original.workingText });
+    expect(currentView.state.sessions[0]).toMatchObject({ relationshipId: undefined, focusDocumentId: 'guild', workingText: fixture.original.workingText });
     expect(mocks.startWorkshop).not.toHaveBeenCalled();
     expect(onDocumentsChanged).not.toHaveBeenCalled();
   });

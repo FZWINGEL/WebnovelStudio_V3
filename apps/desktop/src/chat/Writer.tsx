@@ -109,7 +109,7 @@ export function Writer({ active, sources, onError, onRename, navigation, convers
     const scope = selected
       ? { kind: 'passage' as const, start: selected.start, end: selected.end, quote: selected.quote, sourceBodyHash: hash }
       : intent === 'proposeEdits' ? captureRevisionScope(captured, hash, 'wholeDocument') : null;
-    await bridge.stageChapter({ target: session.state.head, intent, basis: intent === 'continue' ? 'working' : null, scope });
+    await bridge.stageChapter({ target: session.state.head, intent, basis: intent === 'continue' ? 'working' : undefined, scope: scope ?? undefined });
     setMenu(null);
   }
   const refreshChatProposals = useCallback(async () => {

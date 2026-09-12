@@ -117,7 +117,7 @@ pub fn group(
     for (_, text) in exported {
         for block in split_declarations(&text?) {
             if let Some(name) = declaration_name(&block) {
-                let marked = mark_omitted(&name, &block);
+                let marked = mark_absent(&name, &mark_omitted(&name, &block));
                 declarations.entry(name).or_insert(marked);
             }
         }
@@ -239,6 +239,162 @@ pub const OMITTED_WHEN_EMPTY: &[(&str, &str)] = &[
     ("WorkshopSession", "story_possibilities"),
 ];
 
+/// Fields Rust omits when unset, whose generated type must not offer `| null`.
+///
+/// `skip_serializing_if = "Option::is_none"` means `None` is *absent* on the
+/// wire, never `null` — so `applied?: AppliedDecision | null` promises a value
+/// that cannot arrive. specta emits `| null` for every `Option` and cannot be
+/// told otherwise, so the suffix is removed here, from a list that
+/// `tests/skipped.rs` re-derives from the Rust source.
+///
+/// Removing it is safe in the request direction too: a caller that would have
+/// passed `null` can omit the field, and `#[serde(default)]` reads the two
+/// identically.
+pub const SKIPPED_WHEN_NONE: &[(&str, &str)] = &[
+    // 141 fields across 64 types
+    ("AssistantDraft", "predecessor_document_id"),
+    ("BackgroundWorkItem", "title"),
+    ("ChapterDiscussionFeedback", "range_error"),
+    ("ChapterDiscussionFeedback", "range_proposal"),
+    ("ChapterDiscussionOutput", "range_proposal"),
+    ("ChapterDiscussionProjection", "range_error"),
+    ("ChapterDiscussionProjection", "range_proposal"),
+    ("ChatAdoptionImpact", "relationship_id"),
+    ("ChatAdoptionImpact", "relationship_key"),
+    ("ChatAdoptionPlacement", "after_document_id"),
+    ("ChatAdoptionPlacement", "before_document_id"),
+    ("ChatDispositionScope", "reference_id"),
+    ("ChatDraftOutput", "predecessor_handle"),
+    ("ChatImpactProposal", "relationship_key"),
+    ("ChatMaterialization", "group_effects"),
+    ("ChatPlacementProposal", "after_ref"),
+    ("ChatPlacementProposal", "before_ref"),
+    ("CompleteMemory", "app_server"),
+    ("CompleteMemory", "cleanup"),
+    ("CompleteMemory", "confirmed_stdin_bytes"),
+    ("CompleteMemory", "delivery"),
+    ("CompleteMemory", "effective_identity"),
+    ("CompleteMemory", "error"),
+    ("CompleteMemory", "usage"),
+    ("CoreError", "current_head"),
+    ("DiscussionDraft", "basis"),
+    ("DiscussionDraft", "lookup"),
+    ("DiscussionDraft", "previous_run_id"),
+    ("DiscussionDraft", "safe_brief"),
+    ("DiscussionRetry", "basis"),
+    ("DiscussionRetry", "lookup"),
+    ("DiscussionRetry", "safe_brief"),
+    ("DiscussionRun", "basis"),
+    ("DiscussionRun", "lookup"),
+    ("DiscussionRun", "provider_binding"),
+    ("DiscussionRun", "provider_result"),
+    ("DraftExportPreview", "review_bundle_id"),
+    ("ExportRecord", "review_bundle_id"),
+    ("FrozenContext", "conversation"),
+    ("FrozenContext", "project_chat"),
+    ("FrozenConversation", "project_conversation_id"),
+    ("FrozenProjectChat", "prompt_recipe_version"),
+    ("FrozenProjectChatDisposition", "unknown_to"),
+    ("HistoricalConversationItem", "run"),
+    ("HttpProviderUsage", "input_tokens"),
+    ("HttpProviderUsage", "output_tokens"),
+    ("HttpProviderUsage", "total_tokens"),
+    ("LookupPacketInput", "source_projection"),
+    ("MemoryResult", "app_server"),
+    ("MemoryResult", "delivery"),
+    ("PacketOptions", "provider_binding"),
+    ("PacketReceipt", "lookup"),
+    ("PacketReceipt", "safe_brief"),
+    ("PacketRequest", "lookup"),
+    ("PacketRequest", "provider_binding"),
+    ("PacketRequest", "response_contract"),
+    ("PacketRequest", "safe_brief"),
+    ("PacketRequest", "workshop_metadata"),
+    ("PrepareChatAdoption", "group_effects"),
+    ("PrepareContext", "lookup"),
+    ("PrepareContext", "provider_binding"),
+    ("PrepareContext", "response_contract"),
+    ("PrepareContext", "safe_brief"),
+    ("PrepareContext", "transient_mandatory_handles"),
+    ("PreparedProposal", "blocks"),
+    ("PreparedProposal", "paragraphs"),
+    ("ProjectAssistantOutput", "chapter_handoff"),
+    ("ProjectAssistantOutput", "group_effects"),
+    ("ProjectChapterComposer", "basis"),
+    ("ProjectChapterComposer", "safe_brief"),
+    ("ProjectChapterComposer", "scope"),
+    ("ProjectChatFreeze", "prompt_recipe_version"),
+    ("ProjectComposer", "chapter"),
+    ("ProjectComposer", "focused_document_ref"),
+    ("ProviderBinding", "http"),
+    ("ProviderBinding", "runtime"),
+    ("ProviderDeliveryReceipt", "usage"),
+    ("ProviderResult", "app_server"),
+    ("ProviderResult", "delivery"),
+    ("ProviderResult", "reported_model"),
+    ("ProviderRuntimeIdentity", "app_server"),
+    ("ProviderRuntimeIdentity", "catalog_sha256"),
+    ("ProviderTerminalReport", "app_server"),
+    ("ProviderTerminalReport", "delivery"),
+    ("ProviderTerminalReport", "reported_model"),
+    ("ReadyBundle", "knowledge"),
+    ("ReadyBundle", "knowledge_hash"),
+    ("ReadyBundle", "promises"),
+    ("ReadyBundle", "promises_hash"),
+    ("ReadyBundle", "records"),
+    ("ReadyBundle", "records_hash"),
+    ("ReadyBundle", "summary"),
+    ("ReadyBundle", "summary_hash"),
+    ("ReviewStage", "knowledge"),
+    ("ReviewStage", "knowledge_hash"),
+    ("ReviewStage", "promises"),
+    ("ReviewStage", "promises_hash"),
+    ("ReviewStage", "records"),
+    ("ReviewStage", "records_hash"),
+    ("ReviewStage", "summary"),
+    ("ReviewStage", "summary_hash"),
+    ("ReviewedRecordSet", "knowledge"),
+    ("ReviewedRecordSet", "knowledge_hash"),
+    ("ReviewedRecordSet", "promises"),
+    ("ReviewedRecordSet", "promises_hash"),
+    ("ReviewedRecordSet", "records_hash"),
+    ("ReviewedRecordSet", "summary"),
+    ("ReviewedRecordSet", "summary_hash"),
+    ("SafeBriefInput", "project_origin"),
+    ("SafeBriefReceipt", "project_origin"),
+    ("SaveDiscussionDraft", "basis"),
+    ("SaveDiscussionDraft", "lookup"),
+    ("SaveDiscussionDraft", "previous_run_id"),
+    ("SaveDiscussionDraft", "safe_brief"),
+    ("SetChatDisposition", "scope"),
+    ("SetChatDisposition", "unknown_to"),
+    ("StageAuthorReview", "knowledge"),
+    ("StageAuthorReview", "promises"),
+    ("StageAuthorReview", "records"),
+    ("StageAuthorReview", "summary"),
+    ("StartDiscussion", "basis"),
+    ("StartDiscussion", "lookup"),
+    ("StartDiscussion", "provider_binding"),
+    ("StartDiscussion", "safe_brief"),
+    ("StartMemory", "provider_binding"),
+    ("StartProjectChapter", "provider_binding"),
+    ("StartProjectChat", "provider_binding"),
+    ("StartWorkshop", "provider_binding"),
+    ("StoredResult", "applied"),
+    ("StoredResult", "restored"),
+    ("StorySnapshot", "reviewed_basis"),
+    ("WorkshopContext", "author_brief"),
+    ("WorkshopContext", "relationship"),
+    ("WorkshopExploration", "working_selection"),
+    ("WorkshopGenerationRequest", "provider_binding"),
+    ("WorkshopImpact", "candidate_id"),
+    ("WorkshopImpact", "relationship_id"),
+    ("WorkshopPacketMetadata", "relationship"),
+    ("WorkshopPacketMetadata", "voice_guidance"),
+    ("WorkshopResult", "working_selection"),
+    ("WorkshopSession", "relationship_id"),
+];
+
 /// `story_possibilities` -> `storyPossibilities`.
 fn camel(field: &str) -> String {
     let mut out = String::new();
@@ -283,6 +439,56 @@ fn mark_omitted(name: &str, block: &str) -> String {
                 out.insert(after, '?');
             }
             from = after + 1;
+        }
+    }
+    out
+}
+
+/// Drop the `| null` specta adds to an `Option` whose `None` is skipped.
+fn mark_absent(name: &str, block: &str) -> String {
+    let mut out = block.to_owned();
+    for (ty, field) in SKIPPED_WHEN_NONE {
+        if *ty != name {
+            continue;
+        }
+        let key = camel(field);
+        let mut from = 0;
+        while let Some(rel) = out[from..].find(&key) {
+            let at = from + rel;
+            let free = !out[..at].chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_');
+            // `mark_omitted` has already inserted the `?` this field needs, so
+            // the key is followed by `?:` as often as by `:`.
+            let mut after = at + key.len();
+            if out[after..].starts_with('?') {
+                after += 1;
+            }
+            if !free || !out[after..].starts_with(':') {
+                from = at + key.len();
+                continue;
+            }
+            // The type runs to the next `;` or `}` at this depth; an inline
+            // object inside it nests, so braces are counted.
+            let start = after + 1;
+            let mut depth = 0_i32;
+            let mut end = out.len();
+            for (offset, c) in out[start..].char_indices() {
+                match c {
+                    '{' | '[' | '(' => depth += 1,
+                    '}' | ']' | ')' if depth == 0 => { end = start + offset; break }
+                    '}' | ']' | ')' => depth -= 1,
+                    ';' if depth == 0 => { end = start + offset; break }
+                    _ => {}
+                }
+            }
+            // The terminator is left out of the slice, so the segment carries
+            // whatever whitespace preceded it — `RestoredDecision | null ` when
+            // the field is last in its object. A bare `ends_with` misses that.
+            let trimmed = out[start..end].trim_end().len();
+            if out[start..start + trimmed].ends_with(" | null") {
+                let cut = start + trimmed - " | null".len();
+                out.replace_range(cut..start + trimmed, "");
+            }
+            from = start;
         }
     }
     out

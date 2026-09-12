@@ -27,6 +27,6 @@ export async function confirmChapterRange(
     if (canonicalJson(scope) !== canonicalJson(shown.scope)) {
       throw new Error('The suggested passage does not match these exact saved paragraphs. Select the passage again.');
     }
-    await stage({ target: head, intent: 'proposeEdits', basis: null, scope });
+    await stage({ target: head, intent: 'proposeEdits', basis: undefined, scope });
   });
 }

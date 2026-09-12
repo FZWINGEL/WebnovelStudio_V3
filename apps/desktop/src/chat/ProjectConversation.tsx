@@ -685,7 +685,7 @@ export const ProjectConversation = forwardRef<ProjectConversationHandle, Project
     if (!isCurrentConversation()) return;
     if (target.kind !== 'chapter' || (target.role ?? 'ordinary') !== 'ordinary') throw new Error('Choose an ordinary chapter for this writing task.');
     const text = [proposal.instruction.trim(), proposal.brief.trim()].filter(Boolean).join('\n\n');
-    await store.stageChapter({ target: target.head, intent: 'continue', basis: 'working', scope: null, safeBrief: {
+    await store.stageChapter({ target: target.head, intent: 'continue', basis: 'working', scope: undefined, safeBrief: {
       text, originMessageId: messageId, confirmed: false,
       projectOrigin: { version: 'project-conversation-brief.v1', projectId: project.access.projectId, operationNamespace: project.access.operationNamespace,
         conversationId: state.view.id, messageId, target: target.head, scopeHash: '0'.repeat(64), textHash: '0'.repeat(64) },

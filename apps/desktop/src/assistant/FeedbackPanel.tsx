@@ -186,7 +186,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
     } else if (previousIntent !== nextIntent && nextIntent === 'discuss') {
       setPinNotice('');
     }
-    if (!keepRetry) next = { ...next, previousRunId: null };
+    if (!keepRetry) next = { ...next, previousRunId: undefined };
     if (composerIntent(next) !== 'continue') next = { ...next, basis: undefined };
     if (composerIntent(next) === 'discuss') next = { ...next, safeBrief: undefined };
     else {
@@ -360,7 +360,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
       confirmed = true;
       setPending(null);
       setView(previous => previous ? { ...previous, threadId: result.threadId, messages: [...previous.messages.filter(item => item.id !== result.userMessage.id), result.userMessage], runs: [...previous.runs.filter(item => item.id !== result.run.id), result.run] } : previous);
-      const sentBody = request ? { text: request.instruction, intent: request.intent, basis: request.basis, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId, safeBrief: request.safeBrief, lookup: request.lookup } : submitted;
+      const sentBody = request ? { text: request.instruction, intent: request.intent, basis: request.basis, scope: request.scope, pinnedDocumentIds: request.pinnedDocumentIds, previousRunId: request.previousRunId ?? undefined, safeBrief: request.safeBrief, lookup: request.lookup } : submitted;
       if (submittedController.clearIfUnchanged(sentBody)) { setBody(structuredClone(submittedController.body)); await submittedController.save(); }
       if (!isCurrent()) return;
       await refresh();
@@ -468,7 +468,7 @@ export function FeedbackPanel({ session, state, title, documentKind, sources = [
       {latest && contextPacketId && (latestIsCurrentProject ? <ContextInspector access={session.projectAccess} packetId={contextPacketId} delivered={contextDelivered} appServerDelivery={contextAppServerDelivery} lookupDelivery={contextLookupDelivery} refreshKey={`${state.head.version}/${guidanceEpoch}`} {...(canIncludeTransientSource ? { onPin: pin } : {})} pinDisabled={locked || sourcesPending} onKeepSource={id => { if (!locked && !sourcesPending) setSourceAdoption(previous => ({ documentId: id, nonce: (previous?.nonce ?? 0) + 1 })); }} /> : <p className="small-copy">Discussion retained from the original project. A new request will use this copy’s story context.</p>)}
     </div>
     <form className="feedback-form" onSubmit={event => { event.preventDefault(); void send(); }}>
-      {body.previousRunId && <div className="retry-notice"><p>Another attempt at the same feedback. Uses current story sources and retains the original one-use guidance if it is still active. Editing the feedback, selection, or included sources starts a new request.</p><button type="button" className="text-button" disabled={locked} onClick={() => update({ ...body, previousRunId: null })}>Use as a new request</button></div>}
+      {body.previousRunId && <div className="retry-notice"><p>Another attempt at the same feedback. Uses current story sources and retains the original one-use guidance if it is still active. Editing the feedback, selection, or included sources starts a new request.</p><button type="button" className="text-button" disabled={locked} onClick={() => update({ ...body, previousRunId: undefined })}>Use as a new request</button></div>}
       {body.scope && <div className="quoted-scope"><div className="scope-title"><strong>{body.scope.kind === 'wholeDocument' ? documentKind === 'chapter' ? 'Whole chapter' : 'Whole document' : body.scope.kind === 'blocks' ? 'Selected paragraphs' : 'Selected passage'}</strong><button type="button" disabled={locked} className="text-button" onClick={() => update({ ...body, intent: 'discuss', scope: null })}>{currentIntent === 'proposeEdits' ? 'Discuss instead' : 'Use whole document'}</button></div><blockquote>{body.scope.quote || <em>Empty document</em>}</blockquote>{scopeStale && <p className="stale-notice">The manuscript changed. Capture the editing scope again before sending.</p>}</div>}
       {pinActionNotice && <p className="discussion-state" role="status">{pinActionNotice}</p>}
       {body.pinnedDocumentIds.length > 0 && <div className="source-pins">{body.pinnedDocumentIds.map(id => <button type="button" key={id} disabled={locked} onClick={() => update({ ...body, pinnedDocumentIds: body.pinnedDocumentIds.filter(pin => pin !== id) })}>{sources.find(source => source.id === id)?.title ?? 'Unavailable source'} · remove</button>)}</div>}
