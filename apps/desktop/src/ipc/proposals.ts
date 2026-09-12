@@ -1,3 +1,6 @@
+import type { AppliedDecision } from './generated/kernel';
+export type { AppliedDecision };
+
 import { invoke } from '@tauri-apps/api/core';
 import type { Inline, WnsDocument } from '../editor/document';
 import type { DocumentRecord, Head, ProjectAccess } from './projects';
@@ -9,7 +12,6 @@ export interface ContinuationCandidate { title: string; paragraphs: string[]; ex
 export type StructuredBlock = { type: 'paragraph'; content: Inline[] } | { type: 'heading'; attrs: { level: number }; content: Inline[] } | { type: 'sceneBreak' };
 export interface StructuredCandidate { title: string; blocks: StructuredBlock[]; explanation: string }
 export interface PreparedProposal { id: string; proposalId: string; version: string; replacementText: string; paragraphs?: string[]; blocks?: StructuredBlock[]; body: WnsDocument; bodyHash: string }
-export interface AppliedDecision { decisionId: string; proposalId: string; preparedId: string; beforeRevisionId: string; afterRevisionId: string }
 export interface ProposalDecision { id: string; proposalId: string; kind: 'apply' | 'reject'; preparedId: string | null; beforeRevisionId: string | null; afterRevisionId: string | null }
 export interface Proposal {
   id: string; runId: string; kind?: 'passage' | 'continuation' | 'structured'; candidate: ProposalCandidate | ContinuationCandidate | StructuredCandidate; source: Head; sourceBody: WnsDocument; scope: ScopeGrant;

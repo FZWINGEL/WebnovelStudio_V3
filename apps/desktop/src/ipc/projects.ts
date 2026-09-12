@@ -1,16 +1,34 @@
+// The wire shapes come from Rust. `cargo test -p wns-kernel --test bindings`
+// regenerates them and fails when they drift.
+import type {
+  DocumentRecord as WireDocumentRecord,
+  DocumentRole,
+  Head,
+  ProjectAccess,
+  ProjectInfo,
+  Revision as WireRevision,
+} from './generated/kernel';
+export type { DocumentRole, Head, ProjectAccess, ProjectInfo };
+
+// Rust carries a document body as `serde_json::Value`, so the generated shape
+// says `any`. The editor knows better, and saying so once here is narrower than
+// a hand-written mirror: every *other* field still comes from Rust, so a rename
+// there is still a compile error rather than a runtime `undefined`.
+export type Revision = Omit<WireRevision, 'body'> & { body: WnsDocument };
+export type DocumentRecord = Omit<WireDocumentRecord, 'body' | 'role'> & {
+  body: WnsDocument;
+  role?: DocumentRole;
+};
+
 import { invoke } from '@tauri-apps/api/core';
 import type { WnsDocument } from '../editor/document';
 import { validateSnapshot } from './native';
 import { applyProposal, type AppliedDecision, type ApplyAck, type ApplyProposal } from './proposals';
 import { restoreRevision, type RestoredDecision, type RestoreAck, type RestoreRevision } from './history';
 
-export interface ProjectAccess { projectId: string; session: string; writerLease: string; operationNamespace: string }
-export interface Head { documentId: string; version: string; bodyHash: string }
-export interface ProjectInfo { projectId: string; operationNamespace: string; title: string; formatVersion: number }
 export interface Endpoint { blockId: string; utf16Offset: number }
 export interface ViewState { documentId: string; head: Head; anchor: Endpoint; focus: Endpoint }
 export interface ProjectMetadata { project: ProjectInfo; metadataVersion: string; libraryWarning?: string | null }
-export interface DocumentRecord { head: Head; title: string; kind: string; metadataVersion: string; body: WnsDocument; lastCheckpointId: string | null; role?: 'ordinary' | 'assistantDraft' | 'conversationAnchor' }
 export interface OpenedProject { project: ProjectInfo; access: ProjectAccess; documents: DocumentRecord[]; metadataVersion: string; viewState: ViewState | null; libraryWarning: string | null }
 /**
  * The immutable identity and payload of one document creation intent.
@@ -37,7 +55,6 @@ export interface ReconciledDocument { access: ProjectAccess; document: DocumentR
 export interface CheckpointRequest {
   access: ProjectAccess; expected: Head; reason: 'manual' | 'switch' | 'close' | 'source' | 'export' | 'interval';
 }
-export interface Revision { id: string; head: Head; body: WnsDocument; reason: string; parentId: string | null }
 export interface ProjectTransport {
   validate(body: WnsDocument): Promise<void>;
   save(request: SaveSnapshot): Promise<SaveAck>;

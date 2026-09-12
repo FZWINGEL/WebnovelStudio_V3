@@ -1,9 +1,11 @@
+import type { RestoredDecision } from './generated/kernel';
+export type { RestoredDecision };
+
 import { invoke } from '@tauri-apps/api/core';
 import type { DocumentRecord, Head, ProjectAccess, Revision } from './projects';
 
 export interface RevisionSummary { id: string; head: Head; reason: string; createdAt: string }
 export interface HistoryPage { items: RevisionSummary[]; nextBeforeVersion: string | null }
-export interface RestoredDecision { revisionId: string; beforeRevisionId: string; afterRevisionId: string }
 export interface RestoreRevision { access: ProjectAccess; operationId: string; expected: Head; revisionId: string; revisionHash: string; localGeneration: string }
 export interface RestoreAck {
   access: ProjectAccess; operationId: string; alreadyApplied: boolean;

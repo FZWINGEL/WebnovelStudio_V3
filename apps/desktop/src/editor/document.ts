@@ -1,3 +1,5 @@
+import type { SnapshotReceipt as WireSnapshotReceipt } from '../ipc/generated/kernel';
+
 export type Mark = { type: 'bold' | 'italic' } | { type: 'link'; attrs: { href: string } };
 export type Inline = { type: 'text'; text: string; marks?: Mark[] } | { type: 'hardBreak' };
 export type Block =
@@ -5,13 +7,9 @@ export type Block =
   | { type: 'heading'; attrs: { id: string; level: number }; content?: Inline[] }
   | { type: 'sceneBreak'; attrs: { id: string } };
 export interface WnsDocument { schemaVersion: 1; body: { type: 'doc'; content: Block[] } }
-export interface SnapshotReceipt {
-  snapshot: WnsDocument;
-  canonicalJson: string;
-  hash: string;
-  utf16Units: number;
-  blockCount: number;
-}
+// Generated from Rust; the snapshot body is narrowed to the editor's model,
+// which is the same refinement `ipc/projects` makes for a document.
+export type SnapshotReceipt = Omit<WireSnapshotReceipt, 'snapshot'> & { snapshot: WnsDocument };
 
 export function safeHref(href: string): boolean {
   if (!/^(https?:\/\/|mailto:)/iu.test(href) || /[\s\p{Cc}]/u.test(href) || href.includes('\\')) return false;

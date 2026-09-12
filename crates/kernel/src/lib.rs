@@ -29,7 +29,7 @@ pub type CoreResult<T> = Result<T, CoreError>;
 /// command enum names it.
 pub type Reply<T> = std::sync::mpsc::SyncSender<CoreResult<T>>;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CoreError {
     pub code: String,
@@ -85,7 +85,7 @@ impl From<serde_json::Error> for CoreError {
 }
 
 /// A document identity pinned to an exact version and body hash.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Head {
     pub document_id: String,
@@ -118,7 +118,7 @@ pub fn check_id(id: &str) -> CoreResult<()> {
 /// Moved down from `projects/records.rs` because the packet vocabulary embeds
 /// it — `SearchStory` and `FreezeStory` carry an `access` — so it has to sit at
 /// or below the compiler. It is four strings and no behaviour.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectAccess {
     pub project_id: String,
@@ -179,7 +179,7 @@ pub fn logical_hash<T: Serialize>(request: &T) -> CoreResult<String> {
 /// vocabulary can name it: `story_records` — the shapes a compiled packet
 /// carries — depends on this type, and a layer-2 crate may not reach up to the
 /// crate under decomposition for it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Revision {
     pub id: String,
@@ -197,7 +197,7 @@ pub struct Revision {
 /// dispatch belongs to the running operation. A trait declared below core cannot
 /// name a type declared in core, and the two-field reading is not a reason to
 /// widen the trait past what it is for.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectInfo {
     pub project_id: String,
@@ -212,7 +212,7 @@ pub struct ProjectInfo {
 /// in `wns-storage` can name what they return without reaching up into the
 /// crate under decomposition. The serde attributes are unchanged: they are what
 /// keeps historical serialized records byte-compatible.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentRecord {
     pub head: Head,
@@ -232,7 +232,7 @@ pub struct DocumentRecord {
 /// Authority role for a document row.  This is deliberately an enum rather
 /// than a title/ID convention so every source consumer can apply the same
 /// fence.  New roles must be added with a reader-floor migration.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum DocumentRole {
     #[default]
@@ -273,7 +273,7 @@ impl DocumentRole {
 ///
 /// Receipt vocabulary: [`StoredResult`] names it, so it has to sit at or below
 /// every crate that stores or reads a receipt.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RestoredDecision {
     pub revision_id: String,
@@ -286,7 +286,7 @@ pub struct RestoredDecision {
 /// Receipt vocabulary by the same argument as [`RestoredDecision`]: it moved
 /// down as a leaf type, five strings and no behaviour, so that `StoredResult`
 /// can follow it without dragging `proposals` along.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppliedDecision {
     pub decision_id: String,
@@ -301,7 +301,7 @@ pub struct AppliedDecision {
 /// This is the type `wns-storage::existing_receipt` returns and
 /// `wns-storage::insert_receipt` writes, so it lives at L0 with them rather
 /// than beside any one command that produces one.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoredResult {
     pub head: Head,
@@ -363,7 +363,7 @@ const MAX_UTF16_UNITS: u64 = 1_000_000;
 const MAX_BLOCKS: usize = 10_000;
 
 /// The result of validating and canonicalizing a W0 snapshot.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotReceipt {
     pub snapshot: Value,
