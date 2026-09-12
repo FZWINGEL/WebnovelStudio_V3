@@ -191,6 +191,21 @@ already-materialised inputs, not reach into `project_chat_output`, `story_contex
 `workshop_generation`. That inversion is the single highest-value change in the Rust tree,
 because it is what makes `wns-context` a real layer instead of a façade over `projects`.
 
+**Done, and the inversion was the whole of it.** `wns-context` names no `projects::` path and
+carries no dependency on `webnovel-core`, and `crates/architecture` holds the line.
+
+The file split went by concern rather than by stage, which is not what this paragraph asked
+for and is worth stating plainly. `packet.rs` is 1,735 lines, with `packet/validation.rs`
+(904), `packet/support.rs` (519) and `packet/serialization.rs` (367) beside it. The four
+*stages* remain inside `compile_packet_with_schema`, which is ~1,035 lines of one function.
+That is deliberate: the stages are not separable by moving text. They run over shared mutable
+packing state — the budget accumulator, the accepted-omission set, the receipt in progress —
+so extracting them means threading a dozen mutable locals through new signatures, which
+changes how the code is read rather than only where it lives, and is not a move this
+migration's verification can call behaviour-preserving. What the split does buy is real: the
+three concerns that *are* separable are out, the file is a third smaller, and what remains is
+one pipeline whose length is now the only thing wrong with it.
+
 **`projects/discussions.rs` (4,605) → `wns-conversation`.** Four concerns in one file: run
 lifecycle and settlement, recovery/lost-acknowledgment, lookup invocation, and packet
 assembly glue. Split along those lines; the packet glue is what moves down to `wns-context`.
@@ -812,7 +827,7 @@ layer to L0/L1 and the first two of the twenty-one `projects/` modules (7, in pr
 frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed: the
 `ADR_0022` reader-floor drift, and a correction to this document's own test-tree audit.
 
-**Not yet done, and the next three steps in dependency order.**
+**Done, and the next three steps in dependency order.**
 
 1. **`context/packet.rs` (step 6).** Still 3,462 lines, still the file §3.4 describes as the
    hardest. Two of its three blockers are now cleared:
@@ -824,8 +839,9 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
      the crate under decomposition is exactly what made the compiler reach upward for its own
      inputs. Both are re-exported at their historical paths, so no call site changed.
    
-   What remains is `story_context` (12 refs), `reviewed_summary` (4) and one each for
-   `workshop_generation`, `project_chat_output` and `project_chat_context`.
+   `story_context` (12 refs), `reviewed_summary` (4) and one each for `workshop_generation`,
+   `project_chat_output` and `project_chat_context` followed; `wns-context` names no
+   `projects::` path at all now, and the file itself is split — see §3.4.
    
    **And those are genuine inversions, not import tidying.** §3.4's "the compiler should
    receive already-materialised inputs rather than assemble them" is the fix for all three of
@@ -941,9 +957,9 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    - the per-concern facades of §3.5 growing into the real interface, with the actor reached
      through a narrow host trait rather than named directly.
 
-   Either is a design decision, and it is the remaining design question of this migration. It is
-   also the last one: steps 8 and 9 are ordinary moves once the actor stops being a type every
-   module can add methods to.
+   Either was a design decision, and it was the last one this migration had to make: steps 8
+   and 9 were ordinary moves once the actor stopped being a type every module can add methods
+   to.
 
    **Decided: a host trait per concern.** The trait is declared in the target crate and exposes
    only what one module needs from the actor; `OwnedProject` implements it in core; the module's
@@ -1612,9 +1628,9 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    53-line shim. The lesson the attempt produced is the durable part: a name is not an identity,
    and the compiler caught this one six times by argument count before anything else did.
 
-   `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
-   module import; `crates/architecture` will refuse the backward edge if it is attempted too
-   early.
+   `wns-library` (step 8) was blocked on `projects::import` being a direct module import, and
+   the block turned out not to bind: it depends on `wns-kernel`, `wns-storage`, `wns-providers`
+   and `wns-transfer` and on nothing else, so the backward edge never had to be attempted.
 
 On the frontend, §4.1 (feature slices), §4.4 (generated IPC) and §4.5 (shell reduction) were
 the remaining work when this was written, and all three are now complete — see each section's
