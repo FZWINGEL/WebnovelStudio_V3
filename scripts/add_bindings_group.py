@@ -25,8 +25,12 @@ The shell declares its own DTOs and augments core's:
 So a frontend type is generated from core only where the command passes a core
 type through unchanged. Where the shell wraps, flattens or adds fields, the
 frontend type belongs to the shell and replacing it with the generated core
-type silently drops what the shell adds. `MemoryRead` and `DiscussionView` are
-both that shape, and both were nearly migrated anyway.
+type silently drops what the shell adds.
+
+`SHELL_OWNED` below is that list. The mirror-replacement step must skip these
+names: the generated file still declares core's version of each — it is a
+faithful export of the crate — but the frontend keeps its own, because its own
+is the one that matches the wire.
 
 Two traps this script already avoids, both found by having them:
 
@@ -52,6 +56,18 @@ LIB = os.path.join(ROOT, 'crates/bindings/src/lib.rs')
 
 GROUP = sys.argv[1]
 CRATE = sys.argv[2].replace('-', '_')
+
+# Frontend types that mirror a command DTO rather than a core type. Skipped by
+# the mirror-replacement step; see the module docstring.
+SHELL_OWNED = {
+    # `DesktopMemoryRead` flattens core's `MemoryRead` and adds the envelope.
+    'MemoryRead',
+    # `StartMemoryRequest` carries the model choice and maintenance revision.
+    'StartMemory',
+    # `discussion_recovery::WorkerIssue`, folded into the view the command
+    # returns.
+    'DiscussionView',
+}
 
 
 def run(args):
