@@ -248,6 +248,15 @@ pub struct MemoryRead {
     pub document_id: String,
     pub jobs: Vec<MemoryJob>,
     pub views: Vec<MemoryView>,
+    /// A terminal candidate whose result has not been persisted as a view yet.
+    ///
+    /// The frontend has always read these two — `ChapterMemory` uses them to
+    /// offer a local check and to retry the save — and nothing produced them,
+    /// so the path was unreachable. The condition is the one the frontend
+    /// already derives for itself when the field is absent: a completed job
+    /// carrying a candidate and no view.
+    pub pending_save: bool,
+    pub pending_job_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -890,10 +899,21 @@ pub fn read_memory(
         .map(|id| read_memory_job_with_policy(host.db()?, id, policy.as_str()))
         .collect::<CoreResult<Vec<_>>>()?;
     let views = read_memory_views_for_document(host.db()?, document_id, policy.as_str())?;
+    let pending_job_ids: Vec<String> = jobs
+        .iter()
+        .filter(|job| {
+            job.status == MemoryJobStatus::Completed
+                && job.view.is_none()
+                && job.result.as_ref().is_some_and(|result| result.candidate.is_some())
+        })
+        .map(|job| job.id.clone())
+        .collect();
     Ok(MemoryRead {
         document_id: document_id.to_owned(),
         jobs,
         views,
+        pending_save: !pending_job_ids.is_empty(),
+        pending_job_ids,
     })
 }
 

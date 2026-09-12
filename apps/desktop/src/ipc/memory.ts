@@ -49,20 +49,15 @@ export interface MemoryRead {
   jobs: MemoryJob[];
   views: MemoryViewRecord[];
   /**
-   * A designed recovery envelope that Rust does not send.
+   * A terminal candidate whose result has not been persisted as a view yet.
    *
-   * `read_memory` returns a document's jobs and views and nothing else — there
-   * is no `pending_save` or `pending_job_ids` anywhere in the workspace. These
-   * two fields were declared here and read by `ChapterMemory`, so the
-   * pre-existing branch that used them was unreachable in the app while the
-   * tests, which pass them in by hand, exercised it. Anything built on them —
-   * the retry-a-pending-save path in `reconcile` — has never run.
-   *
-   * Kept declared rather than deleted because the consuming code is real and
-   * reviewed; what is missing is the producer. Either `MemoryRead` gains the
-   * two fields and the path goes live, or the path is removed. That is a
-   * decision about whether the app should offer recovery here, so it is not
-   * taken by a type migration.
+   * `read_memory` sends both. Until recently it did not: these fields were
+   * declared here and read by `ChapterMemory` while nothing produced them, so
+   * the branch that used them was unreachable in the app and the tests, which
+   * passed them in by hand, were the only thing exercising it. `MemoryRead` in
+   * `wns-story` now computes them from the jobs — completed, carrying a
+   * candidate, with no view — which is the same condition this file's caller
+   * already derived for itself when the field was absent.
    */
   pendingSave?: boolean;
   pendingJobIds?: string[];
