@@ -10,27 +10,13 @@
 //! split exists because the actor and the records change for different reasons,
 //! and a crate cannot be extracted from a namespace.
 
-use crate::documents::Endpoint;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+pub use wns_documents::ViewState;
 use wns_kernel::{
-    DocumentRecord, Head, ProjectAccess, ProjectInfo,
+    DocumentRecord, ProjectAccess,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProjectMetadata {
-    pub project: ProjectInfo,
-    pub metadata_version: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ViewState {
-    pub document_id: String,
-    pub head: Head,
-    pub anchor: Endpoint,
-    pub focus: Endpoint,
-}
 #[derive(Debug)]
 pub struct AttachedProject {
     pub metadata: ProjectMetadata,
@@ -70,3 +56,8 @@ pub use wns_documents::records::{
 // The creation record moved to `wns-storage` (L1), beside the database it
 // describes. Re-exported at the historical path.
 pub use wns_storage::creation::{CreationOrigin, read_creation_origin, write_creation_origin};
+
+// `ProjectMetadata` moved to `wns-storage` (L1). `transfer` reads the project
+// identity before a backup and the library reads it when indexing, and neither
+// may reach the crate being decomposed.
+pub use wns_storage::creation::ProjectMetadata;

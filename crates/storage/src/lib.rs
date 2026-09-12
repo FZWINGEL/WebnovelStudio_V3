@@ -485,4 +485,6 @@ pub fn insert_receipt(
 
 /// The creation record written beside a project database.
 pub mod creation;
-pub use creation::{CreationOrigin, read_creation_origin, write_creation_origin};
+pub use creation::{
+    CreationOrigin, ProjectMetadata, read_creation_origin, write_creation_origin,
+};

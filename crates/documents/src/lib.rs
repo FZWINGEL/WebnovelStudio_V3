@@ -16,6 +16,7 @@ pub mod records;
 pub mod material_adoption;
 pub mod scope;
 pub mod structured;
+pub mod view_state;
 
 /// A new, empty W0 document.
 ///
@@ -26,6 +27,10 @@ pub mod structured;
 pub fn blank_document() -> serde_json::Value {
     serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":wns_kernel::new_id()}}]}})
 }
+
+pub use view_state::{
+    ViewState, read_view_state, validate_endpoint, validate_stored_view_state,
+};
 
 pub use records::{
     CheckpointReason, CheckpointRequest, OperationReceipt, ReconcileRequest, ReconciledDocument,
