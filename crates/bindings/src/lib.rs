@@ -321,6 +321,7 @@ pub fn groups() -> Result<Vec<Group>, specta::ts::TsExportError> {
         wns_groups::context()?,
         wns_groups::documents()?,
         wns_groups::conversation()?,
+        wns_groups::story()?,
     ])
 }
 
@@ -638,6 +639,44 @@ mod wns_groups {
                 ("StartProjectChat", one::<wns_conversation::project_chat::StartProjectChat>()),
                 ("ContinuationCandidate", one::<wns_context::continuation::ContinuationCandidate>()),
                 ("StructuredProposalCandidate", one::<wns_conversation::proposals::StructuredProposalCandidate>()),
+            ],
+        )
+    }
+
+    /// `story`'s IPC closure: every name its generated file mentions, closed
+    /// against the frontend compiler rather than typed by hand.
+    pub fn story() -> Result<Group, specta::ts::TsExportError> {
+        group(
+            "story",
+            "story",
+            vec![
+                ("DiscussionMessage", one::<wns_story::run_vocabulary::DiscussionMessage>()),
+                ("DiscussionStart", one::<wns_story::run_vocabulary::DiscussionStart>()),
+                ("MarkReady", one::<wns_story::reviewed_story::MarkReady>()),
+                ("MemoryDispatchState", one::<wns_story::memory::MemoryDispatchState>()),
+                ("MemoryJob", one::<wns_story::memory::MemoryJob>()),
+                ("MemoryJobStatus", one::<wns_story::memory::MemoryJobStatus>()),
+                ("MemoryOwner", one::<wns_story::memory::MemoryOwner>()),
+                ("MemoryRead", one::<wns_story::memory::MemoryRead>()),
+                ("MemoryResult", one::<wns_story::memory::MemoryResult>()),
+                ("PreparationResult", one::<wns_story::context_packets::PreparationResult>()),
+                ("ReadyBundle", one::<wns_story::reviewed_story::ReadyBundle>()),
+                ("ReviewStage", one::<wns_story::reviewed_story::ReviewStage>()),
+                ("ReviewStatus", one::<wns_story::reviewed_story::ReviewStatus>()),
+                ("ReviewedEntityCatalog", one::<wns_story::evidence_queries::ReviewedEntityCatalog>()),
+                ("ReviewedEntityChoice", one::<wns_story::evidence_queries::ReviewedEntityChoice>()),
+                ("ReviewedRecordSet", one::<wns_story::reviewed_story::ReviewedRecordSet>()),
+                ("SaveSourcePins", one::<wns_story::source_pins::SaveSourcePins>()),
+                ("SourcePinScope", one::<wns_story::source_pins::SourcePinScope>()),
+                ("SourcePinSet", one::<wns_story::source_pins::SourcePinSet>()),
+                ("SourcePinsView", one::<wns_story::source_pins::SourcePinsView>()),
+                ("StageAuthorReview", one::<wns_story::reviewed_story::StageAuthorReview>()),
+                ("StartDiscussion", one::<wns_story::discussion_vocabulary::StartDiscussion>()),
+                ("StartMemory", one::<wns_story::memory::StartMemory>()),
+                ("WorkshopExploration", one::<wns_story::workshop_metadata::WorkshopExploration>()),
+                ("MemoryView", one::<wns_story::memory::MemoryView>()),
+                ("ReviewState", one::<wns_story::reviewed_story::ReviewState>()),
+                ("SummaryChange", one::<wns_context::reviewed_summary::SummaryChange>()),
             ],
         )
     }

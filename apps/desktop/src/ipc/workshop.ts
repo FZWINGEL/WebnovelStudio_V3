@@ -1,4 +1,11 @@
 import type {
+  WorkshopExploration,
+} from './generated/story';
+export type {
+  WorkshopExploration,
+};
+
+import type {
   CandidateChoice,
   Lens,
   PreviewWorkshopAdoption,
@@ -58,12 +65,6 @@ import type { DocumentRecord, Head, ProjectAccess } from './projects';
 import type { DiscussionRun, DiscussionStart } from './discussions';
 import type { ModelSelection } from './providers';
 import type { WnsDocument } from '../editor/document';
-
-export interface WorkshopExploration {
-  sessionId: string; expectedVersion: string; workingGeneration: string; action: string; instruction: string;
-  selectedScope: string; selectedText: string;
-  workingSelection?: { from: number; to: number; text: string } | null;
-}
 
 export const readWorkshop = (access: ProjectAccess): Promise<WorkshopView> => invoke('read_workshop', { access });
 export const saveWorkshop = (request: SaveWorkshop): Promise<WorkshopSnapshot> => invoke('save_workshop', { request });

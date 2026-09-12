@@ -39,6 +39,8 @@ import type {
   SourceRead,
   SourceRef,
   StorySnapshot,
+  BudgetError,
+  PreparationResult as GeneratedPreparationResult,
 } from './generated/context';
 export type {
   CompiledPacket,
@@ -186,11 +188,10 @@ export type LookupResult =
   | { kind: 'read'; handle: string; source: SourceRef; passages: SourcePassage[]; complete: boolean }
   | LookupMemoryResult
   | { kind: 'unavailable'; code: string; detail: string };
-export interface ContextBudgetError {
-  code: 'mandatoryContextTooLarge' | 'budgetExhausted' | 'invalidBudget';
-  message: string; requiredInputTokens: string; availableInputTokens: string; mandatoryHandles: string[];
-}
-export type PreparationResult = { status: 'prepared'; packet: CompiledPacket; current: boolean } | { status: 'budgetRejected'; error: ContextBudgetError };
+// Both are `wns_context`'s, generated: the hand-written copies had the same
+// fields under a different name (`ContextBudgetError` for `BudgetError`).
+export type ContextBudgetError = BudgetError;
+export type PreparationResult = GeneratedPreparationResult;
 
 export const contextEpochs = (access: ProjectAccess): Promise<ContextEpochs> => invoke('context_epochs', { access });
 export const readDocumentAliases = (access: ProjectAccess, documentId: string): Promise<DocumentAliasesRead> => invoke('read_document_aliases', { access, documentId });

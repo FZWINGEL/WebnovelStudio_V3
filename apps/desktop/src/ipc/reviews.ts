@@ -1,4 +1,27 @@
 import type {
+  ReviewedEntityChoice,
+  ReviewedEntityCatalog,
+  SummaryChange,
+  ReviewStage,
+  ReadyBundle,
+  ReviewStatus,
+  StageAuthorReview,
+  MarkReady,
+  ReviewedRecordSet,
+} from './generated/story';
+export type {
+  ReviewedEntityChoice,
+  ReviewedEntityCatalog,
+  SummaryChange,
+  ReviewStage,
+  ReadyBundle,
+  ReviewStatus,
+  StageAuthorReview,
+  MarkReady,
+  ReviewedRecordSet,
+};
+
+import type {
   EvidenceAnchor,
   KnowledgeAttitude,
   KnowledgeRecord,
@@ -23,8 +46,6 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Head, ProjectAccess, Revision } from './projects';
 import type { SourceRef } from './context';
 
-export interface ReviewedEntityChoice { entity: StoryEntityRef; labelVariants: string[]; firstDocumentId: string; firstDocumentTitle: string }
-export interface ReviewedEntityCatalog { projectId: string; operationNamespace: string; sourceEpoch: string; entities: ReviewedEntityChoice[] }
 export const reviewedEntityCatalog = (access: ProjectAccess): Promise<ReviewedEntityCatalog> => invoke('reviewed_entity_catalog', { access });
 export const reviewedPromiseCatalog = (access: ProjectAccess): Promise<ReviewedEntityCatalog> => invoke('reviewed_promise_catalog', { access });
 export const reviewedKnowledgeCharacterCatalog = (access: ProjectAccess): Promise<ReviewedEntityCatalog> => invoke('reviewed_knowledge_character_catalog', { access });
@@ -37,29 +58,6 @@ export const promisePhaseLabels: Record<PromisePhase, string> = {
 };
 export interface ReviewMember { documentId: string; title: string; bundleId: string; revisionId: string; head: Head }
 export type ReviewSummaryAudience = 'authorRoom' | 'reader';
-export type SummaryChange =
-  | { kind: 'set'; text: string; audience: ReviewSummaryAudience }
-  | { kind: 'clear' };
-export interface ReviewStage {
-  id: string; projectId: string; operationNamespace: string; target: Head; revision: Revision;
-  previousBundleId: string | null; prefix: ReviewMember[]; sourceEpoch: string; policyEpoch: string; createdAt: string;
-  records?: PossessionRecord[]; recordsHash?: string;
-  promises?: PromiseRecord[]; promisesHash?: string;
-  knowledge?: KnowledgeRecord[]; knowledgeHash?: string;
-  summary?: SummaryRevision | null; summaryHash?: string;
-}
-export interface ReadyBundle { id: string; projectId: string; operationNamespace: string; stageId: string; target: Head; createdAt: string; records?: PossessionRecord[]; recordsHash?: string; promises?: PromiseRecord[]; promisesHash?: string; knowledge?: KnowledgeRecord[]; knowledgeHash?: string; summary?: SummaryRevision | null; summaryHash?: string; }
-export interface ReviewStatus {
-  documentId: string; title: string; head: Head; state: 'noReview' | 'ready' | 'changedProse' | 'earlierBasisChanged' | 'reviewNeeded';
-  activeBundleId: string | null; pendingStageId: string | null; reason: string | null; canStage: boolean;
-}
-export interface StageAuthorReview { access: ProjectAccess; operationId: string; expected: Head; records?: PossessionRecord[]; promises?: PromiseRecord[]; knowledge?: KnowledgeRecord[]; summary?: SummaryChange }
-export interface MarkReady { access: ProjectAccess; operationId: string; stageId: string }
-export interface ReviewedRecordSet {
-  bundleId: string; projectId: string; operationNamespace: string; target: Head; revision: Revision;
-  records: PossessionRecord[]; recordsHash?: string; current: boolean;
-  promises?: PromiseRecord[]; promisesHash?: string; knowledge?: KnowledgeRecord[]; knowledgeHash?: string; summary?: SummaryRevision | null; summaryHash?: string;
-}
 export const chapterReviewStatus = (access: ProjectAccess, documentId: string): Promise<ReviewStatus> => invoke('chapter_review_status', { access, documentId });
 export const stageAuthorReview = (request: StageAuthorReview): Promise<ReviewStage> => invoke('stage_author_review', { request });
 export const readReviewStage = (access: ProjectAccess, stageId: string): Promise<ReviewStage> => invoke('read_review_stage', { access, stageId });

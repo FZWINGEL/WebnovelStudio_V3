@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 pub const AUTHOR_ROOM_AUDIENCE: &str = "authorRoom";
 const MAX_SOURCE_DOCUMENTS: usize = 64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum SourcePinScope {
     Project,
@@ -33,7 +33,7 @@ impl SourcePinScope {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourcePinSet {
     pub scope: SourcePinScope,
@@ -43,14 +43,14 @@ pub struct SourcePinSet {
     pub audience: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourcePinsView {
     pub project: SourcePinSet,
     pub document: SourcePinSet,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveSourcePins {
     pub access: ProjectAccess,

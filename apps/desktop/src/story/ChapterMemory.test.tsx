@@ -26,12 +26,12 @@ const source = { projectId: access.projectId, documentId: head.documentId, revis
 const state: SessionState = { phase: 'editing', generation: '0', savedGeneration: '0', head, saving: false, dirty: false, editable: true, error: null };
 
 function job(overrides: Partial<MemoryJob> = {}): MemoryJob {
-  return { id: 'job-1', owner: { projectId: access.projectId, operationNamespace: access.operationNamespace, jobId: 'job-1' }, operationId: 'operation-1', payloadHash: 'payload', target: head, source, snapshotId: 'snapshot', packetId: 'packet', contextSourceEpoch: '1', disclosurePolicyVersion: '1', providerBinding: null, status: 'queued', dispatchState: 'pending', stopReason: null, result: null, view: null, createdAt: '2026-09-06T12:00:00Z', updatedAt: '2026-09-06T12:00:00Z', ...overrides };
+  return { id: 'job-1', owner: { projectId: access.projectId, operationNamespace: access.operationNamespace, jobId: 'job-1' }, operationId: 'operation-1', payloadHash: 'payload', target: head, source, snapshotId: 'snapshot', packetId: 'packet', contextSourceEpoch: '1', disclosurePolicyVersion: '1', providerBinding: null, status: 'queued', dispatchState: 'pending', stopReason: null, result: null, view: null, historical: false, createdAt: '2026-09-06T12:00:00Z', updatedAt: '2026-09-06T12:00:00Z', ...overrides };
 }
 function read(jobs: MemoryJob[] = [], views: MemoryViewRecord[] = [], extra: Partial<MemoryRead> = {}): MemoryRead { return { documentId: head.documentId, jobs, views, ...extra }; }
 function candidate(): DigestCandidate { return { schemaVersion: 'navigation-digest.v1', source, items: [{ text: 'The lantern is waiting.', uncertainty: null, evidence: [{ blockId: 'opening', fromUtf16: 0, toUtf16: 20, quote: 'The lantern waited.' }] }] }; }
 function view(overrides: Partial<MemoryViewRecord> = {}): MemoryViewRecord {
-  return { id: 'view-1', jobId: 'job-1', projectId: access.projectId, operationNamespace: access.operationNamespace, documentId: head.documentId, target: head, source, snapshotId: 'snapshot', packetId: 'packet', contextSourceEpoch: '1', disclosurePolicyVersion: '1', candidate: candidate(), current: true, sourceChanged: false, policyAvailable: true, createdAt: '2026-09-06T12:00:00Z', ...overrides };
+  return { id: 'view-1', jobId: 'job-1', projectId: access.projectId, operationNamespace: access.operationNamespace, documentId: head.documentId, target: head, source, snapshotId: 'snapshot', packetId: 'packet', contextSourceEpoch: '1', disclosurePolicyVersion: '1', candidate: candidate(), current: true, sourceChanged: false, policyAvailable: true, historical: false, createdAt: '2026-09-06T12:00:00Z', ...overrides };
 }
 function createSession() {
   let currentAccess = access;

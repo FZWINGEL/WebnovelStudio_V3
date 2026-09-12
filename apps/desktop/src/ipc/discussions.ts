@@ -36,6 +36,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { AppServerDelivery, CompiledPacket, MockContextBudget, ProviderBinding, ScopeGrant } from './context';
 import type { Endpoint, Head, ProjectAccess } from './projects';
 import type { ModelSelection } from './providers';
+import type { DiscussionStart as GeneratedDiscussionStart, StartDiscussion as GeneratedStartDiscussion } from './generated/story';
 
 /** Author-authorized, bounded story lookups for a working-room discussion. */
 
@@ -60,13 +61,13 @@ export type SafeBriefInput = GeneratedSafeBriefInput;
 export type ComposerBody = Omit<DiscussionDraft, 'documentId' | 'version' | 'updatedAt'>;
 export type DiscussionMessage = GeneratedDiscussionMessage;
 export interface DiscussionView { documentId: string; threadId: string | null; messages: DiscussionMessage[]; runs: DiscussionRun[]; draft: DiscussionDraft | null; workerIssues?: Array<{ runId: string; detail: string }> }
-export interface StartDiscussion {
-  modelSelection?: ModelSelection;
-  access: ProjectAccess; operationId: string; expected: Head; instruction: string; scope: DiscussionScope | null;
-  intent?: FeedbackIntent; basis?: BasisKind | null; pinnedDocumentIds: string[]; budget: MockContextBudget; previousRunId: string | null;
-  safeBrief?: SafeBriefInput | null; lookup?: LookupAllowance | null;
-}
-export interface DiscussionStart { threadId: string; run: DiscussionRun; userMessage: DiscussionMessage; packet: CompiledPacket }
+/**
+ * Rust's request, plus the model choice the desktop command takes alongside it:
+ * `start_discussion` receives `modelSelection` as its own argument, not inside
+ * the request, so it is not part of the Rust struct.
+ */
+export type StartDiscussion = GeneratedStartDiscussion & { modelSelection?: ModelSelection };
+export type DiscussionStart = GeneratedDiscussionStart;
 export const readDiscussion = (access: ProjectAccess, documentId: string): Promise<DiscussionView> => invoke('read_discussion', { access, documentId });
 export const retryDiscussionSave = (access: ProjectAccess, documentId: string, runId: string): Promise<DiscussionView> => invoke('retry_discussion_save', { access, documentId, runId });
 export const discussionRetry = (access: ProjectAccess, runId: string): Promise<ComposerBody & { previousRunId: string }> => invoke('discussion_retry', { access, runId });

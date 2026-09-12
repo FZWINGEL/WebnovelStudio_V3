@@ -105,13 +105,13 @@ function stateFromRead(read: MemoryRead, currentHead: SessionState['head']): { s
   const sources = new Map<string, MemorySourceTarget>();
   const views = read.views.map(view => {
     const job = read.jobs.find(candidate => candidate.id === view.jobId);
-    sources.set(view.id, { viewId: view.id, snapshotId: view.snapshotId, packetId: view.packetId, source: view.source, policyAvailable: view.policyAvailable, delivered: !!job?.result, historical: view.historical === true, appServerDelivery: job?.result?.appServer });
+    sources.set(view.id, { viewId: view.id, snapshotId: view.snapshotId, packetId: view.packetId, source: view.source, policyAvailable: view.policyAvailable, delivered: !!job?.result, historical: view.historical === true, appServerDelivery: job?.result?.appServer ?? undefined });
     return displayView(view);
   });
   const pending = latest ? candidateDisplay(latest, currentHead) : null;
   if (pending && latest) {
     views.push(pending);
-    if (latest.result?.candidate) sources.set(pending.id, { viewId: pending.id, snapshotId: latest.snapshotId, packetId: latest.packetId, source: latest.source, policyAvailable: true, delivered: !!latest.result, historical: false, appServerDelivery: latest.result.appServer });
+    if (latest.result?.candidate) sources.set(pending.id, { viewId: pending.id, snapshotId: latest.snapshotId, packetId: latest.packetId, source: latest.source, policyAvailable: true, delivered: !!latest.result, historical: false, appServerDelivery: latest.result.appServer ?? undefined });
   }
   if (!latest) return { state: views.length ? { kind: 'completed', disposition: 'candidate', views } : { kind: 'empty', views: [] }, latest, sources };
   const pendingSave = read.pendingSave === true || read.pendingJobIds?.includes(latest.id) === true;

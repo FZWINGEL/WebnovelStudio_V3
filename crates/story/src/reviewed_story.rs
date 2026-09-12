@@ -58,7 +58,7 @@ use wns_storage::{checkpoint_at, read_document, read_revision};
 /// wide as the module's real dependency on the actor.
 const MAX_REVIEW_CHAPTERS: usize = 4096;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StageAuthorReview {
     pub access: ProjectAccess,
@@ -74,7 +74,7 @@ pub struct StageAuthorReview {
     pub summary: Option<SummaryChange>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MarkReady {
     pub access: ProjectAccess,
@@ -86,7 +86,7 @@ pub struct MarkReady {
 // at the historical path.
 pub use wns_context::reviewed_prefix::ReviewPrefixItem;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewStage {
     pub id: String,
@@ -117,7 +117,7 @@ pub struct ReviewStage {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReadyBundle {
     pub id: String,
@@ -144,7 +144,7 @@ pub struct ReadyBundle {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedRecordSet {
     pub bundle_id: String,
@@ -170,7 +170,7 @@ pub struct ReviewedRecordSet {
     pub current: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewStatus {
     pub document_id: String,
@@ -183,7 +183,7 @@ pub struct ReviewStatus {
     pub can_stage: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ReviewState {
     NoReview,

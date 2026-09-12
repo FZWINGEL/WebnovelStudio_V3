@@ -1,4 +1,20 @@
 import type {
+  MemoryJobStatus,
+  MemoryDispatchState,
+  MemoryOwner,
+  MemoryResult,
+  MemoryJob,
+} from './generated/story';
+export type {
+  MemoryJobStatus,
+  MemoryDispatchState,
+  MemoryOwner,
+  MemoryResult,
+  MemoryJob,
+};
+
+import type { MemoryView } from './generated/story';
+import type {
   DigestCandidate,
   DigestEvidence,
   DigestItem,
@@ -15,35 +31,11 @@ import type { ProviderResult } from './discussions';
 import type { Head, ProjectAccess } from './projects';
 import type { ModelSelection } from './providers';
 
-export type MemoryJobStatus = 'queued' | 'running' | 'stopping' | 'completed' | 'stopped' | 'failed' | 'interrupted';
-export type MemoryDispatchState = 'pending' | 'dispatched';
 export type MemoryProviderOutcome = 'completed' | 'stopped' | 'timedOut' | 'outputLimit' | 'failed';
 
-export interface MemoryOwner { projectId: string; operationNamespace: string; jobId: string }
-export interface MemoryResult {
-  jobId: string; eventId: string; rawOutput: string | null; outcome: MemoryProviderOutcome;
-  confirmedStdinBytes: string | null;
-  usage: { inputTokens: number; cachedInputTokens: number; cacheWriteInputTokens: number; outputTokens: number; reasoningOutputTokens: number } | null;
-  cleanup: 'settled' | 'unresolved' | null; error: string | null; validationError: string | null;
-  candidate: DigestCandidate | null; effectiveIdentity: string | null; createdAt: string;
-  /** HTTP memory receipts are optional so historical Codex/mock results keep their old shape. */
-  delivery?: ProviderResult['delivery'];
-  /** Persistent Codex app-server delivery is separate from exec/HTTP evidence. */
-  appServer?: AppServerDelivery;
-}
-export interface MemoryViewRecord {
-  id: string; jobId: string; projectId: string; operationNamespace: string; documentId: string; target: Head;
-  source: SourceRef; snapshotId: string; packetId: string; contextSourceEpoch: string; disclosurePolicyVersion: string;
-  candidate: DigestCandidate | null; current: boolean; sourceChanged: boolean; policyAvailable: boolean; createdAt: string;
-  historical?: boolean;
-}
-export interface MemoryJob {
-  id: string; owner: MemoryOwner; operationId: string; payloadHash: string; target: Head; source: SourceRef;
-  snapshotId: string; packetId: string; contextSourceEpoch: string; disclosurePolicyVersion: string;
-  providerBinding: ProviderBinding | null; status: MemoryJobStatus; dispatchState: MemoryDispatchState;
-  stopReason: string | null; result: MemoryResult | null; view: MemoryViewRecord | null; createdAt: string; updatedAt: string;
-  historical?: boolean;
-}
+/** The frontend's name for Rust's `MemoryView`; generated in `./generated/story`. */
+export type MemoryViewRecord = MemoryView;
+
 export interface MemoryRead {
   documentId: string;
   jobs: MemoryJob[];

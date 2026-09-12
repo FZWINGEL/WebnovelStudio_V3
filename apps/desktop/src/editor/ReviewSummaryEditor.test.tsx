@@ -58,10 +58,10 @@ describe('accepted narrative summary editor', () => {
       providerBinding: null, status: 'completed', dispatchState: 'dispatched', stopReason: null, result: {
         jobId: 'job', eventId: 'event', rawOutput: null, outcome: 'completed', confirmedStdinBytes: null, usage: null, cleanup: 'settled',
         error: null, validationError: null, candidate, effectiveIdentity: null, createdAt: '2026-09-06T00:00:00Z',
-      }, view: null, createdAt: '2026-09-06T00:00:00Z', updatedAt: '2026-09-06T00:00:00Z',
+      }, view: null, historical: false, createdAt: '2026-09-06T00:00:00Z', updatedAt: '2026-09-06T00:00:00Z',
     }], views: [{ id: 'view', jobId: 'job', projectId: access.projectId, operationNamespace: access.operationNamespace, documentId: target.documentId,
       target, source, snapshotId: 'snapshot', packetId: 'packet', contextSourceEpoch: '1', disclosurePolicyVersion: '1', candidate, current: true,
-      sourceChanged: false, policyAvailable: true, createdAt: '2026-09-06T00:00:00Z' }] });
+      sourceChanged: false, policyAvailable: true, historical: false, createdAt: '2026-09-06T00:00:00Z' }] });
     await render(); await act(async () => button('Use generated memory as a starting point').click());
     expect(memory.readMemory).toHaveBeenCalledOnce();
     expect(onChange).toHaveBeenCalledWith({ choice: 'set', audience: 'authorRoom', text: 'Mei guards the gate.\n\nThe oath may be broken.\nNeeds checking: The evidence is incomplete.' });
@@ -95,7 +95,7 @@ describe('accepted narrative summary editor', () => {
     const candidate = { schemaVersion: 'story-memory.v1', source: { ...source, revisionId: 'different-revision' }, items: [{ text: 'Old memory', uncertainty: null, evidence: [] }] };
     vi.mocked(memory.readMemory).mockResolvedValue({ documentId: target.documentId, jobs: [], views: [{ id: 'view', jobId: 'job', projectId: access.projectId,
       operationNamespace: access.operationNamespace, documentId: target.documentId, target, source, snapshotId: 'snapshot', packetId: 'packet', contextSourceEpoch: '1',
-      disclosurePolicyVersion: '1', candidate, current: true, sourceChanged: false, policyAvailable: true, createdAt: '2026-09-06T00:00:00Z' }] });
+      disclosurePolicyVersion: '1', candidate, current: true, sourceChanged: false, policyAvailable: true, historical: false, createdAt: '2026-09-06T00:00:00Z' }] });
     await render(); await act(async () => button('Use generated memory as a starting point').click());
     expect(onChange).not.toHaveBeenCalled();
     expect(host.textContent).toContain('No current story memory result matches');
@@ -105,7 +105,7 @@ describe('accepted narrative summary editor', () => {
     const candidate = { schemaVersion: 'story-memory.v1', source, items: [{ text: 'Mei guards the gate.', uncertainty: null, evidence: [] }] };
     vi.mocked(memory.readMemory).mockResolvedValue({ documentId: target.documentId, jobs: [], views: [{ id: 'view', jobId: 'job', projectId: access.projectId,
       operationNamespace: access.operationNamespace, documentId: target.documentId, target, source, snapshotId: 'snapshot', packetId: 'packet', contextSourceEpoch: '1',
-      disclosurePolicyVersion: '1', candidate, current: true, sourceChanged: false, policyAvailable: true, createdAt: '2026-09-06T00:00:00Z' }] });
+      disclosurePolicyVersion: '1', candidate, current: true, sourceChanged: false, policyAvailable: true, historical: false, createdAt: '2026-09-06T00:00:00Z' }] });
     await renderStrict(); await act(async () => button('Use generated memory as a starting point').click());
     expect(onChange).toHaveBeenCalledWith({ choice: 'set', text: 'Mei guards the gate.', audience: 'authorRoom' });
   });

@@ -39,7 +39,7 @@ pub mod app_server;
 const MEMORY_INSTRUCTION: &str = "Create the bounded navigation-digest.v1 JSON object for the one supplied saved chapter. Use only exact evidence from that chapter; do not make edits or establish canon.";
 const MAX_ERROR_BYTES: usize = 4 * 1024;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartMemory {
     pub access: ProjectAccess,
@@ -50,7 +50,7 @@ pub struct StartMemory {
     pub provider_binding: Option<ProviderBinding>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryOwner {
     pub project_id: String,
@@ -58,7 +58,7 @@ pub struct MemoryOwner {
     pub job_id: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum MemoryJobStatus {
     Queued,
@@ -100,7 +100,7 @@ impl MemoryJobStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum MemoryDispatchState {
     Pending,
@@ -127,7 +127,7 @@ impl MemoryDispatchState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryJob {
     pub id: String,
@@ -151,7 +151,7 @@ pub struct MemoryJob {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryDispatch {
     pub job: MemoryJob,
@@ -163,7 +163,7 @@ pub struct MemoryDispatch {
     pub newly_dispatched: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CompleteMemory {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -188,7 +188,7 @@ pub struct CompleteMemory {
     pub delivery: Option<ProviderDeliveryReceipt>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,14 +211,14 @@ pub struct MemoryResult {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryCompletion {
     pub job: MemoryJob,
     pub result: MemoryResult,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryView {
     pub id: String,
@@ -242,7 +242,7 @@ pub struct MemoryView {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryRead {
     pub document_id: String,
@@ -259,7 +259,7 @@ pub struct MemoryRead {
     pub pending_job_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryList {
     pub jobs: Vec<MemoryJob>,
