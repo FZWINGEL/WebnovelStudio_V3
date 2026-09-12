@@ -11,7 +11,21 @@
 //! [`Group`]; [`render`] turns them into one TypeScript file per crate, and
 //! `tests/drift.rs` fails the build when the committed output is stale.
 //!
-//! Adding a crate is one `Group` and one line in `groups()`.
+//! Adding a crate is one `Group` and one line in `groups()` — with two things
+//! I learned attempting the second crate and reverting it:
+//!
+//! * **The group must list the whole closure, not the crate's own types.** A
+//!   workshop snapshot reaches `DiscussionRun`, which reaches the run
+//!   vocabulary, which reaches the provider and context vocabularies. `export`
+//!   renders a type and *references* the named types it depends on; it does not
+//!   always declare them, so every name the generated file mentions has to be
+//!   in the list. The frontend's compiler names exactly which ones are missing,
+//!   which is the reliable way to close the list.
+//! * **"Public" is not "crosses the wire."** A blanket pass that derives
+//!   `specta::Type` on every `pub struct` also hits internal accumulators — the
+//!   provider parser state — and those hold private types that cannot be
+//!   derived at all. The wire surface is a choice per type; the kernel's eleven
+//!   needed no skips because each was chosen.
 //!
 //! ## What the frontend does with a narrower type
 //!
