@@ -322,7 +322,7 @@ pub fn groups() -> Result<Vec<Group>, specta::ts::TsExportError> {
         wns_groups::documents()?,
         wns_groups::conversation()?,
         wns_groups::story()?,
-    wns_groups::providers()?, wns_groups::transfer()?, ])
+    wns_groups::providers()?, wns_groups::transfer()?, wns_groups::library()?, ])
 }
 
 /// The workspace root, from this crate's manifest directory.
@@ -724,6 +724,22 @@ mod wns_groups {
                 ("V2ProjectPreview", one::<wns_transfer::v2_import::V2ProjectPreview>()),
                 ("V2SourceManifest", one::<wns_transfer::v2_import::V2SourceManifest>()),
                 ("V2LegacyRecord", one::<wns_transfer::v2_import::V2LegacyRecord>()),
+            ],
+        )
+    }
+
+    /// `library`'s IPC closure: every name its generated file mentions, closed
+    /// against the frontend compiler rather than typed by hand.
+    pub fn library() -> Result<Group, specta::ts::TsExportError> {
+        group(
+            "library",
+            "library",
+            vec![
+                ("CodexTransport", one::<wns_library::codex_transport::CodexTransport>()),
+                ("CodexTransportSettings", one::<wns_library::codex_transport::CodexTransportSettings>()),
+                ("LibraryEntry", one::<wns_library::library::LibraryEntry>()),
+                ("PendingProject", one::<wns_library::library::PendingProject>()),
+                ("CreationOrigin", one::<wns_storage::creation::CreationOrigin>()),
             ],
         )
     }

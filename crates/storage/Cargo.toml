@@ -5,6 +5,7 @@ edition = "2024"
 description = "L1: SQLite open, durability configuration and the linear migration chain."
 
 [dependencies]
+specta = "1.0.5"
 wns-kernel = { path = "../kernel" }
 rusqlite = { version = "=0.40.2", features = ["bundled", "backup"] }
 uuid = { version = "=1.26.0", features = ["v4"] }

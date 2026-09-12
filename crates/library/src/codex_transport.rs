@@ -11,7 +11,7 @@ use crate::library::Library;
 
 const KEY: &str = "codex-transport-v1";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum CodexTransport {
     #[default]
@@ -19,7 +19,7 @@ pub enum CodexTransport {
     AppServer,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CodexTransportSettings {
     pub revision: String,

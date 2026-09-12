@@ -15,7 +15,7 @@ use wns_kernel::{CoreError, CoreResult, ProjectInfo, check_id};
 
 /// Identity of the library operation that installed this independent folder.
 /// Kept beside the database so registry recovery does not require a schema upgrade.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreationOrigin {
     pub operation_namespace: String,
@@ -50,7 +50,7 @@ pub fn read_creation_origin(path: &Path) -> CoreResult<CreationOrigin> {
 }
 
 /// The project's identity and the version of that record.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectMetadata {
     pub project: ProjectInfo,

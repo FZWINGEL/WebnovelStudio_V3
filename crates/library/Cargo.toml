@@ -5,6 +5,7 @@ edition = "2024"
 description = "L7: the project library index and app preferences (CAS on revision)."
 
 [dependencies]
+specta = "1.0.5"
 wns-kernel = { path = "../kernel" }
 wns-storage = { path = "../storage" }
 wns-providers = { path = "../providers" }

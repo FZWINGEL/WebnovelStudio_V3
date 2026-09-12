@@ -1,4 +1,13 @@
 import type {
+  CodexTransport,
+  CodexTransportSettings,
+} from './generated/library';
+export type {
+  CodexTransport,
+  CodexTransportSettings,
+};
+
+import type {
   ModelKey,
   ModelSelection,
   ModelSettings,
@@ -18,8 +27,6 @@ export interface StoryMemoryView {
   modelId: string; reasoning: string | null; serviceTier: string | null;
   ready: boolean; detail: string;
 }
-export type CodexTransport = 'exec' | 'appServer';
-export interface CodexTransportSettings { revision: string; transport: CodexTransport }
 export interface ProviderState {
   settings: ModelSettings; catalog: { models: ModelDescriptor[] };
   dispatch: { kind: 'localMock' | 'codexCli' | 'claudeCli' | 'openAiCompatible' | 'blocked'; detail: string };

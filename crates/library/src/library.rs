@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryEntry {
     pub project_id: String,
@@ -44,7 +44,7 @@ pub struct LibraryEntry {
     pub last_opened: String,
     pub missing: bool,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingProject {
     pub origin: CreationOrigin,

@@ -7,6 +7,8 @@ description = "Not a layer: generates the frontend's IPC bindings from the Rust 
 [dependencies]
 specta = "1.0.5"
 wns-kernel = { path = "../kernel" }
+wns-storage = { path = "../storage" }
+wns-library = { path = "../library" }
 wns-transfer = { path = "../transfer" }
 wns-documents = { path = "../documents" }
 wns-providers = { path = "../providers" }

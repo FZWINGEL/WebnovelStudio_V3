@@ -1,7 +1,14 @@
+import type {
+  LibraryEntry,
+  PendingProject,
+} from './generated/library';
+export type {
+  LibraryEntry,
+  PendingProject,
+};
+
 import { invoke } from '@tauri-apps/api/core';
 import type { OpenedProject, ProjectAccess } from './projects';
-export interface LibraryEntry { projectId: string; title: string; path: string; archived: boolean; lastOpened: string; missing: boolean }
-export interface PendingProject { origin: { operationNamespace: string; operationId: string }; kind: string; title: string; finalPath: string; stagingPath: string; completed: boolean }
 export interface LibrarySnapshot { entries: LibraryEntry[]; pending: PendingProject[] }
 export const librarySnapshot = (): Promise<LibrarySnapshot> => invoke('library_snapshot');
 export const libraryCreate = (operationId: string, title: string, session: string): Promise<OpenedProject> => invoke('library_create', { operationId, title, session });
