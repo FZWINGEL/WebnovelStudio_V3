@@ -1069,8 +1069,8 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    and a vocabulary of ten types.
 
    That is a session's work per two or three modules, not a turn's — and it is the last thing
-   this document can usefully measure. What remains is execution against a pattern that is now
-   fully characterised rather than partly guessed.
+   this document can usefully measure. What remained was execution against a pattern that was
+   fully characterised rather than partly guessed, and steps 7, 8 and 9 were that execution.
 
    **And the pattern is now proven, not just described.** `source_pins.rs` was the first module
    to move — chosen because its command vocabulary is the smallest in the tree at two arms.
@@ -1601,7 +1601,8 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
 
    > A `use` block prepended to a file lands above its `//!` module doc, which is a parse error.
 
-   **Step two is not done, and its blocker is a name collision rather than a closure.** The
+   **Step two was not done at that point, and its blocker was a name collision rather than a
+   closure.** The
    parser came out cleanly — `metadata_from_instruction`, its four validators, the six metadata
    types, 323 lines — but `workshop.rs` and `workshop_generation.rs` each declare a
    **`validate_text` with a different signature**, and `validate_story_possibilities` (which
@@ -1638,6 +1639,15 @@ the remaining work when this was written, and all three are now complete — see
 type mirrors across 22 files with one tested, is closed, and the mirrors it replaced had
 already drifted in ways nothing could see.
 
-**One thing this branch does not claim.** The `SourceEpoch` type named in §2 does not exist yet
-— it is a target for the invariant work, not a delivered type, and the current fencing is still
-per-call-site.
+**One thing this branch does not claim, and it is a scope boundary rather than an omission.**
+The `SourceEpoch` *type* named in §2's invariant table does not exist. The epoch does, and every
+packet is fenced by it: it is carried as `context_source_epoch` on the frozen snapshot that
+`wns-context` compiles against, and `eligibility.rs` refuses a packet whose snapshot disagrees
+with it. What §2 lists as the target is the separate step of giving that string a name in
+`wns-kernel` so the type carries the invariant instead of a convention doing it.
+
+That step belongs to the invariant work, not to this branch, and there is a concrete reason it
+is not a tick here: the value is a `String` on the wire, and §2's own byte-compatibility
+invariant says historical packet bytes must never be rewritten. Changing its representation is
+a decision about the persisted format, taken deliberately, and not a consequence of moving a
+module.
