@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect, it, vi } from 'vitest';
 import { bodyHash, canonicalJson, type WnsDocument } from '../kernel';
 import { DocumentSession } from '../editor/session';

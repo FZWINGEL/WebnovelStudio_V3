@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "consumers": {
     "main": [
-      "chat",
-      "workshop",
       "main"
     ],
     "lifecycle": [
+      "chat",
+      "workshop",
       "http",
       "close",
       "interruption",

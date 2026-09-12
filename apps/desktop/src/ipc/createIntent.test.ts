@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { CreateDocumentIntent, DocumentRecord, Head, OpenedProject, ProjectAccess, ProjectInfo } from './projects';
 import { CreateIntentRecoveryError, CreateIntentUnresolvedError, isUncertainCreateError, runCreateIntent } from './createIntent';

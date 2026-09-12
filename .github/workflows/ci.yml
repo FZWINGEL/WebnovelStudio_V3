@@ -1,6 +1,8 @@
 name: V3 editor contracts and Windows spike
 on:
   push:
+    branches:
+      - main
     paths-ignore:
       - 'docs/**'
       - '.impeccable/**'
@@ -31,7 +33,7 @@ on:
         options: [locked, prepared-frozen]
         default: prepared-frozen
 concurrency:
-  group: v3-checks-${{ github.workflow }}-${{ github.ref }}
+  group: v3-checks-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read

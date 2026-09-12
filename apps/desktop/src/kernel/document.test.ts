@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import fixture from '../../../../contracts/fixtures/w0_snapshot_golden.json';
 import {

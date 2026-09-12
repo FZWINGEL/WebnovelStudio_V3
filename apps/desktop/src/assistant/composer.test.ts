@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { ComposerSession } from './composer';
 import { DEFAULT_LOOKUP_ALLOWANCE, type DiscussionDraft, type SaveDiscussionDraft } from '../ipc/discussions';

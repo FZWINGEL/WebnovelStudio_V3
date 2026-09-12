@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { PrepareContinuation, PrepareProposal, PrepareStructured, PreparedProposal } from '../ipc/proposals';
 import type { WnsDocument } from '../kernel';
