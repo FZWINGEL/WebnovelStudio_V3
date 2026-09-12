@@ -1,8 +1,18 @@
+import type {
+  ModelKey,
+  ModelSelection,
+  ModelSettings,
+  ModelDescriptor,
+} from './generated/providers';
+export type {
+  ModelKey,
+  ModelSelection,
+  ModelSettings,
+  ModelDescriptor,
+};
+
 import { invoke } from '@tauri-apps/api/core';
 
-export interface ModelKey { providerId: string; modelId: string }
-export interface ModelSelection extends ModelKey { reasoning: string | null; serviceTier: string | null }
-export interface ModelSettings { revision: string; active: ModelSelection; favorites: ModelKey[] }
 export interface StoryMemoryView {
   revision: string; providerId: string; providerLabel: string;
   modelId: string; reasoning: string | null; serviceTier: string | null;
@@ -10,13 +20,6 @@ export interface StoryMemoryView {
 }
 export type CodexTransport = 'exec' | 'appServer';
 export interface CodexTransportSettings { revision: string; transport: CodexTransport }
-export interface ModelDescriptor {
-  key: ModelKey; label: string; providerLabel: string; reasoningLevels: string[];
-  serviceTiers: Array<{ id: string; label: string }>;
-  contextWindowTokens: string | null; maxOutputTokens: string | null;
-  defaultReasoning?: string | null; defaultServiceTier?: string | null;
-  origin: 'builtIn' | 'reference' | 'codexDiscovery' | 'openAiCompatible'; ready: boolean; statusDetail: string;
-}
 export interface ProviderState {
   settings: ModelSettings; catalog: { models: ModelDescriptor[] };
   dispatch: { kind: 'localMock' | 'codexCli' | 'claudeCli' | 'openAiCompatible' | 'blocked'; detail: string };

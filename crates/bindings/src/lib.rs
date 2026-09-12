@@ -322,7 +322,7 @@ pub fn groups() -> Result<Vec<Group>, specta::ts::TsExportError> {
         wns_groups::documents()?,
         wns_groups::conversation()?,
         wns_groups::story()?,
-    ])
+    wns_groups::providers()?, ])
 }
 
 /// The workspace root, from this crate's manifest directory.
@@ -677,6 +677,27 @@ mod wns_groups {
                 ("MemoryView", one::<wns_story::memory::MemoryView>()),
                 ("ReviewState", one::<wns_story::reviewed_story::ReviewState>()),
                 ("SummaryChange", one::<wns_context::reviewed_summary::SummaryChange>()),
+            ],
+        )
+    }
+
+    /// `providers`'s IPC closure: every name its generated file mentions, closed
+    /// against the frontend compiler rather than typed by hand.
+    pub fn providers() -> Result<Group, specta::ts::TsExportError> {
+        group(
+            "providers",
+            "providers",
+            vec![
+                ("EndpointProfile", one::<wns_providers::endpoints::EndpointProfile>()),
+                ("ModelDescriptor", one::<wns_providers::catalog::ModelDescriptor>()),
+                ("ModelKey", one::<wns_providers::preferences::ModelKey>()),
+                ("ModelSelection", one::<wns_providers::preferences::ModelSelection>()),
+                ("ModelSettings", one::<wns_providers::preferences::ModelSettings>()),
+                ("ProviderState", one::<wns_providers::catalog::ProviderState>()),
+                ("CatalogOrigin", one::<wns_providers::catalog::CatalogOrigin>()),
+                ("CatalogSnapshot", one::<wns_providers::catalog::CatalogSnapshot>()),
+                ("DispatchResolution", one::<wns_providers::catalog::DispatchResolution>()),
+                ("ServiceTier", one::<wns_providers::catalog::ServiceTier>()),
             ],
         )
     }

@@ -23,7 +23,7 @@ pub const CATALOG_REFERENCE: &str =
 
 /// A serializable catalog entry identified by the exact provider and model
 /// IDs.  Display labels are descriptive only; dispatch must use the IDs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelDescriptor {
     pub key: ModelKey,
@@ -42,14 +42,14 @@ pub struct ModelDescriptor {
     pub status_detail: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServiceTier {
     pub id: String,
     pub label: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum CatalogOrigin {
     BuiltIn,
@@ -58,24 +58,29 @@ pub enum CatalogOrigin {
     OpenAiCompatible,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CatalogSnapshot {
     pub schema_version: u32,
     pub models: Vec<ModelDescriptor>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum DispatchResolution {
+    #[specta(rename_all = "camelCase")]
     LocalMock { detail: String },
+    #[specta(rename_all = "camelCase")]
     CodexCli { detail: String },
+    #[specta(rename_all = "camelCase")]
     ClaudeCli { detail: String },
+    #[specta(rename_all = "camelCase")]
     OpenAiCompatible { detail: String },
+    #[specta(rename_all = "camelCase")]
     Blocked { detail: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderState {
     pub settings: ModelSettings,

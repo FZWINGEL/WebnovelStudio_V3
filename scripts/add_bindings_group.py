@@ -67,6 +67,13 @@ SHELL_OWNED = {
     # `discussion_recovery::WorkerIssue`, folded into the view the command
     # returns.
     'DiscussionView',
+    # `provider_runtime::DesktopProviderState` flattens core's `ProviderState`
+    # and adds the Codex/Claude connection views and the story-memory target.
+    'ProviderState',
+    # The endpoint command answers with its own view of a profile: core's
+    # fields plus `hasApiKey` and `apiKeyConfigured`, which are the shell's to
+    # know because the credential store is.
+    'EndpointProfile',
 }
 
 

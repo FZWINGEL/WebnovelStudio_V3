@@ -22,7 +22,7 @@ pub const MAX_ENDPOINT_MODEL_ID_BYTES: usize = 256;
 pub const MAX_CREDENTIAL_REF_BYTES: usize = 256;
 
 /// Persisted endpoint configuration and non-authoritative model discovery.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EndpointProfile {
     pub id: String,
@@ -43,7 +43,7 @@ pub struct EndpointProfile {
 /// User-owned fields for creating or updating a profile.  Discovery cache and
 /// the profile-local revision are maintained by the library, never supplied by
 /// an untrusted picker payload.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EndpointProfileDraft {
     #[serde(default)]
@@ -141,14 +141,14 @@ impl EndpointProfile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EndpointProfilesSettings {
     pub revision: String,
     pub profiles: Vec<EndpointProfile>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoredEndpointProfiles {
     pub profiles: Vec<EndpointProfile>,

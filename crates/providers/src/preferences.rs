@@ -25,7 +25,7 @@ pub const STORY_MEMORY_REASONING: &str = "low";
 pub const MAX_FAVORITES: usize = 32;
 pub const DEFAULT_REVISION: &str = "0";
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelKey {
     pub provider_id: String,
@@ -41,7 +41,7 @@ impl ModelKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSelection {
     pub provider_id: String,
@@ -67,7 +67,7 @@ impl ModelSelection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSettings {
     pub revision: String,
@@ -75,7 +75,7 @@ pub struct ModelSettings {
     pub favorites: Vec<ModelKey>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoredModelSettings {
     pub active: ModelSelection,
@@ -86,14 +86,14 @@ pub struct StoredModelSettings {
 /// model and reasoning level are deliberately not user-editable here: live
 /// maintenance always uses GPT-6 Astra with low reasoning.  Endpoint
 /// profile IDs are kept as opaque provider IDs and never contain credentials.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoryMemorySettings {
     pub revision: String,
     pub provider_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoredStoryMemorySettings {
     pub provider_id: String,
