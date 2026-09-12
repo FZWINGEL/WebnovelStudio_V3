@@ -49,3 +49,7 @@ path = "src/bin/windows-process-fixture.rs"
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[dev-dependencies]
+# The cross-language golden fixtures, compiled in rather than read by relative path.
+contracts = { path = "../../contracts" }

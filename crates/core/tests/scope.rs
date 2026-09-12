@@ -1,7 +1,5 @@
 use serde::Deserialize;
 use serde_json::Value;
-use std::fs;
-use std::path::PathBuf;
 use webnovel_core::documents::validate_scope_json;
 
 #[derive(Debug, Deserialize)]
@@ -21,10 +19,9 @@ struct FixtureCase {
 
 #[test]
 fn shared_scope_fixtures_match() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts/fixtures/w1_scope_golden.json");
+    let path = contracts::W1_SCOPE_GOLDEN;
     let fixture: FixtureFile =
-        serde_json::from_str(&fs::read_to_string(path).expect("read W1 scope fixture"))
+        serde_json::from_str(path)
             .expect("parse W1 scope fixture");
     for case in fixture.cases {
         let result =

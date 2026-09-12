@@ -1031,9 +1031,7 @@ fn write_project_marker(path: &Path, info: &ProjectInfo) -> CoreResult<()> {
 }
 #[test]
 fn save_receipt_matches_shared_literal_fixture() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../contracts/fixtures/w2_save_receipt.json"
-    ))
+    let fixture: serde_json::Value = serde_json::from_str(contracts::W2_SAVE_RECEIPT)
     .unwrap();
     let request: SaveSnapshot = serde_json::from_value(fixture["request"].clone()).unwrap();
     assert_eq!(

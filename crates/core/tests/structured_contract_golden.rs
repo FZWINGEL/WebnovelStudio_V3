@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{fs, path::PathBuf};
 use webnovel_core::documents::{
     ScopeGrant, ScopeValidationRequest, TypedReplacementBlock, capture_scope,
     validate_structured_replacement,
@@ -27,10 +26,9 @@ struct FixtureCase {
 
 #[test]
 fn shared_structured_fixtures_match_rust_scope_and_snapshot_validation() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts/fixtures/structured_proposals_golden.json");
+    let path = contracts::STRUCTURED_PROPOSALS_GOLDEN;
     let fixture: FixtureFile =
-        serde_json::from_str(&fs::read_to_string(path).expect("read structured proposal fixture"))
+        serde_json::from_str(path)
             .expect("parse structured proposal fixture");
 
     for case in fixture.cases {

@@ -823,8 +823,8 @@ mod tests {
     use rusqlite::Connection;
     use serde::Deserialize;
     use serde_json::{Value, json};
-    use std::fs;
-    use std::path::PathBuf;
+    
+    
 
     #[derive(Debug, Deserialize)]
     struct FixtureFile {
@@ -851,10 +851,8 @@ mod tests {
 
     #[test]
     fn shared_snapshot_fixtures_match() {
-        let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../contracts/fixtures/w0_snapshot_golden.json");
-        let fixture = fs::read_to_string(fixture_path).expect("read shared fixture");
-        let fixture: FixtureFile = serde_json::from_str(&fixture).expect("parse shared fixture");
+        let fixture: FixtureFile =
+            serde_json::from_str(contracts::W0_SNAPSHOT_GOLDEN).expect("parse shared fixture");
         for case in fixture.cases {
             let result = validate_snapshot_json(&case.input);
             match (case.expected, case.error) {

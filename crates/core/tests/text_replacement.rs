@@ -54,9 +54,7 @@ fn request(source: Value, result: Value) -> ScopeValidationRequest {
 fn text_fragment_matches_the_existing_real_prosemirror_golden_preparations() {
     // These exact result documents are also produced by prepareReplacement in
     // the frontend's scope.test.ts, including the left-ID paragraph merge.
-    let golden: Value = serde_json::from_str(include_str!(
-        "../../../contracts/fixtures/w1_scope_golden.json"
-    ))
+    let golden: Value = serde_json::from_str(contracts::W1_SCOPE_GOLDEN)
     .unwrap();
     for (name, replacement) in [
         ("valid-inline-with-marks-and-link", "changed"),

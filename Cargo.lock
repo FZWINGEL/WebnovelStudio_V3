@@ -398,6 +398,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
+name = "contracts"
+version = "3.0.0"
+
+[[package]]
 name = "cookie"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4683,6 +4687,7 @@ dependencies = [
 name = "webnovel-core"
 version = "3.0.0"
 dependencies = [
+ "contracts",
  "futures-util",
  "reqwest",
  "rusqlite",
@@ -5232,6 +5237,7 @@ dependencies = [
 name = "wns-kernel"
 version = "3.0.0"
 dependencies = [
+ "contracts",
  "rusqlite",
  "serde",
  "serde_json",
