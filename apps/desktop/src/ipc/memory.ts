@@ -49,15 +49,17 @@ export interface MemoryRead {
   jobs: MemoryJob[];
   views: MemoryViewRecord[];
   /**
-   * A terminal candidate whose result has not been persisted as a view yet.
+   * The desktop command's recovery envelope, not core's `MemoryRead`.
    *
-   * `read_memory` sends both. Until recently it did not: these fields were
-   * declared here and read by `ChapterMemory` while nothing produced them, so
-   * the branch that used them was unreachable in the app and the tests, which
-   * passed them in by hand, were the only thing exercising it. `MemoryRead` in
-   * `wns-story` now computes them from the jobs — completed, carrying a
-   * candidate, with no view — which is the same condition this file's caller
-   * already derived for itself when the field was absent.
+   * `read_memory` in `apps/desktop/src-tauri` answers with `DesktopMemoryRead`
+   * — `#[serde(flatten)] read: MemoryRead` plus these two — so the wire is flat
+   * and this is the type the frontend actually sees. Core's `MemoryRead` is the
+   * inner half and does not carry them.
+   *
+   * That settles how §4.4 treats this module: it cannot be generated from
+   * `wns-story`, because the type it mirrors belongs to the app shell. Sweeping
+   * `crates/` for a producer and finding none was not evidence that none
+   * exists — the producer is one directory outside the sweep.
    */
   pendingSave?: boolean;
   pendingJobIds?: string[];
