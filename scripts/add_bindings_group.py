@@ -62,20 +62,50 @@ def crate_of(path):
 
 
 def rust_path(name):
+    """A path to `name` that is reachable from outside the crate.
+
+    The file a type is declared in is not always the path it is exported at:
+    `project_chat/save_recap.rs` holds `ChatDocumentSave`, but `save_recap` is
+    a private module and the type is reachable as
+    `project_chat::ChatDocumentSave`. Walking the file path blindly produces
+    `project_chat::save_recap::ChatDocumentSave`, which does not compile.
+
+    So the module segments are kept only while each is declared `pub mod` by
+    its parent.
+    """
     path = defining(name)
     if not path:
         return None
     crate = crate_of(path)
-    rel = os.path.relpath(path, os.path.join(ROOT, 'crates', crate, 'src')).replace(os.sep, '/')[:-3]
+    src = os.path.join(ROOT, 'crates', crate, 'src')
+    rel = os.path.relpath(path, src).replace(os.sep, '/')[:-3]
     parts = [x for x in rel.split('/') if x and x not in ('lib', 'mod')]
-    return 'wns_%s::%s' % (crate.replace('-', '_'), '::'.join(parts + [name]))
+
+    visible = []
+    parent = os.path.join(src, 'lib.rs')
+    for part in parts:
+        text = io.open(parent, encoding='utf-8').read() if os.path.exists(parent) else ''
+        if re.search(r'^\s*pub mod %s\b' % re.escape(part), text, re.M):
+            visible.append(part)
+            parent = os.path.join(os.path.dirname(parent), part + '.rs')
+        else:
+            break
+    return 'wns_%s::%s' % (crate.replace('-', '_'), '::'.join(visible + [name]))
 
 
 def ensure_specta(path):
+    """Under `[dependencies]`, not appended.
+
+    Appending lands past the `[dev-dependencies]` header, where the derive
+    fails as an unresolved crate and the failure reads like a missing
+    dependency rather than a misplaced one.
+    """
     manifest = os.path.join(ROOT, 'crates', crate_of(path), 'Cargo.toml')
     s = io.open(manifest, encoding='utf-8').read()
-    if 'specta' not in s:
-        io.open(manifest, 'w', encoding='utf-8', newline='\n').write(s.rstrip('\n') + '\nspecta = "1.0.5"\n')
+    if 'specta' in s.split('[dev-dependencies]')[0]:
+        return
+    s = s.replace('[dependencies]', '[dependencies]\nspecta = "1.0.5"', 1)
+    io.open(manifest, 'w', encoding='utf-8', newline='\n').write(s)
 
 
 def ensure_dep(crate):
