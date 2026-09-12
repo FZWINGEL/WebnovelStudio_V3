@@ -5,9 +5,7 @@
 use crate::app_state::AppState;
 use crate::memory_recovery::MemoryRecovery;
 use crate::project_commands::execute;
-use crate::provider_runtime::{
-    binding_matches_choice, is_legacy_maintenance_choice, is_supported_choice,
-};
+use crate::provider_bindings::{binding_matches_choice, is_legacy_maintenance_choice, is_supported_choice};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use webnovel_core::context::memory::mock_navigation_digest;
@@ -215,7 +213,7 @@ pub async fn start_memory(
                     app_server_request = Some(server.reserve(&binding)?);
                     provider_binding = Some(binding);
                 } else {
-                    provider_binding = Some(crate::provider_runtime::connection_binding(connection));
+                    provider_binding = Some(crate::provider_bindings::connection_binding(connection));
                 }
             }
         }
@@ -379,7 +377,7 @@ pub(crate) fn check_maintenance_choice(
 ) -> CoreResult<()> {
     let settings = library.story_memory_settings()?;
     if revision == Some(settings.revision.as_str())
-        && selected == &crate::provider_runtime::memory_selection(&settings.provider_id)
+        && selected == &crate::provider_bindings::memory_selection(&settings.provider_id)
     {
         Ok(())
     } else {

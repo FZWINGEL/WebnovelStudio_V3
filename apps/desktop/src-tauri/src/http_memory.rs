@@ -66,7 +66,7 @@ fn accept(
             )
         })?;
         if !binding.is_http_memory()
-            || !crate::provider_runtime::binding_matches_choice(&binding, &request.model_selection)
+            || !crate::provider_bindings::binding_matches_choice(&binding, &request.model_selection)
         {
             return Err(CoreError::new(
                 "ProviderBindingMismatch",
@@ -460,7 +460,7 @@ mod tests {
                 operation_id: "refresh".into(),
                 expected: chapter.head,
                 budget: MockContextBudget::new("200000", "1000", "1000"),
-                model_selection: crate::provider_runtime::memory_selection(&profile.id),
+                model_selection: crate::provider_bindings::memory_selection(&profile.id),
                 maintenance_revision: Some("1".into()),
             };
             Self {

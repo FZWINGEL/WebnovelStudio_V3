@@ -51,6 +51,7 @@ mod memory_commands;
 mod memory_recovery;
 mod project_chat_commands;
 mod project_commands;
+mod provider_bindings;
 mod provider_commands;
 mod provider_runtime;
 mod recovery_commands;

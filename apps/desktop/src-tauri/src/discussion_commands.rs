@@ -237,7 +237,7 @@ pub async fn start_discussion(
                     app_server_request = Some(server.reserve(&binding)?);
                     Some(binding)
                 } else {
-                    Some(crate::provider_runtime::connection_author_binding(checked, &selected)?)
+                    Some(crate::provider_bindings::connection_author_binding(checked, &selected)?)
                 }
             }
             #[cfg(not(windows))]
@@ -256,7 +256,7 @@ pub async fn start_discussion(
                         "Check the Claude Code connection in Settings before sending this request.",
                     )
                 })?;
-                Some(crate::provider_runtime::claude_binding_for_choice(
+                Some(crate::provider_bindings::claude_binding_for_choice(
                     checked, &selected,
                 )?)
             }

@@ -33,7 +33,7 @@ pub fn run_live(
         Some(binding)
             if binding.is_current_codex_profile()
                 && connection.as_ref().is_some_and(|connection| {
-                    crate::provider_runtime::connection_matches_binding(connection, &binding)
+                    crate::provider_bindings::connection_matches_binding(connection, &binding)
                 }) =>
         {
             binding

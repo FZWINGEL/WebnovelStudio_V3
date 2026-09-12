@@ -420,7 +420,7 @@ pub(super) fn run_live(
                 .provider_binding
                 .as_ref()
                 .is_some_and(|binding| {
-                    crate::provider_runtime::connection_matches_binding(connection, binding)
+                    crate::provider_bindings::connection_matches_binding(connection, binding)
                 })
         });
         let result = collect_live(

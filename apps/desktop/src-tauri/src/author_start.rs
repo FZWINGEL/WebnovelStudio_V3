@@ -11,7 +11,8 @@
 use crate::discussion_commands::dispatch_started;
 use crate::discussion_recovery::{DiscussionRecovery, PendingSave, SaveOutcome};
 use crate::library_commands::DesktopLibrary;
-use crate::provider_runtime::{DesktopProviders, binding_matches_author_choice};
+use crate::provider_runtime::{DesktopProviders};
+use crate::provider_bindings::{binding_matches_author_choice};
 use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, ProviderBinding, packet_input_hash};
 use webnovel_core::projects::discussions::*;
 use webnovel_core::projects::project_chat::{StartProjectChapter, StartProjectChat};
@@ -203,7 +204,7 @@ pub(crate) fn start_author_native(
                 app_server_request = Some(server.reserve(&binding)?);
                 Some(binding)
             } else {
-                Some(crate::provider_runtime::connection_author_binding(
+                Some(crate::provider_bindings::connection_author_binding(
                     connection.as_ref().expect("Codex connection selected"),
                     &selected,
                 )?)
@@ -219,7 +220,7 @@ pub(crate) fn start_author_native(
     } else if selected.provider_id == "claude" {
         #[cfg(windows)]
         {
-            Some(crate::provider_runtime::claude_binding_for_choice(
+            Some(crate::provider_bindings::claude_binding_for_choice(
                 claude_connection
                     .as_ref()
                     .expect("Claude connection selected"),
@@ -344,7 +345,7 @@ pub(crate) fn check_model_choice(
         && !(request.provider_binding.as_ref().is_some_and(|binding| {
             binding_matches_author_choice(binding, requested)
                 || (saved
-                    && crate::provider_runtime::binding_matches_saved_model(binding, requested))
+                    && crate::provider_bindings::binding_matches_saved_model(binding, requested))
         }))
     {
         return Err(CoreError::new(
