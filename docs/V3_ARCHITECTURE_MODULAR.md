@@ -210,9 +210,25 @@ one pipeline whose length is now the only thing wrong with it.
 lifecycle and settlement, recovery/lost-acknowledgment, lookup invocation, and packet
 assembly glue. Split along those lines; the packet glue is what moves down to `wns-context`.
 
+**Done, along those lines.** `crates/conversation/src/discussions.rs` is 2,336 lines and the
+other three concerns are modules beside it: `discussions/lookup.rs` (721) is the four
+invocation entry points, their request validator and the reading and sealing helpers that
+decide whether a provider's lookup report is the one this run asked for;
+`discussions/validation.rs` (744) is everything a request passes before it may touch durable
+state; `discussions/packet.rs` (324) is what a discussion contributes to a compiled packet
+and reads back out of one. The compilation itself had already moved down to `wns-context`,
+which is the half of this the section cared about. `recovery` and `app_server` were already
+separate.
+
 **`projects/workshop.rs` (4,135) → `wns-workshop`.** Six-lens domain logic versus persistence
 versus generation orchestration. The generation half already lives in
 `workshop_generation.rs` (1,895).
+
+**Done.** `crates/workshop/src/workshop.rs` is 1,655 lines and keeps the vocabulary and the
+entry points; `workshop/state.rs` (335) is reading the workshop back out of storage — the
+snapshot a session started from and the candidate projections the six lenses assemble from;
+`workshop/adoption.rs` (806) is the adoption domain, where provenance, freshness, target
+validation, dependency order and protected text live. `workshop_generation.rs` is 1,418.
 
 ### 3.5 Replacing `ProjectSession`
 
