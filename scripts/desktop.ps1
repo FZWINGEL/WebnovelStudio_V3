@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('setup', 'dev', 'build', 'package', 'spike', 'check', 'quick', 'native', 'test', 'prune')]
+    [ValidateSet('setup', 'dev', 'build', 'package', 'spike', 'check', 'quick', 'native', 'test', 'test:watch', 'prune')]
     [string]$Command = 'dev',
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RemainingArgs

@@ -67,6 +67,8 @@ async function pruneTarget() {
   console.log(`Pruned ${prunedCount} orphaned build artifacts (${mb} MB freed).`);
 }
 
+const extraArgs = process.argv.slice(3);
+
 switch (action) {
   case 'dev': await node([tauri, 'dev']); break;
   case 'spike': await node([tauri, 'build', '--debug', '--no-bundle', '--', '--locked']); break;
@@ -75,14 +77,22 @@ switch (action) {
     if (process.platform !== 'win32') throw new Error('The initial installer target is Windows x64.');
     await node([tauri, 'build', '--target', 'x86_64-pc-windows-msvc', '--bundles', 'nsis', '--', '--locked']);
     break;
-  case 'test': await node([npm, 'test']); break;
+  case 'test':
+    await node([npm, 'test', ...(extraArgs.length ? ['--', ...extraArgs] : [])]);
+    break;
+  case 'test:watch':
+    await node([npm, 'run', 'test:watch', ...(extraArgs.length ? ['--', ...extraArgs] : [])]);
+    break;
   case 'native': await node(['scripts/native-smoke.mjs']); break;
-  case 'quick':
+  case 'quick': {
+    const pkg = extraArgs[0];
+    const targetFlag = pkg ? ['-p', pkg] : ['--workspace'];
     await run('cargo', ['fmt', '--all', '--check']);
-    await run('cargo', ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings']);
-    await run('cargo', ['test', '--workspace', '--lib', '--bins', '--locked']);
+    await run('cargo', ['clippy', ...targetFlag, '--all-targets', '--locked', '--', '-D', 'warnings']);
+    await run('cargo', ['test', ...targetFlag, '--lib', '--bins', '--locked']);
     await node([npm, 'run', 'typecheck']);
     break;
+  }
   case 'prune': await pruneTarget(); break;
   case 'check':
     await node(['--test', resolve(root, 'scripts/runner-identities.test.mjs'), resolve(root, 'scripts/collect-ci-timings.test.mjs'), resolve(root, 'scripts/native-artifact.test.mjs'), resolve(root, 'scripts/native-consumer.test.mjs'), resolve(root, 'scripts/owned-process.test.mjs'), resolve(root, 'scripts/check-versions.test.mjs'), resolve(root, 'scripts/prepare-package-retest.test.mjs')]);
