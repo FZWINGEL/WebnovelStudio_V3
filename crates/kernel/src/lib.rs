@@ -84,6 +84,79 @@ impl From<serde_json::Error> for CoreError {
     }
 }
 
+/// The source epoch a compiled packet was built against.
+///
+/// A bare `String` carried the same value before, and every packet was fenced
+/// by it — `eligibility` refuses a packet whose frozen snapshot disagrees — but
+/// the invariant lived in the call sites rather than in the type, so nothing
+/// stopped an unrelated string being passed where an epoch was meant. §2 lists
+/// this as the target for the stale-basis fencing invariant.
+///
+/// Serialized transparently, so the JSON is byte-identical to the string it
+/// replaces and no historical packet bytes change; `specta` emits it as
+/// `export type SourceEpoch = string`, so the generated bindings are unchanged
+/// in meaning too.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, specta::Type)]
+#[serde(transparent)]
+pub struct SourceEpoch(String);
+
+impl SourceEpoch {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for SourceEpoch {
+    /// What `String::default()` gave the `#[serde(default)]` manifest field
+    /// before it carried a type. A manifest written before the epoch existed
+    /// still deserializes to it.
+    fn default() -> Self {
+        Self(String::new())
+    }
+}
+
+impl std::ops::Deref for SourceEpoch {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for SourceEpoch {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl From<String> for SourceEpoch {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for SourceEpoch {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
+}
+
+impl PartialEq<str> for SourceEpoch {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl PartialEq<&str> for SourceEpoch {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
 /// A document identity pinned to an exact version and body hash.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

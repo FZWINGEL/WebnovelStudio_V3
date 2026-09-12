@@ -6,7 +6,7 @@
 //! is a short, independently stale-checked transaction.  Generated text is
 //! retained as an unreviewed aid and never becomes canon or manuscript text.
 use wns_storage::read_document;
-use wns_kernel::{CoreError, CoreResult, Head, ProjectAccess, ProjectInfo, Reply, check_id, new_id, parse_stored_version, parse_version, sha256_hex};
+use wns_kernel::{CoreError, CoreResult, Head, ProjectAccess, ProjectInfo, Reply, check_id, new_id, parse_stored_version, parse_version, sha256_hex, SourceEpoch};
 use crate::host::StoryHost;
 use crate::context_packets;
 use crate::story_context;
@@ -138,7 +138,7 @@ pub struct MemoryJob {
     pub source: SourceRef,
     pub snapshot_id: String,
     pub packet_id: String,
-    pub context_source_epoch: String,
+    pub context_source_epoch: SourceEpoch,
     pub disclosure_policy_version: String,
     pub provider_binding: Option<ProviderBinding>,
     pub status: MemoryJobStatus,
@@ -230,7 +230,7 @@ pub struct MemoryView {
     pub source: SourceRef,
     pub snapshot_id: String,
     pub packet_id: String,
-    pub context_source_epoch: String,
+    pub context_source_epoch: SourceEpoch,
     pub disclosure_policy_version: String,
     pub candidate: Option<DigestCandidate>,
     pub current: bool,
@@ -1350,7 +1350,7 @@ fn read_memory_job(db: &Connection, id: &str, reveal: bool) -> CoreResult<Memory
         source,
         snapshot_id: row.snapshot_id,
         packet_id: row.packet_id,
-        context_source_epoch: row.context_source_epoch.to_string(),
+        context_source_epoch: SourceEpoch::new(row.context_source_epoch.to_string()),
         disclosure_policy_version: row.disclosure_policy_epoch.to_string(),
         provider_binding: packet.options.provider_binding,
         status: MemoryJobStatus::parse(&row.status)?,
@@ -1870,7 +1870,7 @@ fn read_memory_view(db: &Connection, job_id: &str, reveal: bool) -> CoreResult<O
         },
         snapshot_id,
         packet_id,
-        context_source_epoch: context_source_epoch.to_string(),
+        context_source_epoch: SourceEpoch::new(context_source_epoch.to_string()),
         disclosure_policy_version: disclosure_policy_epoch.to_string(),
         candidate,
         current: installed_current != 0,
@@ -2211,7 +2211,7 @@ fn validate_memory_job_record(db: &Connection, row: &MemoryJobRow) -> CoreResult
         || frozen.snapshot.target.document_id != row.target_document_id
         || frozen.snapshot.target.revision_id != row.source_revision_id
         || frozen.snapshot.target.body_hash != row.source_body_hash
-        || frozen.snapshot.context_source_epoch != row.context_source_epoch.to_string()
+        || frozen.snapshot.context_source_epoch != SourceEpoch::new(row.context_source_epoch.to_string())
         || frozen.policy.version != row.disclosure_policy_epoch.to_string()
         || frozen.snapshot.sources.len() != 1
     {
@@ -2339,7 +2339,7 @@ fn validate_memory_job_record(db: &Connection, row: &MemoryJobRow) -> CoreResult
             || view.source.body_hash != row.source_body_hash
             || view.snapshot_id != row.snapshot_id
             || view.packet_id != row.packet_id
-            || view.context_source_epoch != row.context_source_epoch.to_string()
+            || view.context_source_epoch != SourceEpoch::new(row.context_source_epoch.to_string())
             || view.disclosure_policy_version != row.disclosure_policy_epoch.to_string()
         {
             return Err(CoreError::new(

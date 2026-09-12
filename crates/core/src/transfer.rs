@@ -12,6 +12,8 @@
 //! Every other item is re-exported below, so `webnovel_core::transfer::{…}`
 //! resolves exactly as it did when the module lived here.
 
+use wns_kernel::SourceEpoch;
+
 use crate::projects::{
     CoreResult, CreationOrigin, DocumentRecord, Head, OwnedProject, ProjectAccess, ProjectInfo,
     ProjectMetadata, ProjectSession, Revision,
@@ -33,7 +35,7 @@ impl TransferSource for ProjectSession {
     fn document_records(&self, access: &ProjectAccess) -> CoreResult<Vec<DocumentRecord>> {
         self.documents().list(access.clone())
     }
-    fn source_epoch(&self) -> CoreResult<String> {
+    fn source_epoch(&self) -> CoreResult<SourceEpoch> {
         self.context().source_epoch()
     }
     fn checkpoint(&self, request: CheckpointRequest) -> CoreResult<Revision> {

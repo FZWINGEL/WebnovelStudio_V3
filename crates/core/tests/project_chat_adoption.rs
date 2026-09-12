@@ -418,7 +418,7 @@ fn grouped_adoption_is_one_epoch_and_replay_returns_the_same_result() {
     );
     assert_eq!(ack.documents.len(), 3);
     assert_eq!(
-        project.context().source_epoch().expect("read source epoch"),
+        project.context().source_epoch().expect("read source epoch").to_string(),
         (epoch_before.parse::<u64>().expect("epoch") + 1).to_string()
     );
     let replayed_ack = adopt(
@@ -506,7 +506,7 @@ fn grouped_adoption_rolls_back_when_the_second_material_write_fails() {
     let epoch: i64 = db
         .query_row("SELECT context_source_epoch FROM project WHERE singleton=1", [], |row| row.get(0))
         .expect("read source epoch");
-    assert_eq!(epoch.to_string(), epoch_before);
+    assert_eq!(epoch.to_string(), epoch_before.to_string());
     let pending: i64 = db
         .query_row(
             "SELECT COUNT(*) FROM assistant_drafts WHERE disposition='pending'",

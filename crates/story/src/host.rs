@@ -12,14 +12,14 @@
 //! snapshot to answer whether a prepared packet is still current.
 
 use rusqlite::Connection;
-use wns_kernel::{CoreResult, ProjectAccess, ProjectInfo};
+use wns_kernel::{CoreResult, ProjectAccess, ProjectInfo, SourceEpoch};
 
 pub trait StoryHost {
     fn check_access(&self, access: &ProjectAccess) -> CoreResult<()>;
     fn db(&self) -> CoreResult<&Connection>;
     fn db_mut(&mut self) -> CoreResult<&mut Connection>;
     fn fence_uncertain<T>(&mut self, result: &CoreResult<T>);
-    fn context_source_epoch(&self) -> CoreResult<String>;
+    fn context_source_epoch(&self) -> CoreResult<SourceEpoch>;
     /// Crash-injection point for `kill_after_commit_before_ack_recovers_once`,
     /// declared unconditionally for the same reason `HistoryHost` declares it:
     /// the real hook compiles only into core's own test binary.

@@ -9,7 +9,7 @@ use crate::{
     StorySnapshot, evaluate_sources,
 };
 use crate::frozen::SourceRead;
-use wns_kernel::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult, SourceEpoch};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -30,7 +30,7 @@ pub struct NavigationViewRef {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrozenNavigationView {
     pub reference: NavigationViewRef,
-    pub source_context_epoch: String,
+    pub source_context_epoch: SourceEpoch,
     pub disclosure_policy_version: String,
     /// Complete input dependencies, not merely the quotations displayed by UI.
     pub dependencies: Vec<SourceRef>,

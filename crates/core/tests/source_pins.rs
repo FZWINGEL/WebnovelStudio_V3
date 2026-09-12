@@ -111,7 +111,7 @@ fn scopes_are_sorted_versioned_cas_safe_and_reopenable() {
     assert_eq!(saved.source_document_ids, vec!["note-one"]);
     assert_eq!(saved.target_document_id, None);
     assert_eq!(
-        project.context().source_epoch().unwrap(),
+        project.context().source_epoch().unwrap().to_string(),
         (before.parse::<u64>().unwrap() + 1).to_string()
     );
 

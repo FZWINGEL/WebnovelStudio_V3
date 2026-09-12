@@ -322,7 +322,7 @@ pub fn decode_snapshot(json: &str, hash: &str) -> CoreResult<FrozenContext> {
         frozen.purpose,
     )
     .map_err(|message| CoreError::new("InvalidConversationContext", &message))?;
-    if frozen.snapshot.ordering_epoch != frozen.snapshot.context_source_epoch
+    if frozen.snapshot.ordering_epoch.as_str() != frozen.snapshot.context_source_epoch.as_str()
         || frozen.snapshot.disclosure_policy_version != frozen.policy.version
     {
         return Err(CoreError::new(

@@ -4,7 +4,7 @@ use crate::story_context;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use crate::host::StoryHost;
-use wns_kernel::{CoreResult, ProjectAccess, Reply, parse_stored_version};
+use wns_kernel::{CoreResult, ProjectAccess, Reply, parse_stored_version, SourceEpoch};
 use wns_context::SourceRef;
 use wns_context::evidence_history::{EvidenceHistory, query_evidence_history};
 use wns_context::knowledge_history::{KnowledgeHistory, query_knowledge_history};
@@ -26,7 +26,7 @@ pub struct ReviewedEntityChoice {
 pub struct ReviewedEntityCatalog {
     pub project_id: String,
     pub operation_namespace: String,
-    pub source_epoch: String,
+    pub source_epoch: SourceEpoch,
     pub entities: Vec<ReviewedEntityChoice>,
 }
 
@@ -418,11 +418,11 @@ fn current_review_rows(
         .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn source_epoch(db: &Connection) -> CoreResult<String> {
+fn source_epoch(db: &Connection) -> CoreResult<SourceEpoch> {
     let epoch = db.query_row(
         "SELECT context_source_epoch FROM project WHERE singleton=1",
         [],
         |row| row.get::<_, i64>(0),
     )?;
-    parse_stored_version(epoch)
+    Ok(SourceEpoch::new(parse_stored_version(epoch)?))
 }

@@ -70,7 +70,8 @@ pub use wns_kernel::{
 // Vocabulary went to L0, row access to L1, and both are re-exported at their
 // historical paths so not one of the 240 call sites changed.
 pub use wns_kernel::{
-    AppliedDecision, DocumentRecord, DocumentRole, ProjectInfo, RestoredDecision, StoredResult,
+    AppliedDecision, DocumentRecord, DocumentRole, ProjectInfo, RestoredDecision, SourceEpoch,
+    StoredResult,
 };
 // Document vocabulary, moved to L2 beside the model it describes. Re-exported
 // here so `webnovel_core::projects::blank_document` and the integration tests
@@ -716,13 +717,13 @@ impl OwnedProject {
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(state)
     }
-    fn context_source_epoch(&self) -> CoreResult<String> {
+    fn context_source_epoch(&self) -> CoreResult<SourceEpoch> {
         let epoch: i64 = self.db()?.query_row(
             "SELECT context_source_epoch FROM project WHERE singleton=1",
             [],
             |row| row.get(0),
         )?;
-        parse_stored_version(epoch)
+        Ok(SourceEpoch::new(parse_stored_version(epoch)?))
     }
     fn create_document(&mut self, request: CreateDocument) -> CoreResult<DocumentRecord> {
         self.check_access(&request.access)?;

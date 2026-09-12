@@ -78,6 +78,8 @@ export type Revision = { id: string; head: Head; body: any; reason: string; pare
  */
 export type SnapshotReceipt = { snapshot: any; canonicalJson: string; hash: string; utf16Units: number; blockCount: number }
 
+export type SourceEpoch = string
+
 /**
  * The immutable decision a command receipt records.
  * 

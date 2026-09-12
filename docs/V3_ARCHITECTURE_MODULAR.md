@@ -1655,15 +1655,21 @@ the remaining work when this was written, and all three are now complete — see
 type mirrors across 22 files with one tested, is closed, and the mirrors it replaced had
 already drifted in ways nothing could see.
 
-**One thing this branch does not claim, and it is a scope boundary rather than an omission.**
-The `SourceEpoch` *type* named in §2's invariant table does not exist. The epoch does, and every
-packet is fenced by it: it is carried as `context_source_epoch` on the frozen snapshot that
-`wns-context` compiles against, and `eligibility.rs` refuses a packet whose snapshot disagrees
-with it. What §2 lists as the target is the separate step of giving that string a name in
-`wns-kernel` so the type carries the invariant instead of a convention doing it.
+**`SourceEpoch` is delivered too, and the boundary this paragraph used to draw was wrong.**
+It said the step belonged to the invariant work because the value is a `String` on the wire and
+§2 forbids rewriting historical packet bytes. `#[serde(transparent)]` makes that a non-argument:
+the newtype serializes to exactly the bytes the string did, so nothing historical changes, and
+`specta` renders it as a TypeScript alias for `string`, so the generated bindings do not change
+in meaning either. Both boundaries were checked before the change was made rather than assumed.
 
-That step belongs to the invariant work, not to this branch, and there is a concrete reason it
-is not a tick here: the value is a `String` on the wire, and §2's own byte-compatibility
-invariant says historical packet bytes must never be rewritten. Changing its representation is
-a decision about the persisted format, taken deliberately, and not a consequence of moving a
-module.
+`wns-kernel` owns it. It is carried by the frozen snapshot, by the epochs a project reports, by
+the `StoryHost` seam and the transfer host, and by every record that compares one — the point
+being that the invariant is now in the type instead of in the call sites. Fields that held the
+same value as a bare `String` were changed with it, which is what turned 137 call sites into
+five field declarations and a compiler-guided tail.
+
+One generator bug surfaced on the way, and it was a whole class: `declaration_name` found the
+first `export ` *anywhere* in a declaration's block, so a doc comment that names its own
+TypeScript form — which the new type's does — parsed as a declaration of the same name and,
+being first, shadowed the real one. The declaration was generated but never emitted. It now
+looks for the line that starts the declaration.

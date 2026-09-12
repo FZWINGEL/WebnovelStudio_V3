@@ -1435,7 +1435,7 @@ fn schema2_upgrade_failure_rolls_back_and_retains_durable_backup() {
             |row| row.get(0),
         )
         .expect("read rolled back epoch");
-    assert_eq!(rolled_epoch.to_string(), epoch);
+    assert_eq!(rolled_epoch.to_string(), epoch.to_string());
     let view_head: i64 = connection
         .query_row(
             "SELECT head_version FROM view_state WHERE singleton=1",

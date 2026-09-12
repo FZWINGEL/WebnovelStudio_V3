@@ -3,6 +3,7 @@ use crate::app_state::AppState;
 use crate::commands::project_commands::execute;
 use tauri::State;
 use webnovel_core::context::packet::CompiledPacket;
+use webnovel_core::projects::SourceEpoch;
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
 use webnovel_core::projects::story_context::{
@@ -36,7 +37,7 @@ pub async fn read_document_aliases(
 pub async fn set_document_aliases(
     access: ProjectAccess,
     document_id: String,
-    expected_source_epoch: String,
+    expected_source_epoch: SourceEpoch,
     aliases: Vec<String>, state: State<'_, AppState>,
 ) -> CoreResult<ContextEpochs> {
     let app = &*state;

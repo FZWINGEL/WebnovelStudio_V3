@@ -79,7 +79,7 @@ pub(crate) enum Command {
     RenameDocument(ProjectAccess, String, String, String, Reply<DocumentRecord>),
     ViewState(ProjectAccess, Reply<Option<ViewState>>),
     SaveViewState(ProjectAccess, Head, Endpoint, Endpoint, Reply<ViewState>),
-    ContextSourceEpoch(Reply<String>),
+    ContextSourceEpoch(Reply<SourceEpoch>),
     StorageInfo(Reply<StorageInfo>),
     Shutdown,
 }

@@ -16,7 +16,7 @@
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use wns_documents::records::CheckpointRequest;
-use wns_kernel::{CoreResult, DocumentRecord, Head, ProjectAccess, Revision};
+use wns_kernel::{CoreResult, DocumentRecord, Head, ProjectAccess, Revision, SourceEpoch};
 use wns_storage::ProjectMetadata;
 
 use crate::transfer::{DraftExportPreview, ExportRecord};
@@ -29,7 +29,7 @@ pub trait TransferSource {
     fn document_records(&self, access: &ProjectAccess) -> CoreResult<Vec<DocumentRecord>>;
     /// The epoch a duplicate's basis records, so the copy is not mistaken for
     /// a stale continuation of the original.
-    fn source_epoch(&self) -> CoreResult<String>;
+    fn source_epoch(&self) -> CoreResult<SourceEpoch>;
     /// Freeze a head as an immutable revision before an export is written.
     fn checkpoint(&self, request: CheckpointRequest) -> CoreResult<Revision>;
     /// Resolve the active author-reviewed bundle for an export that must not

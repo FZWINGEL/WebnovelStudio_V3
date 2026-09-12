@@ -517,8 +517,12 @@ fn split_declarations(text: &str) -> Vec<String> {
 }
 
 fn declaration_name(block: &str) -> Option<String> {
-    let start = block.find("export ")?;
-    let rest = block[start..].strip_prefix("export ")?;
+    // The line that *starts* the declaration — not the first `export ` anywhere
+    // in the block. A doc comment that names its own TypeScript form, as
+    // `SourceEpoch`'s does, otherwise parses as a declaration of the same name
+    // and, being first, shadows the real one.
+    let declaration = block.lines().find(|line| line.starts_with("export "))?;
+    let rest = declaration.strip_prefix("export ")?;
     let rest = rest
         .strip_prefix("type ")
         .or_else(|| rest.strip_prefix("enum "))
@@ -559,6 +563,7 @@ mod wns_groups {
             "wns-kernel",
             vec![
                 ("CoreError", one::<wns_kernel::CoreError>()),
+                ("SourceEpoch", one::<wns_kernel::SourceEpoch>()),
                 ("Head", one::<wns_kernel::Head>()),
                 ("ProjectAccess", one::<wns_kernel::ProjectAccess>()),
                 ("Revision", one::<wns_kernel::Revision>()),

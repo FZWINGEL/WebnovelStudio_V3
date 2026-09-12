@@ -1,6 +1,6 @@
 // Generated from `story` by `crates/bindings`. Do not edit.
 // Change the Rust type and run `cargo run -p wns-bindings`.
-import type { Head, ProjectAccess, Revision } from './kernel';
+import type { Head, ProjectAccess, Revision, SourceEpoch } from './kernel';
 import type { AppServerDelivery, BasisKind, DiscussionRun, FeedbackIntent, LookupAllowance, ProviderBinding, ProviderCleanup, ProviderDeliveryReceipt, ProviderOutcomeStatus, ProviderUsage, WorkshopWorkingSelection } from './workshop';
 import type { BudgetError, CompiledPacket, DigestCandidate, KnowledgeRecord, MockContextBudget, PossessionRecord, PromiseRecord, ReviewPrefixItem, ScopeGrant, SourceRef, StoryEntityRef, SummaryAudience, SummaryRevision } from './context';
 import type { DiscussionMessageRole, DiscussionScopeInput, SafeBriefInput } from './conversation';
@@ -13,7 +13,7 @@ export type MarkReady = { access: ProjectAccess; operationId: string; stageId: s
 
 export type MemoryDispatchState = "pending" | "dispatched"
 
-export type MemoryJob = { id: string; owner: MemoryOwner; operationId: string; payloadHash: string; target: Head; source: SourceRef; snapshotId: string; packetId: string; contextSourceEpoch: string; disclosurePolicyVersion: string; providerBinding: ProviderBinding | null; status: MemoryJobStatus; dispatchState: MemoryDispatchState; historical: boolean; stopReason: string | null; result: MemoryResult | null; view: MemoryView | null; createdAt: string; updatedAt: string }
+export type MemoryJob = { id: string; owner: MemoryOwner; operationId: string; payloadHash: string; target: Head; source: SourceRef; snapshotId: string; packetId: string; contextSourceEpoch: SourceEpoch; disclosurePolicyVersion: string; providerBinding: ProviderBinding | null; status: MemoryJobStatus; dispatchState: MemoryDispatchState; historical: boolean; stopReason: string | null; result: MemoryResult | null; view: MemoryView | null; createdAt: string; updatedAt: string }
 
 export type MemoryJobStatus = "queued" | "running" | "stopping" | "completed" | "stopped" | "failed" | "interrupted"
 
@@ -23,19 +23,19 @@ export type MemoryRead = { documentId: string; jobs: MemoryJob[]; views: MemoryV
 
 export type MemoryResult = { appServer?: AppServerDelivery; jobId: string; eventId: string; rawOutput: string | null; outcome: ProviderOutcomeStatus; confirmedStdinBytes: string | null; usage: ProviderUsage | null; cleanup: ProviderCleanup | null; error: string | null; validationError: string | null; candidate: DigestCandidate | null; effectiveIdentity: string | null; delivery?: ProviderDeliveryReceipt; createdAt: string }
 
-export type MemoryView = { id: string; jobId: string; projectId: string; operationNamespace: string; documentId: string; target: Head; source: SourceRef; snapshotId: string; packetId: string; contextSourceEpoch: string; disclosurePolicyVersion: string; candidate: DigestCandidate | null; current: boolean; sourceChanged: boolean; policyAvailable: boolean; historical: boolean; createdAt: string }
+export type MemoryView = { id: string; jobId: string; projectId: string; operationNamespace: string; documentId: string; target: Head; source: SourceRef; snapshotId: string; packetId: string; contextSourceEpoch: SourceEpoch; disclosurePolicyVersion: string; candidate: DigestCandidate | null; current: boolean; sourceChanged: boolean; policyAvailable: boolean; historical: boolean; createdAt: string }
 
 export type PreparationResult = { status: "prepared"; packet: CompiledPacket; current: boolean } | { status: "budgetRejected"; error: BudgetError }
 
 export type ReadyBundle = { id: string; projectId: string; operationNamespace: string; stageId: string; target: Head; records?: PossessionRecord[]; recordsHash?: string; promises?: PromiseRecord[]; promisesHash?: string; knowledge?: KnowledgeRecord[]; knowledgeHash?: string; summary?: SummaryRevision; summaryHash?: string; createdAt: string }
 
-export type ReviewStage = { id: string; projectId: string; operationNamespace: string; target: Head; revision: Revision; previousBundleId: string | null; prefix: ReviewPrefixItem[]; records?: PossessionRecord[]; recordsHash?: string; promises?: PromiseRecord[]; promisesHash?: string; knowledge?: KnowledgeRecord[]; knowledgeHash?: string; summary?: SummaryRevision; summaryHash?: string; sourceEpoch: string; policyEpoch: string; createdAt: string }
+export type ReviewStage = { id: string; projectId: string; operationNamespace: string; target: Head; revision: Revision; previousBundleId: string | null; prefix: ReviewPrefixItem[]; records?: PossessionRecord[]; recordsHash?: string; promises?: PromiseRecord[]; promisesHash?: string; knowledge?: KnowledgeRecord[]; knowledgeHash?: string; summary?: SummaryRevision; summaryHash?: string; sourceEpoch: SourceEpoch; policyEpoch: string; createdAt: string }
 
 export type ReviewState = "noReview" | "ready" | "changedProse" | "earlierBasisChanged" | "reviewNeeded"
 
 export type ReviewStatus = { documentId: string; title: string; head: Head; state: ReviewState; activeBundleId: string | null; pendingStageId: string | null; reason: string | null; canStage: boolean }
 
-export type ReviewedEntityCatalog = { projectId: string; operationNamespace: string; sourceEpoch: string; entities: ReviewedEntityChoice[] }
+export type ReviewedEntityCatalog = { projectId: string; operationNamespace: string; sourceEpoch: SourceEpoch; entities: ReviewedEntityChoice[] }
 
 export type ReviewedEntityChoice = { entity: StoryEntityRef; labelVariants: string[]; firstDocumentId: string; firstDocumentTitle: string }
 

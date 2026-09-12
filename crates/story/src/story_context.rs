@@ -7,7 +7,7 @@ use crate::reviewed_story;
 use wns_context::guidance;
 use wns_context::conversation as conversation_context;
 use crate::host::StoryHost;
-use wns_kernel::{CoreError, CoreResult, DocumentRole, Head, ProjectAccess, Reply, Revision, check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head, sha256_hex};
+use wns_kernel::{CoreError, CoreResult, DocumentRole, Head, ProjectAccess, Reply, Revision, check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head, sha256_hex, SourceEpoch};
 // The frozen-context vocabulary moved to wns-context (L2) — the compiler
 // consumes it, so it cannot sit above the compiler. Re-exported here so the
 // many `crate::story_context::{…}` imports keep resolving.
@@ -63,7 +63,7 @@ use std::collections::{BTreeMap, HashSet};
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContextEpochs {
-    pub source: String,
+    pub source: SourceEpoch,
     pub policy: String,
 }
 
@@ -72,7 +72,7 @@ pub struct ContextEpochs {
 pub struct DocumentAliases {
     pub document_id: String,
     pub aliases: Vec<String>,
-    pub source_epoch: String,
+    pub source_epoch: SourceEpoch,
 }
 
 /// Explicit reviewed-story continuation preparation. The target is the
@@ -101,7 +101,7 @@ pub enum ContextCommand {
     Aliases(
         ProjectAccess,
         String,
-        String,
+        SourceEpoch,
         Vec<String>,
         Reply<ContextEpochs>,
     ),
@@ -1386,7 +1386,7 @@ fn epochs(db: &Connection) -> CoreResult<ContextEpochs> {
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     Ok(ContextEpochs {
-        source: parse_stored_version(source)?,
+        source: SourceEpoch::new(parse_stored_version(source)?),
         policy: parse_stored_version(policy)?,
     })
 }
@@ -1448,7 +1448,7 @@ pub fn validated_snapshot_record(
     let frozen = decode_snapshot(&json, &hash)?;
     if frozen.snapshot.snapshot_id != id
         || frozen.snapshot.project_id != project
-        || frozen.snapshot.context_source_epoch != parse_stored_version(source_epoch)?
+        || frozen.snapshot.context_source_epoch != SourceEpoch::new(parse_stored_version(source_epoch)?)
         || frozen.policy.version != parse_stored_version(policy_epoch)?
     {
         return Err(CoreError::new(
@@ -1916,7 +1916,7 @@ pub fn validate_context_storage(db: &Connection) -> CoreResult<()> {
         let frozen = decode_snapshot(&json, &hash)?;
         if frozen.snapshot.snapshot_id != id
             || frozen.snapshot.project_id != project
-            || frozen.snapshot.context_source_epoch != parse_stored_version(source_epoch)?
+            || frozen.snapshot.context_source_epoch != SourceEpoch::new(parse_stored_version(source_epoch)?)
             || frozen.policy.version != parse_stored_version(policy_epoch)?
         {
             return Err(CoreError::new(

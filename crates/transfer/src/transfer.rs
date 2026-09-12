@@ -17,8 +17,8 @@ use std::time::Duration;
 use uuid::Uuid;
 use wns_documents::records::{CheckpointReason, CheckpointRequest};
 use wns_kernel::{
-    CoreError, CoreResult, DocumentRole, Head, ProjectAccess, ProjectInfo, StoredResult,
-};
+    CoreError, CoreResult, DocumentRole, Head, ProjectAccess, ProjectInfo, SourceEpoch,
+    StoredResult,};
 use wns_kernel::validate_snapshot_json;
 use wns_story::source_pins::AUTHOR_ROOM_AUDIENCE;
 use wns_storage::{configure, migrate};
@@ -44,7 +44,7 @@ pub struct BackupManifest {
     pub database_sha256: String,
     pub database_schema_version: u32,
     #[serde(default)]
-    pub context_source_epoch: String,
+    pub context_source_epoch: SourceEpoch,
     pub documents: Vec<DocumentHeadManifest>,
     pub revisions: Vec<RevisionHeadManifest>,
     pub assets: Vec<AssetManifest>,
@@ -156,7 +156,7 @@ pub(crate) struct ProjectedDraft {
 pub struct DuplicateBasis {
     pub project_id: String,
     pub operation_namespace: String,
-    pub context_source_epoch: String,
+    pub context_source_epoch: SourceEpoch,
     pub document_heads: Vec<Head>,
 }
 
@@ -1307,7 +1307,7 @@ fn manifest_for(database: &DatabaseHeads, hash: String) -> BackupManifest {
         source_operation_namespace: database.info.operation_namespace.clone(),
         database_sha256: hash,
         database_schema_version: DATABASE_SCHEMA_VERSION,
-        context_source_epoch: database.context_source_epoch.clone(),
+        context_source_epoch: database.context_source_epoch.clone().into(),
         documents: database.documents.clone(),
         revisions: database.revisions.clone(),
         assets: Vec::new(),
@@ -1748,7 +1748,7 @@ pub fn recover_backup_staged<F: TransferFactory>(
     let old = validate_database(&staged_db, None)?;
     if old.info.project_id != contents.manifest.source_project_id
         || old.info.operation_namespace != contents.manifest.source_operation_namespace
-        || old.context_source_epoch != contents.manifest.context_source_epoch
+        || old.context_source_epoch != contents.manifest.context_source_epoch.as_str()
         || old.documents != contents.manifest.documents
         || old.revisions != contents.manifest.revisions
     {

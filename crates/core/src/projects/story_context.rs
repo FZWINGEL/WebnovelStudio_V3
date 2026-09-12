@@ -77,7 +77,7 @@ impl ProjectSession {
         &self,
         access: ProjectAccess,
         document_id: String,
-        expected_source_epoch: String,
+        expected_source_epoch: SourceEpoch,
         aliases: Vec<String>,
     ) -> CoreResult<ContextEpochs> {
         self.request(|reply| {

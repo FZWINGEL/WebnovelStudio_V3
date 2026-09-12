@@ -1,3 +1,4 @@
+use wns_kernel::SourceEpoch;
 use serde::{Deserialize, Serialize};
 
 /// The editorial basis selected for a frozen request.
@@ -213,8 +214,8 @@ pub struct StorySnapshot {
     pub project_id: String,
     pub basis: BasisKind,
     pub target: SourceRef,
-    pub context_source_epoch: String,
-    pub ordering_epoch: String,
+    pub context_source_epoch: wns_kernel::SourceEpoch,
+    pub ordering_epoch: SourceEpoch,
     pub disclosure_policy_version: String,
     /// These descriptors are Rust-resolved and frozen with the snapshot.
     pub sources: Vec<SourceDescriptor>,

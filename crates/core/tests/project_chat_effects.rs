@@ -427,7 +427,7 @@ fn draft_only_effects_resolve_to_ordinary_targets_and_replay_once() {
         .iter()
         .all(|document| { document.role == webnovel_core::projects::DocumentRole::Ordinary }));
     assert_eq!(
-        project.context().source_epoch().expect("read source epoch"),
+        project.context().source_epoch().expect("read source epoch").to_string(),
         (epoch_before.parse::<u64>().expect("epoch") + 1).to_string()
     );
 
@@ -831,7 +831,7 @@ fn relationship_write_failure_rolls_back_materialization_and_allows_same_operati
             |row| row.get(0),
         )
         .expect("read rolled-back source epoch");
-    assert_eq!(epoch_after_failure.to_string(), epoch_before);
+    assert_eq!(epoch_after_failure.to_string(), epoch_before.to_string());
     assert!(
         project
             .read_chat_adoption_preview(access.clone(), conversation_id.clone(), preview.id.clone())

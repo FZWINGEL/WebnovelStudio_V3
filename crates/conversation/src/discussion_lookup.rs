@@ -7,7 +7,7 @@
 pub use wns_story::run_vocabulary::*;
 use wns_kernel::check_id;
 use wns_providers::vocabulary::{ProviderCleanup, ProviderOutcomeStatus, ProviderUsage};
-use wns_kernel::{CoreError, CoreResult};
+use wns_kernel::{CoreError, CoreResult, SourceEpoch};
 use wns_context::lookup::{
     LOOKUP_SCHEMA_VERSION, LookupAllowance, LookupEnvelope, LookupExchange, LookupRead,
     LookupReadResult, MAX_LOOKUP_ENVELOPE_BYTES, parse_lookup_envelope, validate_lookup_envelope,
@@ -83,7 +83,7 @@ pub struct InvocationIdentity {
     pub snapshot_id: String,
     pub project_id: String,
     pub operation_namespace: String,
-    pub source_epoch: String,
+    pub source_epoch: SourceEpoch,
     pub policy_epoch: String,
     pub allowance: LookupAllowance,
     pub state: LookupInvocationState,
@@ -289,7 +289,7 @@ pub fn read_identity(
         snapshot_id,
         project_id,
         operation_namespace: namespace,
-        source_epoch,
+        source_epoch: source_epoch.into(),
         policy_epoch,
         allowance,
         state: LookupInvocationState::parse(&state)?,
@@ -895,7 +895,7 @@ pub fn validate_storage(db: &Connection) -> CoreResult<()> {
             || root.0 != project_id
             || root.1 != namespace
             || frozen_namespace != namespace
-            || frozen.snapshot.context_source_epoch != source_epoch.to_string()
+            || frozen.snapshot.context_source_epoch != SourceEpoch::new(source_epoch.to_string())
             || frozen.policy.version != policy_epoch.to_string()
             || (ordinal == 0 && root.3 != packet_id)
         {

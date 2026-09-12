@@ -7,6 +7,8 @@
 //! from immutable revisions so the conversation ledger cannot become a second
 //! document store.
 
+use wns_kernel::SourceEpoch;
+
 use super::*;
 use wns_documents::material_adoption::{self, MaterialTarget};
 use wns_context::project_chat_output::{
@@ -73,7 +75,7 @@ struct StoredPreviewMetadata {
     project_id: String,
     operation_namespace: String,
     conversation_id: String,
-    source_epoch: String,
+    source_epoch: SourceEpoch,
     policy_epoch: String,
     workshop_version: String,
     targets: Vec<StoredPreviewTarget>,
@@ -358,7 +360,7 @@ pub(super) fn prepare(
         project_id: request.access.project_id.clone(),
         operation_namespace: request.access.operation_namespace.clone(),
         conversation_id: request.conversation_id.clone(),
-        source_epoch,
+        source_epoch: source_epoch.into(),
         policy_epoch,
         workshop_version,
         targets: expanded_targets,
@@ -1170,7 +1172,7 @@ fn expand_preview(
         project_id: metadata.project_id,
         operation_namespace: metadata.operation_namespace,
         conversation_id: metadata.conversation_id,
-        source_epoch: metadata.source_epoch,
+        source_epoch: SourceEpoch::from(metadata.source_epoch),
         policy_epoch: metadata.policy_epoch,
         workshop_version: metadata.workshop_version,
         targets,
@@ -1899,7 +1901,7 @@ fn validate_preview_current(
         ));
     }
     let (source_epoch, policy_epoch) = store::epochs(connection)?;
-    if source_epoch != preview.source_epoch || policy_epoch != preview.policy_epoch {
+    if source_epoch != preview.source_epoch.as_str() || policy_epoch != preview.policy_epoch {
         return Err(CoreError::new(
             "ContextChanged",
             "The story or permissions changed after this chat preview.",

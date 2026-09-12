@@ -2,8 +2,8 @@
 //! JavaScript prepares the full document; this module validates and stores it.
 use wns_kernel::{
     CoreError, CoreResult, DocumentRecord, Head, ProjectAccess, Reply, StoredResult, check_id,
-    logical_hash, new_id, parse_stored_version, parse_version, require_head, valid_hash,
-    validate_snapshot_json,
+    SourceEpoch, logical_hash, new_id, parse_stored_version, parse_version, require_head,
+    valid_hash, validate_snapshot_json,
 };
 use wns_storage::{
     checkpoint_at, existing_receipt, insert_receipt, read_document, read_revision,
@@ -935,7 +935,7 @@ fn read(db: &Connection, access: &ProjectAccess, id: &str) -> CoreResult<Proposa
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     let current = !historical_copy
-        && frozen.snapshot.context_source_epoch == epoch.to_string()
+        && frozen.snapshot.context_source_epoch == SourceEpoch::new(epoch.to_string())
         && frozen.policy.version == policy.to_string()
         && read_document(db, &source.head.document_id)?.head == source.head;
     let prepared_id: Option<String> = db

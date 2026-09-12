@@ -1,6 +1,6 @@
 // Generated from `conversation` by `crates/bindings`. Do not edit.
 // Change the Rust type and run `cargo run -p wns-bindings`.
-import type { DocumentRecord, Head, ProjectAccess, Revision, StoredResult } from './kernel';
+import type { DocumentRecord, Head, ProjectAccess, Revision, SourceEpoch, StoredResult } from './kernel';
 import type { BasisKind, DiscussionRun, FeedbackIntent, LookupAllowance, ProviderBinding } from './workshop';
 import type { Endpoint, GuidanceScope, MockContextBudget, ProjectBriefOrigin, ProjectChatDraftRef, ScopeGrant, ScopeKind, SourceDescriptor, SourceKind } from './context';
 import type { TypedReplacementBlock } from './documents';
@@ -37,7 +37,7 @@ export type ChatAdoptionImpact = { targetDocumentId: string; kind: string; reaso
 
 export type ChatAdoptionPlacement = { targetDocumentId: string; beforeDocumentId?: string; afterDocumentId?: string }
 
-export type ChatAdoptionPreview = { id: string; version: string; digest: string; projectId: string; operationNamespace: string; conversationId: string; sourceEpoch: string; policyEpoch: string; workshopVersion: string; targets: ChatAdoptionTarget[]; effects: ChatAdoptionEffects | null }
+export type ChatAdoptionPreview = { id: string; version: string; digest: string; projectId: string; operationNamespace: string; conversationId: string; sourceEpoch: SourceEpoch; policyEpoch: string; workshopVersion: string; targets: ChatAdoptionTarget[]; effects: ChatAdoptionEffects | null }
 
 export type ChatAdoptionRelationship = { key: string; relationshipId: string; fromDocumentId: string; toDocumentId: string; type: string; description: string; uncertainty: string; fromHead: Head; toHead: Head }
 

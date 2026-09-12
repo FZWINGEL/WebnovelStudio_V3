@@ -22,7 +22,7 @@ use wns_documents::records::{
 use wns_kernel::{
     CoreError, CoreResult, DocumentRecord, DocumentRole, Head, ProjectAccess, Reply, Revision,
     StoredResult, check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head,
-    sha256_hex, valid_hash, validate_snapshot_json,
+    SourceEpoch, sha256_hex, valid_hash, validate_snapshot_json,
 };
 use wns_storage::{
     checkpoint_at, existing_receipt, insert_receipt, read_document, read_document_with_role,
@@ -148,7 +148,7 @@ pub struct ProjectConversation {
     pub older_before: Option<String>,
     pub active_run: Option<DiscussionRun>,
     pub drafts: Vec<AssistantDraft>,
-    pub source_epoch: String,
+    pub source_epoch: SourceEpoch,
     pub policy_epoch: String,
     pub earlier_workshop: bool,
     pub document_saves: Vec<ChatDocumentSave>,
@@ -392,7 +392,7 @@ pub struct ChatAdoptionPreview {
     pub project_id: String,
     pub operation_namespace: String,
     pub conversation_id: String,
-    pub source_epoch: String,
+    pub source_epoch: SourceEpoch,
     pub policy_epoch: String,
     pub workshop_version: String,
     pub targets: Vec<ChatAdoptionTarget>,

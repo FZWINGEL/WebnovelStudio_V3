@@ -44,7 +44,7 @@ impl ContextApi {
 
     /// The project's current source epoch. A frozen context snapshot is only
     /// current while this value is unchanged.
-    pub fn source_epoch(&self) -> CoreResult<String> {
+    pub fn source_epoch(&self) -> CoreResult<SourceEpoch> {
         self.request(Command::ContextSourceEpoch)
     }
 }

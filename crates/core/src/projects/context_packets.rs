@@ -63,7 +63,7 @@ impl wns_story::host::StoryHost for OwnedProject {
         #[cfg(not(test))]
         let _ = operation_id;
     }
-    fn context_source_epoch(&self) -> CoreResult<String> {
+    fn context_source_epoch(&self) -> CoreResult<SourceEpoch> {
         OwnedProject::context_source_epoch(self)
     }
     fn current_access(&self) -> CoreResult<ProjectAccess> {

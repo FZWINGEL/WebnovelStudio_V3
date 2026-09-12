@@ -1,6 +1,6 @@
 // Generated from `context` by `crates/bindings`. Do not edit.
 // Change the Rust type and run `cargo run -p wns-bindings`.
-import type { Head } from './kernel';
+import type { Head, SourceEpoch } from './kernel';
 import type { BasisKind, LookupAllowance, ProviderBinding } from './workshop';
 
 /**
@@ -37,7 +37,7 @@ export type ChatUnknownTo = "author" | "reader" | "both"
 
 export type CompiledPacket = { messages: PacketMessage[]; options: PacketOptions; receipt: PacketReceipt }
 
-export type ContextEpochs = { source: string; policy: string }
+export type ContextEpochs = { source: SourceEpoch; policy: string }
 
 export type ContextPurpose = "discuss" | "revise" | "continue" | "plan" | "storyQuestion" | "memoryAnalysis"
 
@@ -107,7 +107,7 @@ export type FrozenConversation = { projectId: string; operationNamespace: string
  */
 export type FrozenGuidance = { handle: string; projectId: string; version: GuidanceVersion }
 
-export type FrozenNavigationView = { reference: NavigationViewRef; sourceContextEpoch: string; disclosurePolicyVersion: string; dependencies: SourceRef[]; candidate: DigestCandidate }
+export type FrozenNavigationView = { reference: NavigationViewRef; sourceContextEpoch: SourceEpoch; disclosurePolicyVersion: string; dependencies: SourceRef[]; candidate: DigestCandidate }
 
 /**
  * Frozen project-chat identity stored inside the immutable context manifest.
@@ -352,7 +352,7 @@ export type StoryEntityRef = { id: string; label: string }
 /**
  * Immutable source and policy basis for one context request.
  */
-export type StorySnapshot = { snapshotId: string; projectId: string; basis: BasisKind; target: SourceRef; contextSourceEpoch: string; orderingEpoch: string; disclosurePolicyVersion: string; sources: SourceDescriptor[]; reviewedBasis?: ReviewedBasisManifest }
+export type StorySnapshot = { snapshotId: string; projectId: string; basis: BasisKind; target: SourceRef; contextSourceEpoch: SourceEpoch; orderingEpoch: SourceEpoch; disclosurePolicyVersion: string; sources: SourceDescriptor[]; reviewedBasis?: ReviewedBasisManifest }
 
 /**
  * Optional fictional chronology. Eligibility never uses it to override the

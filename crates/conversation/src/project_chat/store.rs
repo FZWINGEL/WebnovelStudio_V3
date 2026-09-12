@@ -342,7 +342,7 @@ pub(super) fn read_chapter_feedback(
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    if frozen.snapshot.context_source_epoch != current_source_epoch.to_string()
+    if frozen.snapshot.context_source_epoch != SourceEpoch::new(current_source_epoch.to_string())
         || frozen.policy.version != current_policy_epoch.to_string()
     {
         projection.range_proposal = None;
@@ -546,7 +546,7 @@ host: &mut impl ProjectChatHost,
         older_before,
         active_run,
         drafts,
-        source_epoch,
+        source_epoch: source_epoch.into(),
         policy_epoch,
         earlier_workshop,
         document_saves,

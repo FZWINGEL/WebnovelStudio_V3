@@ -42,7 +42,7 @@ use crate::host::StoryHost;
 use wns_kernel::{
     CoreError, CoreResult, DocumentRecord, DocumentRole, Head, ProjectAccess, Reply, Revision,
     check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head, sha256_hex,
-    valid_hash, validate_title,
+    SourceEpoch, valid_hash, validate_title,
 };
 use wns_storage::{checkpoint_at, read_document, read_revision};
 
@@ -112,7 +112,7 @@ pub struct ReviewStage {
     pub summary: Option<SummaryRevision>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary_hash: Option<String>,
-    pub source_epoch: String,
+    pub source_epoch: SourceEpoch,
     pub policy_epoch: String,
     pub created_at: String,
 }
@@ -1887,7 +1887,7 @@ fn stage_to_dto(db: &Connection, stage: StageRow) -> CoreResult<ReviewStage> {
         knowledge_hash: stage.knowledge_hash,
         summary: stage.summary,
         summary_hash: stage.summary_hash,
-        source_epoch: parse_stored_version(stage.source_epoch)?,
+        source_epoch: SourceEpoch::new(parse_stored_version(stage.source_epoch)?),
         policy_epoch: parse_stored_version(stage.policy_epoch)?,
         created_at: stage.created_at,
     })
