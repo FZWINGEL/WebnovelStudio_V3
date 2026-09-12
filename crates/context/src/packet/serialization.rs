@@ -952,3 +952,230 @@ pub(super) fn try_mandatory_packet(
     }
     Ok(())
 }
+
+/// Everything a request must satisfy before any of it is read: its identity, the
+/// one schema guard, its response contract, and the three frozen inputs checked
+/// against the snapshot they claim to describe.
+///
+/// Returns whether this is a workshop request, which the stages need and which is
+/// a property of the contract this validates.
+pub(super) fn validate_request(
+    request: &PacketRequest,
+    schema: PacketSchemaVersion,
+) -> Result<bool, PacketError> {
+    validate_request_identity(request)?;
+    if schema == PacketSchemaVersion::V1 && request.lookup.is_some() {
+        return Err(PacketError::InvalidRequest {
+            message: "Historical v1 packets cannot contain story lookups.".into(),
+        });
+    }
+    validate_response_contract(request)?;
+    let workshop_request =
+        request.response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT);
+    validate_frozen_navigation_views(
+        &request.frozen.navigation_views,
+        &request.frozen.snapshot,
+        &request.frozen.policy,
+        request.frozen.purpose,
+    )
+    .map_err(|error| PacketError::SourceBinding {
+        code: error.code,
+        message: error.detail,
+        handle: None,
+    })?;
+    validate_conversation(
+        request.frozen.conversation.as_ref(),
+        &request.frozen.snapshot.project_id,
+        &request.frozen.snapshot.target.document_id,
+        &request.frozen.policy.version,
+        request.frozen.policy.audience,
+        request.frozen.purpose,
+    )
+    .map_err(|message| source_binding("InvalidConversationContext", message, None))?;
+    validate_frozen_guidance(
+        &request.frozen.guidance,
+        &request.frozen.snapshot.project_id,
+        &request.frozen.snapshot.target.document_id,
+        request.frozen.policy.audience,
+    )
+    .map_err(|message| PacketError::SourceBinding {
+        code: "InvalidGuidance".into(),
+        message,
+        handle: None,
+    })?;
+    Ok(workshop_request)
+}
+
+
+/// The request's sources, read and checked.
+///
+/// Every supplied record is resolved against the frozen manifest and checked
+/// against the descriptor it claims; the target is found among them; the
+/// navigation views and reviewed records are validated against those exact
+/// reads; and the summary handles the audience may use are collected. Nothing
+/// here consults a budget — that is the stages' business, and this is what they
+/// price.
+pub(super) struct Resolved {
+    pub(super) canonical_reads: Vec<CanonicalRead>,
+    /// Which handles were supplied, as a set keyed by the handle.
+    pub(super) reads_by_handle: HashMap<String, ()>,
+    pub(super) target_handle: String,
+    pub(super) target: CanonicalRead,
+    pub(super) navigation_views: Vec<ValidatedNavigationView>,
+    pub(super) reviewed_evidence: Vec<PackedReviewedEvidence>,
+    pub(super) reviewed_promises: Vec<PackedReviewedPromises>,
+    pub(super) reviewed_knowledge: Vec<PackedReviewedKnowledge>,
+}
+
+pub(super) fn resolve_sources(
+    request: &PacketRequest,
+    mandatory: &[String],
+) -> Result<Resolved, PacketError> {
+    let manifest_index = manifest_by_handle(&request.frozen)?;
+    let mut reads_by_handle = HashMap::with_capacity(request.sources.len());
+    let mut canonical_reads = Vec::with_capacity(request.sources.len());
+    for read in &request.sources {
+        if reads_by_handle
+            .insert(read.descriptor.handle.clone(), ())
+            .is_some()
+        {
+            return Err(PacketError::SourceBinding {
+                code: "DuplicateSourceRead".to_owned(),
+                message: "A packet source read was supplied more than once.".to_owned(),
+                handle: Some(read.descriptor.handle.clone()),
+            });
+        }
+        let manifest = manifest_index
+            .get(&read.descriptor.handle)
+            .ok_or_else(|| PacketError::SourceBinding {
+                code: "SourceOutsideFrozenManifest".to_owned(),
+                message: "A packet source is outside the frozen manifest.".to_owned(),
+                handle: Some(read.descriptor.handle.clone()),
+            })?;
+        if *manifest != &read.descriptor {
+            return Err(PacketError::SourceBinding {
+                code: "SourceDescriptorMismatch".to_owned(),
+                message: "A packet source descriptor does not exactly match its frozen record."
+                    .to_owned(),
+                handle: Some(read.descriptor.handle.clone()),
+            });
+        }
+        canonical_reads.push(canonicalize_read(read)?);
+    }
+
+    // The durable preparation path resolves every descriptor in the frozen
+    // manifest. Requiring the same here prevents an accidental subset from
+    // being labeled as a full eligible context packet.
+    for descriptor in &request.frozen.snapshot.sources {
+        if !reads_by_handle.contains_key(&descriptor.handle) {
+            return Err(source_binding(
+                "FrozenManifestReadMissing",
+                "Every source in the frozen manifest must be supplied as a resolved read.",
+                Some(descriptor.handle.clone()),
+            ));
+        }
+    }
+
+    let target_handle = request
+        .frozen
+        .snapshot
+        .sources
+        .iter()
+        .find(|descriptor| descriptor.source == request.frozen.snapshot.target)
+        .map(|descriptor| descriptor.handle.clone())
+        .ok_or_else(|| {
+            source_binding(
+                "TargetNotInManifest",
+                "The frozen target is not in the source manifest.",
+                None,
+            )
+        })?;
+    let target = canonical_reads
+        .iter()
+        .find(|read| read.read.descriptor.handle == target_handle)
+        .cloned()
+        .ok_or_else(|| {
+            source_binding(
+                "TargetReadMissing",
+                "The resolved target source read is required for every packet.",
+                Some(target_handle.clone()),
+            )
+        })?;
+
+    for handle in mandatory {
+        if !manifest_index.contains_key(handle) {
+            return Err(source_binding(
+                "MandatorySourceOutsideFrozenManifest",
+                "A mandatory source is outside the frozen manifest.",
+                Some(handle.clone()),
+            ));
+        }
+        if !reads_by_handle.contains_key(handle) {
+            return Err(source_binding(
+                "MandatorySourceReadMissing",
+                "A mandatory source must be supplied as a resolved read.",
+                Some(handle.clone()),
+            ));
+        }
+    }
+
+    let validated_navigation_views = validate_navigation_views(request, &canonical_reads)?;
+    let validated_reviewed_evidence = validate_reviewed_evidence(request, &canonical_reads)?;
+    let validated_reviewed_promises = validate_reviewed_promises(request, &canonical_reads)?;
+    let validated_reviewed_knowledge = validate_reviewed_knowledge(request, &canonical_reads)?;
+    validate_lookup_evidence(request, &canonical_reads)?;
+    // The audience may not use the same summary twice; this is the only use.
+    let mut summary_handles = HashSet::new();
+    for summary in &request.frozen.reviewed_summaries {
+        reviewed_summaries::validate_frozen_set(
+            summary,
+            &request.frozen.snapshot,
+            &request.frozen.policy,
+            request.frozen.purpose,
+        )
+        .map_err(|error| {
+            source_binding(
+                &error.code,
+                error.detail,
+                Some(summary.source_handle.clone()),
+            )
+        })?;
+        if !summary_handles.insert(summary.source_handle.clone())
+            || !canonical_reads.iter().any(|read| {
+                read.read.descriptor.handle == summary.source_handle
+                    && read.read.descriptor.source == summary.summary.source
+            })
+        {
+            return Err(source_binding(
+                "InvalidReviewedSummary",
+                "Accepted summaries require unique exact original source reads.",
+                Some(summary.source_handle.clone()),
+            ));
+        }
+        for dependency in &summary.summary.dependencies {
+            if !canonical_reads.iter().any(|read| {
+                read.read.descriptor.source.project_id == summary.project_id
+                    && read.read.descriptor.source.document_id == dependency.document_id
+                    && read.read.descriptor.source.revision_id == dependency.revision_id
+                    && read.read.descriptor.source.body_hash == dependency.head.body_hash
+            }) {
+                return Err(source_binding(
+                    "InvalidReviewedSummary",
+                    "Every accepted summary dependency requires its exact eligible source read.",
+                    Some(summary.source_handle.clone()),
+                ));
+            }
+        }
+    }
+    Ok(Resolved {
+        canonical_reads,
+        reads_by_handle,
+        target_handle,
+        target,
+        navigation_views: validated_navigation_views,
+        reviewed_evidence: validated_reviewed_evidence,
+        reviewed_promises: validated_reviewed_promises,
+        reviewed_knowledge: validated_reviewed_knowledge,
+    })
+}
+

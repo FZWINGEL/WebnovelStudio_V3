@@ -519,183 +519,10 @@ fn compile_packet_with_schema(
     request: &PacketRequest,
     schema: PacketSchemaVersion,
 ) -> Result<CompiledPacket, PacketError> {
-    validate_request_identity(request)?;
-    if schema == PacketSchemaVersion::V1 && request.lookup.is_some() {
-        return Err(PacketError::InvalidRequest {
-            message: "Historical v1 packets cannot contain story lookups.".into(),
-        });
-    }
-    validate_response_contract(request)?;
-    let workshop_request = request.response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT);
-    validate_frozen_navigation_views(
-        &request.frozen.navigation_views,
-        &request.frozen.snapshot,
-        &request.frozen.policy,
-        request.frozen.purpose,
-    )
-    .map_err(|error| PacketError::SourceBinding {
-        code: error.code,
-        message: error.detail,
-        handle: None,
-    })?;
-    validate_conversation(
-        request.frozen.conversation.as_ref(),
-        &request.frozen.snapshot.project_id,
-        &request.frozen.snapshot.target.document_id,
-        &request.frozen.policy.version,
-        request.frozen.policy.audience,
-        request.frozen.purpose,
-    )
-    .map_err(|message| source_binding("InvalidConversationContext", message, None))?;
-    validate_frozen_guidance(
-        &request.frozen.guidance,
-        &request.frozen.snapshot.project_id,
-        &request.frozen.snapshot.target.document_id,
-        request.frozen.policy.audience,
-    )
-    .map_err(|message| PacketError::SourceBinding {
-        code: "InvalidGuidance".into(),
-        message,
-        handle: None,
-    })?;
+    let workshop_request = validate_request(request, schema)?;
     let mut mandatory_handles = mandatory_handles(request)?;
-    let manifest_by_handle = manifest_by_handle(&request.frozen)?;
 
-    let mut reads_by_handle = HashMap::with_capacity(request.sources.len());
-    let mut canonical_reads = Vec::with_capacity(request.sources.len());
-    for read in &request.sources {
-        if reads_by_handle
-            .insert(read.descriptor.handle.clone(), ())
-            .is_some()
-        {
-            return Err(PacketError::SourceBinding {
-                code: "DuplicateSourceRead".to_owned(),
-                message: "A packet source read was supplied more than once.".to_owned(),
-                handle: Some(read.descriptor.handle.clone()),
-            });
-        }
-        let manifest = manifest_by_handle
-            .get(&read.descriptor.handle)
-            .ok_or_else(|| PacketError::SourceBinding {
-                code: "SourceOutsideFrozenManifest".to_owned(),
-                message: "A packet source is outside the frozen manifest.".to_owned(),
-                handle: Some(read.descriptor.handle.clone()),
-            })?;
-        if *manifest != &read.descriptor {
-            return Err(PacketError::SourceBinding {
-                code: "SourceDescriptorMismatch".to_owned(),
-                message: "A packet source descriptor does not exactly match its frozen record."
-                    .to_owned(),
-                handle: Some(read.descriptor.handle.clone()),
-            });
-        }
-        canonical_reads.push(canonicalize_read(read)?);
-    }
-
-    // The durable preparation path resolves every descriptor in the frozen
-    // manifest. Requiring the same here prevents an accidental subset from
-    // being labeled as a full eligible context packet.
-    for descriptor in &request.frozen.snapshot.sources {
-        if !reads_by_handle.contains_key(&descriptor.handle) {
-            return Err(source_binding(
-                "FrozenManifestReadMissing",
-                "Every source in the frozen manifest must be supplied as a resolved read.",
-                Some(descriptor.handle.clone()),
-            ));
-        }
-    }
-
-    let target_handle = request
-        .frozen
-        .snapshot
-        .sources
-        .iter()
-        .find(|descriptor| descriptor.source == request.frozen.snapshot.target)
-        .map(|descriptor| descriptor.handle.clone())
-        .ok_or_else(|| {
-            source_binding(
-                "TargetNotInManifest",
-                "The frozen target is not in the source manifest.",
-                None,
-            )
-        })?;
-    let target = canonical_reads
-        .iter()
-        .find(|read| read.read.descriptor.handle == target_handle)
-        .cloned()
-        .ok_or_else(|| {
-            source_binding(
-                "TargetReadMissing",
-                "The resolved target source read is required for every packet.",
-                Some(target_handle.clone()),
-            )
-        })?;
-
-    for handle in &mandatory_handles {
-        if !manifest_by_handle.contains_key(handle) {
-            return Err(source_binding(
-                "MandatorySourceOutsideFrozenManifest",
-                "A mandatory source is outside the frozen manifest.",
-                Some(handle.clone()),
-            ));
-        }
-        if !reads_by_handle.contains_key(handle) {
-            return Err(source_binding(
-                "MandatorySourceReadMissing",
-                "A mandatory source must be supplied as a resolved read.",
-                Some(handle.clone()),
-            ));
-        }
-    }
-
-    let validated_navigation_views = validate_navigation_views(request, &canonical_reads)?;
-    let validated_reviewed_evidence = validate_reviewed_evidence(request, &canonical_reads)?;
-    let validated_reviewed_promises = validate_reviewed_promises(request, &canonical_reads)?;
-    let validated_reviewed_knowledge = validate_reviewed_knowledge(request, &canonical_reads)?;
-    validate_lookup_evidence(request, &canonical_reads)?;
-    let mut summary_handles = HashSet::new();
-    for summary in &request.frozen.reviewed_summaries {
-        reviewed_summaries::validate_frozen_set(
-            summary,
-            &request.frozen.snapshot,
-            &request.frozen.policy,
-            request.frozen.purpose,
-        )
-        .map_err(|error| {
-            source_binding(
-                &error.code,
-                error.detail,
-                Some(summary.source_handle.clone()),
-            )
-        })?;
-        if !summary_handles.insert(&summary.source_handle)
-            || !canonical_reads.iter().any(|read| {
-                read.read.descriptor.handle == summary.source_handle
-                    && read.read.descriptor.source == summary.summary.source
-            })
-        {
-            return Err(source_binding(
-                "InvalidReviewedSummary",
-                "Accepted summaries require unique exact original source reads.",
-                Some(summary.source_handle.clone()),
-            ));
-        }
-        for dependency in &summary.summary.dependencies {
-            if !canonical_reads.iter().any(|read| {
-                read.read.descriptor.source.project_id == summary.project_id
-                    && read.read.descriptor.source.document_id == dependency.document_id
-                    && read.read.descriptor.source.revision_id == dependency.revision_id
-                    && read.read.descriptor.source.body_hash == dependency.head.body_hash
-            }) {
-                return Err(source_binding(
-                    "InvalidReviewedSummary",
-                    "Every accepted summary dependency requires its exact eligible source read.",
-                    Some(summary.source_handle.clone()),
-                ));
-            }
-        }
-    }
-
+    let resolved = resolve_sources(request, &mandatory_handles)?;
     let mut available = match request.provider_binding.as_ref() {
         Some(binding) => binding.input_limit().map_err(|message| {
             PacketError::Budget(budget_error(
@@ -718,7 +545,7 @@ fn compile_packet_with_schema(
         );
     }
 
-    let requested_handles: Vec<String> = canonical_reads
+    let requested_handles: Vec<String> = resolved.canonical_reads
         .iter()
         .map(|read| read.read.descriptor.handle.clone())
         .collect();
@@ -734,7 +561,7 @@ fn compile_packet_with_schema(
     // missing read would otherwise turn an evidence relationship into an
     // unreported omission.
     for handle in &eligibility.all_dependency_handles {
-        if !reads_by_handle.contains_key(handle) {
+        if !resolved.reads_by_handle.contains_key(handle) {
             return Err(source_binding(
                 "DependencyReadMissing",
                 "Every eligible source dependency must be supplied as a resolved read.",
@@ -764,8 +591,8 @@ fn compile_packet_with_schema(
     .all_dependency_handles;
     if let Some(scope) = &request.scope {
         validate_scope(&ScopeValidationRequest {
-            source_snapshot: target.body.clone(),
-            result_snapshot: target.body.clone(),
+            source_snapshot: resolved.target.body.clone(),
+            result_snapshot: resolved.target.body.clone(),
             scope: scope.clone(),
         })
         .map_err(|message| PacketError::ScopeValidation { message })?;
@@ -778,12 +605,12 @@ fn compile_packet_with_schema(
         .collect();
     let ordered_handles = stable_source_order(
         &request.frozen,
-        &target_handle,
+        &resolved.target_handle,
         &mandatory_handles,
         &eligible_handles,
     );
-    let canonical_by_handle = canonical_by_handle(canonical_reads);
-    let navigation_by_handle = navigation_by_handle(&validated_navigation_views);
+    let canonical_by_handle = canonical_by_handle(resolved.canonical_reads);
+    let navigation_by_handle = navigation_by_handle(&resolved.navigation_views);
 
     let options = packet_options(request)?;
 
@@ -794,7 +621,7 @@ fn compile_packet_with_schema(
         ordered_handles
             .iter()
             .filter(|handle| {
-                !mandatory_set.contains(handle.as_str()) && handle.as_str() != target_handle
+                !mandatory_set.contains(handle.as_str()) && handle.as_str() != resolved.target_handle
             })
             .filter(|handle| {
                 canonical_by_handle
@@ -825,7 +652,7 @@ fn compile_packet_with_schema(
             ordered_handles
                 .iter()
                 .filter(|handle| {
-                    handle.as_str() != target_handle
+                    handle.as_str() != resolved.target_handle
                         && !mandatory_set.contains(handle.as_str())
                         && canonical_by_handle
                             .get(handle.as_str())
@@ -851,7 +678,7 @@ fn compile_packet_with_schema(
 
     let mut mandatory_sources = Vec::new();
     for handle in &ordered_handles {
-        if !mandatory_set.contains(handle.as_str()) && handle != &target_handle {
+        if !mandatory_set.contains(handle.as_str()) && handle != &resolved.target_handle {
             continue;
         }
         let read = canonical_by_handle.get(handle.as_str()).ok_or_else(|| {
@@ -875,8 +702,8 @@ fn compile_packet_with_schema(
     // final stage moves it.
     let pricing = Pricing {
         request,
-        target_handle: &target_handle,
-        target: &target,
+        target_handle: &resolved.target_handle,
+        target: &resolved.target,
         navigation_by_handle: &navigation_by_handle,
         canonical_by_handle: &canonical_by_handle,
         directory_omissions: &directory_omissions,
@@ -890,10 +717,10 @@ fn compile_packet_with_schema(
         .as_ref()
         .map_or(0, |c| c.turns.len());
     let validated = Validated {
-        navigation_views: &validated_navigation_views,
-        reviewed_evidence: &validated_reviewed_evidence,
-        reviewed_promises: &validated_reviewed_promises,
-        reviewed_knowledge: &validated_reviewed_knowledge,
+        navigation_views: &resolved.navigation_views,
+        reviewed_evidence: &resolved.reviewed_evidence,
+        reviewed_promises: &resolved.reviewed_promises,
+        reviewed_knowledge: &resolved.reviewed_knowledge,
     };
     if let Some(packet) = try_full_eligible_packet(
         &pricing, schema, &validated, &full_sources, &full_omissions, total_turns, available,
@@ -919,9 +746,9 @@ fn compile_packet_with_schema(
     let included_turns =
         pack_conversation_prefix(&pricing, schema, &mandatory_sources, &mandatory_omissions, total_turns, available)?;
     if included_turns != total_turns {
-        let evidence_omissions = reviewed_evidence_omissions(&validated_reviewed_evidence, &[]);
-        let promise_omissions = reviewed_promise_omissions(&validated_reviewed_promises, &[]);
-        let knowledge_omissions = reviewed_knowledge_omissions(&validated_reviewed_knowledge, &[]);
+        let evidence_omissions = reviewed_evidence_omissions(&resolved.reviewed_evidence, &[]);
+        let promise_omissions = reviewed_promise_omissions(&resolved.reviewed_promises, &[]);
+        let knowledge_omissions = reviewed_knowledge_omissions(&resolved.reviewed_knowledge, &[]);
         let packet = build_serialized(
             &pricing,
             &mandatory_sources,
@@ -950,7 +777,7 @@ fn compile_packet_with_schema(
                 navigation: NavigationReceipt {
                     delivered_views: &[],
                     omissions: navigation_omissions(
-                        &validated_navigation_views,
+                        &resolved.navigation_views,
                         &[],
                         mandatory_sources
                             .iter()
@@ -1003,24 +830,24 @@ fn compile_packet_with_schema(
         handles: &optional_handles,
     };
     let delivered_reviewed_evidence =
-        pack_reviewed_evidence(&pricing, shape, &mandatory_sources, &delivered, &validated_reviewed_evidence, available)?;
+        pack_reviewed_evidence(&pricing, shape, &mandatory_sources, &delivered, &resolved.reviewed_evidence, available)?;
     let reviewed_evidence_omissions =
-        reviewed_evidence_omissions(&validated_reviewed_evidence, &delivered_reviewed_evidence);
+        reviewed_evidence_omissions(&resolved.reviewed_evidence, &delivered_reviewed_evidence);
 
     let delivered = Delivered { evidence: &delivered_reviewed_evidence, ..delivered };
     let delivered_reviewed_promises =
-        pack_reviewed_promises(&pricing, shape, &mandatory_sources, &delivered, &validated_reviewed_promises, available)?;
+        pack_reviewed_promises(&pricing, shape, &mandatory_sources, &delivered, &resolved.reviewed_promises, available)?;
     let reviewed_promise_omissions =
-        reviewed_promise_omissions(&validated_reviewed_promises, &delivered_reviewed_promises);
+        reviewed_promise_omissions(&resolved.reviewed_promises, &delivered_reviewed_promises);
 
     let delivered = Delivered { promises: &delivered_reviewed_promises, ..delivered };
     let delivered_reviewed_knowledge =
-        pack_reviewed_knowledge(&pricing, shape, &mandatory_sources, &delivered, &validated_reviewed_knowledge, available)?;
+        pack_reviewed_knowledge(&pricing, shape, &mandatory_sources, &delivered, &resolved.reviewed_knowledge, available)?;
     let reviewed_knowledge_omissions =
-        reviewed_knowledge_omissions(&validated_reviewed_knowledge, &delivered_reviewed_knowledge);
+        reviewed_knowledge_omissions(&resolved.reviewed_knowledge, &delivered_reviewed_knowledge);
 
     // Add complete blocks in stable source/block order. A block is either
-    // present in full or absent; no target or passage is ever truncated. A
+    // present in full or absent; no resolved.target or passage is ever truncated. A
     // source represented by a delivered view is removed from this fallback
     // pass, so a digest and original prose can never be duplicated.
     let optional_block_handles =
@@ -1129,7 +956,7 @@ fn compile_packet_with_schema(
             navigation: NavigationReceipt {
                 delivered_views: &delivered_views,
                 omissions: navigation_omissions(
-                    &validated_navigation_views,
+                    &resolved.navigation_views,
                     &delivered_views,
                     selected
                         .iter()
