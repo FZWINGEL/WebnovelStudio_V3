@@ -1,5 +1,5 @@
 //! One frozen OpenAI-compatible request. Only local outcome saves can be retried.
-use crate::discussion_commands::AuthorStart;
+use crate::author_start::AuthorStart;
 use crate::discussion_recovery::{DiscussionRecovery, PendingSave, SaveOutcome};
 use crate::library_commands::DesktopLibrary;
 use crate::project_commands::execute;
@@ -60,7 +60,7 @@ pub async fn start(
 ) -> CoreResult<DiscussionStart> {
     execute(move || {
         let _admission = runtime.admit_request()?;
-        let existing = crate::discussion_commands::saved_request(&project, &request)?;
+        let existing = crate::author_start::saved_request(&project, &request)?;
         let (started, adapter) = {
             // Keep the saved choice, endpoint configuration and acceptance in
             // one local critical section. The worker captures its own client/key.

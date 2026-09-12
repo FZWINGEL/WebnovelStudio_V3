@@ -1,6 +1,6 @@
 //! Project chat uses the existing provider workers and local recovery ledger.
 use crate::app_state::AppState;
-use crate::discussion_commands::{AuthorStart, start_author_native};
+use crate::author_start::{AuthorStart, start_author_native};
 use crate::discussion_recovery::{PendingSave, SaveOutcome, WorkerIssue};
 use crate::project_commands::execute;
 use serde::Serialize;
@@ -309,7 +309,7 @@ pub async fn read_chat_adoption_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::discussion_commands::{AuthorStart, start_author_native};
+    use crate::author_start::{AuthorStart, start_author_native};
     use crate::discussion_recovery::DiscussionRecovery;
     use crate::library_commands::DesktopLibrary;
     use crate::provider_runtime::DesktopProviders;

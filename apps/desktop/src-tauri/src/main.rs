@@ -58,6 +58,7 @@ mod recovery_commands;
 mod reload_accelerators;
 mod review_commands;
 mod app_state;
+mod author_start;
 mod source_pin_commands;
 mod v2_import_commands;
 mod workshop_commands;
