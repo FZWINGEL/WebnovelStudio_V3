@@ -241,12 +241,22 @@ records -- `pack_reviewed_evidence`, `pack_reviewed_promises`, `pack_reviewed_kn
 taking what the stages before it delivered, which made the pipeline's data flow visible for the
 first time. `compile_packet_with_schema` is 729 lines from 1,007.
 
-What remains inline is the early selection: which sources are eligible, and the two
-whole-packet attempts -- the complete eligible set, then the mandatory minimum -- that bracket
-everything else. Those are not stages of the same kind. They are the *conditions* the stages
-run under, and the fallback writes five values at once. Naming where that boundary falls is the
-one thing in §3.4 still not done, and it is a design question about what a stage *is* rather
-than a block of code waiting to be moved.
+The selection boundary is out too, on the same terms. `select_eligible_sources` is the complete
+eligible set -- every supplied source that carries real content, in stable order, and under a
+workshop request only the mandatory handles and the target. `Validated` names the four
+collections checked against the resolved source before any budget branch is attempted, and the
+two whole-packet attempts are functions: `try_full_eligible_packet` returns `Some` when the
+complete set fits and nothing is excerpted, `try_mandatory_packet` is the smaller packet whose
+failure is terminal.
+
+`compile_packet_with_schema` is **638 lines from 1,007**. Eight stages and both attempts are
+out; what remains is the sequence that calls them, and the identity, contract and budget
+validation that opens the function.
+
+One thing the split taught, worth keeping: extracting `try_mandatory_packet` silently changed
+the error message it reports -- the string ran across two source lines and I reflowed it while
+moving it. Two tests failed on the text. A move that reformats a string literal is not a move,
+and only a test that reads the string catches it.
 
 **`projects/discussions.rs` (4,605) → `wns-conversation`.** Four concerns in one file: run
 lifecycle and settlement, recovery/lost-acknowledgment, lookup invocation, and packet
