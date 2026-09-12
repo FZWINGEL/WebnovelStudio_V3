@@ -13,8 +13,8 @@
 //! resolves exactly as it did when the module lived here.
 
 use crate::projects::{
-    CoreResult, CreationOrigin, DocumentRecord, Head, ProjectAccess, ProjectMetadata,
-    ProjectSession, Revision,
+    CoreResult, CreationOrigin, DocumentRecord, Head, OwnedProject, ProjectAccess, ProjectInfo,
+    ProjectMetadata, ProjectSession, Revision,
 };
 use std::path::{Path, PathBuf};
 use wns_documents::records::CheckpointRequest;
@@ -59,10 +59,12 @@ impl TransferSource for ProjectSession {
 
 /// The project type `wns-transfer` cannot name.
 #[derive(Debug, Clone, Copy)]
-pub struct CoreProjectFactory;
+pub(crate) struct CoreProjectFactory;
 
 impl TransferFactory for CoreProjectFactory {
     type Session = ProjectSession;
+    type Staging = OwnedProject;
+
     fn create_staged(
         staging: &Path,
         destination: &Path,
@@ -71,6 +73,54 @@ impl TransferFactory for CoreProjectFactory {
     ) -> CoreResult<ProjectSession> {
         ProjectSession::create_staged(staging, destination, title, origin)
     }
+    fn open_staging(path: &Path, title: &str) -> CoreResult<OwnedProject> {
+        OwnedProject::open_direct(path.to_owned(), Some(title.to_owned()))
+    }
+    fn staging_info(staging: &OwnedProject) -> &ProjectInfo {
+        &staging.info
+    }
+    fn staging_db_mut(staging: &mut OwnedProject) -> CoreResult<&mut rusqlite::Connection> {
+        staging.db_mut()
+    }
+}
+
+/// Install a reviewed V2 import into a fresh project. The source path and its
+/// fingerprint are the authority; a caller-supplied preview is never accepted.
+pub fn stage_v2_import(
+    request: &wns_transfer::import::V2ImportRequest,
+    expected_request_sha256: &str,
+    staging: &Path,
+    destination: &Path,
+    origin: &CreationOrigin,
+) -> CoreResult<wns_transfer::import::V2ImportResult> {
+    wns_transfer::import::stage_v2_import::<CoreProjectFactory>(
+        request,
+        expected_request_sha256,
+        staging,
+        destination,
+        origin,
+    )
+}
+
+/// Resume an import whose staging folder survived an interrupted install.
+pub fn recover_import_staging(
+    staging: &Path,
+    destination: &Path,
+    title: &str,
+    origin: &CreationOrigin,
+    operation_id: &str,
+    expected_source_sha256: &str,
+    expected_request_sha256: &str,
+) -> CoreResult<wns_transfer::import::V2ImportResult> {
+    wns_transfer::import::recover_import_staging::<CoreProjectFactory>(
+        staging,
+        destination,
+        title,
+        origin,
+        operation_id,
+        expected_source_sha256,
+        expected_request_sha256,
+    )
 }
 
 /// Recover a backup into a **new** project. The source is never replaced and

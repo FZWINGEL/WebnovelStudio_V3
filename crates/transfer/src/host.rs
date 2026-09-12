@@ -16,9 +16,7 @@
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use wns_documents::records::CheckpointRequest;
-use wns_kernel::{
-    CoreResult, DocumentRecord, Head, ProjectAccess, Revision,
-};
+use wns_kernel::{CoreResult, DocumentRecord, Head, ProjectAccess, Revision};
 use wns_storage::ProjectMetadata;
 
 use crate::transfer::{DraftExportPreview, ExportRecord};
@@ -55,7 +53,12 @@ pub trait TransferSource {
 /// The project the transfer crate cannot construct, because it does not own
 /// the type.
 pub trait TransferFactory {
+    /// What a completed recovery or import hands back to the caller.
     type Session;
+    /// The handle a V2 import populates before the atomic rename. It never
+    /// escapes: it is opened, filled and dropped inside one function.
+    type Staging;
+
     /// Create the destination through the actor's own staging and rename, which
     /// is what gives a recovered project its fresh identity and exact-origin
     /// semantics.
@@ -65,9 +68,11 @@ pub trait TransferFactory {
         title: &str,
         origin: &wns_storage::CreationOrigin,
     ) -> CoreResult<Self::Session>;
+    /// Open a staging folder as a writeable project, writing an empty document
+    /// set into it. Only the V2 import installer uses this; recovery writes its
+    /// database file directly.
+    fn open_staging(path: &Path, title: &str) -> CoreResult<Self::Staging>;
+    fn staging_info(staging: &Self::Staging) -> &wns_kernel::ProjectInfo;
+    fn staging_db_mut(staging: &mut Self::Staging) -> CoreResult<&mut Connection>;
 }
 
-/// A connection the transfer validators share. Kept separate from
-/// [`TransferSource`] because the validators run against a *recovered* or
-/// *staged* database that no session is attached to yet.
-pub type ValidatorConnection = Connection;

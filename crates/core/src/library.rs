@@ -2,8 +2,9 @@
 //! Manuscripts remain in portable project folders, never in this database.
 use crate::projects::import::{
     V2ImportRequest, V2ImportResult, decode_import_operation, encode_import_operation,
-    read_import_result, recover_import_staging, request_fingerprint, stage_v2_import,
+    read_import_result, request_fingerprint,
 };
+use crate::transfer::{recover_import_staging, stage_v2_import};
 use crate::projects::{
     CoreError, CoreResult, CreationOrigin, ProjectSession, read_creation_origin,
 };

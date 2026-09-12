@@ -30,6 +30,8 @@
 
 pub mod exports;
 pub mod host;
+pub mod import;
 pub mod transfer;
+pub mod v2_import;
 
 pub use host::{TransferFactory, TransferSource};

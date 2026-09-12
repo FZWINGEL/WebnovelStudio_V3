@@ -162,12 +162,12 @@ fn installation_refuses_an_empty_directory_that_appeared_late() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
-struct OwnedProject {
+pub(crate) struct OwnedProject {
     connection: Option<Connection>,
     // Dropped only when the owned connection thread exits, never when a UI changes projects.
     _lock: File,
     path: PathBuf,
-    info: ProjectInfo,
+    pub(crate) info: ProjectInfo,
     access: Option<ProjectAccess>,
     renderer_session: Option<String>,
     retired_sessions: HashSet<String>,
@@ -182,7 +182,7 @@ impl OwnedProject {
             )
         })
     }
-    fn db_mut(&mut self) -> CoreResult<&mut Connection> {
+    pub(crate) fn db_mut(&mut self) -> CoreResult<&mut Connection> {
         self.connection.as_mut().ok_or_else(|| {
             CoreError::new(
                 "PersistenceUnavailable",
@@ -236,7 +236,7 @@ impl OwnedProject {
         self.needs_reopen = false;
         Ok(())
     }
-    fn open_direct(path: PathBuf, title: Option<String>) -> CoreResult<Self> {
+    pub(crate) fn open_direct(path: PathBuf, title: Option<String>) -> CoreResult<Self> {
         if title.is_some() {
             std::fs::create_dir(&path)?;
         }

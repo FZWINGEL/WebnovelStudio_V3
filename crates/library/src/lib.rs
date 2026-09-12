@@ -23,11 +23,4 @@
 //!
 //! # Dependency rule
 //!
-//! L5. May depend on L0–L1. No dependency on `wns-story` or `wns-context`.
-
-/// Read-only preview of a verified WebnovelStudio V2 schema-8 database.
-///
-/// It sits here rather than in `wns-transfer` because both consumers are
-/// above it: the library drives the import workflow, and the project-side
-/// installer consumes the preview inside its staging boundary.
-pub mod v2_import;
+//! L7 — see below. May depend on L0–L6.
