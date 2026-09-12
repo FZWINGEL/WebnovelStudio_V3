@@ -37,35 +37,50 @@ fn source_files(root: &std::path::Path) -> Vec<PathBuf> {
 
 /// Every `(owner, field)` where a non-`Option` field carries a
 /// `skip_serializing_if`.
+///
+/// Both spellings of a field are scanned. A struct field is `pub name: Type`;
+/// an enum variant's field is `name: Type`, with no `pub` — serde honours the
+/// attribute there just the same, so a scanner that only reads `pub ` silently
+/// misses every omission on a variant. That is a whole class, not an edge case:
+/// `TypedReplacementInline::Text::marks` is exactly one, and the first draft of
+/// this test could not see it.
 fn from_source() -> Vec<(String, String)> {
     let root = wns_bindings::workspace_root();
     let mut pairs = Vec::new();
     for path in source_files(&root) {
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let lines: Vec<&str> = text.lines().collect();
-        let mut owner: Option<String> = None;
+        let mut owner: Option<(String, bool)> = None;
         for (i, line) in lines.iter().enumerate() {
             let trimmed = line.trim_start();
-            if let Some(rest) = trimmed.strip_prefix("pub struct ").or_else(|| trimmed.strip_prefix("pub enum ")) {
-                owner = Some(
-                    rest.split(|c: char| !(c.is_alphanumeric() || c == '_'))
-                        .next()
-                        .unwrap_or_default()
-                        .to_owned(),
-                );
+            let head = |rest: &str| {
+                rest.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            };
+            if let Some(rest) = trimmed.strip_prefix("pub struct ") {
+                owner = Some((head(rest), false));
+            } else if let Some(rest) = trimmed.strip_prefix("pub enum ") {
+                owner = Some((head(rest), true));
             } else if *line == "}" {
                 owner = None;
             }
             if !line.contains("skip_serializing_if") {
                 continue;
             }
-            let Some(owner) = owner.as_ref() else { continue };
+            let Some((owner, is_enum)) = owner.as_ref() else { continue };
             let mut j = i + 1;
             while j < lines.len() && lines[j].trim_start().starts_with("#[") {
                 j += 1;
             }
             let Some(field_line) = lines.get(j) else { continue };
-            let Some(rest) = field_line.trim_start().strip_prefix("pub ") else { continue };
+            let rest = field_line.trim_start();
+            let rest = match rest.strip_prefix("pub ") {
+                Some(rest) => rest,
+                None if *is_enum => rest,
+                None => continue,
+            };
             let Some((name, ty)) = rest.split_once(':') else { continue };
             let ty = ty.trim();
             // A field that is already an `Option` is optional for a different

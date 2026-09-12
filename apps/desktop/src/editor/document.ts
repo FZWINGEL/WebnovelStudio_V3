@@ -1,7 +1,8 @@
 import type { SnapshotReceipt as WireSnapshotReceipt } from '../ipc/generated/kernel';
+import type { TypedReplacementInline, TypedReplacementMark } from '../ipc/generated/documents';
 
-export type Mark = { type: 'bold' | 'italic' } | { type: 'link'; attrs: { href: string } };
-export type Inline = { type: 'text'; text: string; marks?: Mark[] } | { type: 'hardBreak' };
+export type Mark = TypedReplacementMark;
+export type Inline = TypedReplacementInline;
 export type Block =
   | { type: 'paragraph'; attrs: { id: string }; content?: Inline[] }
   | { type: 'heading'; attrs: { id: string; level: number }; content?: Inline[] }

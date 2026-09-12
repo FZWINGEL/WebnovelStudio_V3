@@ -56,7 +56,7 @@ pub trait HistoryHost {
     fn hold_after_commit_before_ack(&self, operation_id: &str);
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RevisionSummary {
     pub id: String,
@@ -65,14 +65,14 @@ pub struct RevisionSummary {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HistoryPage {
     pub items: Vec<RevisionSummary>,
     pub next_before_version: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RestoreRevision {
     pub access: ProjectAccess,
@@ -86,7 +86,7 @@ pub struct RestoreRevision {
 /// Restore has the same acknowledgement shape as Apply. On replay, `result`
 /// is the historical first result while `document` is the latest committed
 /// document, so the editor never replays an old mutation over newer text.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RestoreAck {
     pub access: ProjectAccess,

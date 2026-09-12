@@ -16,7 +16,7 @@ use wns_storage::read_document;
 use crate::scope::Endpoint;
 
 /// Where the renderer's caret, anchor and focus sat in a document.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ViewState {
     pub document_id: String,

@@ -201,7 +201,7 @@ pub const OMITTED_WHEN_EMPTY: &[(&str, &str)] = &[
     ("HistoricalConversationItem", "draft_revisions"),
     ("HistoricalConversationItem", "messages"),
     ("HistoricalConversationItem", "source_revisions"),
-    ("PacketOptions", "max_output_tokens"),
+    ("LookupRead", "offset"),    ("PacketOptions", "max_output_tokens"),
     ("PacketReceipt", "conversation_message_ids"),
     ("PacketReceipt", "guidance_handles"),
     ("PacketReceipt", "mandatory_source_handles"),
@@ -221,7 +221,7 @@ pub const OMITTED_WHEN_EMPTY: &[(&str, &str)] = &[
     ("Proposal", "kind"),
     ("SaveDiscussionDraft", "intent"),
     ("StartDiscussion", "intent"),
-    ("WorkshopAdoptionPreview", "endpoint_sources"),
+    ("TypedReplacementInline", "marks"),    ("WorkshopAdoptionPreview", "endpoint_sources"),
     ("WorkshopAdoptionPreview", "impacts"),
     ("WorkshopAdoptionPreview", "relationships"),
     ("WorkshopContext", "story_possibilities"),
@@ -254,10 +254,25 @@ fn mark_omitted(name: &str, block: &str) -> String {
             continue;
         }
         let key = camel(field);
-        // `storyPossibilities:` -> `storyPossibilities?:`, once.
+        // `storyPossibilities:` -> `storyPossibilities?:`, at EVERY occurrence.
+        // A struct field appears once, but an enum's declaration is one union
+        // and the same field name can appear in several variants — `LookupRead`
+        // carries `offset` in four of them, and marking only the first leaves
+        // three promising a value the wire omits.
         let needle = format!("{key}:");
-        if let Some(at) = out.find(&needle) {
-            out.insert(at + key.len(), '?');
+        let mut from = 0;
+        while let Some(rel) = out[from..].find(&needle) {
+            let at = from + rel;
+            let boundary = out[..at].chars().last();
+            if boundary.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                from = at + needle.len();
+                continue;
+            }
+            let after = at + key.len();
+            if !out[after..].starts_with('?') {
+                out.insert(after, '?');
+            }
+            from = after + 1;
         }
     }
     out
@@ -300,7 +315,7 @@ fn declaration_name(block: &str) -> Option<String> {
 
 /// Every group the frontend has been migrated onto.
 pub fn groups() -> Result<Vec<Group>, specta::ts::TsExportError> {
-    Ok(vec![wns_groups::kernel()?, wns_groups::workshop()?, wns_groups::context()?])
+    Ok(vec![wns_groups::kernel()?, wns_groups::workshop()?, wns_groups::context()?, wns_groups::documents()?])
 }
 
 /// The workspace root, from this crate's manifest directory.
@@ -525,6 +540,38 @@ mod wns_groups {
                 ("GuidanceScope", one::<wns_context::guidance::GuidanceScope>()),
                 ("SearchHit", one::<wns_context::frozen::SearchHit>()),
                 ("ChatDispositionScopeKind", one::<wns_context::chat_vocabulary::ChatDispositionScopeKind>()),
+            ],
+        )
+    }
+
+    /// `documents`'s IPC closure: every name its generated file mentions, closed
+    /// against the frontend compiler rather than typed by hand.
+    pub fn documents() -> Result<Group, specta::ts::TsExportError> {
+        group(
+            "documents",
+            "documents",
+            vec![
+                ("CheckpointRequest", one::<wns_documents::records::CheckpointRequest>()),
+                ("HistoryPage", one::<wns_documents::history::HistoryPage>()),
+                ("OperationReceipt", one::<wns_documents::records::OperationReceipt>()),
+                ("ReconcileRequest", one::<wns_documents::records::ReconcileRequest>()),
+                ("ReconciledDocument", one::<wns_documents::records::ReconciledDocument>()),
+                ("RestoreAck", one::<wns_documents::history::RestoreAck>()),
+                ("RestoreRevision", one::<wns_documents::history::RestoreRevision>()),
+                ("RevisionSummary", one::<wns_documents::history::RevisionSummary>()),
+                ("SaveAck", one::<wns_documents::records::SaveAck>()),
+                ("SaveSnapshot", one::<wns_documents::records::SaveSnapshot>()),
+                ("ViewState", one::<wns_documents::view_state::ViewState>()),
+                ("CheckpointReason", one::<wns_documents::records::CheckpointReason>()),
+                ("SaveCause", one::<wns_documents::records::SaveCause>()),
+                // The frontend calls this `StructuredBlock`; nothing in
+                // `ipc/*.ts` names it, so the seeding pass cannot find it and
+                // it is listed here by hand. `ipc/proposals` aliases it.
+                ("TypedReplacementBlock", one::<wns_documents::structured::TypedReplacementBlock>()),
+                ("TypedReplacementInline", one::<wns_documents::structured::TypedReplacementInline>()),
+                ("TypedReplacementHeadingAttrs", one::<wns_documents::structured::TypedReplacementHeadingAttrs>()),
+                ("TypedReplacementMark", one::<wns_documents::structured::TypedReplacementMark>()),
+                ("TypedReplacementLinkAttrs", one::<wns_documents::structured::TypedReplacementLinkAttrs>()),
             ],
         )
     }

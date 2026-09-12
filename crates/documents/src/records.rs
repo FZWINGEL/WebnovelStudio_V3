@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wns_kernel::{DocumentRecord, Head, ProjectAccess, StoredResult};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveSnapshot {
     pub access: ProjectAccess,
@@ -22,7 +22,7 @@ pub struct SaveSnapshot {
     pub cause: SaveCause,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum SaveCause {
     Typing,
@@ -30,7 +30,7 @@ pub enum SaveCause {
     Redo,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveAck {
     pub project_id: String,
@@ -42,7 +42,7 @@ pub struct SaveAck {
     pub saved_generation: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReconcileRequest {
     pub project_id: String,
@@ -52,7 +52,7 @@ pub struct ReconcileRequest {
     pub pending_operation_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OperationReceipt {
     pub operation_id: String,
@@ -61,7 +61,7 @@ pub struct OperationReceipt {
     pub result: StoredResult,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReconciledDocument {
     pub access: ProjectAccess,
@@ -69,7 +69,7 @@ pub struct ReconciledDocument {
     pub receipts: Vec<OperationReceipt>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CheckpointRequest {
     pub access: ProjectAccess,
@@ -77,7 +77,7 @@ pub struct CheckpointRequest {
     pub reason: CheckpointReason,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum CheckpointReason {
     Manual,

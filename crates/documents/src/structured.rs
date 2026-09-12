@@ -18,13 +18,15 @@ pub const MAX_STRUCTURED_EXPLANATION_BYTES: usize = 4096;
 
 /// A replacement block has no editor ID. The application assigns one while
 /// preparing the complete result document.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum TypedReplacementBlock {
+    #[specta(rename_all = "camelCase")]
     Paragraph {
         #[serde(default)]
         content: Vec<TypedReplacementInline>,
     },
+    #[specta(rename_all = "camelCase")]
     Heading {
         attrs: TypedReplacementHeadingAttrs,
         #[serde(default)]
@@ -33,15 +35,16 @@ pub enum TypedReplacementBlock {
     SceneBreak,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TypedReplacementHeadingAttrs {
     pub level: u8,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum TypedReplacementInline {
+    #[specta(rename_all = "camelCase")]
     Text {
         text: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -50,15 +53,16 @@ pub enum TypedReplacementInline {
     HardBreak,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum TypedReplacementMark {
     Bold,
     Italic,
+    #[specta(rename_all = "camelCase")]
     Link { attrs: TypedReplacementLinkAttrs },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TypedReplacementLinkAttrs {
     pub href: String,

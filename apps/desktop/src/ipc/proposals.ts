@@ -1,4 +1,5 @@
 import type { AppliedDecision } from './generated/kernel';
+import type { TypedReplacementBlock } from './generated/documents';
 export type { AppliedDecision };
 
 import { invoke } from '@tauri-apps/api/core';
@@ -8,8 +9,13 @@ import type { ScopeGrant } from './context';
 
 export interface ProposalCandidate { title: string; replacementText: string; explanation: string }
 export interface ContinuationCandidate { title: string; paragraphs: string[]; explanation: string }
-/** Proposal content never assigns editor block identities. */
-export type StructuredBlock = { type: 'paragraph'; content: Inline[] } | { type: 'heading'; attrs: { level: number }; content: Inline[] } | { type: 'sceneBreak' };
+/**
+ * Proposal content never assigns editor block identities — the application
+ * assigns one while preparing the result document, which is why the wire type
+ * carries no `id`. Generated from `wns_documents::structured`; the frontend
+ * used to carry a hand-written copy that had drifted from it.
+ */
+export type StructuredBlock = TypedReplacementBlock;
 export interface StructuredCandidate { title: string; blocks: StructuredBlock[]; explanation: string }
 export interface PreparedProposal { id: string; proposalId: string; version: string; replacementText: string; paragraphs?: string[]; blocks?: StructuredBlock[]; body: WnsDocument; bodyHash: string }
 export interface ProposalDecision { id: string; proposalId: string; kind: 'apply' | 'reject'; preparedId: string | null; beforeRevisionId: string | null; afterRevisionId: string | null }

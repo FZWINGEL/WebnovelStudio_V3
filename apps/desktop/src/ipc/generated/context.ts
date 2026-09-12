@@ -159,7 +159,7 @@ export type LookupPacketInput = { allowance: LookupAllowance; completedInvocatio
  * One application-executed lookup request. The provider cannot supply a
  * path, command, source body, or arbitrary tool arguments.
  */
-export type LookupRead = { kind: "search"; id: string; query: string; mode: SearchMode; limit: number } | { kind: "read"; id: string; handle: string; blockIds: string[] | null } | { kind: "findEntities"; id: string; entityKind: MemoryEntityKind; query: string; offset: number; limit: number } | { kind: "knowledgeHistory"; id: string; characterId: string; topicId: string | null; offset: number; limit: number } | { kind: "promiseHistory"; id: string; promiseId: string; offset: number; limit: number } | { kind: "possessionHistory"; id: string; objectId: string; offset: number; limit: number }
+export type LookupRead = { kind: "search"; id: string; query: string; mode: SearchMode; limit: number } | { kind: "read"; id: string; handle: string; blockIds: string[] | null } | { kind: "findEntities"; id: string; entityKind: MemoryEntityKind; query: string; offset?: number; limit: number } | { kind: "knowledgeHistory"; id: string; characterId: string; topicId: string | null; offset?: number; limit: number } | { kind: "promiseHistory"; id: string; promiseId: string; offset?: number; limit: number } | { kind: "possessionHistory"; id: string; objectId: string; offset?: number; limit: number }
 
 /**
  * The application result for one previously authorized lookup request.
