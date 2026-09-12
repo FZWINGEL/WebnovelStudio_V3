@@ -7,18 +7,27 @@
 #[test]
 fn generated_bindings_match_the_rust_types() {
     let directory = wns_bindings::workspace_root().join(wns_bindings::OUTPUT_DIR);
-    let mut stale = Vec::new();
-    for (name, text) in wns_bindings::render_all().expect("generate bindings") {
-        let path = directory.join(&name);
-        let committed = std::fs::read_to_string(&path).unwrap_or_default();
-        if committed != text {
-            stale.push(path.display().to_string());
-        }
-    }
+    let groups = wns_bindings::groups().expect("collect binding groups");
+    let stale = wns_bindings::output_differences(&directory, &groups)
+        .expect("compare generated binding inventory");
     assert!(
         stale.is_empty(),
         "the generated bindings are stale: {}\nRust is the source of truth. \
          Run `cargo run -p wns-bindings` and commit the result.",
+        stale.join(", ")
+    );
+}
+
+#[test]
+fn generated_command_manifest_matches_independent_source_regeneration() {
+    let root = wns_bindings::workspace_root();
+    let expected = wns_bindings::commands::manifest().expect("derive command manifest");
+    let path = root.join("apps/desktop/src/ipc/tauriCommands.generated.json");
+    let stale = wns_bindings::commands::manifest_differences(&path, &expected)
+        .expect("compare generated command manifest");
+    assert!(
+        stale.is_empty(),
+        "the generated command manifest is stale: {}\nRun `cargo run -p wns-bindings` and commit the result.",
         stale.join(", ")
     );
 }

@@ -31,7 +31,8 @@ fn save_with_library(
 }
 
 #[tauri::command]
-pub async fn codex_transport_settings( state: State<'_, AppState>,
+pub async fn codex_transport_settings(
+    state: State<'_, AppState>,
 ) -> CoreResult<CodexTransportSettings> {
     let app = &*state;
     let state = &app.library;
@@ -46,7 +47,8 @@ pub async fn codex_transport_settings( state: State<'_, AppState>,
 #[tauri::command]
 pub async fn save_codex_transport(
     expected_revision: String,
-    transport: CodexTransport, state: State<'_, AppState>,
+    transport: CodexTransport,
+    state: State<'_, AppState>,
 ) -> CoreResult<CodexTransportSettings> {
     let app = &*state;
     let state = &app.library;

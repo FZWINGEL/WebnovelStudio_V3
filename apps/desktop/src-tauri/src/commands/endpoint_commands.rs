@@ -274,8 +274,7 @@ fn save_with_store(
 }
 
 #[tauri::command]
-pub async fn endpoint_settings( state: State<'_, AppState>,
-) -> CoreResult<EndpointSettingsView> {
+pub async fn endpoint_settings(state: State<'_, AppState>) -> CoreResult<EndpointSettingsView> {
     let app = &*state;
     let state = &app.library;
     let state = state.clone();
@@ -292,7 +291,8 @@ pub async fn endpoint_settings( state: State<'_, AppState>,
 
 #[tauri::command]
 pub async fn save_endpoint_settings(
-    request: SaveEndpoint, state: State<'_, AppState>,
+    request: SaveEndpoint,
+    state: State<'_, AppState>,
 ) -> CoreResult<EndpointSettingsView> {
     let app = &*state;
     let state = &app.library;
@@ -315,7 +315,8 @@ pub async fn discover_endpoint_models(
     profile_id: String,
     config_revision: String,
     discovery_id: String,
-    discovery: State<'_, crate::commands::endpoint_discovery::EndpointDiscovery>, state: State<'_, AppState>,
+    discovery: State<'_, crate::commands::endpoint_discovery::EndpointDiscovery>,
+    state: State<'_, AppState>,
 ) -> CoreResult<EndpointSettingsView> {
     let app = &*state;
     let state = &app.library;

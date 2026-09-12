@@ -1,6 +1,6 @@
+use super::*;
 use crate::discussions::{self, FeedbackIntent, StartDiscussion};
 use crate::project_chat_context::ProjectChatFreeze;
-use super::*;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
@@ -282,13 +282,13 @@ pub(super) fn read_chapter_feedback(
         [&run.packet_id],
         |row| row.get(0),
     )?;
-    let request: wns_story::context_packets::PrepareContext =
-        serde_json::from_str(&request_json).map_err(|error| {
-            CoreError::new(
-                "InvalidContextPacket",
-                &format!("The saved chapter packet request is invalid: {error}"),
-            )
-        })?;
+    let request: wns_story::context_packets::PrepareContext = serde_json::from_str(&request_json)
+        .map_err(|error| {
+        CoreError::new(
+            "InvalidContextPacket",
+            &format!("The saved chapter packet request is invalid: {error}"),
+        )
+    })?;
     if request.response_contract.as_deref()
         != Some(wns_context::project_chat_output::CHAPTER_DISCUSSION_RESPONSE_CONTRACT)
     {
@@ -320,15 +320,14 @@ pub(super) fn read_chapter_feedback(
             )
         })?;
     let target = wns_story::story_context::read_source(db, &frozen, &target_handle)?;
-    let mut projection =
-        match wns_context::project_chat_output::project_chapter_discussion_output(
-            &run.output_text,
-            &run.target,
-            &target.body,
-        ) {
-            Ok(projection) => projection,
-            Err(_) => return Ok(None),
-        };
+    let mut projection = match wns_context::project_chat_output::project_chapter_discussion_output(
+        &run.output_text,
+        &run.target,
+        &target.body,
+    ) {
+        Ok(projection) => projection,
+        Err(_) => return Ok(None),
+    };
     if run.status != discussions::DiscussionRunStatus::Completed
         || run.dispatch_state != "delivered"
     {
@@ -391,8 +390,7 @@ pub(super) fn read_draft(
     let current = epochs(db)?;
     let (manifest, hash): (String,String) = db.query_row("SELECT s.manifest_json,s.manifest_hash FROM context_packets p JOIN story_snapshots s ON s.id=p.snapshot_id WHERE p.id=?", [&row.1], |r|Ok((r.get(0)?,r.get(1)?)))?;
     let frozen = wns_story::story_context::decode_snapshot(&manifest, &hash)?;
-    let task_current =
-        crate::project_chat_context::project_chat_basis_is_current(db, &frozen)?;
+    let task_current = crate::project_chat_context::project_chat_basis_is_current(db, &frozen)?;
     Ok(AssistantDraft {
         document,
         conversation_id: conversation_id.into(),
@@ -441,7 +439,7 @@ pub(super) fn validate_composer(composer: &ProjectComposer) -> CoreResult<()> {
 // Actor-side logic, as free functions over `ProjectChatHost`.
 
 pub fn read_project_conversation(
-host: &mut impl ProjectChatHost,
+    host: &mut impl ProjectChatHost,
     request: ReadProjectConversation,
 ) -> CoreResult<ProjectConversation> {
     host.check_access(&request.access)?;
@@ -521,7 +519,9 @@ host: &mut impl ProjectChatHost,
     let draft_ids = {
         // Do not silently hide old unresolved drafts. Timeline messages
         // are paged separately; the review inventory must remain complete.
-        let mut q=tx.prepare("SELECT document_id FROM assistant_drafts WHERE conversation_id=? ORDER BY rowid DESC")?;
+        let mut q = tx.prepare(
+            "SELECT document_id FROM assistant_drafts WHERE conversation_id=? ORDER BY rowid DESC",
+        )?;
         q.query_map([&id], |r| r.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?
     };
@@ -554,7 +554,7 @@ host: &mut impl ProjectChatHost,
 }
 
 pub fn save_project_composer(
-host: &mut impl ProjectChatHost,
+    host: &mut impl ProjectChatHost,
     request: SaveProjectComposer,
 ) -> CoreResult<ProjectComposerSnapshot> {
     host.check_access(&request.access)?;
@@ -610,7 +610,7 @@ host: &mut impl ProjectChatHost,
 }
 
 pub fn start_project_chat(
-host: &mut impl ProjectChatHost,
+    host: &mut impl ProjectChatHost,
     request: StartProjectChat,
 ) -> CoreResult<DiscussionStart> {
     host.check_access(&request.access)?;
@@ -668,8 +668,7 @@ host: &mut impl ProjectChatHost,
         ));
     }
     let current = read_composer(&tx, &request.conversation_id)?;
-    if current.version != request.expected_composer_version || current.body != request.composer
-    {
+    if current.version != request.expected_composer_version || current.body != request.composer {
         return Err(CoreError::new(
             "VersionConflict",
             "Save the exact composer and references before sending.",
@@ -704,8 +703,7 @@ host: &mut impl ProjectChatHost,
         previous_run_id: None,
         lookup: None,
     };
-    let result =
-        discussions::start_discussion_at(&tx, &discussion, &payload, Some(&chat), false)?;
+    let result = discussions::start_discussion_at(&tx, &discussion, &payload, Some(&chat), false)?;
     append_item(
         &tx,
         &request.access,

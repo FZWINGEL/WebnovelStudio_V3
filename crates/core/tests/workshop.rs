@@ -710,6 +710,104 @@ fn start_workshop_creates_blank_anchor_and_replays_before_cas() {
 }
 
 #[test]
+fn start_workshop_recovers_committed_run_when_receipt_insert_fails() {
+    let temp = TempProject::new();
+    let project = temp.project();
+    let access = project.documents().attach("workshop-recovery".into()).unwrap();
+    let mut workshop_session = session("receipt-recovery");
+    workshop_session.anchor_document_id = Some("workshop-receipt-recovery".into());
+    let saved = project
+        .workshop().save(SaveWorkshop {
+            access: access.clone(),
+            operation_id: "recovery-state".into(),
+            expected_version: "0".into(),
+            state: WorkshopState {
+                current_session_id: Some(workshop_session.id.clone()),
+                sessions: vec![workshop_session],
+                ..WorkshopState::default()
+            },
+        })
+        .unwrap();
+    let request = StartWorkshop {
+        access: access.clone(),
+        operation_id: "receipt-recovery-start".into(),
+        exploration: WorkshopExploration {
+            session_id: "receipt-recovery".into(),
+            expected_version: saved.version,
+            working_generation: "0".into(),
+            action: "directions".into(),
+            instruction: "Find three possible directions".into(),
+            selected_scope: "Whole working version".into(),
+            selected_text: String::new(),
+            working_selection: None,
+        },
+        budget: MockContextBudget::new("100000", "100", "100"),
+        provider_binding: None,
+    };
+    let database = Connection::open(temp.0.join("project.sqlite3")).unwrap();
+    // Fail only the second transaction: the immutable discussion result must
+    // already be committed when the separate Workshop receipt is attempted.
+    database
+        .execute_batch(
+            "CREATE TRIGGER synthetic_start_receipt_failure
+             BEFORE INSERT ON workshop_receipts
+             WHEN NEW.operation_kind='startWorkshop'
+             BEGIN SELECT RAISE(ABORT,'synthetic receipt failure'); END;",
+        )
+        .unwrap();
+    let failed = project.workshop().start(request.clone()).unwrap_err();
+    assert_eq!(failed.code, "PersistenceUnavailable");
+    assert!(failed.detail.contains("synthetic receipt failure"));
+    database
+        .execute_batch("DROP TRIGGER synthetic_start_receipt_failure")
+        .unwrap();
+    let run_id: String = database
+        .query_row(
+            "SELECT id FROM discussion_runs WHERE project_id=? AND operation_namespace=? AND operation_id=?",
+            params![access.project_id, access.operation_namespace, request.operation_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let committed = webnovel_core::projects::discussions::read_start(&database, &run_id).unwrap();
+    let receipt_count: i64 = database
+        .query_row(
+            "SELECT count(*) FROM workshop_receipts WHERE operation_kind='startWorkshop'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(receipt_count, 0);
+
+    let view = project.workshop().read(access.clone()).unwrap();
+    let mut changed = view.state;
+    changed.sessions[0].direction = "The editor advanced after the lost result".into();
+    let changed = project
+        .workshop().save(SaveWorkshop {
+            access,
+            operation_id: "recovery-state-advanced".into(),
+            expected_version: view.version,
+            state: changed,
+        })
+        .unwrap();
+    assert_ne!(changed.version, request.exploration.expected_version);
+
+    let mut changed_budget = request.clone();
+    changed_budget.budget = MockContextBudget::new("100000", "101", "100");
+    assert_eq!(
+        project.workshop().start(changed_budget).unwrap_err().code,
+        "OperationIdReusedWithDifferentPayload"
+    );
+    for _ in 0..2 {
+        let replay = project.workshop().start(request.clone()).unwrap();
+        assert_eq!(serde_json::to_value(replay).unwrap(), serde_json::to_value(&committed).unwrap());
+    }
+    let run_count: i64 = database
+        .query_row("SELECT count(*) FROM discussion_runs", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(run_count, 1);
+}
+
+#[test]
 fn relationship_exploration_freezes_typed_edge_and_pins_both_endpoints() {
     let temp = TempProject::new();
     let project = temp.project();

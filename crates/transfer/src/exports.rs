@@ -28,7 +28,6 @@ pub enum ExportCommand {
     Read(ProjectAccess, String, Reply<ExportRecord>),
 }
 
-
 pub fn handle_export(host: &mut impl StoryHost, command: ExportCommand) {
     macro_rules! respond {
         ($reply:expr, $result:expr) => {{
@@ -41,10 +40,9 @@ pub fn handle_export(host: &mut impl StoryHost, command: ExportCommand) {
         ExportCommand::ResolveReviewedSource(access, expected, reply) => {
             respond!(
                 reply,
-                host.check_access(&access)
-                    .and_then(|()| {
-                        reviewed_story::resolve_reviewed_export_source(host, &access, &expected)
-                    })
+                host.check_access(&access).and_then(|()| {
+                    reviewed_story::resolve_reviewed_export_source(host, &access, &expected)
+                })
             );
         }
         ExportCommand::Install(access, preview, target, basename, reply) => {
@@ -65,14 +63,14 @@ pub fn handle_export(host: &mut impl StoryHost, command: ExportCommand) {
 }
 
 pub fn export_prepared_draft(
-host: &mut impl StoryHost,
+    host: &mut impl StoryHost,
     access: ProjectAccess,
     preview: &DraftExportPreview,
     target: &std::path::Path,
     basename: &str,
 ) -> CoreResult<ExportRecord> {
     host.check_access(&access)?;
-    let existing = validate_export_preview(host.db()?, &host.info(), &access, preview, basename)?;
+    let existing = validate_export_preview(host.db()?, host.info(), &access, preview, basename)?;
     if let Some(record) = existing {
         return Err(export_already_recorded(&record));
     }

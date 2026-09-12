@@ -9,12 +9,10 @@
 use super::SourceRef;
 use super::reviewed_evidence::{eligible_records, validate_frozen_evidence_set};
 use crate::frozen::FrozenContext;
-use crate::story_records::{
-    EvidenceAnchor, EvidenceAudience, PossessionTiming, StoryEntityRef,
-};
-use wns_kernel::{CoreError, CoreResult};
+use crate::story_records::{EvidenceAnchor, EvidenceAudience, PossessionTiming, StoryEntityRef};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use wns_kernel::{CoreError, CoreResult};
 
 /// The bounded result of looking up one project-local object identity in a
 /// frozen context. An empty result means that this frozen evidence did not

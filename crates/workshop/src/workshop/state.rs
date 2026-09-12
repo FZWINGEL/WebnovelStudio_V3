@@ -8,16 +8,15 @@
 
 use super::*;
 
-pub(super) fn workshop_snapshot(version: i64, state: WorkshopState) -> CoreResult<WorkshopSnapshot> {
+pub(super) fn workshop_snapshot(
+    version: i64,
+    state: WorkshopState,
+) -> CoreResult<WorkshopSnapshot> {
     Ok(WorkshopSnapshot {
         version: parse_stored_version(version)?,
         state,
     })
 }
-
-
-
-
 
 /// Validate the authority for one immutable Workshop snapshot.
 ///
@@ -163,9 +162,6 @@ pub(super) fn validate_snapshot_authority(
     Ok(parsed)
 }
 
-
-
-
 pub(super) fn validate_kind(kind: &str) -> CoreResult<()> {
     if !["note", "character", "world", "theme", "hook", "scene"].contains(&kind) {
         return Err(CoreError::new(
@@ -175,14 +171,6 @@ pub(super) fn validate_kind(kind: &str) -> CoreResult<()> {
     }
     Ok(())
 }
-
-
-
-
-
-
-
-
 
 pub(super) fn current_context_epoch(connection: &Connection) -> CoreResult<String> {
     let epoch: i64 = connection.query_row(
@@ -198,13 +186,13 @@ pub(super) fn current_context_epoch(connection: &Connection) -> CoreResult<Strin
 /// chain; its frozen source epoch must still be current at the mutation
 /// boundary.
 pub(super) fn workshop_candidate_sessions(
-    connection: &Connection,
+    source: CandidateReadContext<'_>,
     project_id: &str,
     operation_namespace: &str,
     source_epoch: Option<&str>,
 ) -> CoreResult<HashMap<String, (String, Option<WorkshopRelationship>)>> {
     Ok(
-        workshop_candidate_records(connection, project_id, operation_namespace, source_epoch)?
+        workshop_candidate_records(source, project_id, operation_namespace, source_epoch)?
             .into_iter()
             .map(|(candidate_id, (session_id, _content, relationship))| {
                 (candidate_id, (session_id, relationship))
@@ -214,13 +202,13 @@ pub(super) fn workshop_candidate_sessions(
 }
 
 pub(super) fn workshop_candidate_records(
-    connection: &Connection,
+    source: CandidateReadContext<'_>,
     project_id: &str,
     operation_namespace: &str,
     source_epoch: Option<&str>,
 ) -> CoreResult<HashMap<String, WorkshopCandidateRecord>> {
     workshop_candidate_records_with_filter(
-        connection,
+        source,
         Some(project_id),
         Some(operation_namespace),
         source_epoch,
@@ -228,10 +216,10 @@ pub(super) fn workshop_candidate_records(
 }
 
 pub(super) fn historical_workshop_candidate_records(
-    connection: &Connection,
+    source: CandidateReadContext<'_>,
 ) -> CoreResult<HashMap<String, (String, String)>> {
     Ok(
-        workshop_candidate_records_with_filter(connection, None, None, None)?
+        workshop_candidate_records_with_filter(source, None, None, None)?
             .into_iter()
             .map(|(candidate_id, (session_id, content, _relationship))| {
                 (candidate_id, (session_id, content))
@@ -241,13 +229,13 @@ pub(super) fn historical_workshop_candidate_records(
 }
 
 pub(super) fn workshop_candidate_records_with_filter(
-    connection: &Connection,
+    source: CandidateReadContext<'_>,
     project_id: Option<&str>,
     operation_namespace: Option<&str>,
     source_epoch: Option<&str>,
 ) -> CoreResult<HashMap<String, WorkshopCandidateRecord>> {
     Ok(workshop_candidate_outputs_with_filter(
-        connection,
+        source,
         project_id,
         operation_namespace,
         source_epoch,
@@ -260,28 +248,22 @@ pub(super) fn workshop_candidate_records_with_filter(
 }
 
 pub(super) fn workshop_candidate_outputs_with_filter(
-    connection: &Connection,
+    source: CandidateReadContext<'_>,
     project_id: Option<&str>,
     operation_namespace: Option<&str>,
     source_epoch: Option<&str>,
 ) -> CoreResult<HashMap<String, WorkshopCandidateOutput>> {
-    let mut statement = connection.prepare(
-        "SELECT id,packet_id,output_text FROM discussion_runs WHERE status='completed' AND dispatch_state='delivered' ORDER BY rowid",
-    )?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+    let connection = source.connection;
+    let rows = (source.completed_outputs)(connection)?;
     let mut candidates = HashMap::new();
-    for (run_id, packet_id, output_text) in rows {
+    for CompletedDiscussionOutput {
+        run_id,
+        packet_id,
+        output_text,
+    } in rows
+    {
         let packet =
-            match wns_story::context_packets::validated_packet_record(connection, &packet_id)
-            {
+            match wns_story::context_packets::validated_packet_record(connection, &packet_id) {
                 Ok(packet) => packet,
                 Err(_) => continue,
             };
@@ -294,11 +276,10 @@ pub(super) fn workshop_candidate_outputs_with_filter(
         else {
             continue;
         };
-        let metadata =
-            match crate::workshop_generation::metadata_from_instruction(instruction) {
-                Ok(metadata) => metadata,
-                Err(_) => continue,
-            };
+        let metadata = match crate::workshop_generation::metadata_from_instruction(instruction) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
         let (frozen, namespace) = match wns_story::story_context::validated_snapshot_record(
             connection,
             &packet.receipt.snapshot_id,

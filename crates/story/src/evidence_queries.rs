@@ -1,17 +1,17 @@
 //! Read-only author identity choices and source-bound evidence history.
+use crate::host::StoryHost;
 use crate::reviewed_story;
+use crate::reviewed_story::ReviewedRecordSet;
 use crate::story_context;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use crate::host::StoryHost;
-use wns_kernel::{CoreResult, ProjectAccess, Reply, parse_stored_version, SourceEpoch};
+use std::collections::HashMap;
 use wns_context::SourceRef;
 use wns_context::evidence_history::{EvidenceHistory, query_evidence_history};
 use wns_context::knowledge_history::{KnowledgeHistory, query_knowledge_history};
 use wns_context::promise_history::{PromiseHistory, query_promise_history};
-use crate::reviewed_story::ReviewedRecordSet;
 use wns_context::story_records::StoryEntityRef;
-use std::collections::HashMap;
+use wns_kernel::{CoreResult, ProjectAccess, Reply, SourceEpoch, parse_stored_version};
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewedEntityChoice {
@@ -75,7 +75,6 @@ pub enum EvidenceQueryCommand {
     ),
 }
 
-
 // Actor-side logic, as free functions over `StoryHost`.
 
 pub fn handle_evidence_query(host: &impl StoryHost, command: EvidenceQueryCommand) {
@@ -84,15 +83,23 @@ pub fn handle_evidence_query(host: &impl StoryHost, command: EvidenceQueryComman
             let _ = reply.send(reviewed_entity_catalog(host, &access));
         }
         EvidenceQueryCommand::History(access, snapshot_id, object_id, reply) => {
-            let _ =
-                reply.send(reviewed_evidence_history(host, &access, &snapshot_id, &object_id));
+            let _ = reply.send(reviewed_evidence_history(
+                host,
+                &access,
+                &snapshot_id,
+                &object_id,
+            ));
         }
         EvidenceQueryCommand::PromiseEntities(access, reply) => {
             let _ = reply.send(reviewed_promise_catalog(host, &access));
         }
         EvidenceQueryCommand::PromiseHistory(access, snapshot_id, promise_id, reply) => {
-            let _ =
-                reply.send(reviewed_promise_history(host, &access, &snapshot_id, &promise_id));
+            let _ = reply.send(reviewed_promise_history(
+                host,
+                &access,
+                &snapshot_id,
+                &promise_id,
+            ));
         }
         EvidenceQueryCommand::KnowledgeCharacters(access, reply) => {
             let _ = reply.send(reviewed_knowledge_catalog(host, &access, true));
@@ -107,7 +114,8 @@ pub fn handle_evidence_query(host: &impl StoryHost, command: EvidenceQueryComman
             topic_id,
             reply,
         ) => {
-            let _ = reply.send(reviewed_knowledge_history(host, 
+            let _ = reply.send(reviewed_knowledge_history(
+                host,
                 &access,
                 &snapshot_id,
                 &character_id,
@@ -117,7 +125,10 @@ pub fn handle_evidence_query(host: &impl StoryHost, command: EvidenceQueryComman
     }
 }
 
-pub fn reviewed_entity_catalog(host: &impl StoryHost, access: &ProjectAccess) -> CoreResult<ReviewedEntityCatalog> {
+pub fn reviewed_entity_catalog(
+    host: &impl StoryHost,
+    access: &ProjectAccess,
+) -> CoreResult<ReviewedEntityCatalog> {
     host.check_access(access)?;
     let tx = host.db()?.unchecked_transaction()?;
     // The chooser is an author surface. It reuses identities, never grants
@@ -321,13 +332,7 @@ pub fn reviewed_knowledge_catalog(
         if characters {
             for record in &set.records {
                 if let Some(entity) = &record.holder {
-                    add_catalog_entity(
-                        &mut entities,
-                        &mut indices,
-                        entity.clone(),
-                        &set,
-                        &titles,
-                    );
+                    add_catalog_entity(&mut entities, &mut indices, entity.clone(), &set, &titles);
                 }
             }
         }
@@ -369,7 +374,6 @@ pub fn reviewed_knowledge_history(
         history,
     })
 }
-
 
 fn add_catalog_entity(
     entities: &mut Vec<ReviewedEntityChoice>,

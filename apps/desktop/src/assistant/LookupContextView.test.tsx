@@ -57,7 +57,7 @@ describe('LookupContextView', () => {
 
   it('uses the matching snapshot descriptor for legacy lookup packets', async () => {
     const lookup = packet({ exchanges: [{
-      request: { kind: 'read', id: 'read-legacy', handle: 'chapter-1', blockIds: null },
+      request: { kind: 'read', id: 'read-legacy', handle: 'chapter-1' },
       result: { kind: 'read', handle: 'chapter-1', source, passages: [], complete: true },
     }] });
     await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} onRead={() => {}} />));
@@ -83,7 +83,7 @@ describe('LookupContextView', () => {
     const lookup = packet({ exchanges: [
       { request: { kind: 'search', id: 'search-1', query: 'missing vow', mode: 'literal', limit: 6 }, result: { kind: 'search', result: { snapshotId: 'snapshot', hits: [], sourceMatches: [], searchedSources: 1, hasMore: false, coverage: 'Chapter 1 exact text' } } },
       { request: { kind: 'read', id: 'read-1', handle: 'chapter-1', blockIds: ['block-1'] }, result: { kind: 'read', handle: 'chapter-1', source, passages: [{ handle: 'chapter-1', source, blockId: 'block-1', blockOrder: 0, text: 'Only one passage was supplied.' }], complete: false } },
-      { request: { kind: 'read', id: 'read-2', handle: 'missing-source', blockIds: null }, result: { kind: 'unavailable', code: 'SourceUnavailable', detail: 'The source is outside the permitted snapshot.' } },
+      { request: { kind: 'read', id: 'read-2', handle: 'missing-source' }, result: { kind: 'unavailable', code: 'SourceUnavailable', detail: 'The source is outside the permitted snapshot.' } },
     ] });
     await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} onRead={() => {}} />));
     expect(host.textContent).toContain('This does not establish that the event never happened.');
@@ -121,7 +121,7 @@ describe('LookupContextView', () => {
 
   it('distinguishes prepared and unconfirmed lookup evidence from delivered evidence', async () => {
     const lookup = packet({ exchanges: [{
-      request: { kind: 'findEntities', id: 'find-1', entityKind: 'object', query: 'pendant', offset: 0, limit: 1 },
+      request: { kind: 'findEntities', id: 'find-1', entityKind: 'object', query: 'pendant', limit: 1 },
       result: { kind: 'findEntities', entityKind: 'object', query: 'pendant', entries: [], offset: 0, totalMatches: 0, nextOffset: null, incomplete: true },
     }] });
     await act(async () => root.render(<LookupContextView lookup={lookup} sources={[descriptor]} delivery="unconfirmed" onRead={() => {}} />));
@@ -131,7 +131,7 @@ describe('LookupContextView', () => {
     expect(host.textContent).toContain('Prepared for model');
     expect(host.textContent).toContain('No reviewed objects matched this query');
     const unavailable = packet({ reviewedMemory: 'reviewed-memory.v1', exchanges: [{
-      request: { kind: 'knowledgeHistory', id: 'history-private', characterId: 'private-character-id', topicId: null,  offset: 0,limit: 1 },
+      request: { kind: 'knowledgeHistory', id: 'history-private', characterId: 'private-character-id', limit: 1 },
       result: { kind: 'unavailable', code: 'MemoryUnavailable', detail: 'private-character-id is outside the permitted snapshot' },
     }] });
     await act(async () => root.render(<LookupContextView lookup={unavailable} sources={[descriptor]} onRead={() => {}} />));

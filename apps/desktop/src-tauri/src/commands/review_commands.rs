@@ -13,7 +13,8 @@ use webnovel_core::projects::{CoreResult, ProjectAccess};
 
 #[tauri::command]
 pub async fn reviewed_entity_catalog(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewedEntityCatalog> {
     let app = &*state;
     let state = &app.projects;
@@ -25,7 +26,8 @@ pub async fn reviewed_entity_catalog(
 pub async fn reviewed_evidence_history(
     access: ProjectAccess,
     snapshot_id: String,
-    object_id: String, state: State<'_, AppState>,
+    object_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewedHistoryResult> {
     let app = &*state;
     let state = &app.projects;
@@ -35,7 +37,8 @@ pub async fn reviewed_evidence_history(
 
 #[tauri::command]
 pub async fn reviewed_promise_catalog(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewedEntityCatalog> {
     let app = &*state;
     let state = &app.projects;
@@ -47,7 +50,8 @@ pub async fn reviewed_promise_catalog(
 pub async fn reviewed_promise_history(
     access: ProjectAccess,
     snapshot_id: String,
-    promise_id: String, state: State<'_, AppState>,
+    promise_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewedPromiseHistoryResult> {
     let app = &*state;
     let state = &app.projects;
@@ -57,7 +61,8 @@ pub async fn reviewed_promise_history(
 
 #[tauri::command]
 pub async fn reviewed_knowledge_character_catalog(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewedEntityCatalog> {
     let app = &*state;
     let state = &app.projects;
@@ -67,7 +72,8 @@ pub async fn reviewed_knowledge_character_catalog(
 
 #[tauri::command]
 pub async fn reviewed_knowledge_topic_catalog(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewedEntityCatalog> {
     let app = &*state;
     let state = &app.projects;
@@ -80,7 +86,8 @@ pub async fn reviewed_knowledge_history(
     access: ProjectAccess,
     snapshot_id: String,
     character_id: String,
-    topic_id: Option<String>, state: State<'_, AppState>,
+    topic_id: Option<String>,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewedKnowledgeHistoryResult> {
     let app = &*state;
     let state = &app.projects;
@@ -92,7 +99,8 @@ pub async fn reviewed_knowledge_history(
 #[tauri::command]
 pub async fn chapter_review_status(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewStatus> {
     let app = &*state;
     let state = &app.projects;
@@ -103,7 +111,8 @@ pub async fn chapter_review_status(
 #[tauri::command]
 pub async fn read_reviewed_record_set(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<Option<ReviewedRecordSet>> {
     let app = &*state;
     let state = &app.projects;
@@ -113,7 +122,8 @@ pub async fn read_reviewed_record_set(
 
 #[tauri::command]
 pub async fn stage_author_review(
-    request: StageAuthorReview, state: State<'_, AppState>,
+    request: StageAuthorReview,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewStage> {
     let app = &*state;
     let state = &app.projects;
@@ -124,7 +134,8 @@ pub async fn stage_author_review(
 #[tauri::command]
 pub async fn read_review_stage(
     access: ProjectAccess,
-    stage_id: String, state: State<'_, AppState>,
+    stage_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReviewStage> {
     let app = &*state;
     let state = &app.projects;
@@ -133,9 +144,7 @@ pub async fn read_review_stage(
 }
 
 #[tauri::command]
-pub async fn mark_ready(
-    request: MarkReady, state: State<'_, AppState>,
-) -> CoreResult<ReadyBundle> {
+pub async fn mark_ready(request: MarkReady, state: State<'_, AppState>) -> CoreResult<ReadyBundle> {
     let app = &*state;
     let state = &app.projects;
     let project = state.project(&request.access.project_id)?;

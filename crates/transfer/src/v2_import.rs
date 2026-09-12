@@ -5,7 +5,6 @@
 //! share-read OS handle and opens only an owned copy with SQLite. The separate
 //! projects::import installer consumes a validated preview within its staging boundary.
 
-use wns_kernel::{CoreError, CoreResult};
 use rusqlite::{Connection, OpenFlags, Row, types::ValueRef};
 use serde::{Deserialize, Serialize};
 #[cfg(windows)]
@@ -22,6 +21,7 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::path::Path;
 #[cfg(windows)]
 use uuid::Uuid;
+use wns_kernel::{CoreError, CoreResult};
 
 const SUPPORTED_SCHEMA: i64 = 8;
 #[cfg(windows)]

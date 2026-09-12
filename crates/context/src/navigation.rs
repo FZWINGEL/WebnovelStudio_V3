@@ -1,6 +1,7 @@
 //! Frozen generated navigation is distinct from original manuscript evidence.
 //! The project owner resolves these records; the compiler checks their exact
 //! payload and source dependencies before supplying an unreviewed summary.
+use crate::frozen::SourceRead;
 use crate::memory::{
     DIGEST_SCHEMA_VERSION, DigestCandidate, MAX_RAW_BYTES, validate_navigation_digest,
 };
@@ -8,11 +9,10 @@ use crate::{
     Audience, BasisKind, ContextPurpose, CoverageLabel, InformationPolicy, SourceKind, SourceRef,
     StorySnapshot, evaluate_sources,
 };
-use crate::frozen::SourceRead;
-use wns_kernel::{CoreError, CoreResult, SourceEpoch};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use wns_kernel::{CoreError, CoreResult, SourceEpoch};
 
 pub const MAX_FROZEN_NAVIGATION_VIEWS: usize = 64;
 

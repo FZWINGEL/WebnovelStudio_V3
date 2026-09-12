@@ -32,7 +32,7 @@ export function sessionLineage(state: WorkshopState, session: WorkshopSession): 
 export function selectedBranchCandidates(
   state: WorkshopState,
   session: WorkshopSession,
-  results: WorkshopResult[],
+  results: readonly WorkshopResult[],
 ): SelectedBranchCandidate[] {
   const lineage = sessionLineage(state, session);
   const lineageIds = new Set(lineage.map(item => item.id));

@@ -8,19 +8,16 @@
 use wns_story::story_context::FrozenContext;
 // Moved to wns-context (L2); see project_chat.rs for why. Re-exported at the
 // historical path so `crate::projects::project_chat_context::{…}` resolves.
-pub use wns_context::chat_vocabulary::{
-    ProjectChatDraftRef, ProjectChatFreeze,
-};
+pub use wns_context::chat_vocabulary::{ProjectChatDraftRef, ProjectChatFreeze};
 // The frozen half moved to `wns-context::frozen` (L3): the validators, the
 // disposition projection, `augment_frozen_chat`, and `project_chat_basis_is_current`.
 // It had to, because `story_context` calls into all of them and at L5 those were
 // upward calls blocking `story_context` from reaching `wns-story`. What is left
 // here is the dispatch that wraps `story_context::freeze_project_chat_at`.
-pub use wns_context::frozen::project_chat_basis_is_current;
 use rusqlite::Connection;
-use wns_kernel::{CoreError, CoreResult};
+pub use wns_context::frozen::project_chat_basis_is_current;
 use wns_context::{Audience, BasisKind, ContextPurpose};
-
+use wns_kernel::{CoreError, CoreResult};
 
 /// Freeze a project-level discussion on top of the ordinary working context.
 /// The blank conversation anchor is the structural target; ordinary source
@@ -50,17 +47,19 @@ mod tests {
     use super::*;
     use wns_kernel::{DocumentRole, Head, ProjectAccess};
     // Named at the crates that own them — the module itself no longer calls them.
+    use rusqlite::Connection;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    use wns_context::SourceKind;
     use wns_context::chat_vocabulary::FrozenProjectChat;
-    use wns_context::frozen::{augment_frozen_chat, require_blank_anchor, validate_frozen_project_chat};
     use wns_context::evaluate_sources;
+    use wns_context::frozen::{
+        augment_frozen_chat, require_blank_anchor, validate_frozen_project_chat,
+    };
     use wns_context::{
         Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, EligibilityErrorCode,
         InformationPolicy, SourceDescriptor, SourceRef, StorySnapshot,
     };
-    use wns_context::SourceKind;
-    use rusqlite::Connection;
-    use serde_json::json;
-    use std::collections::BTreeMap;
 
     fn source(document_id: &str, revision_id: &str, body_hash: &str) -> SourceRef {
         SourceRef {

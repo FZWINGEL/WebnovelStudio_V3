@@ -1,13 +1,13 @@
-//! webnovel-core — the domain crate.
+//! webnovel-core — project actor ownership and compatibility facades.
 //!
-//! **Decomposition in progress.** This crate is being split into the layered
-//! workspace described in [`docs/V3_ARCHITECTURE_MODULAR.md`]. The foundation
-//! layer has been extracted as `wns-kernel`; the modules below are still here
-//! and are scheduled for extraction in the order that document records.
+//! Domain implementation lives in the layered workspace. Core owns the project
+//! actor, command ordering, live access and host implementations that connect
+//! sibling domains without a sibling dependency. Re-exports preserve existing
+//! caller paths. `docs/ARCHITECTURE.md` describes the current boundaries;
+//! `docs/V3_ARCHITECTURE_MODULAR.md` retains the extraction history.
 //!
-//! Nothing about this file's public surface is new: every item re-exported below
-//! was reachable at this same path before the extraction, which is what keeps
-//! the 77 registered integration suites compiling untouched.
+//! The actor and its per-concern facades share the same command queue. Splitting
+//! a source package does not create another writer or transaction coordinator.
 
 // L0 — extracted to `wns-kernel`. Re-exported at the crate root so that
 // `crate::CoreError`, `crate::sha256_hex` and `crate::validate_snapshot_json`
@@ -17,10 +17,10 @@ pub use wns_kernel::{
     validate_snapshot_json,
 };
 
-// L2 — extracted to `wns-context`. Re-exported at this path so every existing
+// L3 — extracted to `wns-context`. Re-exported at this path so every existing
 // `crate::context::*` reference resolves unchanged.
 pub use wns_context as context;
-// L1 — extracted to `wns-documents`. Aliased at this path so every existing
+// L2 — extracted to `wns-documents`. Aliased at this path so every existing
 // `crate::documents::*` reference resolves unchanged.
 pub use wns_documents as documents;
 pub mod library;

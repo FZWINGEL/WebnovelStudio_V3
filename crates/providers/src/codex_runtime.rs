@@ -12,7 +12,6 @@ use super::codex_catalog::CodexCatalog;
 use super::codex_discovery;
 use super::codex_profile::CodexLaunchProfile;
 use super::codex_runner::CodexStream;
-use wns_kernel::{CoreError, CoreResult};
 use sha2::{Digest, Sha256};
 use std::{
     ffi::OsString,
@@ -22,6 +21,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use wns_kernel::{CoreError, CoreResult};
 
 pub const MAX_CODEX_STDIN_BYTES: usize = 24 * 1024;
 const PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(15);

@@ -4,9 +4,9 @@
 //! The persistent reference is an opaque, app-owned UUID target; the target
 //! is safe to keep in app settings while the secret remains in the OS store.
 
-use wns_kernel::{CoreError, CoreResult};
 use std::fmt;
 use uuid::Uuid;
+use wns_kernel::{CoreError, CoreResult};
 
 /// Windows' documented generic credential blob limit is 5 KiB. Keep the same
 /// bound on every platform so profile validation does not differ by target.

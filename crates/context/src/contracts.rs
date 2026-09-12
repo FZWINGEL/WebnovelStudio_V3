@@ -1,5 +1,5 @@
-use wns_kernel::SourceEpoch;
 use serde::{Deserialize, Serialize};
+use wns_kernel::SourceEpoch;
 
 /// The editorial basis selected for a frozen request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -291,8 +291,7 @@ pub struct PacketReceipt {
     /// Record-level omissions remain distinct from source and navigation
     /// omissions so partial evidence cannot be mistaken for full coverage.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_evidence_omissions:
-        Vec<crate::reviewed_evidence::ReviewedEvidenceOmission>,
+    pub reviewed_evidence_omissions: Vec<crate::reviewed_evidence::ReviewedEvidenceOmission>,
     /// Author-reviewed promise observations delivered as a separate evidence
     /// envelope. Empty legacy receipts omit this field entirely.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -305,13 +304,11 @@ pub struct PacketReceipt {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_knowledge: Vec<crate::reviewed_knowledge::ReviewedKnowledgeCoverage>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_knowledge_omissions:
-        Vec<crate::reviewed_knowledge::ReviewedKnowledgeOmission>,
+    pub reviewed_knowledge_omissions: Vec<crate::reviewed_knowledge::ReviewedKnowledgeOmission>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewed_summaries: Vec<crate::reviewed_summaries::ReviewedSummaryCoverage>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reviewed_summary_omissions:
-        Vec<crate::reviewed_summaries::ReviewedSummaryOmission>,
+    pub reviewed_summary_omissions: Vec<crate::reviewed_summaries::ReviewedSummaryOmission>,
     pub input_hash: String,
     pub input_tokens: String,
     pub token_accounting_method: String,

@@ -1,4 +1,4 @@
-//! Enforces the layering rule declared in `docs/V3_ARCHITECTURE_MODULAR.md`.
+//! Enforces the layering rule documented in `docs/ARCHITECTURE.md`.
 //!
 //! The rule this crate exists to hold:
 //!
@@ -8,11 +8,11 @@
 //! * No layered crate may depend on `webnovel-core`, the crate being decomposed.
 //!   A backward edge there would mean the split is leaking.
 //!
-//! Without this test the layering is a document. With it, a wrong `use` fails
-//! the build — which is the only kind of boundary that has ever held here.
+//! Cargo metadata checks production package edges. Source-level ownership
+//! checks supplement that graph; neither proves arbitrary SQL access is safe.
 
-use std::collections::BTreeMap;
-use std::fs;
+use cargo_metadata::{DependencyKind, Metadata, MetadataCommand};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// `(package name, path relative to the workspace root, layer)`.
@@ -20,37 +20,17 @@ pub const LAYERS: &[(&str, &str, u32)] = &[
     ("wns-kernel", "crates/kernel", 0),
     ("wns-storage", "crates/storage", 1),
     ("wns-providers", "crates/providers", 1),
-    // Raised from L1 to L2 when document revision history moved here: history
-    // reads and writes document rows, so it depends on the layer that owns the
-    // schema. `wns-context` already depended on `wns-documents`, so this shifted
-    // every layer above documents up one ordinal. The relative order is exactly
-    // what it was: these are ordinals in a partial order, and no edge in the
-    // graph changed direction except the one that was added.
+    // Document history consumes storage primitives.
     ("wns-documents", "crates/documents", 2),
     ("wns-context", "crates/context", 3),
     ("wns-story", "crates/story", 4),
     ("wns-conversation", "crates/conversation", 5),
     ("wns-workshop", "crates/workshop", 5),
-    // Raised from L5 to L6. `transfer` is a pure CONSUMER: backup validation calls
-    // every concern's own storage validator, so it sits above all of them rather
-    // than beside them. Nothing depends on it except the app shell, so the raise
-    // costs no other crate a renumber. Its old charter said "L5, may depend on
-    // L0–L3" — that was aspirational; the module it was written for already
-    // reached `story_context`, `reviewed_story` and `memory` at L4 and the
-    // conversation and workshop validators at L5.
+    // Transfer consumes the domain storage validators, including both L5 crates.
     ("wns-transfer", "crates/transfer", 6),
-    // Raised from L5 to L7. The library's V2 import workflow drives the
-    // installer in `wns-transfer` (L6), so it sits above the portability crate;
-    // it also reaches `v2_import`, which moved up with the installer that
-    // consumes it. Nothing depends on the library but the app shell, which the
-    // layer table does not register.
+    // The library drives transfer's project-installation workflow.
     ("wns-library", "crates/library", 7),
 ];
-
-/// The crate being decomposed. The rule above applies to `wns-*` only; this one
-/// is expected to depend on lower layers while the split proceeds, and nothing
-/// layered may depend on it.
-pub const LEGACY_CRATE: &str = "webnovel-core";
 
 pub fn workspace_root() -> PathBuf {
     // crates/architecture -> crates -> root
@@ -68,32 +48,60 @@ pub fn layer_of(package: &str) -> Option<u32> {
         .map(|(_, _, layer)| *layer)
 }
 
-/// Workspace-internal dependency names declared under `[dependencies]` in a
-/// crate manifest. Parsed from the text rather than with a TOML crate so this
-/// checker adds no dependency of its own.
-pub fn internal_dependencies(manifest: &Path) -> BTreeMap<String, String> {
-    let text = fs::read_to_string(manifest)
-        .unwrap_or_else(|error| panic!("cannot read {}: {error}", manifest.display()));
-    let mut found = BTreeMap::new();
-    let mut in_dependencies = false;
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            // Only the plain [dependencies] table; target- and dev-specific
-            // tables are not the layer rule's business.
-            in_dependencies = trimmed == "[dependencies]";
-            continue;
-        }
-        if !in_dependencies || trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let Some((key, value)) = trimmed.split_once('=') else {
+/// Cargo resolves package aliases, workspace inheritance and every dependency
+/// table. `--no-deps` avoids resolving external packages; the workspace package
+/// declarations still include optional and target-specific dependencies. Do not
+/// filter by the current platform: a Windows edge must also be checked on Linux.
+pub fn workspace_metadata(manifest: &Path) -> Result<Metadata, cargo_metadata::Error> {
+    MetadataCommand::new()
+        .manifest_path(manifest)
+        .no_deps()
+        .other_options(vec!["--locked".into(), "--offline".into()])
+        .exec()
+}
+
+/// Normal and build dependencies define the production graph. Development
+/// dependencies are deliberately excluded so test fixtures can exercise several
+/// layers without introducing a production edge.
+pub fn layering_violations(metadata: &Metadata) -> Vec<String> {
+    let packages = metadata.workspace_packages();
+    let internal_names: BTreeSet<_> = packages
+        .iter()
+        .map(|package| package.name.as_str())
+        .collect();
+    let mut violations = Vec::new();
+    for package in packages {
+        let Some(layer) = layer_of(package.name.as_str()) else {
             continue;
         };
-        let key = key.trim();
-        if key.starts_with("wns-") || key == LEGACY_CRATE || key.starts_with("webnovel-") {
-            found.insert(key.to_owned(), value.trim().to_owned());
+        for dependency in &package.dependencies {
+            if dependency.kind == DependencyKind::Development {
+                continue;
+            }
+            // Cargo's `name` is the actual package; `rename` is only the local
+            // import alias and must never decide which layer a dependency owns.
+            let violation = match layer_of(&dependency.name) {
+                Some(dependency_layer) if dependency_layer >= layer => {
+                    Some(format!("L{dependency_layer} is not below L{layer}"))
+                }
+                None if internal_names.contains(dependency.name.as_str()) => {
+                    Some("an unlayered workspace package is not a lower layer".into())
+                }
+                _ => None,
+            };
+            if let Some(reason) = violation {
+                let target = dependency
+                    .target
+                    .as_ref()
+                    .map(|target| format!(" for {target}"))
+                    .unwrap_or_default();
+                violations.push(format!(
+                    "{} (L{layer}) -> {} ({} dependency{target}): {reason}",
+                    package.name, dependency.name, dependency.kind,
+                ));
+            }
         }
     }
-    found
+    violations.sort();
+    violations
 }

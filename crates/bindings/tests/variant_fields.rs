@@ -17,16 +17,30 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, specta::Type)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum WithoutVariantAttribute {
-    FindEntities { entity_kind: String, total_matches: usize },
+    FindEntities {
+        entity_kind: String,
+        total_matches: usize,
+    },
 }
 
 #[derive(Serialize, Deserialize, specta::Type)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum WithVariantAttribute {
     #[specta(rename_all = "camelCase")]
-    FindEntities { entity_kind: String, total_matches: usize },
+    FindEntities {
+        entity_kind: String,
+        total_matches: usize,
+    },
 }
 
 fn cfg() -> specta::ts::ExportConfiguration {
@@ -35,12 +49,32 @@ fn cfg() -> specta::ts::ExportConfiguration {
 
 #[test]
 fn a_variant_attribute_is_what_makes_struct_variant_fields_camel_case() {
-    for (name, text) in [
-        ("bare", specta::ts::export::<WithoutVariantAttribute>(&cfg()).unwrap()),
-        ("per-variant", specta::ts::export::<WithVariantAttribute>(&cfg()).unwrap()),
-    ] {
-        println!("--- {name}\n{text}");
-    }
+    assert_eq!(
+        specta::ts::export::<WithoutVariantAttribute>(&cfg()).unwrap(),
+        "export type WithoutVariantAttribute = { kind: \"findEntities\"; entity_kind: string; total_matches: number }"
+    );
+    assert_eq!(
+        specta::ts::export::<WithVariantAttribute>(&cfg()).unwrap(),
+        "export type WithVariantAttribute = { kind: \"findEntities\"; entityKind: string; totalMatches: number }"
+    );
+    let expected =
+        serde_json::json!({ "kind": "findEntities", "entityKind": "character", "totalMatches": 2 });
+    assert_eq!(
+        serde_json::to_value(WithoutVariantAttribute::FindEntities {
+            entity_kind: "character".to_owned(),
+            total_matches: 2,
+        })
+        .unwrap(),
+        expected
+    );
+    assert_eq!(
+        serde_json::to_value(WithVariantAttribute::FindEntities {
+            entity_kind: "character".to_owned(),
+            total_matches: 2,
+        })
+        .unwrap(),
+        expected
+    );
 }
 
 #[derive(Serialize, Deserialize, specta::Type)]
@@ -94,8 +128,7 @@ fn serde_default_alone_is_read_as_optionality() {
     let text = specta::ts::export::<DefaultedVec>(&cfg()).unwrap();
     println!("--- DefaultedVec\n{text}");
     assert_eq!(
-        text,
-        "export type DefaultedVec = { sourceRefs?: string[]; plain: string[] }",
+        text, "export type DefaultedVec = { sourceRefs?: string[]; plain: string[] }",
         "specta no longer reads a bare `#[serde(default)]` as optionality"
     );
 }
@@ -115,8 +148,9 @@ pub struct OptionalForms {
 ///
 /// This matters because it is the boundary of what [`OMITTED_WHEN_EMPTY`] has
 /// to supply by hand. A `Vec<T>` with `skip_serializing_if = "Vec::is_empty"`
-/// gets no `?` — that is the gap the list fills. An `Option<T>` whose `None` is
-/// skipped gets one, so it needs no entry; and a bare `Option<T>` with no
+/// gets no `?` — that is the gap the list fills. A struct's `Option<T>` whose
+/// `None` is skipped gets one; enum variant fields also need the generator's
+/// explicit optionality correction. A bare `Option<T>` with no
 /// attribute is required, because Rust writes `null` there and the frontend
 /// must handle it.
 ///
@@ -124,9 +158,8 @@ pub struct OptionalForms {
 /// not something the wire does: a field skipped when `None` is *absent*, never
 /// `null`. This test reads specta directly and so still shows the suffix;
 /// `group()` removes it for the fields [`SKIPPED_WHEN_NONE`] lists, and
-/// `tests/skipped.rs` re-derives that list from the Rust source. A caller that
-/// would have sent `null` omits the field instead, which `#[serde(default)]`
-/// reads identically.
+/// `tests/skipped.rs` re-derives that list from the Rust source. The lookup wire
+/// regression also covers custom deserializers that reject explicit `null`.
 #[test]
 fn optional_is_an_option_plus_an_omission_attribute() {
     let text = specta::ts::export::<OptionalForms>(&cfg()).unwrap();
@@ -160,8 +193,7 @@ fn optional_is_an_option_plus_an_omission_attribute() {
 fn specta_cannot_mark_a_non_option_field_optional() {
     let text = specta::ts::export::<OptionalVec>(&cfg()).unwrap();
     assert_eq!(
-        text,
-        "export type OptionalVec = { bare: string[]; marked: string[]; defaulted: string[] }",
+        text, "export type OptionalVec = { bare: string[]; marked: string[]; defaulted: string[] }",
         "specta can express omission now — the affected fields no longer need a workaround"
     );
 }

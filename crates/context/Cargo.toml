@@ -2,7 +2,7 @@
 name = "wns-context"
 version.workspace = true
 edition = "2024"
-description = "L2: deterministic packet compilation, eligibility, lookup and receipts."
+description = "L3: frozen context, deterministic packet compilation, eligibility, lookup and receipts."
 
 [dependencies]
 wns-kernel = { path = "../kernel" }

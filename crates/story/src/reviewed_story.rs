@@ -24,6 +24,7 @@
 //! before a single line here could travel. It also has no test hook and no
 //! sibling `projects/` call, which makes it the cleanest move so far.
 
+use crate::host::StoryHost;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -38,11 +39,10 @@ use wns_context::story_records::{
 use wns_context::{
     ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind, SourceRef,
 };
-use crate::host::StoryHost;
 use wns_kernel::{
     CoreError, CoreResult, DocumentRecord, DocumentRole, Head, ProjectAccess, Reply, Revision,
-    check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head, sha256_hex,
-    SourceEpoch, valid_hash, validate_title,
+    SourceEpoch, check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head,
+    sha256_hex, valid_hash, validate_title,
 };
 use wns_storage::{checkpoint_at, read_document, read_revision};
 
@@ -833,7 +833,6 @@ type BundleDbRow = (
     String,
 );
 
-
 // ---------------------------------------------------------------------
 // Actor-side logic, as free functions over the host.
 // ---------------------------------------------------------------------
@@ -1005,8 +1004,7 @@ pub fn chapter_review_status(
             pending_stage_id.clone(),
         ));
     }
-    let (can_stage, _stage_reason) =
-        stage_capability(db, &access, document_id, current_policy)?;
+    let (can_stage, _stage_reason) = stage_capability(db, &access, document_id, current_policy)?;
     if bundle.target != document.head {
         return Ok(ReviewStatus {
             document_id: document_id.to_owned(),
@@ -1066,7 +1064,11 @@ pub fn chapter_review_status(
     }
 }
 
-pub fn read_review_stage(host: &impl StoryHost, access: ProjectAccess, stage_id: &str) -> CoreResult<ReviewStage> {
+pub fn read_review_stage(
+    host: &impl StoryHost,
+    access: ProjectAccess,
+    stage_id: &str,
+) -> CoreResult<ReviewStage> {
     host.check_access(&access)?;
     check_id(stage_id)?;
     let db = host.db()?;
@@ -1076,7 +1078,10 @@ pub fn read_review_stage(host: &impl StoryHost, access: ProjectAccess, stage_id:
     stage_to_dto(db, stage)
 }
 
-pub fn stage_author_review(host: &mut impl StoryHost, request: StageAuthorReview) -> CoreResult<ReviewStage> {
+pub fn stage_author_review(
+    host: &mut impl StoryHost,
+    request: StageAuthorReview,
+) -> CoreResult<ReviewStage> {
     host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     check_id(&request.expected.document_id)?;
@@ -1115,8 +1120,7 @@ pub fn stage_author_review(host: &mut impl StoryHost, request: StageAuthorReview
         &document.head.document_id,
         policy_epoch,
     )?;
-    let previous_bundle_id =
-        active_bundle_id(&tx, &request.access, &document.head.document_id)?;
+    let previous_bundle_id = active_bundle_id(&tx, &request.access, &document.head.document_id)?;
     let records = match request.records {
         Some(records) => Some(records),
         None => match previous_bundle_id.as_deref() {
@@ -1124,8 +1128,8 @@ pub fn stage_author_review(host: &mut impl StoryHost, request: StageAuthorReview
             None => None,
         },
     };
-    let records_hash = validate_records(&records.clone().unwrap_or_default(), &revision)
-        .map_err(|error| {
+    let records_hash =
+        validate_records(&records.clone().unwrap_or_default(), &revision).map_err(|error| {
             CoreError::new(
                 "InvalidReviewedRecords",
                 &format!("The reviewed evidence is invalid: {}", error.detail),
@@ -1431,7 +1435,11 @@ pub fn handle_review(host: &mut impl StoryHost, command: ReviewCommand) {
             let _ = reply.send(result);
         }
         ReviewCommand::ReadRecords(access, document_id, reply) => {
-            let _ = reply.send(read_reviewed_record_set_internal(host, access, &document_id));
+            let _ = reply.send(read_reviewed_record_set_internal(
+                host,
+                access,
+                &document_id,
+            ));
         }
     }
 }
@@ -1440,7 +1448,6 @@ pub fn handle_review(host: &mut impl StoryHost, command: ReviewCommand) {
 // Helpers. Verbatim: there is no `self.` below the impl block, so these
 // travel unchanged.
 // ---------------------------------------------------------------------
-
 
 fn current_epochs(db: &Connection) -> CoreResult<(i64, i64)> {
     db.query_row(

@@ -2,7 +2,7 @@
 name = "wns-workshop"
 version.workspace = true
 edition = "2024"
-description = "L4: the six-lens Story Workshop — candidates, decisions and generation."
+description = "L5: the six-lens Story Workshop — candidates, decisions and generation."
 
 [dependencies]
 wns-kernel = { path = "../kernel" }

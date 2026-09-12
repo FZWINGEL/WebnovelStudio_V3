@@ -12,8 +12,8 @@ use super::*;
 use rusqlite::Connection;
 
 pub use wns_story::source_pins::{
-    AUTHOR_ROOM_AUDIENCE, SaveSourcePins, SourcePinCommand, SourcePinHost, SourcePinScope, SourcePinSet,
-    SourcePinsView, persistent_for_discussion,
+    AUTHOR_ROOM_AUDIENCE, SaveSourcePins, SourcePinCommand, SourcePinHost, SourcePinScope,
+    SourcePinSet, SourcePinsView, persistent_for_discussion,
 };
 
 impl ProjectSession {

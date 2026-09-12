@@ -1,5 +1,12 @@
 # V3 documentation index
 
+For current package boundaries, database/query ownership, frontend state owners
+and enforced invariants, start with the [current architecture map](ARCHITECTURE.md).
+The latest [material capability and Tauri parity evidence](ARCHITECTURE_CAPABILITIES_AND_IPC.md)
+records the scoped write API and registered-command checks.
+The [modular-decomposition proposal](V3_ARCHITECTURE_MODULAR.md) retains historical
+measurements and migration decisions; it is not the current ownership contract.
+
 This index is for the private WebnovelStudio V3.0.0 Windows development candidate, an English web-novel workspace with optional wuxia, xianxia, cultivation, progression, and translated-register styles. Start with the [root README](../README.md) for setup and the [3.0.0 release preparation](RELEASE_3_0_0.md) plus [changelog](../CHANGELOG.md) for candidate scope and user-facing changes.
 
 Use [implementation status](IMPLEMENTATION_STATUS.md) for current tests, native and provider evidence, and remaining qualification. Codex is the primary provider; current summary and Story Memory maintenance uses GPT-6 Astra with low reasoning, while the author picker remains independent. Claude and OpenAI-compatible endpoints remain available, with further adapter ports deferred. The optional persistent Codex app-server route is implemented for development, but Exec remains the default and lookup remains on Exec. Source and executed checks establish current behavior; the design documents below define contracts and target architecture.

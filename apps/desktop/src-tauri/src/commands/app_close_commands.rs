@@ -1,9 +1,9 @@
 //! Normal close coordinates the existing project actors and owned workers.
 //! The renderer owns its editor barrier; this module never saves or replaces text.
 use crate::app_state::AppState;
+use crate::commands::project_commands::{DesktopProjects, execute};
 use crate::discussion_recovery::DiscussionRecovery;
 use crate::memory_recovery::MemoryRecovery;
-use crate::commands::project_commands::{DesktopProjects, execute};
 use crate::provider_runtime::DesktopProviders;
 use serde::Serialize;
 use tauri::State;
@@ -163,39 +163,39 @@ fn coordinator(
 
 #[tauri::command]
 pub async fn app_close_status(
-    close_id: String, state: State<'_, AppState>,
+    close_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<AppCloseStatus> {
     let app = &*state;
     let projects = &app.projects;
     let runtime = &app.providers;
     let discussions = &app.discussion_recovery;
     let memory = &app.memory_recovery;
-    let close = coordinator(&projects, &runtime, &discussions, &memory);
+    let close = coordinator(projects, runtime, discussions, memory);
     execute(move || close.status(&close_id)).await
 }
 
 #[tauri::command]
 pub async fn stop_app_jobs(
-    close_id: String, state: State<'_, AppState>,
+    close_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<AppCloseStatus> {
     let app = &*state;
     let projects = &app.projects;
     let runtime = &app.providers;
     let discussions = &app.discussion_recovery;
     let memory = &app.memory_recovery;
-    let close = coordinator(&projects, &runtime, &discussions, &memory);
+    let close = coordinator(projects, runtime, discussions, memory);
     execute(move || close.stop(&close_id)).await
 }
 
 #[tauri::command]
-pub async fn finish_app_close(
-    close_id: String, state: State<'_, AppState>,
-) -> CoreResult<()> {
+pub async fn finish_app_close(close_id: String, state: State<'_, AppState>) -> CoreResult<()> {
     let app = &*state;
     let projects = &app.projects;
     let runtime = &app.providers;
     let discussions = &app.discussion_recovery;
     let memory = &app.memory_recovery;
-    let close = coordinator(&projects, &runtime, &discussions, &memory);
+    let close = coordinator(projects, runtime, discussions, memory);
     execute(move || close.finish(&close_id)).await
 }

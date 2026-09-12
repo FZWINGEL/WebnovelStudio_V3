@@ -5275,13 +5275,22 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 [[package]]
 name = "wns-architecture"
 version = "3.0.0"
+dependencies = [
+ "cargo_metadata",
+ "proc-macro2",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "wns-bindings"
 version = "3.0.0"
 dependencies = [
+ "heck 0.5.0",
  "serde",
+ "serde_json",
  "specta",
+ "syn 2.0.119",
+ "toml 0.8.2",
  "wns-context",
  "wns-conversation",
  "wns-documents",

@@ -48,18 +48,18 @@ use wns_documents::{Endpoint, ScopeGrant, ScopeKind, ScopeValidationRequest, val
 // Imported from wns-context, not from `projects` — this is the inversion. The
 // response vocabulary is the compiler's input, so it lives at the compiler's
 // layer; reaching up to `projects` for it is what section 3.4 corrects.
+use crate::frozen::{FrozenContext, SourcePassage, SourceRead};
+use crate::response_contracts::WORKSHOP_RESPONSE_CONTRACT;
 use crate::response_contracts::{
     CHAPTER_DISCUSSION_RESPONSE_CONTRACT, CHAPTER_DISCUSSION_RESPONSE_INSTRUCTION,
     PROJECT_CHAT_RESPONSE_CONTRACT, project_chat_response_instruction,
 };
-use crate::frozen::{FrozenContext, SourcePassage, SourceRead};
-use crate::response_contracts::WORKSHOP_RESPONSE_CONTRACT;
-use wns_kernel::validate_snapshot_json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use wns_kernel::validate_snapshot_json;
 
 // Provider contract vocabulary moved down to `wns-providers` (L1). It lived
 // here while the provider adapters reached *up* into this module for
@@ -68,17 +68,18 @@ use std::fmt;
 // and every other existing reference resolves unchanged — and so no packet's
 // serialized shape changes.
 pub use wns_providers::vocabulary::{
-    CLAUDE_INPUT_LIMIT_BYTES, CLAUDE_OUTPUT_LIMIT_BYTES, CLAUDE_PROFILE_VERSION, CLAUDE_PROVIDER_ID,
-    CLAUDE_TOKEN_ACCOUNTING_METHOD, CODEX_HISTORICAL_PROFILE_VERSION, CODEX_INPUT_LIMIT_BYTES,
-    CODEX_LUNA_MODEL_ID, CODEX_MAINTENANCE_MODEL_ID, CODEX_MAINTENANCE_PROFILE_VERSION,
-    CODEX_MAINTENANCE_REASONING, CODEX_OUTPUT_LIMIT_BYTES, CODEX_PROFILE_VERSION, CODEX_PROVIDER_ID,
-    CODEX_REASONING_EFFORT, CODEX_SERVICE_TIER, CODEX_TOKEN_ACCOUNTING_METHOD,
-    HTTP_INPUT_LIMIT_BYTES, HTTP_MEMORY_INPUT_LIMIT_BYTES, HTTP_MEMORY_LEGACY_MODEL_ID,
-    HTTP_MEMORY_LEGACY_PROFILE_VERSION, HTTP_MEMORY_LEGACY_REASONING, HTTP_MEMORY_MODEL_ID,
-    HTTP_MEMORY_OUTPUT_LIMIT_BYTES, HTTP_MEMORY_PROFILE_VERSION, HTTP_MEMORY_REASONING,
-    HTTP_OUTPUT_LIMIT_BYTES, HTTP_PROFILE_VERSION, HTTP_TOKEN_ACCOUNTING_METHOD,
-    HttpProviderBinding, HttpResponseFormat, MOCK_MODEL_ID, MOCK_TOKEN_ACCOUNTING_METHOD,
-    PacketMessage, PacketOptions, ProviderBinding, ProviderRuntimeIdentity, parse_decimal,
+    CLAUDE_INPUT_LIMIT_BYTES, CLAUDE_OUTPUT_LIMIT_BYTES, CLAUDE_PROFILE_VERSION,
+    CLAUDE_PROVIDER_ID, CLAUDE_TOKEN_ACCOUNTING_METHOD, CODEX_HISTORICAL_PROFILE_VERSION,
+    CODEX_INPUT_LIMIT_BYTES, CODEX_LUNA_MODEL_ID, CODEX_MAINTENANCE_MODEL_ID,
+    CODEX_MAINTENANCE_PROFILE_VERSION, CODEX_MAINTENANCE_REASONING, CODEX_OUTPUT_LIMIT_BYTES,
+    CODEX_PROFILE_VERSION, CODEX_PROVIDER_ID, CODEX_REASONING_EFFORT, CODEX_SERVICE_TIER,
+    CODEX_TOKEN_ACCOUNTING_METHOD, HTTP_INPUT_LIMIT_BYTES, HTTP_MEMORY_INPUT_LIMIT_BYTES,
+    HTTP_MEMORY_LEGACY_MODEL_ID, HTTP_MEMORY_LEGACY_PROFILE_VERSION, HTTP_MEMORY_LEGACY_REASONING,
+    HTTP_MEMORY_MODEL_ID, HTTP_MEMORY_OUTPUT_LIMIT_BYTES, HTTP_MEMORY_PROFILE_VERSION,
+    HTTP_MEMORY_REASONING, HTTP_OUTPUT_LIMIT_BYTES, HTTP_PROFILE_VERSION,
+    HTTP_TOKEN_ACCOUNTING_METHOD, HttpProviderBinding, HttpResponseFormat, MOCK_MODEL_ID,
+    MOCK_TOKEN_ACCOUNTING_METHOD, PacketMessage, PacketOptions, ProviderBinding,
+    ProviderRuntimeIdentity, parse_decimal,
 };
 /// Stable envelope identifiers. Version 1 is retained solely for validating
 /// packets persisted before author-room source labels were added. New packets
@@ -151,9 +152,6 @@ impl MockContextBudget {
     }
 }
 
-/// The immutable, trusted provider binding captured with one live request.
-///
-
 /// Pure compiler input. `sources` contains the Rust-resolved candidate reads;
 /// the compiler checks every one against the frozen manifest before using it.
 /// The target read is selected by `frozen.snapshot.target`, never by a
@@ -190,7 +188,6 @@ pub struct PacketRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lookup: Option<LookupPacketInput>,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -509,9 +506,7 @@ pub fn compile_packet(request: &PacketRequest) -> Result<CompiledPacket, PacketE
 /// Recompile a historical packet using the original v1 envelope shape. This
 /// is crate-visible so persistence validation can reproduce stored bytes;
 /// callers creating new packets must use [`compile_packet`].
-pub fn compile_packet_legacy(
-    request: &PacketRequest,
-) -> Result<CompiledPacket, PacketError> {
+pub fn compile_packet_legacy(request: &PacketRequest) -> Result<CompiledPacket, PacketError> {
     compile_packet_with_schema(request, PacketSchemaVersion::V1)
 }
 
@@ -545,7 +540,8 @@ fn compile_packet_with_schema(
         );
     }
 
-    let requested_handles: Vec<String> = resolved.canonical_reads
+    let requested_handles: Vec<String> = resolved
+        .canonical_reads
         .iter()
         .map(|read| read.read.descriptor.handle.clone())
         .collect();
@@ -621,7 +617,8 @@ fn compile_packet_with_schema(
         ordered_handles
             .iter()
             .filter(|handle| {
-                !mandatory_set.contains(handle.as_str()) && handle.as_str() != resolved.target_handle
+                !mandatory_set.contains(handle.as_str())
+                    && handle.as_str() != resolved.target_handle
             })
             .filter(|handle| {
                 canonical_by_handle
@@ -709,7 +706,8 @@ fn compile_packet_with_schema(
         directory_omissions: &directory_omissions,
         options: &options,
     };
-    let full_sources = select_eligible_sources(&pricing, &ordered_handles, &mandatory_set, workshop_request);
+    let full_sources =
+        select_eligible_sources(&pricing, &ordered_handles, &mandatory_set, workshop_request);
     let full_omissions = directory_omissions.clone();
     let total_turns = request
         .frozen
@@ -723,7 +721,13 @@ fn compile_packet_with_schema(
         reviewed_knowledge: &resolved.reviewed_knowledge,
     };
     if let Some(packet) = try_full_eligible_packet(
-        &pricing, schema, &validated, &full_sources, &full_omissions, total_turns, available,
+        &pricing,
+        schema,
+        &validated,
+        &full_sources,
+        &full_omissions,
+        total_turns,
+        available,
     )? {
         return Ok(packet);
     }
@@ -740,11 +744,22 @@ fn compile_packet_with_schema(
         )
     };
     try_mandatory_packet(
-        &pricing, schema, &mandatory_sources, &mandatory_omissions, &mut mandatory_handles, available,
+        &pricing,
+        schema,
+        &mandatory_sources,
+        &mandatory_omissions,
+        &mut mandatory_handles,
+        available,
     )?;
 
-    let included_turns =
-        pack_conversation_prefix(&pricing, schema, &mandatory_sources, &mandatory_omissions, total_turns, available)?;
+    let included_turns = pack_conversation_prefix(
+        &pricing,
+        schema,
+        &mandatory_sources,
+        &mandatory_omissions,
+        total_turns,
+        available,
+    )?;
     if included_turns != total_turns {
         let evidence_omissions = reviewed_evidence_omissions(&resolved.reviewed_evidence, &[]);
         let promise_omissions = reviewed_promise_omissions(&resolved.reviewed_promises, &[]);
@@ -753,7 +768,6 @@ fn compile_packet_with_schema(
             &pricing,
             &mandatory_sources,
             &mandatory_omissions,
-
             Packing {
                 schema,
                 method: "layeredExcerpt",
@@ -801,9 +815,18 @@ fn compile_packet_with_schema(
         );
     }
 
-    let shape = Shape { schema, conversation_turns: included_turns };
-    let delivered_summaries =
-        pack_reviewed_summaries(&pricing, shape, &mandatory_sources, &mandatory_omissions, &optional_handles, available)?;
+    let shape = Shape {
+        schema,
+        conversation_turns: included_turns,
+    };
+    let delivered_summaries = pack_reviewed_summaries(
+        &pricing,
+        shape,
+        &mandatory_sources,
+        &mandatory_omissions,
+        &optional_handles,
+        available,
+    )?;
     let optional_handles: Vec<String> = optional_handles
         .into_iter()
         .filter(|handle| {
@@ -829,20 +852,44 @@ fn compile_packet_with_schema(
         promises: &[],
         handles: &optional_handles,
     };
-    let delivered_reviewed_evidence =
-        pack_reviewed_evidence(&pricing, shape, &mandatory_sources, &delivered, &resolved.reviewed_evidence, available)?;
+    let delivered_reviewed_evidence = pack_reviewed_evidence(
+        &pricing,
+        shape,
+        &mandatory_sources,
+        &delivered,
+        &resolved.reviewed_evidence,
+        available,
+    )?;
     let reviewed_evidence_omissions =
         reviewed_evidence_omissions(&resolved.reviewed_evidence, &delivered_reviewed_evidence);
 
-    let delivered = Delivered { evidence: &delivered_reviewed_evidence, ..delivered };
-    let delivered_reviewed_promises =
-        pack_reviewed_promises(&pricing, shape, &mandatory_sources, &delivered, &resolved.reviewed_promises, available)?;
+    let delivered = Delivered {
+        evidence: &delivered_reviewed_evidence,
+        ..delivered
+    };
+    let delivered_reviewed_promises = pack_reviewed_promises(
+        &pricing,
+        shape,
+        &mandatory_sources,
+        &delivered,
+        &resolved.reviewed_promises,
+        available,
+    )?;
     let reviewed_promise_omissions =
         reviewed_promise_omissions(&resolved.reviewed_promises, &delivered_reviewed_promises);
 
-    let delivered = Delivered { promises: &delivered_reviewed_promises, ..delivered };
-    let delivered_reviewed_knowledge =
-        pack_reviewed_knowledge(&pricing, shape, &mandatory_sources, &delivered, &resolved.reviewed_knowledge, available)?;
+    let delivered = Delivered {
+        promises: &delivered_reviewed_promises,
+        ..delivered
+    };
+    let delivered_reviewed_knowledge = pack_reviewed_knowledge(
+        &pricing,
+        shape,
+        &mandatory_sources,
+        &delivered,
+        &resolved.reviewed_knowledge,
+        available,
+    )?;
     let reviewed_knowledge_omissions =
         reviewed_knowledge_omissions(&resolved.reviewed_knowledge, &delivered_reviewed_knowledge);
 
@@ -902,7 +949,6 @@ fn compile_packet_with_schema(
                 &pricing,
                 &replaced,
                 &candidate_omissions,
-
                 Packing {
                     schema,
                     method: "layeredExcerpt",
@@ -932,7 +978,6 @@ fn compile_packet_with_schema(
         &pricing,
         &selected,
         &omissions,
-
         Packing {
             schema,
             method: "layeredExcerpt",
@@ -1151,7 +1196,6 @@ fn finish_packet(
         receipt,
     })
 }
-
 
 mod serialization;
 mod support;

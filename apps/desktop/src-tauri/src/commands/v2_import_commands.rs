@@ -75,7 +75,8 @@ pub async fn v2_import_preview(
 #[tauri::command]
 pub async fn v2_import(
     request: V2ImportRequest,
-    session: String, state: State<'_, AppState>,
+    session: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
     let app = &*state;
     let library_state = &app.library;

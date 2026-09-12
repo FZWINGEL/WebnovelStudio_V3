@@ -150,7 +150,7 @@ export function BranchComparison({ project, state, session, results, onOpenDocum
   project: OpenedProject;
   state: WorkshopState;
   session: WorkshopSession;
-  results: WorkshopResult[];
+  results: readonly WorkshopResult[];
   onOpenDocument(documentId: string): void;
 }) {
   const parent = state.sessions.find(item => item.id === session.parentSessionId);

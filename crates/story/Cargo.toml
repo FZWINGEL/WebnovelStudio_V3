@@ -2,7 +2,7 @@
 name = "wns-story"
 version.workspace = true
 edition = "2024"
-description = "L3: story memory, reviewed story, evidence and promise history, accepted summaries."
+description = "L4: story memory, reviewed story, evidence and promise history, accepted summaries."
 
 [dependencies]
 wns-kernel = { path = "../kernel" }

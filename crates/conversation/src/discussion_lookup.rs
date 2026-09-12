@@ -4,23 +4,21 @@
 //! terminal row per legacy discussion and its historical packet/result bytes
 //! are part of the transfer contract.  Lookup discussions instead retain one
 //! mutable invocation state row plus immutable result and local-read rows.
-pub use wns_story::run_vocabulary::*;
-use wns_kernel::check_id;
-use wns_providers::vocabulary::{ProviderCleanup, ProviderOutcomeStatus, ProviderUsage};
-use wns_kernel::{CoreError, CoreResult, SourceEpoch};
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use wns_context::lookup::{
     LOOKUP_SCHEMA_VERSION, LookupAllowance, LookupEnvelope, LookupExchange, LookupRead,
     LookupReadResult, MAX_LOOKUP_ENVELOPE_BYTES, parse_lookup_envelope, validate_lookup_envelope,
     validate_lookup_read,
 };
-use wns_context::packet::{
-    CompiledPacket, ProviderBinding, packet_input_hash, serialized_input,
-};
-use wns_story::story_context::{FrozenContext, SearchMode};
+use wns_context::packet::{CompiledPacket, ProviderBinding, packet_input_hash, serialized_input};
+use wns_kernel::check_id;
 use wns_kernel::sha256_hex;
-use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use wns_kernel::{CoreError, CoreResult, SourceEpoch};
+use wns_providers::vocabulary::{ProviderCleanup, ProviderOutcomeStatus, ProviderUsage};
+pub use wns_story::run_vocabulary::*;
+use wns_story::story_context::{FrozenContext, SearchMode};
 
 pub const MAX_LOOKUP_INVOCATIONS: u8 = 3;
 
@@ -72,8 +70,6 @@ pub enum LookupAdvance {
         run: wns_story::run_vocabulary::DiscussionRun,
     },
 }
-
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvocationIdentity {
@@ -187,11 +183,7 @@ pub fn insert_initial(
     Ok(())
 }
 
-pub fn claim(
-    tx: &Connection,
-    owner: &RunOwner,
-    ordinal: u8,
-) -> CoreResult<InvocationIdentity> {
+pub fn claim(tx: &Connection, owner: &RunOwner, ordinal: u8) -> CoreResult<InvocationIdentity> {
     let current = read_identity(tx, owner, ordinal)?;
     if current.state != LookupInvocationState::Prepared {
         return Err(CoreError::new(
@@ -406,11 +398,7 @@ pub fn read_exchanges(
     Ok(exchanges)
 }
 
-pub fn pending_reads(
-    db: &Connection,
-    run_id: &str,
-    ordinal: u8,
-) -> CoreResult<Vec<LookupRead>> {
+pub fn pending_reads(db: &Connection, run_id: &str, ordinal: u8) -> CoreResult<Vec<LookupRead>> {
     let response_json: Option<String> = db
         .query_row(
             "SELECT response_json FROM discussion_lookup_results WHERE run_id=? AND ordinal=?",
@@ -585,10 +573,7 @@ pub fn execute_read(
 /// Check the Rust-owned capability before a provider response can create a
 /// durable read receipt. The provider envelope remains the existing
 /// story-lookup.v1 shape; this fence is deliberately packet-owned.
-pub fn authorize_envelope(
-    packet: &CompiledPacket,
-    envelope: &LookupEnvelope,
-) -> CoreResult<()> {
+pub fn authorize_envelope(packet: &CompiledPacket, envelope: &LookupEnvelope) -> CoreResult<()> {
     let LookupEnvelope::NeedsContext { reads, .. } = envelope else {
         return Ok(());
     };

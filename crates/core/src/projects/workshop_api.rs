@@ -1,10 +1,8 @@
 //! Narrow interface to the Workshop concern.
 //!
-//! `ProjectSession` exposes 28 public methods, so every caller of a project —
-//! whether it opens a document, drives the Workshop or reads storage info —
-//! depends on the union of all of them. This is the first of the per-concern
-//! facades described in `docs/V3_ARCHITECTURE_MODULAR.md` §3.5: a caller that
-//! only runs Workshop operations depends on six methods instead of 28.
+//! Callers that only drive Workshop depend on its six operations. The other
+//! project facades expose their own domains over the same actor handle; see
+//! `docs/ARCHITECTURE.md`.
 //!
 //! It holds the **same** `Arc<Handle>` as the session and issues its own command
 //! variants, so the actor, the channel, the 64-slot backpressure and the
@@ -49,17 +47,11 @@ impl WorkshopApi {
         self.request(|reply| Command::WorkshopRead(access, reply))
     }
 
-    pub fn save(
-        &self,
-        request: workshop::SaveWorkshop,
-    ) -> CoreResult<workshop::WorkshopSnapshot> {
+    pub fn save(&self, request: workshop::SaveWorkshop) -> CoreResult<workshop::WorkshopSnapshot> {
         self.request(|reply| Command::WorkshopSave(request, reply))
     }
 
-    pub fn history(
-        &self,
-        access: ProjectAccess,
-    ) -> CoreResult<Vec<workshop::WorkshopSnapshot>> {
+    pub fn history(&self, access: ProjectAccess) -> CoreResult<Vec<workshop::WorkshopSnapshot>> {
         self.request(|reply| Command::WorkshopHistory(access, reply))
     }
 

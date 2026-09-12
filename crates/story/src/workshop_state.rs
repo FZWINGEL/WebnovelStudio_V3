@@ -21,9 +21,9 @@ use wns_kernel::{
 };
 use wns_storage::{read_document, read_revision};
 
-use std::collections::HashMap;
 use crate::workshop_metadata::{validate_story_possibilities, validate_text};
 use crate::workshop_vocabulary::*;
+use std::collections::HashMap;
 
 /// Validation limits for a saved Workshop state. They travelled with the
 /// validators that enforce them; `wns_workshop::workshop` re-exports them.
@@ -974,10 +974,7 @@ pub fn chat_relationship_dependencies(
 /// Read the fixed text which a chat-origin body proposal must preserve. This
 /// is deliberately a projection only; the caller owns the preview digest and
 /// the transaction that rechecks it.
-pub fn chat_protected_text(
-    connection: &Connection,
-    document_id: &str,
-) -> CoreResult<Vec<String>> {
+pub fn chat_protected_text(connection: &Connection, document_id: &str) -> CoreResult<Vec<String>> {
     let (_, state) = read_state(connection)?;
     let current = read_document(connection, document_id)?;
     let mut protected = Vec::new();

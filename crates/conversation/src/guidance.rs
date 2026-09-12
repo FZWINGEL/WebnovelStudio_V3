@@ -4,9 +4,12 @@
 //! immutable version and advances a small mutable head; it never changes a
 //! manuscript body or creates canon. Request-scoped guidance is consumed only
 //! when a later request successfully binds it to a frozen snapshot.
+use wns_kernel::{
+    CoreError, CoreResult, ProjectAccess, Reply, check_id, logical_hash, new_id, parse_version,
+    sha256_hex,
+};
 use wns_story::host::StoryHost;
 use wns_story::story_context;
-use wns_kernel::{CoreError, CoreResult, ProjectAccess, Reply, check_id, logical_hash, new_id, parse_version, sha256_hex};
 // The frozen half of guidance — row conversion, reads, and selection at a
 // snapshot — moved down to wns-context (L3), which is what lets `story_context`
 // reach it without an upward call. The authoring half below still uses the
@@ -40,7 +43,6 @@ pub enum GuidanceCommand {
     List(ProjectAccess, String, Reply<Vec<GuidanceVersion>>),
 }
 
-
 // Actor-side logic, as free functions over `StoryHost`.
 
 pub fn handle_guidance(host: &mut impl StoryHost, command: GuidanceCommand) {
@@ -51,15 +53,19 @@ pub fn handle_guidance(host: &mut impl StoryHost, command: GuidanceCommand) {
             let _ = reply.send(result);
         }
         GuidanceCommand::List(access, document_id, reply) => {
-            let _ = reply
-                .send(host.check_access(&access).and_then(|()| {
-                    read_guidance(host.db()?, &access.project_id, &document_id)
-                }));
+            let _ =
+                reply
+                    .send(host.check_access(&access).and_then(|()| {
+                        read_guidance(host.db()?, &access.project_id, &document_id)
+                    }));
         }
     }
 }
 
-pub fn save_guidance(host: &mut impl StoryHost, request: SaveGuidance) -> CoreResult<GuidanceVersion> {
+pub fn save_guidance(
+    host: &mut impl StoryHost,
+    request: SaveGuidance,
+) -> CoreResult<GuidanceVersion> {
     host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     let expected = parse_version(&request.expected_version)?;
@@ -163,7 +169,6 @@ pub fn save_guidance(host: &mut impl StoryHost, request: SaveGuidance) -> CoreRe
     tx.commit().map_err(CoreError::uncertain)?;
     Ok(stored)
 }
-
 
 type GuidanceRow = (
     String,

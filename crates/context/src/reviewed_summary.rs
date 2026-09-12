@@ -4,10 +4,10 @@
 //! replacement for the reviewed chapter revision and it is never mutable in
 //! place: a new author decision creates a new immutable summary revision.
 
-use crate::reviewed_prefix::ReviewPrefixItem;
-use wns_kernel::{CoreError, CoreResult, check_id, sha256_hex};
 use crate::SourceRef;
+use crate::reviewed_prefix::ReviewPrefixItem;
 use serde::{Deserialize, Serialize};
+use wns_kernel::{CoreError, CoreResult, check_id, sha256_hex};
 
 pub const MAX_SUMMARY_BYTES: usize = 16 * 1024;
 

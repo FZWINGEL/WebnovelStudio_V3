@@ -469,7 +469,11 @@ pub(super) fn optional_omissions(
     omissions
 }
 
-pub(super) fn source_binding(code: &str, message: impl Into<String>, handle: Option<String>) -> PacketError {
+pub(super) fn source_binding(
+    code: &str,
+    message: impl Into<String>,
+    handle: Option<String>,
+) -> PacketError {
     PacketError::SourceBinding {
         code: code.to_owned(),
         message: message.into(),
@@ -499,7 +503,10 @@ pub(super) fn summary_is_smaller(summary: &ReviewedSummarySet, request: &PacketR
         })
 }
 
-pub(super) fn summary_source_omissions(original: &[String], summaries: &[ReviewedSummarySet]) -> Vec<String> {
+pub(super) fn summary_source_omissions(
+    original: &[String],
+    summaries: &[ReviewedSummarySet],
+) -> Vec<String> {
     let mut omissions: Vec<String> = original
         .iter()
         .filter(|entry| {
@@ -524,25 +531,25 @@ pub(super) fn summary_source_omissions(original: &[String], summaries: &[Reviewe
 /// nothing else across its boundary.
 pub(super) fn packet_options(request: &PacketRequest) -> Result<PacketOptions, PacketError> {
     Ok(match request.provider_binding.as_ref() {
-    Some(binding) => {
-        binding
-            .validate()
-            .map_err(|message| PacketError::InvalidRequest { message })?;
-        PacketOptions {
-            model_id: binding.model_id.clone(),
-            // This boundary has no qualified provider token limit. The
-            // retained output cap is an application byte limit instead.
-            max_output_tokens: String::new(),
-            token_accounting_method: binding.accounting_method.clone(),
-            provider_binding: Some(binding.clone()),
+        Some(binding) => {
+            binding
+                .validate()
+                .map_err(|message| PacketError::InvalidRequest { message })?;
+            PacketOptions {
+                model_id: binding.model_id.clone(),
+                // This boundary has no qualified provider token limit. The
+                // retained output cap is an application byte limit instead.
+                max_output_tokens: String::new(),
+                token_accounting_method: binding.accounting_method.clone(),
+                provider_binding: Some(binding.clone()),
+            }
         }
-    }
-    None => PacketOptions {
-        model_id: request.budget.model_id.clone(),
-        max_output_tokens: request.budget.reserved_output_tokens.clone(),
-        token_accounting_method: MOCK_TOKEN_ACCOUNTING_METHOD.to_owned(),
-        provider_binding: None,
-    },
+        None => PacketOptions {
+            model_id: request.budget.model_id.clone(),
+            max_output_tokens: request.budget.reserved_output_tokens.clone(),
+            token_accounting_method: MOCK_TOKEN_ACCOUNTING_METHOD.to_owned(),
+            provider_binding: None,
+        },
     })
 }
 

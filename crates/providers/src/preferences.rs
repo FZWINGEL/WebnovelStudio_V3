@@ -10,9 +10,9 @@ use super::catalog::{
 };
 use super::codex_catalog::CodexCatalog;
 use super::endpoints::EndpointProfilesSettings;
-use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use wns_kernel::{CoreError, CoreResult};
 
 pub const MODEL_SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub const MODEL_SETTINGS_KEY: &str = "model-selection-v1";
@@ -25,7 +25,9 @@ pub const STORY_MEMORY_REASONING: &str = "low";
 pub const MAX_FAVORITES: usize = 32;
 pub const DEFAULT_REVISION: &str = "0";
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelKey {
     pub provider_id: String,

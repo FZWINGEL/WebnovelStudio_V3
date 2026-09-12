@@ -6,28 +6,25 @@
 //! commits. Provider execution is intentionally outside this module. The
 //! output methods below are the small durable boundary a later supervisor can
 //! drive with deterministic or live events.
-pub use wns_story::run_vocabulary::*;
-pub use wns_story::discussion_vocabulary::{
-    DiscussionScopeInput, FeedbackIntent, StartDiscussion, skip_default_feedback_intent,
-};
+use crate::{guidance, proposals};
+use wns_context::project_chat_output;
 use wns_kernel::{
     CoreError, CoreResult, Head, ProjectAccess, ProjectInfo, Reply, check_id, logical_hash, new_id,
     parse_stored_version, parse_version, sha256_hex,
 };
 use wns_storage::{read_document, read_revision};
-use wns_story::{context_packets, source_pins, story_context};
-use wns_context::project_chat_output;
-use crate::{guidance, proposals};
+pub use wns_story::discussion_vocabulary::{
+    DiscussionScopeInput, FeedbackIntent, StartDiscussion, skip_default_feedback_intent,
+};
 use wns_story::host::StoryHost;
+pub use wns_story::run_vocabulary::*;
+use wns_story::{context_packets, source_pins, story_context};
 // The provider delivery vocabulary moved to `wns-providers::vocabulary` (L1),
 // below both this module (bound for `wns-conversation`, L5) and `memory`
 // (`wns-story`, L4). Re-exported at the historical path so
 // `discussions::ProviderCleanup` and its siblings resolve unchanged for
 // `discussion_lookup` and `memory`.
-pub use wns_providers::vocabulary::{
-    HttpDeliverySubmission, HttpProviderUsage, ProviderCleanup, ProviderDeliveryReceipt,
-    ProviderOutcomeStatus, ProviderUsage,
-};
+use crate::discussion_lookup;
 use wns_context::continuation::CONTINUATION_RESPONSE_CONTRACT;
 use wns_context::lookup::LookupAllowance;
 use wns_context::packet::{
@@ -35,31 +32,33 @@ use wns_context::packet::{
     PROPOSAL_RESPONSE_CONTRACT, PacketError, PacketRequest, ProviderBinding,
     STRUCTURED_PROPOSAL_RESPONSE_CONTRACT, compile_packet, serialized_input,
 };
-use wns_context::{
-    Audience, BasisKind, ContextPurpose, InformationPolicy, MAX_SAFE_BRIEF_BYTES,
-};
+use wns_context::{Audience, BasisKind, ContextPurpose, InformationPolicy, MAX_SAFE_BRIEF_BYTES};
 use wns_documents::{
     ScopeGrant, ScopeKind, ScopeValidationRequest, capture_append_scope, capture_scope,
     validate_scope,
 };
+pub use wns_providers::vocabulary::{
+    HttpDeliverySubmission, HttpProviderUsage, ProviderCleanup, ProviderDeliveryReceipt,
+    ProviderOutcomeStatus, ProviderUsage,
+};
 use wns_story::context_packets::PrepareContext;
-use crate::discussion_lookup;
 use wns_story::story_context::{FreezeReviewedContinuation, FreezeStory, FrozenContext};
 // The workshop contract and its parser both live below this module now — the
 // contract at L3, the parser in `wns-story` beside the metadata types. Naming
 // them here rather than through `workshop_generation` is what removes the
 // L5→L5 edge this module used to have with `wns-workshop`.
-use wns_context::response_contracts::WORKSHOP_RESPONSE_CONTRACT;
-use wns_story::workshop_metadata::{metadata_from_instruction, metadata_value};
-use wns_providers::http_request::prepare_request as prepare_http_request;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
+use wns_context::response_contracts::WORKSHOP_RESPONSE_CONTRACT;
+use wns_providers::http_request::prepare_request as prepare_http_request;
+use wns_story::workshop_metadata::{metadata_from_instruction, metadata_value};
 
 pub use wns_context::SafeBriefInput;
 
 mod app_server;
+pub mod queries;
 mod retry;
 
 const MAX_INSTRUCTION_BYTES: usize = 64 * 1024;
@@ -71,8 +70,6 @@ const STOP_SETTLED_MESSAGE: &str =
     "You stopped this response. Any partial text shown here is saved.";
 const STOP_UNRESOLVED_MESSAGE: &str =
     "This response was interrupted. Any partial text shown here is saved.";
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -251,7 +248,6 @@ pub enum DiscussionCommand {
     SaveDraft(SaveDiscussionDraft, Reply<DiscussionDraft>),
 }
 
-
 // Actor-side logic, as free functions over `StoryHost`.
 
 pub fn handle_discussion(host: &mut impl StoryHost, command: DiscussionCommand) {
@@ -264,7 +260,10 @@ pub fn handle_discussion(host: &mut impl StoryHost, command: DiscussionCommand) 
     }
     match command {
         DiscussionCommand::ClaimAppServer(owner, dispatch, reply) => {
-            mutate!(reply, app_server::claim_app_server_dispatch(host, owner, dispatch));
+            mutate!(
+                reply,
+                app_server::claim_app_server_dispatch(host, owner, dispatch)
+            );
         }
         DiscussionCommand::AckAppServer(owner, dispatch, turn_id, reply) => {
             mutate!(
@@ -312,7 +311,7 @@ pub fn handle_discussion(host: &mut impl StoryHost, command: DiscussionCommand) 
             mutate!(reply, halt_lookup(host, request));
         }
         DiscussionCommand::ReadRun(owner, reply) => {
-            let result = validate_runtime_owner(&host.info(), &owner).and_then(|()| {
+            let result = validate_runtime_owner(host.info(), &owner).and_then(|()| {
                 read_run(host.db()?, &owner.run_id).and_then(|run| {
                     validate_owner(&run, &owner)?;
                     Ok(run)
@@ -467,10 +466,8 @@ pub fn start_discussion_at(
     };
     let merged_document_ids =
         merge_pinned_document_ids(&persistent_ids, &request.pinned_document_ids)?;
-    let transient_handles =
-        resolve_pinned_handles(&frozen_context, &request.pinned_document_ids)?;
-    let mut all_mandatory_handles =
-        resolve_pinned_handles(&frozen_context, &merged_document_ids)?;
+    let transient_handles = resolve_pinned_handles(&frozen_context, &request.pinned_document_ids)?;
+    let mut all_mandatory_handles = resolve_pinned_handles(&frozen_context, &merged_document_ids)?;
     if let Some(chat) = chat {
         // Explicit project-chat source refs are author-selected evidence;
         // they are mandatory packet inputs and may not disappear under
@@ -551,10 +548,7 @@ pub fn start_discussion_at(
     let response_contract = if chat.is_some() {
         Some(project_chat_output::PROJECT_CHAT_RESPONSE_CONTRACT.to_owned())
     } else if chapter_range {
-        Some(
-            project_chat_output::CHAPTER_DISCUSSION_RESPONSE_CONTRACT
-                .to_owned(),
-        )
+        Some(project_chat_output::CHAPTER_DISCUSSION_RESPONSE_CONTRACT.to_owned())
     } else {
         match request.intent {
             FeedbackIntent::Discuss if request.lookup.is_some() => {
@@ -579,8 +573,7 @@ pub fn start_discussion_at(
     // compiler used to parse it out of `instruction` itself, which made it
     // reach up into this crate for the workshop vocabulary and its
     // validation cluster.
-    let workshop_metadata = if response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT)
-    {
+    let workshop_metadata = if response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT) {
         let metadata = metadata_from_instruction(&instruction)?;
         Some(metadata_value(&metadata)?)
     } else {
@@ -598,17 +591,16 @@ pub fn start_discussion_at(
         safe_brief: request.safe_brief.clone(),
         budget: request.budget.clone(),
         provider_binding: request.provider_binding.clone(),
-        lookup: request.lookup.clone().map(|allowance| {
-            wns_context::lookup::LookupPacketInput {
+        lookup: request
+            .lookup
+            .clone()
+            .map(|allowance| wns_context::lookup::LookupPacketInput {
                 allowance,
                 completed_invocations: 0,
                 exchanges: Vec::new(),
                 source_projection: None,
-                reviewed_memory: Some(
-                    wns_context::lookup::REVIEWED_MEMORY_CAPABILITY.to_owned(),
-                ),
-            }
-        }),
+                reviewed_memory: Some(wns_context::lookup::REVIEWED_MEMORY_CAPABILITY.to_owned()),
+            }),
         response_contract: response_contract.clone(),
         workshop_metadata,
     })
@@ -687,7 +679,7 @@ pub fn append_discussion_output(
     request: DiscussionOutputAppend,
 ) -> CoreResult<DiscussionRun> {
     validate_output_event(&request.owner, &request.event_id, &request.chunk)?;
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     let expected = parse_version(&request.expected_sequence)?;
     let tx = host
         .db_mut()?
@@ -751,7 +743,7 @@ pub fn begin_discussion_run(
     check_id(&request.owner.project_id)?;
     check_id(&request.owner.operation_namespace)?;
     check_id(&request.owner.run_id)?;
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     let tx = host
         .db_mut()?
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -769,17 +761,14 @@ pub fn begin_discussion_run(
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )?;
-            let project_chat_current = if snapshot_source_epoch == source_epoch
-                && snapshot_policy_epoch == policy_epoch
-            {
-                let (frozen, _) = story_context::validated_snapshot_record(&tx, &snapshot_id)?;
-                !frozen.project_chat.is_some()
-                    || crate::project_chat_context::project_chat_basis_is_current(
-                        &tx, &frozen,
-                    )?
-            } else {
-                false
-            };
+            let project_chat_current =
+                if snapshot_source_epoch == source_epoch && snapshot_policy_epoch == policy_epoch {
+                    let (frozen, _) = story_context::validated_snapshot_record(&tx, &snapshot_id)?;
+                    !frozen.project_chat.is_some()
+                        || crate::project_chat_context::project_chat_basis_is_current(&tx, &frozen)?
+                } else {
+                    false
+                };
             if !project_chat_current {
                 let stale_message = "The story changed before this discussion started; the saved response was not dispatched.";
                 let _ = seal_run(
@@ -839,7 +828,7 @@ pub fn mark_discussion_delivered(
     check_id(&owner.project_id)?;
     check_id(&owner.operation_namespace)?;
     check_id(&owner.run_id)?;
-    validate_runtime_owner(&host.info(), &owner)?;
+    validate_runtime_owner(host.info(), &owner)?;
     let tx = host
         .db_mut()?
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -874,7 +863,7 @@ pub fn finish_discussion(
     request: DiscussionFinish,
 ) -> CoreResult<DiscussionRun> {
     validate_finish_request(&request.owner, &request.event_id, &request.assistant_text)?;
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     let expected = parse_version(&request.expected_sequence)?;
     let tx = host
         .db_mut()?
@@ -960,7 +949,7 @@ pub fn fail_discussion_run(
 ) -> CoreResult<DiscussionRun> {
     check_id(&request.owner.project_id)?;
     check_id(&request.owner.operation_namespace)?;
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     check_id(&request.event_id)?;
     check_id(&request.owner.run_id)?;
     let expected = parse_version(&request.expected_sequence)?;
@@ -1075,7 +1064,7 @@ pub fn settle_discussion_stop(
     request: DiscussionStopSettled,
 ) -> CoreResult<DiscussionRun> {
     validate_settlement_request(&request)?;
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     let expected = parse_version(&request.expected_sequence)?;
     let tx = host
         .db_mut()?
@@ -1187,7 +1176,7 @@ pub fn settle_provider_discussion(
     request: ProviderTerminalReport,
 ) -> CoreResult<ProviderDiscussionSettlement> {
     validate_provider_report_shape(&request)?;
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     let expected = parse_version(&request.expected_sequence)?;
     let confirmed_stdin_bytes = parse_decimal_u64(&request.confirmed_stdin_bytes)?;
     let tx = host
@@ -1231,8 +1220,7 @@ pub fn settle_provider_discussion(
             "The provider result does not match the immutable packet binding.",
         ));
     }
-    let serialized =
-        serialized_input(&packet.messages, &packet.options).map_err(packet_error)?;
+    let serialized = serialized_input(&packet.messages, &packet.options).map_err(packet_error)?;
     let delivered = if wns_providers::codex_app_server::is_app_server(binding) {
         app_server::validate_delivery(
             &tx,
@@ -1385,13 +1373,12 @@ pub fn settle_provider_discussion(
     if status == DiscussionRunStatus::Completed {
         proposals::retain_candidates_at(&tx, &current, &request.assistant_text)?;
     }
-    let result =
-        read_provider_result(&tx, &current.id, &current.packet_id)?.ok_or_else(|| {
-            CoreError::new(
-                "PersistenceUnavailable",
-                "The provider receipt could not be read.",
-            )
-        })?;
+    let result = read_provider_result(&tx, &current.id, &current.packet_id)?.ok_or_else(|| {
+        CoreError::new(
+            "PersistenceUnavailable",
+            "The provider receipt could not be read.",
+        )
+    })?;
     let run = read_run(&tx, &current.id)?;
     tx.commit().map_err(CoreError::uncertain)?;
     Ok(ProviderDiscussionSettlement {
@@ -1610,7 +1597,6 @@ pub fn save_discussion_draft(
     tx.commit().map_err(CoreError::uncertain)?;
     Ok(draft)
 }
-
 
 fn ensure_thread(tx: &Connection, access: &ProjectAccess, document_id: &str) -> CoreResult<String> {
     tx.execute("INSERT INTO discussion_threads(id,project_id,operation_namespace,document_id) VALUES(?,?,?,?) ON CONFLICT(project_id,operation_namespace,document_id) DO NOTHING", params![new_id(), access.project_id, access.operation_namespace, document_id])?;
@@ -2225,8 +2211,7 @@ fn validate_owner(run: &DiscussionRun, owner: &RunOwner) -> CoreResult<()> {
 }
 
 fn validate_runtime_owner(info: &ProjectInfo, owner: &RunOwner) -> CoreResult<()> {
-    if owner.project_id != info.project_id
-        || owner.operation_namespace != info.operation_namespace
+    if owner.project_id != info.project_id || owner.operation_namespace != info.operation_namespace
     {
         return Err(CoreError::new(
             "DiscussionProjectMismatch",
@@ -2321,7 +2306,6 @@ fn append_text(existing: &str, chunk: &str, limit: usize) -> CoreResult<String> 
     result.push_str(chunk);
     Ok(result)
 }
-
 
 mod lookup;
 mod packet;

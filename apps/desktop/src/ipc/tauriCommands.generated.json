@@ -1,0 +1,1165 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "f31017550dee8fb32b581d6ffe096dbc33505d3cc63f785f126706ba48795899"
+    },
+    {
+      "path": "apps/desktop/src-tauri/Cargo.toml",
+      "sha256": "73df1a75bd2585ab7bec63aa5093835fe5d7ed137a55aad3bfe81f62b4ab9cc0"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/app_close_commands.rs",
+      "sha256": "0554eef05a0a9a6396411337d0400b6f0ac30c0162ed1ed919261133585e2e93"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/codex_transport_commands.rs",
+      "sha256": "aa59476a496924c7e4e124b67dea2509998dd2946a281e9c9fbffe4d1c02015f"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/context_commands.rs",
+      "sha256": "71d23aca0248f4b4b83ecaaf99bf3ab6bdb4b01e11886f36e03803e51fec601e"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/discussion_commands.rs",
+      "sha256": "14ad2615373636ae05aa9eb7d1f9d59fb9dd7ad6f3cf979c9bb27a1b9b9490ac"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/endpoint_commands.rs",
+      "sha256": "a45ab8d9f6188a274e747a4dbf7b8081608ad33c118e66739a457010d8ad274d"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/endpoint_discovery.rs",
+      "sha256": "125ca78d54a940c37e7115999c27de07dcbeda39a52a290f81bb8ca721b86e0a"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/export_commands.rs",
+      "sha256": "060cda3995f94a635ce8eea77435dd7a843883c41b7eb27a7f3671b7f714e369"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/guidance_commands.rs",
+      "sha256": "1851c8a334974f5f4c83b3cfb23a4319bbf4f8b5920f3c0919ac20b821f35569"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/library_commands.rs",
+      "sha256": "26214aa7a534ac2b77a14136eeca75b50f1eca276d428287be4b44669ca19ea1"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/memory_commands.rs",
+      "sha256": "af94d7fb778ed9465c96507e9a2574cb11834c2a64dbdbff44bf44e3e21d64d0"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/mod.rs",
+      "sha256": "ec328613ffdf3302328dc3a841337022100229cd9f78cce868b8ce2b977c64fa"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/project_chat_commands.rs",
+      "sha256": "07fec7df95a33174abf2064d351a522bfc0b0d3693578e531332206ff7b8fcd0"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/project_commands.rs",
+      "sha256": "f1641e8576f618667215308a097d07a11be36d3a4d182bc3d020a672c215c663"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/provider_commands.rs",
+      "sha256": "05a643ac8904b7ad6738f5f978069aa92cdd253160145d9da831c9096d9a1514"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/recovery_commands.rs",
+      "sha256": "6cc0036f31f3d0cd4d6d9bd74defad53871fdfec53a9bf692b6d40f8b2bab52a"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/review_commands.rs",
+      "sha256": "60224744928402b5a1cf54ee347a28dae63bccc05078579fdc54cfe603defd6e"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/source_pin_commands.rs",
+      "sha256": "39f7d93f3189e5b536d73de162e696e5b6edeb00813c91d62e3b93515e293add"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/v2_import_commands.rs",
+      "sha256": "42e8fff72937ca0010b6d7579023139d9f03af33984fb38b5b6848c153ffacad"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/workshop_commands.rs",
+      "sha256": "bf26136753c109ce1a67c66e0b1b903aa55b282f966e324f28d7199cf543123e"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/commands/workshop_generation_commands.rs",
+      "sha256": "7c745ed16a832a57ac3f3ccc69b8ce31d1509ae3734efc885b8ee0a1e6f634f1"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/main.rs",
+      "sha256": "c72afdfb8116471343e6c2d319f6d650e2b648a8bf0afce5099cbd1275c5b9a5"
+    }
+  ],
+  "commands": [
+    {
+      "name": "adopt_chat_preview",
+      "rustPath": "commands::project_chat_commands::adopt_chat_preview",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "adopt_workshop",
+      "rustPath": "commands::workshop_commands::adopt_workshop",
+      "required": [
+        "access",
+        "operationId",
+        "previewId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "app_close_status",
+      "rustPath": "commands::app_close_commands::app_close_status",
+      "required": [
+        "closeId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "apply_proposal",
+      "rustPath": "commands::discussion_commands::apply_proposal",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "begin_app_close",
+      "rustPath": "commands::app_close_commands::begin_app_close",
+      "required": [
+        "closeId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "cancel_app_close",
+      "rustPath": "commands::app_close_commands::cancel_app_close",
+      "required": [
+        "closeId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "cancel_endpoint_discovery",
+      "rustPath": "commands::endpoint_discovery::cancel_endpoint_discovery",
+      "required": [
+        "discoveryId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "capture_story_scope",
+      "rustPath": "commands::context_commands::capture_story_scope",
+      "required": [
+        "access",
+        "kind",
+        "snapshotId"
+      ],
+      "optional": [
+        "end",
+        "start"
+      ]
+    },
+    {
+      "name": "chapter_review_status",
+      "rustPath": "commands::review_commands::chapter_review_status",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "check_claude_connection",
+      "rustPath": "commands::provider_commands::check_claude_connection",
+      "required": [],
+      "optional": []
+    },
+    {
+      "name": "check_codex_connection",
+      "rustPath": "commands::provider_commands::check_codex_connection",
+      "required": [],
+      "optional": []
+    },
+    {
+      "name": "checkpoint_assistant_draft",
+      "rustPath": "commands::project_chat_commands::checkpoint_assistant_draft",
+      "required": [
+        "conversationId",
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "checkpoint_document",
+      "rustPath": "commands::project_commands::checkpoint_document",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "codex_transport_settings",
+      "rustPath": "commands::codex_transport_commands::codex_transport_settings",
+      "required": [],
+      "optional": []
+    },
+    {
+      "name": "context_epochs",
+      "rustPath": "commands::context_commands::context_epochs",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "create_document",
+      "rustPath": "commands::project_commands::create_document",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "create_project",
+      "rustPath": "commands::project_commands::create_project",
+      "required": [
+        "path",
+        "session",
+        "title"
+      ],
+      "optional": []
+    },
+    {
+      "name": "discover_endpoint_models",
+      "rustPath": "commands::endpoint_commands::discover_endpoint_models",
+      "required": [
+        "configRevision",
+        "discoveryId",
+        "profileId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "discussion_retry",
+      "rustPath": "commands::discussion_commands::discussion_retry",
+      "required": [
+        "access",
+        "runId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "document_history",
+      "rustPath": "commands::project_commands::document_history",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "endpoint_settings",
+      "rustPath": "commands::endpoint_commands::endpoint_settings",
+      "required": [],
+      "optional": []
+    },
+    {
+      "name": "export_prepared_draft",
+      "rustPath": "commands::export_commands::export_prepared_draft",
+      "required": [
+        "access",
+        "preview"
+      ],
+      "optional": []
+    },
+    {
+      "name": "export_workshop_preset",
+      "rustPath": "commands::workshop_commands::export_workshop_preset",
+      "required": [
+        "preset"
+      ],
+      "optional": []
+    },
+    {
+      "name": "finish_app_close",
+      "rustPath": "commands::app_close_commands::finish_app_close",
+      "required": [
+        "closeId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "freeze_reviewed_continuation",
+      "rustPath": "commands::context_commands::freeze_reviewed_continuation",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "freeze_story_context",
+      "rustPath": "commands::context_commands::freeze_story_context",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "import_workshop_preset",
+      "rustPath": "commands::workshop_commands::import_workshop_preset",
+      "required": [],
+      "optional": []
+    },
+    {
+      "name": "library_archive",
+      "rustPath": "commands::library_commands::library_archive",
+      "required": [
+        "archived",
+        "projectId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "library_create",
+      "rustPath": "commands::library_commands::library_create",
+      "required": [
+        "operationId",
+        "session",
+        "title"
+      ],
+      "optional": []
+    },
+    {
+      "name": "library_duplicate",
+      "rustPath": "commands::library_commands::library_duplicate",
+      "required": [
+        "operationId",
+        "session",
+        "title"
+      ],
+      "optional": [
+        "access"
+      ]
+    },
+    {
+      "name": "library_open",
+      "rustPath": "commands::library_commands::library_open",
+      "required": [
+        "session"
+      ],
+      "optional": [
+        "path"
+      ]
+    },
+    {
+      "name": "library_recover",
+      "rustPath": "commands::library_commands::library_recover",
+      "required": [
+        "operationId",
+        "session",
+        "title"
+      ],
+      "optional": []
+    },
+    {
+      "name": "library_resume_import",
+      "rustPath": "commands::library_commands::library_resume_import",
+      "required": [
+        "operationId",
+        "session"
+      ],
+      "optional": []
+    },
+    {
+      "name": "library_snapshot",
+      "rustPath": "commands::library_commands::library_snapshot",
+      "required": [],
+      "optional": []
+    },
+    {
+      "name": "list_document_history",
+      "rustPath": "commands::project_commands::list_document_history",
+      "required": [
+        "access",
+        "documentId",
+        "limit"
+      ],
+      "optional": [
+        "beforeVersion"
+      ]
+    },
+    {
+      "name": "list_documents",
+      "rustPath": "commands::project_commands::list_documents",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "list_project_chat_history",
+      "rustPath": "commands::project_chat_commands::list_project_chat_history",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "mark_ready",
+      "rustPath": "commands::review_commands::mark_ready",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "open_project",
+      "rustPath": "commands::project_commands::open_project",
+      "required": [
+        "path",
+        "session"
+      ],
+      "optional": []
+    },
+    {
+      "name": "prepare_chat_adoption",
+      "rustPath": "commands::project_chat_commands::prepare_chat_adoption",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "prepare_continuation",
+      "rustPath": "commands::discussion_commands::prepare_continuation",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "prepare_draft_export",
+      "rustPath": "commands::export_commands::prepare_draft_export",
+      "required": [
+        "access",
+        "expected",
+        "format"
+      ],
+      "optional": []
+    },
+    {
+      "name": "prepare_proposal",
+      "rustPath": "commands::discussion_commands::prepare_proposal",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "prepare_reviewed_draft_export",
+      "rustPath": "commands::export_commands::prepare_reviewed_draft_export",
+      "required": [
+        "access",
+        "expected",
+        "format"
+      ],
+      "optional": []
+    },
+    {
+      "name": "prepare_story_context",
+      "rustPath": "commands::context_commands::prepare_story_context",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "prepare_structured",
+      "rustPath": "commands::discussion_commands::prepare_structured",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "prepared_story_context",
+      "rustPath": "commands::context_commands::prepared_story_context",
+      "required": [
+        "access",
+        "packetId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "prepared_story_context_is_current",
+      "rustPath": "commands::context_commands::prepared_story_context_is_current",
+      "required": [
+        "access",
+        "packetId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "preview_workshop_adoption",
+      "rustPath": "commands::workshop_commands::preview_workshop_adoption",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "project_activity",
+      "rustPath": "commands::project_chat_commands::project_activity",
+      "required": [],
+      "optional": []
+    },
+    {
+      "name": "project_backup",
+      "rustPath": "commands::library_commands::project_backup",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "project_metadata",
+      "rustPath": "commands::project_commands::project_metadata",
+      "required": [
+        "projectId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "proposals",
+      "rustPath": "commands::discussion_commands::proposals",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "provider_state",
+      "rustPath": "commands::provider_commands::provider_state",
+      "required": [],
+      "optional": []
+    },
+    {
+      "name": "read_assistant_draft",
+      "rustPath": "commands::project_chat_commands::read_assistant_draft",
+      "required": [
+        "access",
+        "conversationId",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_chat_adoption_preview",
+      "rustPath": "commands::project_chat_commands::read_chat_adoption_preview",
+      "required": [
+        "access",
+        "conversationId",
+        "previewId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_discussion",
+      "rustPath": "commands::discussion_commands::read_discussion",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_document",
+      "rustPath": "commands::project_commands::read_document",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_document_aliases",
+      "rustPath": "commands::context_commands::read_document_aliases",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_document_revision",
+      "rustPath": "commands::project_commands::read_document_revision",
+      "required": [
+        "access",
+        "documentId",
+        "revisionId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_guidance",
+      "rustPath": "commands::guidance_commands::read_guidance",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_memory",
+      "rustPath": "commands::memory_commands::read_memory",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_memory_source",
+      "rustPath": "commands::memory_commands::read_memory_source",
+      "required": [
+        "access",
+        "viewId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_project_chapter_feedback",
+      "rustPath": "commands::project_chat_commands::read_project_chapter_feedback",
+      "required": [
+        "access",
+        "runId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_project_chat_history",
+      "rustPath": "commands::project_chat_commands::read_project_chat_history",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_project_conversation",
+      "rustPath": "commands::project_chat_commands::read_project_conversation",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_review_stage",
+      "rustPath": "commands::review_commands::read_review_stage",
+      "required": [
+        "access",
+        "stageId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_reviewed_record_set",
+      "rustPath": "commands::review_commands::read_reviewed_record_set",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_source_pins",
+      "rustPath": "commands::source_pin_commands::read_source_pins",
+      "required": [
+        "access",
+        "documentId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_story_context_source",
+      "rustPath": "commands::context_commands::read_story_context_source",
+      "required": [
+        "access",
+        "handle",
+        "snapshotId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_view_state",
+      "rustPath": "commands::project_commands::read_view_state",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "read_workshop",
+      "rustPath": "commands::workshop_commands::read_workshop",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "rebuild_story_index",
+      "rustPath": "commands::context_commands::rebuild_story_index",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reconcile_assistant_draft",
+      "rustPath": "commands::project_chat_commands::reconcile_assistant_draft",
+      "required": [
+        "conversationId",
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reconcile_document",
+      "rustPath": "commands::project_commands::reconcile_document",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reconcile_project",
+      "rustPath": "commands::project_commands::reconcile_project",
+      "required": [
+        "projectId",
+        "session"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reject_proposal",
+      "rustPath": "commands::discussion_commands::reject_proposal",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "rename_document",
+      "rustPath": "commands::project_commands::rename_document",
+      "required": [
+        "access",
+        "documentId",
+        "expectedMetadataVersion",
+        "title"
+      ],
+      "optional": []
+    },
+    {
+      "name": "rename_project",
+      "rustPath": "commands::project_commands::rename_project",
+      "required": [
+        "access",
+        "expectedMetadataVersion",
+        "title"
+      ],
+      "optional": []
+    },
+    {
+      "name": "restore_revision",
+      "rustPath": "commands::project_commands::restore_revision",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "retry_discussion_save",
+      "rustPath": "commands::discussion_commands::retry_discussion_save",
+      "required": [
+        "access",
+        "documentId",
+        "runId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "retry_memory_save",
+      "rustPath": "commands::memory_commands::retry_memory_save",
+      "required": [
+        "access",
+        "jobId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "retry_project_chat_save",
+      "rustPath": "commands::project_chat_commands::retry_project_chat_save",
+      "required": [
+        "access",
+        "conversationId",
+        "runId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reviewed_entity_catalog",
+      "rustPath": "commands::review_commands::reviewed_entity_catalog",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reviewed_evidence_history",
+      "rustPath": "commands::review_commands::reviewed_evidence_history",
+      "required": [
+        "access",
+        "objectId",
+        "snapshotId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reviewed_knowledge_character_catalog",
+      "rustPath": "commands::review_commands::reviewed_knowledge_character_catalog",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reviewed_knowledge_history",
+      "rustPath": "commands::review_commands::reviewed_knowledge_history",
+      "required": [
+        "access",
+        "characterId",
+        "snapshotId"
+      ],
+      "optional": [
+        "topicId"
+      ]
+    },
+    {
+      "name": "reviewed_knowledge_topic_catalog",
+      "rustPath": "commands::review_commands::reviewed_knowledge_topic_catalog",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reviewed_promise_catalog",
+      "rustPath": "commands::review_commands::reviewed_promise_catalog",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    },
+    {
+      "name": "reviewed_promise_history",
+      "rustPath": "commands::review_commands::reviewed_promise_history",
+      "required": [
+        "access",
+        "promiseId",
+        "snapshotId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "revoke_story_context",
+      "rustPath": "commands::context_commands::revoke_story_context",
+      "required": [
+        "access",
+        "expectedPolicy"
+      ],
+      "optional": []
+    },
+    {
+      "name": "runtime_info",
+      "rustPath": "runtime_info",
+      "required": [],
+      "optional": []
+    },
+    {
+      "name": "save_assistant_draft",
+      "rustPath": "commands::project_chat_commands::save_assistant_draft",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_codex_transport",
+      "rustPath": "commands::codex_transport_commands::save_codex_transport",
+      "required": [
+        "expectedRevision",
+        "transport"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_discussion_draft",
+      "rustPath": "commands::discussion_commands::save_discussion_draft",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_endpoint_settings",
+      "rustPath": "commands::endpoint_commands::save_endpoint_settings",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_guidance",
+      "rustPath": "commands::guidance_commands::save_guidance",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_model_settings",
+      "rustPath": "commands::provider_commands::save_model_settings",
+      "required": [
+        "active",
+        "expectedRevision",
+        "favorites"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_project_composer",
+      "rustPath": "commands::project_chat_commands::save_project_composer",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_recovery_copy",
+      "rustPath": "commands::recovery_commands::save_recovery_copy",
+      "required": [
+        "body"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_snapshot",
+      "rustPath": "commands::project_commands::save_snapshot",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_source_pins",
+      "rustPath": "commands::source_pin_commands::save_source_pins",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_story_memory_provider",
+      "rustPath": "commands::provider_commands::save_story_memory_provider",
+      "required": [
+        "expectedRevision",
+        "providerId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_view_state",
+      "rustPath": "commands::project_commands::save_view_state",
+      "required": [
+        "access",
+        "anchor",
+        "focus",
+        "head"
+      ],
+      "optional": []
+    },
+    {
+      "name": "save_workshop",
+      "rustPath": "commands::workshop_commands::save_workshop",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "search_story_context",
+      "rustPath": "commands::context_commands::search_story_context",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "set_chat_disposition",
+      "rustPath": "commands::project_chat_commands::set_chat_disposition",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "set_document_aliases",
+      "rustPath": "commands::context_commands::set_document_aliases",
+      "required": [
+        "access",
+        "aliases",
+        "documentId",
+        "expectedSourceEpoch"
+      ],
+      "optional": []
+    },
+    {
+      "name": "stage_author_review",
+      "rustPath": "commands::review_commands::stage_author_review",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "start_discussion",
+      "rustPath": "commands::discussion_commands::start_discussion",
+      "required": [
+        "request"
+      ],
+      "optional": [
+        "modelSelection"
+      ]
+    },
+    {
+      "name": "start_memory",
+      "rustPath": "commands::memory_commands::start_memory",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "start_project_chapter",
+      "rustPath": "commands::project_chat_commands::start_project_chapter",
+      "required": [
+        "request"
+      ],
+      "optional": [
+        "modelSelection"
+      ]
+    },
+    {
+      "name": "start_project_chat",
+      "rustPath": "commands::project_chat_commands::start_project_chat",
+      "required": [
+        "request"
+      ],
+      "optional": [
+        "modelSelection"
+      ]
+    },
+    {
+      "name": "start_workshop",
+      "rustPath": "commands::workshop_generation_commands::start_workshop",
+      "required": [
+        "request"
+      ],
+      "optional": []
+    },
+    {
+      "name": "stop_app_jobs",
+      "rustPath": "commands::app_close_commands::stop_app_jobs",
+      "required": [
+        "closeId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "stop_discussion",
+      "rustPath": "commands::discussion_commands::stop_discussion",
+      "required": [
+        "access",
+        "runId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "stop_memory",
+      "rustPath": "commands::memory_commands::stop_memory",
+      "required": [
+        "access",
+        "jobId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "story_context_snapshot",
+      "rustPath": "commands::context_commands::story_context_snapshot",
+      "required": [
+        "access",
+        "snapshotId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "v2_import",
+      "rustPath": "commands::v2_import_commands::v2_import",
+      "required": [
+        "request",
+        "session"
+      ],
+      "optional": []
+    },
+    {
+      "name": "v2_import_list_projects",
+      "rustPath": "commands::v2_import_commands::v2_import_list_projects",
+      "required": [],
+      "optional": [
+        "path"
+      ]
+    },
+    {
+      "name": "v2_import_preview",
+      "rustPath": "commands::v2_import_commands::v2_import_preview",
+      "required": [
+        "path",
+        "sourceProjectId"
+      ],
+      "optional": []
+    },
+    {
+      "name": "validate_snapshot",
+      "rustPath": "validate_snapshot",
+      "required": [
+        "snapshotJson"
+      ],
+      "optional": []
+    },
+    {
+      "name": "workshop_history",
+      "rustPath": "commands::workshop_commands::workshop_history",
+      "required": [
+        "access"
+      ],
+      "optional": []
+    }
+  ]
+}

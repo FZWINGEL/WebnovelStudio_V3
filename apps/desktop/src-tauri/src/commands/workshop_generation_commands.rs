@@ -29,7 +29,8 @@ pub struct WorkshopCommandRequest {
 
 #[tauri::command]
 pub async fn start_workshop(
-    request: WorkshopCommandRequest, state: State<'_, AppState>,
+    request: WorkshopCommandRequest,
+    state: State<'_, AppState>,
 ) -> CoreResult<DiscussionStart> {
     let app = &*state;
     let state = &app.projects;

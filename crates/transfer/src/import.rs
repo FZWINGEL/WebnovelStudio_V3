@@ -5,9 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use wns_kernel::{
-    CoreError, CoreResult, ProjectInfo, sha256_hex, validate_snapshot_json,
-};
+use wns_kernel::{CoreError, CoreResult, ProjectInfo, sha256_hex, validate_snapshot_json};
 use wns_storage::{CreationOrigin, read_creation_origin, write_creation_origin};
 
 use crate::host::TransferFactory;
@@ -90,10 +88,7 @@ struct ValidatedImport {
     preview: crate::v2_import::V2ImportPreview,
 }
 
-pub fn request_fingerprint(
-    request: &V2ImportRequest,
-    source_sha256: &str,
-) -> CoreResult<String> {
+pub fn request_fingerprint(request: &V2ImportRequest, source_sha256: &str) -> CoreResult<String> {
     validate_request_shape(request)?;
     let mut choices = request.choices.clone();
     choices.sort_by(|left, right| left.source_chapter_id.cmp(&right.source_chapter_id));
@@ -373,12 +368,7 @@ pub fn recover_import_staging<F: TransferFactory>(
             "Import staging does not match the retained title.",
         ));
     }
-    drop(F::create_staged(
-        staging,
-        destination,
-        title,
-        origin,
-    )?);
+    drop(F::create_staged(staging, destination, title, origin)?);
     read_import_result(
         destination,
         operation_id,
@@ -492,8 +482,8 @@ fn populate_project<F: TransferFactory>(
 ) -> CoreResult<V2ImportResult> {
     let info = F::staging_info(project).clone();
     let mut chapter_document_ids = BTreeMap::new();
-    let tx = F::staging_db_mut(project)?
-        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let tx =
+        F::staging_db_mut(project)?.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut position = 0i64;
     for chapter in &validated.chapters {
         let id = Uuid::new_v4().to_string();

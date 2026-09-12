@@ -2,7 +2,7 @@
 //!
 //! W1's scope validator lives here so it can be used by the durable core without
 //! importing Tauri, ProseMirror, or a provider runtime. The W0 snapshot validator
-//! it builds on lives one layer down, in `wns-kernel`.
+//! it builds on lives at L0 in `wns-kernel`.
 //!
 //! Extracted from `webnovel-core`, where document semantics and database schema
 //! evolution changed for unrelated reasons in the same crate.
@@ -12,8 +12,8 @@
 //! the edge points strictly downward, so the layering rule is unchanged.
 
 pub mod history;
-pub mod records;
 pub mod material_adoption;
+pub mod records;
 pub mod scope;
 pub mod structured;
 pub mod view_state;
@@ -28,9 +28,7 @@ pub fn blank_document() -> serde_json::Value {
     serde_json::json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":wns_kernel::new_id()}}]}})
 }
 
-pub use view_state::{
-    ViewState, read_view_state, validate_endpoint, validate_stored_view_state,
-};
+pub use view_state::{ViewState, read_view_state, validate_endpoint, validate_stored_view_state};
 
 pub use records::{
     CheckpointReason, CheckpointRequest, OperationReceipt, ReconcileRequest, ReconciledDocument,

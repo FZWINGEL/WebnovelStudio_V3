@@ -2,9 +2,9 @@
 //!
 //! [`StoryHost`] carries the durable-project half every story-concern module
 //! reaches for: the connection, the access check, the uncertain-outcome fence.
-//! Chat adds three session-lifecycle operations on top.
+//! Chat adds session attachment and connection recovery on top.
 //!
-//! Declared here rather than widened into `StoryHost` because all three are
+//! Declared here rather than widened into `StoryHost` because both are
 //! session concerns that no L4 module calls, and a trait is sized by its
 //! lowest consumer like anything else. `webnovel-core` implements it for
 //! `OwnedProject` — an inherent or trait `impl` must live in the crate that

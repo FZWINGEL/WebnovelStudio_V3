@@ -3,8 +3,8 @@ use crate::app_state::AppState;
 use crate::commands::project_commands::execute;
 use tauri::State;
 use webnovel_core::context::packet::CompiledPacket;
-use webnovel_core::projects::SourceEpoch;
 use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
+use webnovel_core::projects::SourceEpoch;
 use webnovel_core::projects::context_packets::{PreparationResult, PrepareContext};
 use webnovel_core::projects::story_context::{
     ContextEpochs, DocumentAliases, FreezeReviewedContinuation, FreezeStory, FrozenContext,
@@ -14,7 +14,8 @@ use webnovel_core::projects::{CoreResult, ProjectAccess};
 
 #[tauri::command]
 pub async fn context_epochs(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<ContextEpochs> {
     let app = &*state;
     let state = &app.projects;
@@ -25,7 +26,8 @@ pub async fn context_epochs(
 #[tauri::command]
 pub async fn read_document_aliases(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<DocumentAliases> {
     let app = &*state;
     let state = &app.projects;
@@ -38,7 +40,8 @@ pub async fn set_document_aliases(
     access: ProjectAccess,
     document_id: String,
     expected_source_epoch: SourceEpoch,
-    aliases: Vec<String>, state: State<'_, AppState>,
+    aliases: Vec<String>,
+    state: State<'_, AppState>,
 ) -> CoreResult<ContextEpochs> {
     let app = &*state;
     let state = &app.projects;
@@ -51,7 +54,8 @@ pub async fn set_document_aliases(
 
 #[tauri::command]
 pub async fn freeze_story_context(
-    request: FreezeStory, state: State<'_, AppState>,
+    request: FreezeStory,
+    state: State<'_, AppState>,
 ) -> CoreResult<FrozenContext> {
     let app = &*state;
     let state = &app.projects;
@@ -61,7 +65,8 @@ pub async fn freeze_story_context(
 
 #[tauri::command]
 pub async fn freeze_reviewed_continuation(
-    request: FreezeReviewedContinuation, state: State<'_, AppState>,
+    request: FreezeReviewedContinuation,
+    state: State<'_, AppState>,
 ) -> CoreResult<FrozenContext> {
     let app = &*state;
     let state = &app.projects;
@@ -72,7 +77,8 @@ pub async fn freeze_reviewed_continuation(
 #[tauri::command]
 pub async fn story_context_snapshot(
     access: ProjectAccess,
-    snapshot_id: String, state: State<'_, AppState>,
+    snapshot_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<FrozenContext> {
     let app = &*state;
     let state = &app.projects;
@@ -84,7 +90,8 @@ pub async fn story_context_snapshot(
 pub async fn read_story_context_source(
     access: ProjectAccess,
     snapshot_id: String,
-    handle: String, state: State<'_, AppState>,
+    handle: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<SourceRead> {
     let app = &*state;
     let state = &app.projects;
@@ -94,7 +101,8 @@ pub async fn read_story_context_source(
 
 #[tauri::command]
 pub async fn search_story_context(
-    request: SearchStory, state: State<'_, AppState>,
+    request: SearchStory,
+    state: State<'_, AppState>,
 ) -> CoreResult<SearchResult> {
     let app = &*state;
     let state = &app.projects;
@@ -104,7 +112,8 @@ pub async fn search_story_context(
 
 #[tauri::command]
 pub async fn prepare_story_context(
-    request: PrepareContext, state: State<'_, AppState>,
+    request: PrepareContext,
+    state: State<'_, AppState>,
 ) -> CoreResult<PreparationResult> {
     let app = &*state;
     let state = &app.projects;
@@ -115,7 +124,8 @@ pub async fn prepare_story_context(
 #[tauri::command]
 pub async fn prepared_story_context(
     access: ProjectAccess,
-    packet_id: String, state: State<'_, AppState>,
+    packet_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<CompiledPacket> {
     let app = &*state;
     let state = &app.projects;
@@ -126,7 +136,8 @@ pub async fn prepared_story_context(
 #[tauri::command]
 pub async fn prepared_story_context_is_current(
     access: ProjectAccess,
-    packet_id: String, state: State<'_, AppState>,
+    packet_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<bool> {
     let app = &*state;
     let state = &app.projects;
@@ -137,7 +148,8 @@ pub async fn prepared_story_context_is_current(
 #[tauri::command]
 pub async fn revoke_story_context(
     access: ProjectAccess,
-    expected_policy: String, state: State<'_, AppState>,
+    expected_policy: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<ContextEpochs> {
     let app = &*state;
     let state = &app.projects;
@@ -147,7 +159,8 @@ pub async fn revoke_story_context(
 
 #[tauri::command]
 pub async fn rebuild_story_index(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<u32> {
     let app = &*state;
     let state = &app.projects;
@@ -161,7 +174,8 @@ pub async fn capture_story_scope(
     snapshot_id: String,
     kind: ScopeKind,
     start: Option<Endpoint>,
-    end: Option<Endpoint>, state: State<'_, AppState>,
+    end: Option<Endpoint>,
+    state: State<'_, AppState>,
 ) -> CoreResult<ScopeGrant> {
     let app = &*state;
     let state = &app.projects;

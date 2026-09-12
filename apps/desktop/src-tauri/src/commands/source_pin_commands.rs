@@ -8,7 +8,8 @@ use webnovel_core::projects::{CoreResult, ProjectAccess};
 #[tauri::command]
 pub async fn read_source_pins(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<SourcePinsView> {
     let app = &*state;
     let state = &app.projects;
@@ -18,7 +19,8 @@ pub async fn read_source_pins(
 
 #[tauri::command]
 pub async fn save_source_pins(
-    request: SaveSourcePins, state: State<'_, AppState>,
+    request: SaveSourcePins,
+    state: State<'_, AppState>,
 ) -> CoreResult<SourcePinSet> {
     let app = &*state;
     let state = &app.projects;

@@ -11,12 +11,12 @@ use super::cli::windows_process::{
     InteractiveAction, StopSignal, spawn_interactive,
 };
 use super::codex_catalog::{CodexCatalog, CodexCatalogModel, parse_model_page};
-use wns_kernel::{CoreError, CoreResult};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
+use wns_kernel::{CoreError, CoreResult};
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(15);
 const DISCOVERY_STOP_GRACE: Duration = Duration::from_secs(2);

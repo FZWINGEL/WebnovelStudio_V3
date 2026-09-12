@@ -5,15 +5,15 @@
 //! typed, ID-free block sequence. Rust owns the response bounds and target
 //! references; the caller owns persistence and adoption.
 
-use wns_kernel::{CoreError, CoreResult, Head};
-use wns_documents::{
-    Endpoint, ScopeGrant, ScopeKind, TypedReplacementBlock, capture_scope,
-    typed_replacement_snapshot, validate_typed_replacement_blocks,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use uuid::Uuid;
+use wns_documents::{
+    Endpoint, ScopeGrant, ScopeKind, TypedReplacementBlock, capture_scope,
+    typed_replacement_snapshot, validate_typed_replacement_blocks,
+};
+use wns_kernel::{CoreError, CoreResult, Head};
 // Moved to wns-context (L2) as part of the packet-compiler inversion. These are
 // what the compiler puts INTO a packet, so they cannot sit above it. The
 // response parsers and validation stay here — that split is the inversion.
@@ -24,7 +24,6 @@ pub use crate::response_contracts::{
     PROJECT_CHAT_RESPONSE_INSTRUCTION, PROJECT_CHAT_RESPONSE_INSTRUCTION_LEGACY,
     project_chat_response_instruction, project_chat_response_instruction_grouped,
 };
-
 
 pub const CHAPTER_TARGET_HEAD_MARKER: &str =
     "Frozen chapter target head (copy this exact JSON in sourceHead):";
@@ -50,7 +49,6 @@ pub const MAX_CHAPTER_DISCUSSION_RESPONSE_BYTES: usize = 64 * 1024;
 pub const MAX_CHAPTER_DISCUSSION_ANSWER_BYTES: usize = 48 * 1024;
 pub const MAX_CHAPTER_RANGE_ID_BYTES: usize = 256;
 pub const MAX_CHAPTER_RANGE_QUOTE_BYTES: usize = 32 * 1024;
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

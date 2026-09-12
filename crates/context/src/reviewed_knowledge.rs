@@ -11,13 +11,11 @@ use super::{
     StorySnapshot,
 };
 use crate::frozen::SourceRead;
-use crate::story_records::{
-    EvidenceAudience, KnowledgeRecord, MAX_KNOWLEDGE_STATEMENT_BYTES,
-};
-use wns_kernel::{CoreError, CoreResult};
-use wns_kernel::sha256_hex;
+use crate::story_records::{EvidenceAudience, KnowledgeRecord, MAX_KNOWLEDGE_STATEMENT_BYTES};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use wns_kernel::sha256_hex;
+use wns_kernel::{CoreError, CoreResult};
 
 pub const MAX_REVIEWED_KNOWLEDGE_RECORDS: usize = 64;
 pub const MAX_REVIEWED_KNOWLEDGE_BYTES: usize = 64 * 1024;

@@ -19,7 +19,8 @@ pub struct DraftExportResult {
 pub async fn prepare_draft_export(
     access: ProjectAccess,
     expected: Head,
-    format: DraftFormat, state: State<'_, AppState>,
+    format: DraftFormat,
+    state: State<'_, AppState>,
 ) -> CoreResult<DraftExportPreview> {
     let app = &*state;
     let projects = &app.projects;
@@ -31,7 +32,8 @@ pub async fn prepare_draft_export(
 pub async fn prepare_reviewed_draft_export(
     access: ProjectAccess,
     expected: Head,
-    format: DraftFormat, state: State<'_, AppState>,
+    format: DraftFormat,
+    state: State<'_, AppState>,
 ) -> CoreResult<DraftExportPreview> {
     let app = &*state;
     let projects = &app.projects;
@@ -43,7 +45,8 @@ pub async fn prepare_reviewed_draft_export(
 #[tauri::command]
 pub async fn export_prepared_draft(
     access: ProjectAccess,
-    preview: DraftExportPreview, state: State<'_, AppState>,
+    preview: DraftExportPreview,
+    state: State<'_, AppState>,
 ) -> CoreResult<Option<DraftExportResult>> {
     let app = &*state;
     let projects = &app.projects;

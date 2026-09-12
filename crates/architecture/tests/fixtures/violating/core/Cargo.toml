@@ -1,0 +1,4 @@
+[package]
+name = "webnovel-core"
+version = "0.0.0"
+edition = "2024"

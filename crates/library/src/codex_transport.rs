@@ -8,7 +8,6 @@ use wns_transfer::host::TransferFactory;
 
 use crate::library::Library;
 
-
 const KEY: &str = "codex-transport-v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]

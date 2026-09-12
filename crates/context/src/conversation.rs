@@ -1,9 +1,9 @@
 //! Exact prior discussion turns. These are contextual evidence, not guidance
 //! or accepted story facts. The first selector deliberately uses recency only.
 use super::{Audience, ContextPurpose};
-use wns_documents::ScopeGrant;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use wns_documents::ScopeGrant;
 
 pub const MAX_CONTEXT_TURNS: usize = 4;
 pub const MAX_CONTEXT_BYTES: usize = 16 * 1024;

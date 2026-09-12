@@ -1,16 +1,5 @@
 //! Explicit review and atomic author decisions over immutable source passages.
 //! JavaScript prepares the full document; this module validates and stores it.
-use wns_kernel::{
-    CoreError, CoreResult, DocumentRecord, Head, ProjectAccess, Reply, StoredResult, check_id,
-    SourceEpoch, logical_hash, new_id, parse_stored_version, parse_version, require_head,
-    valid_hash, validate_snapshot_json,
-};
-use wns_storage::{
-    checkpoint_at, existing_receipt, insert_receipt, read_document, read_revision,
-};
-use wns_story::host::StoryHost;
-use wns_story::context_packets;
-use wns_story::story_context;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,7 +12,16 @@ use wns_documents::{
     TypedReplacementBlock, typed_replacement_snapshot, validate_append,
     validate_structured_replacement, validate_text_replacement, validate_typed_replacement_blocks,
 };
+use wns_kernel::{
+    CoreError, CoreResult, DocumentRecord, Head, ProjectAccess, Reply, SourceEpoch, StoredResult,
+    check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head, valid_hash,
+    validate_snapshot_json,
+};
+use wns_storage::{checkpoint_at, existing_receipt, insert_receipt, read_document, read_revision};
+use wns_story::context_packets;
+use wns_story::host::StoryHost;
 use wns_story::run_vocabulary::DiscussionRun;
+use wns_story::story_context;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -262,7 +260,10 @@ pub fn handle_proposal(host: &mut impl StoryHost, command: ProposalCommand) {
     }
 }
 
-pub fn prepare_proposal(host: &mut impl StoryHost, request: PrepareProposal) -> CoreResult<PreparedProposal> {
+pub fn prepare_proposal(
+    host: &mut impl StoryHost,
+    request: PrepareProposal,
+) -> CoreResult<PreparedProposal> {
     host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     let expected = parse_version(&request.expected_prepared_version)?;
@@ -304,9 +305,9 @@ pub fn prepare_proposal(host: &mut impl StoryHost, request: PrepareProposal) -> 
     // Historical preparation is useful for review. Only Apply requires
     // current prose and context; no implicit rebase takes place here.
     let validated = validate_replacement(&proposal, &request.replacement_text, &request.body)?;
-    let version = current.checked_add(1).ok_or_else(|| {
-        CoreError::new("VersionLimit", "The prepared version limit was reached.")
-    })?;
+    let version = current
+        .checked_add(1)
+        .ok_or_else(|| CoreError::new("VersionLimit", "The prepared version limit was reached."))?;
     let id = new_id();
     tx.execute("INSERT INTO proposal_versions(id,proposal_id,version,replacement_text,body_json,body_hash,payload_json) VALUES(?,?,?,?,?,?,NULL)", params![id, proposal.id, version, request.replacement_text, validated.canonical_json, validated.hash])?;
     insert_review_receipt(
@@ -366,9 +367,9 @@ pub fn prepare_continuation(
     }
     validate_continuation_paragraphs(&request.paragraphs)?;
     let validated = validate_continuation(&proposal, &request.paragraphs, &request.body)?;
-    let version = current.checked_add(1).ok_or_else(|| {
-        CoreError::new("VersionLimit", "The prepared version limit was reached.")
-    })?;
+    let version = current
+        .checked_add(1)
+        .ok_or_else(|| CoreError::new("VersionLimit", "The prepared version limit was reached."))?;
     let id = new_id();
     let payload_json = serde_json::to_string(&request.paragraphs)?;
     tx.execute(
@@ -396,7 +397,10 @@ pub fn prepare_continuation(
     Ok(prepared)
 }
 
-pub fn prepare_structured(host: &mut impl StoryHost, request: PrepareStructured) -> CoreResult<PreparedProposal> {
+pub fn prepare_structured(
+    host: &mut impl StoryHost,
+    request: PrepareStructured,
+) -> CoreResult<PreparedProposal> {
     host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     let expected = parse_version(&request.expected_prepared_version)?;
@@ -441,9 +445,9 @@ pub fn prepare_structured(host: &mut impl StoryHost, request: PrepareStructured)
         ));
     }
     let validated = validate_structured(&proposal, &request.blocks, &request.body)?;
-    let version = current.checked_add(1).ok_or_else(|| {
-        CoreError::new("VersionLimit", "The prepared version limit was reached.")
-    })?;
+    let version = current
+        .checked_add(1)
+        .ok_or_else(|| CoreError::new("VersionLimit", "The prepared version limit was reached."))?;
     let id = new_id();
     let payload_json = serde_json::to_string(&request.blocks)?;
     tx.execute(
@@ -578,7 +582,10 @@ pub fn apply_proposal(host: &mut impl StoryHost, request: ApplyProposal) -> Core
     })
 }
 
-pub fn reject_proposal(host: &mut impl StoryHost, request: RejectProposal) -> CoreResult<ProposalDecision> {
+pub fn reject_proposal(
+    host: &mut impl StoryHost,
+    request: RejectProposal,
+) -> CoreResult<ProposalDecision> {
     host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     let payload = logical_hash(&request)?;
@@ -665,11 +672,7 @@ fn validate_structured_candidate(candidate: &StructuredProposalCandidate) -> Cor
 
 /// Called within the terminal-result transaction. Malformed or unsupported
 /// output remains retained discussion text, with no executable candidates.
-pub fn retain_candidates_at(
-    db: &Connection,
-    run: &DiscussionRun,
-    text: &str,
-) -> CoreResult<()> {
+pub fn retain_candidates_at(db: &Connection, run: &DiscussionRun, text: &str) -> CoreResult<()> {
     let packet = context_packets::validated_packet_record(db, &run.packet_id)?;
     let (frozen, namespace) =
         story_context::validated_snapshot_record(db, &packet.receipt.snapshot_id)?;

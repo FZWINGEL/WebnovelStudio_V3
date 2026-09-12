@@ -1286,7 +1286,6 @@ fn structured_hash(tokens: &[StructuralToken]) -> Result<String, String> {
     Ok(sha256_hex(&value))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

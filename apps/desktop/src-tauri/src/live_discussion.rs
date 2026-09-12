@@ -397,7 +397,10 @@ mod tests {
     #[test]
     fn local_retry_reconciles_a_saved_chunk_and_commits_one_provider_receipt() {
         let (project, access, dispatch) = started("retry");
-        let before = project.documents().read(access.clone(), "chapter".into()).unwrap();
+        let before = project
+            .documents()
+            .read(access.clone(), "chapter".into())
+            .unwrap();
         // The append committed but its caller retained the older sequence.
         project
             .append_discussion_output(DiscussionOutputAppend {
@@ -444,7 +447,11 @@ mod tests {
         assert_eq!(view.runs.len(), 1);
         assert_eq!(view.messages.len(), 2);
         assert_eq!(
-            project.documents().read(access, "chapter".into()).unwrap().body,
+            project
+                .documents()
+                .read(access, "chapter".into())
+                .unwrap()
+                .body,
             before.body
         );
     }

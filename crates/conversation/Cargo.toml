@@ -2,7 +2,7 @@
 name = "wns-conversation"
 version.workspace = true
 edition = "2024"
-description = "L5: discussions, project chat, proposals, guidance and the adoption transaction."
+description = "L5: discussions, project chat, proposals, guidance and author adoption workflows."
 
 [dependencies]
 specta = "1.0.5"

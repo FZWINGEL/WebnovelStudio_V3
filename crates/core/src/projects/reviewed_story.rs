@@ -57,9 +57,6 @@ impl ProjectSession {
     }
 }
 
-/// What the moved module needs from the actor: four methods. No crash hook here
-/// — that is what `history` needed and this does not.
-
 impl OwnedProject {
     pub(super) fn handle_review(&mut self, command: ReviewCommand) {
         wns_story::reviewed_story::handle_review(self, command);

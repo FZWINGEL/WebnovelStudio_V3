@@ -3,9 +3,11 @@
 //! Reading memory is safe on project open.  Starting a refresh is always an
 //! author action and captures the selected model into the immutable core job.
 use crate::app_state::AppState;
-use crate::memory_recovery::MemoryRecovery;
 use crate::commands::project_commands::execute;
-use crate::provider_bindings::{binding_matches_choice, is_legacy_maintenance_choice, is_supported_choice};
+use crate::memory_recovery::MemoryRecovery;
+use crate::provider_bindings::{
+    binding_matches_choice, is_legacy_maintenance_choice, is_supported_choice,
+};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use webnovel_core::context::memory::mock_navigation_digest;
@@ -54,7 +56,8 @@ fn model_settings_error() -> CoreError {
 #[tauri::command]
 pub async fn read_memory_source(
     access: ProjectAccess,
-    view_id: String, state: State<'_, AppState>,
+    view_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<webnovel_core::projects::story_context::SourceRead> {
     let app = &*state;
     let state = &app.projects;
@@ -65,7 +68,8 @@ pub async fn read_memory_source(
 #[tauri::command]
 pub async fn read_memory(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<DesktopMemoryRead> {
     let app = &*state;
     let state = &app.projects;
@@ -90,7 +94,8 @@ pub async fn read_memory(
 #[tauri::command]
 pub async fn retry_memory_save(
     access: ProjectAccess,
-    job_id: String, state: State<'_, AppState>,
+    job_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<MemoryJob> {
     let app = &*state;
     let state = &app.projects;
@@ -116,7 +121,8 @@ pub async fn retry_memory_save(
 #[tauri::command]
 pub async fn stop_memory(
     access: ProjectAccess,
-    job_id: String, state: State<'_, AppState>,
+    job_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<MemoryJob> {
     let app = &*state;
     let state = &app.projects;
@@ -147,7 +153,8 @@ pub async fn stop_memory(
 
 #[tauri::command]
 pub async fn start_memory(
-    request: StartMemoryRequest, state: State<'_, AppState>,
+    request: StartMemoryRequest,
+    state: State<'_, AppState>,
 ) -> CoreResult<MemoryJob> {
     let app = &*state;
     let state = &app.projects;
@@ -162,14 +169,8 @@ pub async fn start_memory(
         .provider_id
         .starts_with("openai-compatible:")
     {
-        return crate::http_memory::start(
-            request,
-            project,
-            recovery,
-            library,
-            runtime.clone(),
-        )
-        .await;
+        return crate::http_memory::start(request, project, recovery, library, runtime.clone())
+            .await;
     }
     let runtime = runtime.clone();
     execute(move || {

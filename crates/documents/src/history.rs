@@ -130,9 +130,8 @@ pub fn handle_history(host: &mut impl HistoryHost, command: HistoryCommand) {
         ),
         HistoryCommand::Read(access, document_id, revision_id, reply) => respond!(
             reply,
-            host.check_access(&access).and_then(|()| {
-                read_document_revision(host.db()?, &document_id, &revision_id)
-            })
+            host.check_access(&access)
+                .and_then(|()| { read_document_revision(host.db()?, &document_id, &revision_id) })
         ),
         HistoryCommand::Restore(request, reply) => {
             respond!(reply, restore_revision(host, request));

@@ -10,6 +10,11 @@ use wns_transfer::import::{
 };
 use wns_transfer::v2_import::preview_v2_import;
 
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+use std::fs::{File, OpenOptions};
+use std::path::{Path, PathBuf};
+use uuid::Uuid;
 use wns_providers::{
     catalog::{ProviderState, catalog_with_endpoints_and_codex},
     codex_catalog::{CODEX_CATALOG_KEY, CODEX_CATALOG_SCHEMA_VERSION, CodexCatalog},
@@ -27,12 +32,6 @@ use wns_providers::{
         validate_story_memory_provider_id,
     },
 };
-use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
-use std::fs::{File, OpenOptions};
-use std::path::{Path, PathBuf};
-use uuid::Uuid;
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -950,10 +949,7 @@ impl<F: TransferFactory> Library<F> {
         // lost library acknowledgment.  These paths intentionally do not
         // reread the source database and do not open a project writer.
         if pending.final_path.exists()
-            && read_creation_origin(&pending.final_path)
-                .ok()
-                .as_ref()
-                == Some(&pending.origin)
+            && read_creation_origin(&pending.final_path).ok().as_ref() == Some(&pending.origin)
         {
             let result = read_import_result(
                 &pending.final_path,
@@ -965,10 +961,7 @@ impl<F: TransferFactory> Library<F> {
             return Ok(result);
         }
         if pending.staging_path.exists()
-            && read_creation_origin(&pending.staging_path)
-                .ok()
-                .as_ref()
-                == Some(&pending.origin)
+            && read_creation_origin(&pending.staging_path).ok().as_ref() == Some(&pending.origin)
         {
             let result = recover_import_staging::<F>(
                 &pending.staging_path,

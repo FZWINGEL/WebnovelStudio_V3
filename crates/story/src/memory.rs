@@ -5,10 +5,9 @@
 //! dispatch and terminal completion are separate transactions; installation
 //! is a short, independently stale-checked transaction.  Generated text is
 //! retained as an unreviewed aid and never becomes canon or manuscript text.
-use wns_storage::read_document;
-use wns_kernel::{CoreError, CoreResult, Head, ProjectAccess, ProjectInfo, Reply, check_id, new_id, parse_stored_version, parse_version, sha256_hex, SourceEpoch};
-use crate::host::StoryHost;
 use crate::context_packets;
+use crate::context_packets::{PrepareContext, validated_packet_record};
+use crate::host::StoryHost;
 use crate::story_context;
 use wns_context::memory::{DigestCandidate, MAX_RAW_BYTES, validate_navigation_digest};
 use wns_context::navigation::navigation_content_hash;
@@ -17,7 +16,11 @@ use wns_context::packet::{
     ProviderBinding, compile_packet, serialized_input,
 };
 use wns_context::{Audience, BasisKind, ContextPurpose, InformationPolicy, SourceRef};
-use crate::context_packets::{PrepareContext, validated_packet_record};
+use wns_kernel::{
+    CoreError, CoreResult, Head, ProjectAccess, ProjectInfo, Reply, SourceEpoch, check_id, new_id,
+    parse_stored_version, parse_version, sha256_hex,
+};
+use wns_storage::read_document;
 // Named at the crate that owns them, not through `discussions`' re-export:
 // this import is the whole of the edge that made `memory` (L4) depend on
 // `discussions` (L5), and it stops being an edge only when it points below.
@@ -29,10 +32,10 @@ use wns_providers::vocabulary::{
 use crate::story_context::{
     FreezeStory, FrozenContext, SourceRead, read_source, validated_snapshot_record,
 };
-use wns_providers::codex_app_server::{AppServerDelivery, AppServerDispatch};
-use wns_providers::http_request::prepare_request as prepare_http_request;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
+use wns_providers::codex_app_server::{AppServerDelivery, AppServerDispatch};
+use wns_providers::http_request::prepare_request as prepare_http_request;
 
 pub mod app_server;
 
@@ -331,7 +334,6 @@ impl StartMemory {
     }
 }
 
-
 // Actor-side logic, as free functions over `StoryHost`.
 
 pub fn handle_memory(host: &mut impl StoryHost, command: MemoryCommand) {
@@ -369,7 +371,7 @@ pub fn handle_memory(host: &mut impl StoryHost, command: MemoryCommand) {
             let _ = reply.send(list_memory(host, access));
         }
         MemoryCommand::ReadJob(owner, reply) => {
-            let result = validate_runtime_owner(&host.info(), &owner)
+            let result = validate_runtime_owner(host.info(), &owner)
                 .and_then(|()| {
                     let policy = current_policy_version(host.db()?)?;
                     read_memory_job_with_policy(host.db()?, &owner.job_id, &policy)
@@ -500,7 +502,7 @@ pub fn start_memory(host: &mut impl StoryHost, request: StartMemory) -> CoreResu
 }
 
 pub fn begin_memory(host: &mut impl StoryHost, owner: MemoryOwner) -> CoreResult<MemoryDispatch> {
-    validate_runtime_owner(&host.info(), &owner)?;
+    validate_runtime_owner(host.info(), &owner)?;
     let tx = host
         .db_mut()?
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -508,8 +510,7 @@ pub fn begin_memory(host: &mut impl StoryHost, owner: MemoryOwner) -> CoreResult
     validate_job_owner(&current, &owner)?;
     let status = MemoryJobStatus::parse(&current.status)?;
     if matches!(status, MemoryJobStatus::Queued) {
-        if MemoryDispatchState::parse(&current.dispatch_state)? != MemoryDispatchState::Pending
-        {
+        if MemoryDispatchState::parse(&current.dispatch_state)? != MemoryDispatchState::Pending {
             return Err(CoreError::new(
                 "MemoryDispatchConflict",
                 "The queued memory job has already been claimed.",
@@ -517,8 +518,7 @@ pub fn begin_memory(host: &mut impl StoryHost, owner: MemoryOwner) -> CoreResult
         }
         let (frozen, namespace) =
             story_context::validated_snapshot_record(&tx, &current.snapshot_id)?;
-        if namespace != owner.operation_namespace
-            || frozen.snapshot.project_id != owner.project_id
+        if namespace != owner.operation_namespace || frozen.snapshot.project_id != owner.project_id
         {
             return Err(CoreError::new(
                 "MemoryProjectMismatch",
@@ -545,8 +545,7 @@ pub fn begin_memory(host: &mut impl StoryHost, owner: MemoryOwner) -> CoreResult
     if matches!(status, MemoryJobStatus::Running) {
         let (frozen, namespace) =
             story_context::validated_snapshot_record(&tx, &current.snapshot_id)?;
-        if namespace != owner.operation_namespace
-            || frozen.snapshot.project_id != owner.project_id
+        if namespace != owner.operation_namespace || frozen.snapshot.project_id != owner.project_id
         {
             return Err(CoreError::new(
                 "MemoryProjectMismatch",
@@ -574,8 +573,11 @@ pub fn begin_memory(host: &mut impl StoryHost, owner: MemoryOwner) -> CoreResult
 /// Resolve an uncertain durable dispatch claim without submitting a
 /// provider request.  This is intentionally owner based so recovery can
 /// run without a renderer lease.
-pub fn interrupt_memory_claim(host: &mut impl StoryHost, owner: MemoryOwner) -> CoreResult<MemoryJob> {
-    validate_runtime_owner(&host.info(), &owner)?;
+pub fn interrupt_memory_claim(
+    host: &mut impl StoryHost,
+    owner: MemoryOwner,
+) -> CoreResult<MemoryJob> {
+    validate_runtime_owner(host.info(), &owner)?;
     let tx = host
         .db_mut()?
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -588,8 +590,7 @@ pub fn interrupt_memory_claim(host: &mut impl StoryHost, owner: MemoryOwner) -> 
         MemoryJobStatus::Queued | MemoryJobStatus::Running | MemoryJobStatus::Stopping
     ) {
         // Terminal and already-interrupted claims are idempotent reads.
-        let job =
-            read_memory_job_with_policy(&tx, &owner.job_id, &current_policy_version(&tx)?)?;
+        let job = read_memory_job_with_policy(&tx, &owner.job_id, &current_policy_version(&tx)?)?;
         tx.commit().map_err(CoreError::uncertain)?;
         return Ok(job);
     }
@@ -649,7 +650,7 @@ pub fn complete_memory(
     host: &mut impl StoryHost,
     request: CompleteMemory,
 ) -> CoreResult<MemoryCompletion> {
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     validate_complete_memory(&request)?;
     let tx = host
         .db_mut()?
@@ -693,8 +694,7 @@ pub fn complete_memory(
     }
     let packet = context_packets::validated_packet_record(&tx, &current.packet_id)?;
     validate_delivery(&tx, &request, &packet)?;
-    let (frozen, namespace) =
-        story_context::validated_snapshot_record(&tx, &current.snapshot_id)?;
+    let (frozen, namespace) = story_context::validated_snapshot_record(&tx, &current.snapshot_id)?;
     if namespace != request.owner.operation_namespace
         || frozen.snapshot.project_id != request.owner.project_id
     {
@@ -780,7 +780,7 @@ pub fn complete_memory(
 }
 
 pub fn install_memory(host: &mut impl StoryHost, owner: MemoryOwner) -> CoreResult<MemoryView> {
-    validate_runtime_owner(&host.info(), &owner)?;
+    validate_runtime_owner(host.info(), &owner)?;
     let tx = host
         .db_mut()?
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -818,10 +818,8 @@ pub fn install_memory(host: &mut impl StoryHost, owner: MemoryOwner) -> CoreResu
     // integrity check without adding mutable state to the view row.
     let candidate: DigestCandidate = serde_json::from_str(&candidate_json)?;
     navigation_content_hash(&candidate)?;
-    let (frozen, namespace) =
-        story_context::validated_snapshot_record(&tx, &current.snapshot_id)?;
-    if namespace != owner.operation_namespace || frozen.snapshot.project_id != owner.project_id
-    {
+    let (frozen, namespace) = story_context::validated_snapshot_record(&tx, &current.snapshot_id)?;
+    if namespace != owner.operation_namespace || frozen.snapshot.project_id != owner.project_id {
         return Err(CoreError::new(
             "MemoryProjectMismatch",
             "The memory snapshot belongs to another project namespace.",
@@ -888,9 +886,9 @@ pub fn read_memory(
     // old memory rows as read-only history.  Read/list are therefore
     // document scoped; every mutating path still validates the live
     // project/namespace owner before it can act on a job.
-    let mut jobs = host.db()?.prepare(
-        "SELECT id FROM memory_jobs WHERE target_document_id=? ORDER BY created_at,id",
-    )?;
+    let mut jobs = host
+        .db()?
+        .prepare("SELECT id FROM memory_jobs WHERE target_document_id=? ORDER BY created_at,id")?;
     let ids = jobs
         .query_map([document_id], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
@@ -904,7 +902,10 @@ pub fn read_memory(
         .filter(|job| {
             job.status == MemoryJobStatus::Completed
                 && job.view.is_none()
-                && job.result.as_ref().is_some_and(|result| result.candidate.is_some())
+                && job
+                    .result
+                    .as_ref()
+                    .is_some_and(|result| result.candidate.is_some())
         })
         .map(|job| job.id.clone())
         .collect();
@@ -917,7 +918,11 @@ pub fn read_memory(
     })
 }
 
-pub fn read_memory_source(host: &impl StoryHost, access: ProjectAccess, view_id: &str) -> CoreResult<SourceRead> {
+pub fn read_memory_source(
+    host: &impl StoryHost,
+    access: ProjectAccess,
+    view_id: &str,
+) -> CoreResult<SourceRead> {
     host.check_access(&access)?;
     check_id(view_id)?;
     let db = host.db()?;
@@ -1032,8 +1037,7 @@ fn validate_start_memory(request: &StartMemory) -> CoreResult<()> {
             ));
         }
         if binding.is_claude()
-            || binding.profile_version
-                == wns_providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
+            || binding.profile_version == wns_providers::codex_profile::CODEX_AUTHOR_PROFILE_VERSION
             || binding.profile_version == wns_providers::codex_app_server::AUTHOR_PROFILE
         {
             return Err(CoreError::new(
@@ -1301,8 +1305,7 @@ fn validate_memory_lifecycle(
 }
 
 fn validate_runtime_owner(info: &ProjectInfo, owner: &MemoryOwner) -> CoreResult<()> {
-    if owner.project_id != info.project_id
-        || owner.operation_namespace != info.operation_namespace
+    if owner.project_id != info.project_id || owner.operation_namespace != info.operation_namespace
     {
         return Err(CoreError::new(
             "MemoryProjectMismatch",
@@ -1523,8 +1526,7 @@ fn validate_http_memory_delivery_shape(
         ));
     }
     let body_bytes = parse_decimal_u64(&delivery.body_bytes)?;
-    if body_bytes == 0 || body_bytes > wns_context::packet::HTTP_MEMORY_INPUT_LIMIT_BYTES as u64
-    {
+    if body_bytes == 0 || body_bytes > wns_context::packet::HTTP_MEMORY_INPUT_LIMIT_BYTES as u64 {
         return Err(CoreError::new(
             "InvalidRequest",
             "The HTTP memory request body byte count is outside the application limit.",
@@ -2211,7 +2213,8 @@ fn validate_memory_job_record(db: &Connection, row: &MemoryJobRow) -> CoreResult
         || frozen.snapshot.target.document_id != row.target_document_id
         || frozen.snapshot.target.revision_id != row.source_revision_id
         || frozen.snapshot.target.body_hash != row.source_body_hash
-        || frozen.snapshot.context_source_epoch != SourceEpoch::new(row.context_source_epoch.to_string())
+        || frozen.snapshot.context_source_epoch
+            != SourceEpoch::new(row.context_source_epoch.to_string())
         || frozen.policy.version != row.disclosure_policy_epoch.to_string()
         || frozen.snapshot.sources.len() != 1
     {

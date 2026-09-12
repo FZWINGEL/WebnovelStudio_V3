@@ -6,10 +6,10 @@
 //! snapshot against the source-bound scope.
 
 use super::{ScopeKind, ScopeValidationRequest, validate_scope};
-use wns_kernel::validate_snapshot_json;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
+use wns_kernel::validate_snapshot_json;
 
 pub const STRUCTURED_PROPOSAL_RESPONSE_CONTRACT: &str = "structured-proposal-output.v1";
 pub const MAX_STRUCTURED_BLOCKS: usize = 128;
@@ -59,7 +59,9 @@ pub enum TypedReplacementMark {
     Bold,
     Italic,
     #[specta(rename_all = "camelCase")]
-    Link { attrs: TypedReplacementLinkAttrs },
+    Link {
+        attrs: TypedReplacementLinkAttrs,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]

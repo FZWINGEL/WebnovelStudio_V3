@@ -1,6 +1,18 @@
-# V3 target architecture — modular decomposition
+# V3 modular decomposition — historical proposal and migration record
 
-**Status:** proposed. This document defines a target structure; it does not by itself
+For the implemented package graph, query/state ownership and enforcement limits,
+use the [current architecture map](ARCHITECTURE.md). The new
+[ownership improvement plan](../openspec/changes/strengthen-domain-ownership/design.md)
+builds on the extraction described here. Baseline measurements and target
+statements below are preserved as history, not updated claims of completion.
+
+**Review checkpoint, 12 September 2026:** the structural decomposition on
+`arch-module` and its six review fixes are recorded in the
+[review and assessment](ARCH_MODULE_REVIEW.md). The original measurements below
+describe the baseline; the invariant targets are not all completed by the file
+and crate extractions. Use the review checkpoint for current executed evidence.
+
+**Original proposal status:** proposed. This document defined a target structure; it does not by itself
 authorise a rewrite. It is written against `97d0fe0` and every measurement in it was taken
 from that tree.
 

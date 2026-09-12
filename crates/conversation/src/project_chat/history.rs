@@ -8,14 +8,12 @@
 //! or generation operation against that identity.
 
 use super::*;
-use wns_context::{SourceDescriptor, SourceKind};
-use wns_kernel::Revision;
-use crate::discussions::{
-    DiscussionMessage, DiscussionMessageRole, DiscussionRun, FeedbackIntent,
-};
+use crate::discussions::{DiscussionMessage, DiscussionMessageRole, DiscussionRun, FeedbackIntent};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use wns_context::{SourceDescriptor, SourceKind};
+use wns_kernel::Revision;
 
 const HISTORY_PAGE_SIZE: u32 = 40;
 

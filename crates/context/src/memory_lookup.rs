@@ -18,8 +18,8 @@ use super::reviewed_knowledge::{ReviewedKnowledgeSet, validate_frozen_knowledge_
 use super::reviewed_promises::{ReviewedPromiseSet, validate_frozen_promise_set};
 use crate::frozen::FrozenContext;
 use crate::story_records::StoryEntityRef;
-use wns_kernel::{CoreError, CoreResult};
 use std::collections::HashMap;
+use wns_kernel::{CoreError, CoreResult};
 
 /// Execute one typed memory read against the immutable snapshot.
 ///
@@ -373,13 +373,13 @@ mod tests {
     use super::*;
     use crate::reviewed_evidence::ReviewedEvidenceSet;
     use crate::reviewed_knowledge::records_hash;
-    use crate::{
-        Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
-        SourceDescriptor, SourceKind, StorySnapshot,
-    };
     use crate::story_records::{
         EvidenceAnchor, EvidenceAudience, KnowledgeAttitude, KnowledgeRecord, PossessionRecord,
         PossessionTiming,
+    };
+    use crate::{
+        Audience, BasisKind, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy,
+        SourceDescriptor, SourceKind, StorySnapshot,
     };
 
     fn source() -> (SourceRef, SourceDescriptor) {

@@ -1,7 +1,8 @@
-//! L4 — the six-lens Story Workshop.
+//! L5 — the six-lens Story Workshop.
 //!
-//! **Skeleton.** Nothing has been ported yet; this crate declares the boundary
-//! and the dependency edge so the layering rule is checked from the first commit.
+//! Owns Workshop state, generation contracts, candidate interpretation,
+//! adoption previews and atomic adoption. Core supplies the project host and
+//! conversation-owned run readers. No sibling dependency is required.
 //!
 //! # Why this boundary
 //!
@@ -10,25 +11,21 @@
 //! noncanon moments) and its own generation orchestration. It shares the
 //! discussion run machinery but not the discussion domain.
 //!
-//! # What lands here
+//! # Modules
 //!
-//! From `crates/core/src/` (~6,030 lines):
-//! * `projects/workshop.rs` (~4,135 lines) — six-lens domain logic, persistence
-//!   and generation orchestration in one file; the three separate on extraction
-//! * `projects/workshop_generation.rs` (~1,895 lines)
+//! * `workshop.rs` and `workshop/` — persistence, provenance and adoption
+//! * `workshop_generation.rs` — request and output contracts
 //!
-//! # The edge that must be inverted first
+//! # Conversation seam
 //!
-//! `projects/workshop.rs:9` imports `crate::projects::discussions::DiscussionRun`.
-//! Two 4,000-line modules coupled by one type. Until the shared run/settlement
-//! type moves down to `wns-story` (or a small shared type at a lower layer),
-//! `workshop` and `conversation` cannot be siblings — this crate would need a
-//! sibling edge, and the layering rule forbids that deliberately: a boundary that
-//! needs a sibling edge is the wrong boundary, and the rule is meant to say so.
+//! Shared run vocabulary lives in `wns-story`. Conversation owns run queries;
+//! Workshop supplies the active transaction connection when reading candidate
+//! outputs. Host access still includes raw SQLite for Workshop transactions:
+//! see `docs/ARCHITECTURE.md` for the boundary and its enforcement limits.
 //!
 //! # Dependency rule
 //!
-//! L4. May depend on L0–L3.
+//! L5. May depend on L0–L4, never the sibling `wns-conversation`.
 
 /// What the Workshop needs from the actor.
 pub mod host;

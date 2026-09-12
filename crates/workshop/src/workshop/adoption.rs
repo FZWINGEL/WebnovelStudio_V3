@@ -8,7 +8,7 @@
 use super::*;
 
 pub(super) fn build_adoption_impacts(
-    connection: &Connection,
+    source: CandidateReadContext<'_>,
     project_id: &str,
     operation_namespace: &str,
     source_epoch: &str,
@@ -48,10 +48,10 @@ pub(super) fn build_adoption_impacts(
             ));
         }
     }
-    let mut available = existing_document_ids(connection)?;
+    let mut available = existing_document_ids(source.connection)?;
     available.extend(targets.iter().map(|target| target.document_id.clone()));
     let candidates = workshop_candidate_outputs_with_filter(
-        connection,
+        source,
         Some(project_id),
         Some(operation_namespace),
         Some(source_epoch),
@@ -185,7 +185,7 @@ pub(super) fn candidate_relationship_matches_session(
 }
 
 pub(super) fn validate_candidate_provenance(
-    connection: &Connection,
+    source: CandidateReadContext<'_>,
     state: &WorkshopState,
     project_id: &str,
     operation_namespace: &str,
@@ -193,13 +193,9 @@ pub(super) fn validate_candidate_provenance(
     requested_session: Option<&str>,
     candidate_ids: &[String],
 ) -> CoreResult<()> {
-    let candidates = workshop_candidate_sessions(
-        connection,
-        project_id,
-        operation_namespace,
-        Some(source_epoch),
-    )?;
-    let historical_candidates = historical_workshop_candidate_records(connection)?
+    let candidates =
+        workshop_candidate_sessions(source, project_id, operation_namespace, Some(source_epoch))?;
+    let historical_candidates = historical_workshop_candidate_records(source)?
         .into_iter()
         .map(|(candidate_id, (session_id, _content))| (candidate_id, session_id))
         .collect::<HashMap<_, _>>();
@@ -303,7 +299,6 @@ pub(super) fn validate_relationship_freshness(
     Ok(())
 }
 
-
 pub(super) fn body_blocks(value: &Value) -> CoreResult<&Vec<Value>> {
     value["body"]["content"].as_array().ok_or_else(|| {
         CoreError::new(
@@ -318,7 +313,6 @@ pub(super) fn canonical_body(body: &Value) -> CoreResult<(Value, String)> {
         .map_err(|error| CoreError::new("InvalidDocument", &error))?;
     Ok((receipt.snapshot, receipt.hash))
 }
-
 
 pub(super) fn target_fixed_text(
     connection: &Connection,
@@ -359,10 +353,6 @@ pub(super) fn target_fixed_text(
     protected.dedup();
     Ok(protected)
 }
-
-
-
-
 
 pub(super) fn validate_adoption_targets(
     connection: &Connection,
@@ -455,7 +445,9 @@ pub(super) fn validate_adoption_targets(
     Ok(before)
 }
 
-pub(super) fn validate_relationship_draft_fields(draft: &WorkshopRelationshipDraft) -> CoreResult<()> {
+pub(super) fn validate_relationship_draft_fields(
+    draft: &WorkshopRelationshipDraft,
+) -> CoreResult<()> {
     check_id(&draft.id)?;
     for (document_id, expected) in [
         (&draft.from_document_id, &draft.from_expected),

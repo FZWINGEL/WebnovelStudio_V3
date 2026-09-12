@@ -1,33 +1,30 @@
 //! L5 — discussions and the project conversation.
 //!
-//! **Skeleton.** Nothing has been ported yet; this crate declares the boundary
-//! and the dependency edge so the layering rule is checked from the first commit.
+//! Owns discussion lifecycle and queries, project-chat operations, proposal
+//! decisions, author guidance and the background-work census. Core supplies
+//! actor access through host traits; it retains the single project queue.
 //!
 //! # Why this boundary
 //!
-//! Every AI-produces-a-change path converges here. "Explicit Apply only" — an
-//! atomic commit carrying a receipt, before/after revisions and a source-epoch
-//! advance — is currently upheld at each call site separately. Once this is a
-//! crate, the adoption transaction becomes the *only* thing that can write a
-//! document, and the other paths become unrepresentable rather than merely
-//! discouraged.
+//! Conversation and Workshop have separate author-approved adoption workflows.
+//! Both retain their own atomic receipts and projections, using shared document
+//! mutation helpers where appropriate. There is no universal adoption capability
+//! that makes every unauthorized write unrepresentable. Runtime validation and
+//! integration tests enforce these workflows; see `docs/ARCHITECTURE.md`.
 //!
-//! # What lands here
+//! # Modules
 //!
-//! From `crates/core/src/` (~18,000 lines):
-//! * `projects/discussions.rs` (~4,605 lines) — the four-concern file: run
+//! * `discussions.rs` — run
 //!   lifecycle and settlement, recovery/lost-acknowledgment, lookup invocation,
-//!   and packet-assembly glue. The glue moves *down* to `wns-context`.
-//! * `projects/discussion_lookup.rs`, `projects/discussions/`
-//! * `projects/project_chat.rs` and `projects/project_chat/` (8 files)
-//! * `projects/proposals.rs` (~1,708 lines), `projects/guidance.rs`
-//! * the single `Adoption` entry point (§3 of the architecture document)
+//!   and packet-assembly glue over the deterministic context compiler
+//! * `discussion_lookup.rs`, `discussions/`
+//! * `project_chat.rs` and `project_chat/`
+//! * `proposals.rs`, `guidance.rs`, `background_work.rs`
 //!
 //! # Dependency rule
 //!
 //! L5. May depend on L0–L4. Must not depend on `wns-workshop` — these are
-//! siblings, and the `workshop.rs:9` edge into `discussions` must be inverted
-//! before either can move.
+//! siblings. Their shared vocabulary sits below both; core connects their hosts.
 
 // `project_chat_output` lived here briefly and moved on to `wns-context` (L3).
 // Its lowest consumer decides its layer: `collect_project_chat_dispositions`,

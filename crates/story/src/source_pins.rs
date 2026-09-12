@@ -6,13 +6,13 @@
 //! discussions see later source edits.  Receipts are kept in a separate
 //! namespace so a copied historical database cannot authorize a new write.
 
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use wns_kernel::{
     CoreError, CoreResult, ProjectAccess, Reply, check_id, logical_hash, parse_stored_version,
     parse_version,
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
 pub const AUTHOR_ROOM_AUDIENCE: &str = "authorRoom";
 const MAX_SOURCE_DOCUMENTS: usize = 64;
@@ -66,7 +66,6 @@ pub enum SourcePinCommand {
     Save(SaveSourcePins, Reply<SourcePinSet>),
 }
 
-
 /// What this module needs from the project actor, and nothing else.
 ///
 /// Declared here rather than naming `OwnedProject`, which is what made the impl
@@ -80,83 +79,83 @@ pub trait SourcePinHost {
     fn fence_uncertain<T>(&mut self, result: &CoreResult<T>);
 }
 
-    pub fn handle_source_pins(host: &mut impl SourcePinHost, command: SourcePinCommand) {
-        match command {
-            SourcePinCommand::Read(access, document_id, reply) => {
-                let result = host
-                    .check_access(&access)
-                    .and_then(|()| read_source_pins(host.db()?, &access, &document_id));
-                let _ = reply.send(result);
-            }
-            SourcePinCommand::Save(request, reply) => {
-                let result = save_source_pins(host, request);
-                host.fence_uncertain(&result);
-                let _ = reply.send(result);
-            }
+pub fn handle_source_pins(host: &mut impl SourcePinHost, command: SourcePinCommand) {
+    match command {
+        SourcePinCommand::Read(access, document_id, reply) => {
+            let result = host
+                .check_access(&access)
+                .and_then(|()| read_source_pins(host.db()?, &access, &document_id));
+            let _ = reply.send(result);
+        }
+        SourcePinCommand::Save(request, reply) => {
+            let result = save_source_pins(host, request);
+            host.fence_uncertain(&result);
+            let _ = reply.send(result);
         }
     }
+}
 
-    fn save_source_pins(
+fn save_source_pins(
     host: &mut impl SourcePinHost,
     request: SaveSourcePins,
 ) -> CoreResult<SourcePinSet> {
-        host.check_access(&request.access)?;
-        validate_save_request(&request)?;
-        let expected = parse_optional_version(&request.expected_version)?;
-        let source_document_ids = canonical_ids(&request.source_document_ids)?;
-        let payload_hash = logical_hash(&request)?;
+    host.check_access(&request.access)?;
+    validate_save_request(&request)?;
+    let expected = parse_optional_version(&request.expected_version)?;
+    let source_document_ids = canonical_ids(&request.source_document_ids)?;
+    let payload_hash = logical_hash(&request)?;
 
-        let tx = host
-            .db_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(result) = existing_receipt(&tx, &request, &payload_hash)? {
-            tx.commit().map_err(CoreError::uncertain)?;
-            return Ok(result);
-        }
+    let tx = host
+        .db_mut()?
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if let Some(result) = existing_receipt(&tx, &request, &payload_hash)? {
+        tx.commit().map_err(CoreError::uncertain)?;
+        return Ok(result);
+    }
 
-        // A fresh write must resolve its target and sources while they are
-        // active.  Receipt identity is checked first so a replay remains
-        // idempotent after a referenced source is trashed and can be removed
-        // by a later explicit edit.
-        validate_source_state(&tx, &request, &source_document_ids)?;
+    // A fresh write must resolve its target and sources while they are
+    // active.  Receipt identity is checked first so a replay remains
+    // idempotent after a referenced source is trashed and can be removed
+    // by a later explicit edit.
+    validate_source_state(&tx, &request, &source_document_ids)?;
 
-        let target_key = target_key(request.scope, request.target_document_id.as_deref());
-        let current = read_set(
-            &tx,
-            &request.access.project_id,
-            &request.access.operation_namespace,
-            request.scope,
-            target_key,
-        )?;
-        let current_version = parse_version(&current.version)?;
-        if current_version != expected {
-            return Err(CoreError::new(
-                "SourcePinVersionConflict",
-                format!(
-                    "The source list changed; expected version {}, current version {}.",
-                    request.expected_version, current.version
-                )
-                .as_str(),
-            ));
-        }
+    let target_key = target_key(request.scope, request.target_document_id.as_deref());
+    let current = read_set(
+        &tx,
+        &request.access.project_id,
+        &request.access.operation_namespace,
+        request.scope,
+        target_key,
+    )?;
+    let current_version = parse_version(&current.version)?;
+    if current_version != expected {
+        return Err(CoreError::new(
+            "SourcePinVersionConflict",
+            format!(
+                "The source list changed; expected version {}, current version {}.",
+                request.expected_version, current.version
+            )
+            .as_str(),
+        ));
+    }
 
-        if current.source_document_ids == source_document_ids {
-            insert_receipt(&tx, &request, &payload_hash, &current)?;
-            tx.commit().map_err(CoreError::uncertain)?;
-            return Ok(current);
-        }
+    if current.source_document_ids == source_document_ids {
+        insert_receipt(&tx, &request, &payload_hash, &current)?;
+        tx.commit().map_err(CoreError::uncertain)?;
+        return Ok(current);
+    }
 
-        let next_version = current_version.checked_add(1).ok_or_else(|| {
-            CoreError::new("InvalidRequest", "The source list version is exhausted.")
-        })?;
-        let result = SourcePinSet {
-            scope: request.scope,
-            target_document_id: request.target_document_id.clone(),
-            version: next_version.to_string(),
-            source_document_ids,
-            audience: AUTHOR_ROOM_AUDIENCE.to_owned(),
-        };
-        tx.execute(
+    let next_version = current_version
+        .checked_add(1)
+        .ok_or_else(|| CoreError::new("InvalidRequest", "The source list version is exhausted."))?;
+    let result = SourcePinSet {
+        scope: request.scope,
+        target_document_id: request.target_document_id.clone(),
+        version: next_version.to_string(),
+        source_document_ids,
+        audience: AUTHOR_ROOM_AUDIENCE.to_owned(),
+    };
+    tx.execute(
             "INSERT INTO source_pin_sets(project_id,operation_namespace,scope,target_document_id,version,source_document_ids_json,audience)
              VALUES(?,?,?,?,?,?,?)
              ON CONFLICT(project_id,operation_namespace,scope,target_document_id) DO UPDATE SET
@@ -171,14 +170,14 @@ pub trait SourcePinHost {
                 AUTHOR_ROOM_AUDIENCE,
             ],
         )?;
-        tx.execute(
-            "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
-            [],
-        )?;
-        insert_receipt(&tx, &request, &payload_hash, &result)?;
-        tx.commit().map_err(CoreError::uncertain)?;
-        Ok(result)
-    }
+    tx.execute(
+        "UPDATE project SET context_source_epoch=context_source_epoch+1 WHERE singleton=1",
+        [],
+    )?;
+    insert_receipt(&tx, &request, &payload_hash, &result)?;
+    tx.commit().map_err(CoreError::uncertain)?;
+    Ok(result)
+}
 fn validate_save_request(request: &SaveSourcePins) -> CoreResult<()> {
     check_id(&request.operation_id)?;
     match request.scope {

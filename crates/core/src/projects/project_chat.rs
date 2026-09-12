@@ -5,8 +5,8 @@
 //! item the moved module exposed is re-exported below, so the desktop app, the
 //! examples and the integration tests keep their existing paths.
 
-use super::*;
 use super::discussions::{DiscussionRun, DiscussionStart, RunOwner};
+use super::*;
 
 impl ProjectSession {
     /// Count pending project-chat drafts through the owning actor.  The

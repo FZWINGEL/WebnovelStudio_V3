@@ -1,15 +1,12 @@
 //! Author commands use renderer leases; the local test worker owns only its run.
+use crate::app_state::AppState;
 use crate::author_start::{
     AuthorStart, app_server_lookup_unavailable, check_model_choice, dispatch_mock,
-    has_saved_request, saved_request,
-    start_author_native,
-};
-use crate::app_state::AppState;
-use crate::discussion_recovery::{
-    DesktopDiscussionView, DiscussionRecovery,
+    has_saved_request, saved_request, start_author_native,
 };
 use crate::commands::library_commands::DesktopLibrary;
 use crate::commands::project_commands::execute;
+use crate::discussion_recovery::{DesktopDiscussionView, DiscussionRecovery};
 use crate::provider_runtime::DesktopProviders;
 use tauri::State;
 #[cfg(windows)]
@@ -27,7 +24,8 @@ use webnovel_core::providers::{claude_runtime::ClaudeConnection, codex_runtime::
 #[tauri::command]
 pub async fn read_discussion(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<DesktopDiscussionView> {
     let app = &*state;
     let state = &app.projects;
@@ -41,7 +39,8 @@ pub async fn read_discussion(
 pub async fn retry_discussion_save(
     access: ProjectAccess,
     document_id: String,
-    run_id: String, state: State<'_, AppState>,
+    run_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<DesktopDiscussionView> {
     let app = &*state;
     let state = &app.projects;
@@ -54,7 +53,8 @@ pub async fn retry_discussion_save(
 #[tauri::command]
 pub async fn discussion_retry(
     access: ProjectAccess,
-    run_id: String, state: State<'_, AppState>,
+    run_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<DiscussionRetry> {
     let app = &*state;
     let state = &app.projects;
@@ -64,7 +64,8 @@ pub async fn discussion_retry(
 
 #[tauri::command]
 pub async fn save_discussion_draft(
-    request: SaveDiscussionDraft, state: State<'_, AppState>,
+    request: SaveDiscussionDraft,
+    state: State<'_, AppState>,
 ) -> CoreResult<DiscussionDraft> {
     let app = &*state;
     let state = &app.projects;
@@ -75,7 +76,8 @@ pub async fn save_discussion_draft(
 #[tauri::command]
 pub async fn stop_discussion(
     access: ProjectAccess,
-    run_id: String, state: State<'_, AppState>,
+    run_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<DiscussionStop> {
     let app = &*state;
     let state = &app.projects;
@@ -109,7 +111,8 @@ pub async fn stop_discussion(
 #[tauri::command]
 pub async fn proposals(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<Vec<Proposal>> {
     let app = &*state;
     let state = &app.projects;
@@ -119,7 +122,8 @@ pub async fn proposals(
 
 #[tauri::command]
 pub async fn prepare_proposal(
-    request: PrepareProposal, state: State<'_, AppState>,
+    request: PrepareProposal,
+    state: State<'_, AppState>,
 ) -> CoreResult<PreparedProposal> {
     let app = &*state;
     let state = &app.projects;
@@ -129,7 +133,8 @@ pub async fn prepare_proposal(
 
 #[tauri::command]
 pub async fn prepare_continuation(
-    request: PrepareContinuation, state: State<'_, AppState>,
+    request: PrepareContinuation,
+    state: State<'_, AppState>,
 ) -> CoreResult<PreparedProposal> {
     let app = &*state;
     let state = &app.projects;
@@ -139,7 +144,8 @@ pub async fn prepare_continuation(
 
 #[tauri::command]
 pub async fn prepare_structured(
-    request: PrepareStructured, state: State<'_, AppState>,
+    request: PrepareStructured,
+    state: State<'_, AppState>,
 ) -> CoreResult<PreparedProposal> {
     let app = &*state;
     let state = &app.projects;
@@ -149,7 +155,8 @@ pub async fn prepare_structured(
 
 #[tauri::command]
 pub async fn apply_proposal(
-    request: ApplyProposal, state: State<'_, AppState>,
+    request: ApplyProposal,
+    state: State<'_, AppState>,
 ) -> CoreResult<ApplyAck> {
     let app = &*state;
     let state = &app.projects;
@@ -159,7 +166,8 @@ pub async fn apply_proposal(
 
 #[tauri::command]
 pub async fn reject_proposal(
-    request: RejectProposal, state: State<'_, AppState>,
+    request: RejectProposal,
+    state: State<'_, AppState>,
 ) -> CoreResult<ProposalDecision> {
     let app = &*state;
     let state = &app.projects;
@@ -170,7 +178,8 @@ pub async fn reject_proposal(
 #[tauri::command]
 pub async fn start_discussion(
     mut request: StartDiscussion,
-    model_selection: Option<ModelSelection>, state: State<'_, AppState>,
+    model_selection: Option<ModelSelection>,
+    state: State<'_, AppState>,
 ) -> CoreResult<DiscussionStart> {
     let app = &*state;
     let state = &app.projects;
@@ -444,16 +453,15 @@ pub(crate) fn start_workshop_native(
     )
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     // The mock dispatch moved to `author_start`; these tests still exercise it
     // through the commands, so they name it directly.
     use crate::author_start::{mock_output, record_worker_failure, run_mock_with_pause};
-    use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, packet_input_hash};
     use webnovel_core::context::PacketReceipt;
     use webnovel_core::context::packet::MockContextBudget;
+    use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, packet_input_hash};
     use webnovel_core::context::packet::{PacketMessage, PacketOptions};
     use webnovel_core::documents::{Endpoint, ScopeGrant, ScopeKind, capture_scope};
     use webnovel_core::projects::CreateDocument;
@@ -524,7 +532,8 @@ mod tests {
             ]}
         });
         let document = project
-            .documents().create(CreateDocument {
+            .documents()
+            .create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -742,7 +751,8 @@ mod tests {
                     .contains("Keep this fixed detail")
             );
             let document = project
-                .documents().read(access.clone(), "workshop-anchor".into())
+                .documents()
+                .read(access.clone(), "workshop-anchor".into())
                 .unwrap();
             assert_eq!(
                 document.body["body"]["content"][0]["content"][0]["text"],
@@ -769,7 +779,8 @@ mod tests {
         let access = project.documents().attach("test-session".into()).unwrap();
         let source_text = "Rain ticked against the workshop glass while she counted each drop.";
         let document = project
-            .documents().create(CreateDocument {
+            .documents()
+            .create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create-voice-anchor".into(),
                 document_id: "workshop-voice-anchor".into(),
@@ -861,7 +872,8 @@ mod tests {
         );
         assert_eq!(
             project
-                .documents().read(access, "workshop-voice-anchor".into())
+                .documents()
+                .read(access, "workshop-voice-anchor".into())
                 .unwrap()
                 .body["body"]["content"][0]["content"][0]["text"],
             source_text

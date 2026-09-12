@@ -1,11 +1,7 @@
 use super::*;
 use wns_context::guidance::FrozenGuidance;
 
-pub fn draft(
-    db: &Connection,
-    access: &ProjectAccess,
-    run_id: &str,
-) -> CoreResult<DiscussionRetry> {
+pub fn draft(db: &Connection, access: &ProjectAccess, run_id: &str) -> CoreResult<DiscussionRetry> {
     let (draft, frozen) = original(db, access, run_id)?;
     guidance::retry_request_guidance_at(db, access, &frozen)?;
     Ok(draft)

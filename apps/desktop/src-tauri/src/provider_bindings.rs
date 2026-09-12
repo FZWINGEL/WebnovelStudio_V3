@@ -7,16 +7,16 @@
 //! the shell already reach these through the runtime module.
 
 use serde::Serialize;
-use webnovel_core::projects::{CoreError, CoreResult};
 use webnovel_core::context::packet::{
     CODEX_MAINTENANCE_MODEL_ID, CODEX_MAINTENANCE_REASONING, CODEX_SERVICE_TIER, ProviderBinding,
 };
+use webnovel_core::projects::{CoreError, CoreResult};
+#[cfg(windows)]
+use webnovel_core::providers::claude_runtime::ClaudeConnection;
 use webnovel_core::providers::codex_runtime::CodexConnection;
 use webnovel_core::providers::preferences::{
     ModelSelection, STORY_MEMORY_MODEL_ID, STORY_MEMORY_REASONING,
 };
-#[cfg(windows)]
-use webnovel_core::providers::claude_runtime::ClaudeConnection;
 
 use crate::provider_runtime::unavailable;
 

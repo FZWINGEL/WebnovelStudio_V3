@@ -7,7 +7,6 @@ use super::claude_runner::ClaudeStream;
 use super::cli::windows_process::{
     self, ChildLimits, ChildOutcome, ChildTermination, CliInvocation, EnvironmentPolicy, StopSignal,
 };
-use wns_kernel::{CoreError, CoreResult};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -18,6 +17,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use wns_kernel::{CoreError, CoreResult};
 
 const REQUIRED_OPTIONS: &[&str] = &[
     "--print",

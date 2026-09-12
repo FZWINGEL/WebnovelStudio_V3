@@ -15,20 +15,20 @@ use crate::chat_vocabulary::{
     ChatDispositionScope, ChatDispositionScopeKind, ChatUnknownTo, FrozenProjectChat,
     FrozenProjectChatDisposition, ProjectChatFreeze,
 };
-use crate::conversation::FrozenConversation;
-use crate::guidance::FrozenGuidance;
-use crate::navigation::FrozenNavigationView;
-use crate::reviewed_evidence::ReviewedEvidenceSet;
-use crate::reviewed_knowledge::ReviewedKnowledgeSet;
-use crate::reviewed_promises::ReviewedPromiseSet;
-use crate::reviewed_summaries::ReviewedSummarySet;
 use crate::contracts::{BasisKind, SourceKind};
+use crate::conversation::FrozenConversation;
 use crate::conversation::validate_conversation;
 use crate::eligibility::{EligibilityError, EligibilityReceipt, evaluate_sources};
+use crate::guidance::FrozenGuidance;
 use crate::guidance::validate_frozen_guidance;
+use crate::navigation::FrozenNavigationView;
 use crate::navigation::validate_frozen_navigation_views;
+use crate::reviewed_evidence::ReviewedEvidenceSet;
+use crate::reviewed_knowledge::ReviewedKnowledgeSet;
 use crate::reviewed_knowledge::validate_frozen_knowledge_set;
+use crate::reviewed_promises::ReviewedPromiseSet;
 use crate::reviewed_promises::validate_frozen_promise_set;
+use crate::reviewed_summaries::ReviewedSummarySet;
 use crate::reviewed_summaries::validate_frozen_set as validate_frozen_summary;
 use crate::{
     Audience, ContextPurpose, CoverageLabel, Disclosure, InformationPolicy, SourceDescriptor,
@@ -40,8 +40,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use wns_kernel::{
     CoreError, CoreResult, DocumentRecord, DocumentRole, Head, ProjectAccess, check_id,
-    parse_version,
-    sha256_hex,
+    parse_version, sha256_hex,
 };
 use wns_storage::{checkpoint_at, read_document, read_document_with_role};
 
@@ -912,10 +911,7 @@ pub fn validate_frozen_project_chat(
 /// Freshness is separate from historical integrity: edits and dispositions
 /// never make old evidence unreadable, but they do revoke a queued dispatch or
 /// an adoption based on the prior task material.
-pub fn project_chat_basis_is_current(
-    db: &Connection,
-    frozen: &FrozenContext,
-) -> CoreResult<bool> {
+pub fn project_chat_basis_is_current(db: &Connection, frozen: &FrozenContext) -> CoreResult<bool> {
     let Some(chat) = &frozen.project_chat else {
         return Ok(true);
     };

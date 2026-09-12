@@ -17,7 +17,7 @@ pub fn claim_lookup_invocation(
     check_id(&owner.project_id)?;
     check_id(&owner.operation_namespace)?;
     check_id(&owner.run_id)?;
-    validate_runtime_owner(&host.info(), &owner)?;
+    validate_runtime_owner(host.info(), &owner)?;
     let ordinal = parse_lookup_ordinal(ordinal_text)?;
     let tx = host
         .db_mut()?
@@ -74,7 +74,7 @@ pub fn settle_lookup_invocation(
     request: discussion_lookup::LookupInvocationReport,
 ) -> CoreResult<DiscussionRun> {
     validate_lookup_report_shape(&request)?;
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     let ordinal = parse_lookup_ordinal(&request.ordinal)?;
     let tx = host
         .db_mut()?
@@ -124,15 +124,13 @@ pub fn settle_lookup_invocation(
     let mut response_error = None;
     let parsed = if request.status == ProviderOutcomeStatus::Completed {
         match discussion_lookup::parse_response(&request.assistant_text) {
-            Ok(parsed) => {
-                match discussion_lookup::authorize_envelope(&packet, &parsed.envelope) {
-                    Ok(()) => Some(parsed),
-                    Err(error) => {
-                        response_error = Some(error.detail);
-                        None
-                    }
+            Ok(parsed) => match discussion_lookup::authorize_envelope(&packet, &parsed.envelope) {
+                Ok(()) => Some(parsed),
+                Err(error) => {
+                    response_error = Some(error.detail);
+                    None
                 }
-            }
+            },
             Err(error) => {
                 response_error = Some(error.detail);
                 None
@@ -142,12 +140,11 @@ pub fn settle_lookup_invocation(
         None
     };
     let report_error = request.error.clone().or(response_error);
-    let stored_status =
-        if parsed.is_none() && request.status == ProviderOutcomeStatus::Completed {
-            ProviderOutcomeStatus::Failed
-        } else {
-            request.status
-        };
+    let stored_status = if parsed.is_none() && request.status == ProviderOutcomeStatus::Completed {
+        ProviderOutcomeStatus::Failed
+    } else {
+        request.status
+    };
     let state = discussion_lookup::store_outcome(
         &tx,
         &identity,
@@ -239,7 +236,7 @@ pub fn advance_lookup(
     check_id(&request.owner.project_id)?;
     check_id(&request.owner.operation_namespace)?;
     check_id(&request.owner.run_id)?;
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     let completed = parse_lookup_ordinal(&request.completed_ordinal)?;
     let current_source_epoch = host.context_source_epoch()?;
     let tx = host
@@ -343,12 +340,12 @@ pub fn advance_lookup(
         discussion_lookup::read_exchanges(&tx, &current.id, completed - 1)?
     };
     exchanges.extend(round_exchanges);
-    let next = completed.checked_add(1).ok_or_else(|| {
-        CoreError::new("InvalidLookupCounter", "The lookup ordinal overflowed.")
-    })?;
-    let source_projection = Some(
-        wns_context::lookup::LookupSourceProjection::from_exchanges(&frozen, &exchanges)?,
-    );
+    let next = completed
+        .checked_add(1)
+        .ok_or_else(|| CoreError::new("InvalidLookupCounter", "The lookup ordinal overflowed."))?;
+    let source_projection = Some(wns_context::lookup::LookupSourceProjection::from_exchanges(
+        &frozen, &exchanges,
+    )?);
     prepare.operation_id = new_id();
     prepare.snapshot_id = frozen.snapshot.snapshot_id.clone();
     prepare.lookup = Some(wns_context::lookup::LookupPacketInput {
@@ -409,7 +406,7 @@ pub fn halt_lookup(
     check_id(&request.owner.project_id)?;
     check_id(&request.owner.operation_namespace)?;
     check_id(&request.owner.run_id)?;
-    validate_runtime_owner(&host.info(), &request.owner)?;
+    validate_runtime_owner(host.info(), &request.owner)?;
     if request.reason.trim().is_empty() || request.reason.len() > 4096 {
         return Err(CoreError::new(
             "InvalidRequest",
@@ -706,7 +703,10 @@ pub(super) fn seal_lookup_discussion(
     read_run(tx, &current.id)
 }
 
-pub(super) fn lookup_failure_reason(status: ProviderOutcomeStatus, cleanup: ProviderCleanup) -> &'static str {
+pub(super) fn lookup_failure_reason(
+    status: ProviderOutcomeStatus,
+    cleanup: ProviderCleanup,
+) -> &'static str {
     if cleanup == ProviderCleanup::Unresolved {
         "lookup_cleanup_unresolved"
     } else {

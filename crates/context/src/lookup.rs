@@ -8,15 +8,15 @@
 
 use crate::SourceRef;
 use crate::evidence_history::EvidenceHistory;
+use crate::frozen::{FrozenContext, SearchMode, SearchResult, SourcePassage};
 use crate::knowledge_history::KnowledgeHistory;
 use crate::promise_history::PromiseHistory;
-use crate::frozen::{FrozenContext, SearchMode, SearchResult, SourcePassage};
-use wns_kernel::{CoreError, CoreResult};
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 use std::fmt;
+use wns_kernel::{CoreError, CoreResult};
 
 pub const LOOKUP_SCHEMA_VERSION: &str = "story-lookup.v1";
 pub const MAX_LOOKUP_ENVELOPE_BYTES: usize = 64 * 1024;
@@ -244,9 +244,7 @@ pub type LookupReadRequest = LookupRead;
 )]
 pub enum LookupReadResult {
     #[specta(rename_all = "camelCase")]
-    Search {
-        result: SearchResult,
-    },
+    Search { result: SearchResult },
     #[specta(rename_all = "camelCase")]
     Read {
         handle: String,
@@ -286,10 +284,7 @@ pub enum LookupReadResult {
         next_offset: Option<u32>,
     },
     #[specta(rename_all = "camelCase")]
-    Unavailable {
-        code: String,
-        detail: String,
-    },
+    Unavailable { code: String, detail: String },
 }
 
 /// The bounded lookup state carried into packet compilation. The initial

@@ -10,10 +10,7 @@
 
 use super::AppServerRuntimeIdentity;
 use super::auth::{ExternalAuth, read_auth_file};
-use wns_kernel::{CoreError, CoreResult};
-use crate::cli::windows_process::{
-    ChildLimits, CliInvocation, EnvironmentPolicy, MAX_OVERALL,
-};
+use crate::cli::windows_process::{ChildLimits, CliInvocation, EnvironmentPolicy, MAX_OVERALL};
 use crate::codex_catalog::CodexCatalog;
 use crate::codex_profile::CodexLaunchProfile;
 use crate::preferences::ModelSelection;
@@ -24,6 +21,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use wns_kernel::{CoreError, CoreResult};
 
 const MAX_CATALOG_MODELS: usize = 256;
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;

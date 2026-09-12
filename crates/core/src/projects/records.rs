@@ -13,9 +13,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub use wns_documents::ViewState;
-use wns_kernel::{
-    DocumentRecord, ProjectAccess,
-};
+use wns_kernel::{DocumentRecord, ProjectAccess};
 
 #[derive(Debug)]
 pub struct AttachedProject {

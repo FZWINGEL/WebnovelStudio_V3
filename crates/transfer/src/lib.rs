@@ -2,9 +2,10 @@
 //!
 //! # Why this boundary
 //!
-//! Every path here moves bytes that must stay byte-identical: a backup manifest,
-//! a recovered project's fresh identity, an immutable export record, a V2
-//! import's inert legacy evidence, a click-time recovery copy.
+//! Transfer validates backups and exports and preserves retained immutable
+//! history. Recovery deliberately creates a fresh project identity and rebinds
+//! its active namespace/ownership. V2 import translates supported material and
+//! retains legacy evidence without granting it current story authority.
 //!
 //! # Why L6 and not L5
 //!
@@ -14,19 +15,18 @@
 //! `memory`, `history`, `discussions`, `workshop`, `project_chat`,
 //! `discussion_lookup`, `guidance`, `proposals` — so it is a pure CONSUMER of
 //! the layers below it and belongs above all of them, not beside them. Nothing
-//! depends on `wns-transfer` except the app shell, which the layer table does
-//! not register, so the raise costs no other crate a renumber.
+//! below it depends on `wns-transfer`. The library sits above it and uses its
+//! installation workflow. See `docs/ARCHITECTURE.md` for the current layer map.
 //!
-//! # What lands here
+//! # Modules
 //!
 //! * `transfer.rs` — backup, recover, duplicate, recovery copy, draft export
-//! * `projects/exports.rs` — the export record's durable metadata
+//! * `exports.rs` — the export record's durable metadata
 //! * `host.rs` — the seam: [`TransferSource`] reads a live project,
 //!   [`TransferFactory`] creates the recovered one
 //!
-//! `projects/import.rs` (the V2 installer) follows once it has a seam for
-//! constructing a project; `v2_import.rs` is already below this crate, in
-//! `wns-library`.
+//! * `import.rs` — V2 installation through the project factory seam
+//! * `v2_import.rs` — V2 archive inspection and preview contracts
 
 pub mod exports;
 pub mod host;

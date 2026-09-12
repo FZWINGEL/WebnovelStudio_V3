@@ -628,13 +628,20 @@ mod tests {
         assert!(view.messages[1].packet_id.is_some());
         assert_ne!(view.messages[1].packet_id.as_ref(), Some(&initial));
         assert_eq!(
-            project.documents().read(access, "chapter".into()).unwrap().head,
+            project
+                .documents()
+                .read(access, "chapter".into())
+                .unwrap()
+                .head,
             target
         );
         let path = project.path.clone();
         drop(project);
         let reopened = ProjectSession::open(path).unwrap();
-        let access = reopened.documents().attach("reopened-session".into()).unwrap();
+        let access = reopened
+            .documents()
+            .attach("reopened-session".into())
+            .unwrap();
         let saved = reopened.read_discussion(access, "chapter".into()).unwrap();
         assert_eq!(saved.messages[1].content, view.messages[1].content);
         assert_eq!(saved.runs[0].lookup.as_ref().unwrap().invocations.len(), 3);

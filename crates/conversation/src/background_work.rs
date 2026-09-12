@@ -6,13 +6,13 @@
 //! callers remain responsible for cancelling external workers and waiting for
 //! their local cleanup.
 
+use crate::discussions;
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use wns_kernel::{CoreError, CoreResult, ProjectAccess};
 use wns_story::host::StoryHost;
 use wns_story::memory;
-use crate::discussions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,7 +128,7 @@ pub fn current_background_access(host: &impl StoryHost) -> CoreResult<ProjectAcc
 }
 
 pub fn active_background_records(
-host: &impl StoryHost,
+    host: &impl StoryHost,
     access: &ProjectAccess,
 ) -> CoreResult<Vec<BackgroundWorkItem>> {
     let db = host.db().map_err(|_| recovery_required())?;
@@ -196,7 +196,7 @@ host: &impl StoryHost,
 }
 
 pub fn validate_expected_background_work(
-host: &impl StoryHost,
+    host: &impl StoryHost,
     access: &ProjectAccess,
     expected: &BackgroundWork,
 ) -> CoreResult<()> {
@@ -270,7 +270,7 @@ host: &impl StoryHost,
 }
 
 pub fn background_work(host: &impl StoryHost) -> CoreResult<BackgroundWork> {
-    let access = current_background_access(host, )?;
+    let access = current_background_access(host)?;
     Ok(BackgroundWork {
         items: active_background_records(host, &access)?,
         errors: Vec::new(),
@@ -278,28 +278,24 @@ pub fn background_work(host: &impl StoryHost) -> CoreResult<BackgroundWork> {
 }
 
 pub fn stop_background_work(
-host: &mut impl StoryHost,
+    host: &mut impl StoryHost,
     expected: BackgroundWork,
 ) -> CoreResult<BackgroundWork> {
-    let access = current_background_access(host, )?;
+    let access = current_background_access(host)?;
     validate_expected_background_work(host, &access, &expected)?;
     let mut items = Vec::with_capacity(expected.items.len());
     let mut errors = Vec::new();
 
     for record in &expected.items {
         let outcome = match record.kind {
-            BackgroundWorkKind::Discussion => crate::discussions::stop_discussion(
-                host,
-                access.clone(),
-                record.id.clone(),
-            )
-                .map(|stop| BackgroundWorkStatus::from(stop.run.status)),
-            BackgroundWorkKind::Memory => memory::stop_memory(
-                host,
-                access.clone(),
-                record.id.clone(),
-            )
-                .map(|job| BackgroundWorkStatus::from(job.status)),
+            BackgroundWorkKind::Discussion => {
+                crate::discussions::stop_discussion(host, access.clone(), record.id.clone())
+                    .map(|stop| BackgroundWorkStatus::from(stop.run.status))
+            }
+            BackgroundWorkKind::Memory => {
+                memory::stop_memory(host, access.clone(), record.id.clone())
+                    .map(|job| BackgroundWorkStatus::from(job.status))
+            }
         };
         match outcome {
             Ok(status) => {
@@ -322,22 +318,20 @@ host: &mut impl StoryHost,
 }
 
 pub fn interrupt_background_work(
-host: &mut impl StoryHost,
+    host: &mut impl StoryHost,
     expected: BackgroundWork,
 ) -> CoreResult<BackgroundWork> {
-    let access = current_background_access(host, )?;
+    let access = current_background_access(host)?;
     validate_expected_background_work(host, &access, &expected)?;
     let mut items = Vec::with_capacity(expected.items.len());
     let mut errors = Vec::new();
 
     for record in &expected.items {
         let outcome = match record.kind {
-            BackgroundWorkKind::Discussion => crate::discussions::interrupt_discussion(
-                host,
-                access.clone(),
-                record.id.clone(),
-            )
-                .map(|run| BackgroundWorkStatus::from(run.status)),
+            BackgroundWorkKind::Discussion => {
+                crate::discussions::interrupt_discussion(host, access.clone(), record.id.clone())
+                    .map(|run| BackgroundWorkStatus::from(run.status))
+            }
             BackgroundWorkKind::Memory => memory::interrupt_memory_claim(
                 host,
                 memory::MemoryOwner {

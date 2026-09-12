@@ -5,9 +5,9 @@ use super::{
 };
 use crate::reviewed_summary::SummaryAudience;
 use crate::reviewed_summary::SummaryRevision;
-use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use wns_kernel::{CoreError, CoreResult};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

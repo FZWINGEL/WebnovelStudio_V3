@@ -7,13 +7,13 @@
 //! boundary.  Refresh tokens, id tokens, API keys, and all other fields are
 //! deliberately ignored or refused.
 
-use wns_kernel::{CoreError, CoreResult};
 use crate::credentials::{MAX_CREDENTIAL_BYTES, SecretValue};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wns_kernel::{CoreError, CoreResult};
 
 /// The auth file is not an application database.  Keep its temporary parse
 /// buffer bounded even when a malformed file has been placed at the path.

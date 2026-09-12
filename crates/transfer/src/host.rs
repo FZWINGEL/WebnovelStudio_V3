@@ -77,4 +77,3 @@ pub trait TransferFactory {
     fn staging_info(staging: &Self::Staging) -> &wns_kernel::ProjectInfo;
     fn staging_db_mut(staging: &mut Self::Staging) -> CoreResult<&mut Connection>;
 }
-

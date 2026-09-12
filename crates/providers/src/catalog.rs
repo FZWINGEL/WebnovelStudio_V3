@@ -10,8 +10,8 @@ use super::claude_profile::{CLAUDE_FABLE_MODEL, CLAUDE_OPUS_MODEL, CLAUDE_SONNET
 use super::codex_catalog::CodexCatalog;
 use super::endpoints::{ENDPOINT_PROVIDER_PREFIX, EndpointProfilesSettings};
 use super::preferences::{ModelKey, ModelSelection, ModelSettings};
-use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
+use wns_kernel::{CoreError, CoreResult};
 
 pub const CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const MOCK_PROVIDER_ID: &str = "mock";

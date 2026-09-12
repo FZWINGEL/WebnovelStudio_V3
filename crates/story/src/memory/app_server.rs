@@ -1,7 +1,7 @@
-use wns_kernel::{CoreError, CoreResult};
 use super::*;
 use crate::context_packets;
 use crate::story_context;
+use wns_kernel::{CoreError, CoreResult};
 use wns_providers::codex_app_server::{is_app_server, valid_identifier};
 // Actor-side logic, as free functions over `StoryHost`.
 
@@ -10,7 +10,7 @@ pub fn claim_memory_app_server_dispatch(
     owner: MemoryOwner,
     dispatch: AppServerDispatch,
 ) -> CoreResult<()> {
-    validate_runtime_owner(&host.info(), &owner)?;
+    validate_runtime_owner(host.info(), &owner)?;
     dispatch.validate()?;
     let tx = host
         .db_mut()?
@@ -58,7 +58,7 @@ pub fn acknowledge_memory_app_server_turn(
     dispatch: AppServerDispatch,
     turn_id: String,
 ) -> CoreResult<()> {
-    validate_runtime_owner(&host.info(), &owner)?;
+    validate_runtime_owner(host.info(), &owner)?;
     dispatch.validate()?;
     if !valid_identifier(&turn_id) {
         return Err(CoreError::new(

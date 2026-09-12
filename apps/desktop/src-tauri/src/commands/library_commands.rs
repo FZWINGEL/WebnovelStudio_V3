@@ -28,7 +28,7 @@ fn lock_error() -> CoreError {
 }
 
 #[tauri::command]
-pub async fn library_snapshot( state: State<'_, AppState>) -> CoreResult<LibrarySnapshot> {
+pub async fn library_snapshot(state: State<'_, AppState>) -> CoreResult<LibrarySnapshot> {
     let app = &*state;
     let state = &app.library;
     let state = state.clone();
@@ -45,7 +45,8 @@ pub async fn library_snapshot( state: State<'_, AppState>) -> CoreResult<Library
 pub async fn library_create(
     operation_id: String,
     title: String,
-    session: String, state: State<'_, AppState>,
+    session: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
     let app = &*state;
     let state = &app.library;
@@ -88,7 +89,8 @@ pub async fn library_create(
 #[tauri::command]
 pub async fn library_open(
     path: Option<String>,
-    session: String, state: State<'_, AppState>,
+    session: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<Option<OpenedProject>> {
     let app = &*state;
     let state = &app.library;
@@ -119,7 +121,8 @@ pub async fn library_open(
 #[tauri::command]
 pub async fn library_archive(
     project_id: String,
-    archived: bool, state: State<'_, AppState>,
+    archived: bool,
+    state: State<'_, AppState>,
 ) -> CoreResult<()> {
     let app = &*state;
     let state = &app.library;
@@ -142,7 +145,8 @@ pub async fn library_archive(
 pub async fn library_recover(
     operation_id: String,
     title: String,
-    session: String, state: State<'_, AppState>,
+    session: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<Option<OpenedProject>> {
     let app = &*state;
     let state = &app.library;
@@ -232,7 +236,8 @@ pub async fn library_duplicate(
     operation_id: String,
     access: Option<ProjectAccess>,
     title: String,
-    session: String, state: State<'_, AppState>,
+    session: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
     let app = &*state;
     let state = &app.library;
@@ -342,7 +347,8 @@ pub async fn library_duplicate(
 #[tauri::command]
 pub async fn library_resume_import(
     operation_id: String,
-    session: String, state: State<'_, AppState>,
+    session: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
     let app = &*state;
     let state = &app.library;
@@ -375,7 +381,8 @@ pub async fn library_resume_import(
 }
 #[tauri::command]
 pub async fn project_backup(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<Option<String>> {
     let app = &*state;
     let projects = &app.projects;

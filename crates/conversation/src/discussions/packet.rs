@@ -274,9 +274,7 @@ pub(super) fn insert_packet(
                 completed_invocations: 0,
                 exchanges: Vec::new(),
                 source_projection: None,
-                reviewed_memory: Some(
-                    wns_context::lookup::REVIEWED_MEMORY_CAPABILITY.to_owned(),
-                ),
+                reviewed_memory: Some(wns_context::lookup::REVIEWED_MEMORY_CAPABILITY.to_owned()),
             }),
         response_contract: response_contract
             .map(str::to_owned)
@@ -309,9 +307,7 @@ pub(super) fn packet_instruction(
     request: &StartDiscussion,
     response_contract: Option<&str>,
 ) -> CoreResult<String> {
-    if response_contract
-        == Some(project_chat_output::CHAPTER_DISCUSSION_RESPONSE_CONTRACT)
-    {
+    if response_contract == Some(project_chat_output::CHAPTER_DISCUSSION_RESPONSE_CONTRACT) {
         let target = serde_json::to_string(&request.expected)?;
         return Ok(format!(
             "{}\n\n{}\n{}",

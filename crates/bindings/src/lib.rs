@@ -69,6 +69,9 @@
 //!   *first* occurrence of a name, which for an enum is one variant of several:
 //!   `LookupRead` carries `offset` in four of its six. A derivation is only as
 //!   good as the grammar it reads, and the compiler is the check on both.
+//!   The source checks now parse Rust with `syn`, including multiline serde
+//!   attributes and enum fields. Skipped `Option` fields on enum variants also
+//!   need an explicit `?`; [`mark_absent`] supplies it and removes `| null`.
 //!
 //! **Let the compiler close both lists.** The workshop's derives converged in 6
 //!   rounds (workshop → story vocabulary → run vocabulary → provider and context
@@ -84,9 +87,17 @@
 //! the mirror it replaces: every *other* field still comes from Rust, so a
 //! rename there is still a build failure rather than a runtime `undefined`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+pub mod commands;
+mod output;
+pub use output::{output_differences, write_groups};
+
+/// Export, declaration validation, or output filesystem failure.
+pub type BindingResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 /// One crate's IPC-facing types.
+#[derive(Debug)]
 pub struct Group {
     /// The generated file's name, without extension.
     pub file: &'static str,
@@ -112,17 +123,32 @@ pub fn group(
     file: &'static str,
     crate_name: &'static str,
     exported: Vec<(&'static str, Result<String, specta::ts::TsExportError>)>,
-) -> Result<Group, specta::ts::TsExportError> {
-    let mut declarations: BTreeMap<String, String> = BTreeMap::new();
-    for (_, text) in exported {
+) -> BindingResult<Group> {
+    let mut declarations: BTreeMap<String, (String, &str)> = BTreeMap::new();
+    for (source, text) in exported {
         for block in split_declarations(&text?) {
             if let Some(name) = declaration_name(&block) {
                 let marked = mark_absent(&name, &mark_omitted(&name, &block));
-                declarations.entry(name).or_insert(marked);
+                if let Some((previous, previous_source)) = declarations.get(&name) {
+                    if previous != &marked {
+                        return Err(format!(
+                            "conflicting TypeScript declaration `{name}` in {crate_name} ({file}.ts): {previous_source} and {source}"
+                        ).into());
+                    }
+                } else {
+                    declarations.insert(name, (marked, source));
+                }
             }
         }
     }
-    Ok(Group { file, crate_name, types: declarations.into_iter().collect() })
+    Ok(Group {
+        file,
+        crate_name,
+        types: declarations
+            .into_iter()
+            .map(|(name, (text, _))| (name, text))
+            .collect(),
+    })
 }
 
 /// Render one group as a TypeScript module.
@@ -134,6 +160,7 @@ pub fn group(
 pub fn render(group: &Group, others: &[Group]) -> String {
     let own: Vec<&str> = group.types.iter().map(|(n, _)| n.as_str()).collect();
     let mut imports: Vec<(&str, Vec<&str>)> = Vec::new();
+    let mut imported = BTreeSet::new();
     for other in others {
         if other.file == group.file {
             continue;
@@ -153,6 +180,9 @@ pub fn render(group: &Group, others: &[Group]) -> String {
                     })
                 })
             })
+            // Identical declarations may occur in multiple groups. Import
+            // each name from the first owner in the validated group order.
+            .filter(|name| imported.insert(*name))
             .collect();
         if !referenced.is_empty() {
             imports.push((other.file, referenced));
@@ -165,7 +195,11 @@ pub fn render(group: &Group, others: &[Group]) -> String {
         group.crate_name
     );
     for (file, names) in &imports {
-        out.push_str(&format!("import type {{ {} }} from './{}';\n", names.join(", "), file));
+        out.push_str(&format!(
+            "import type {{ {} }} from './{}';\n",
+            names.join(", "),
+            file
+        ));
     }
     out.push('\n');
     for (_, block) in &group.types {
@@ -176,12 +210,50 @@ pub fn render(group: &Group, others: &[Group]) -> String {
 }
 
 /// Render every group, each importing what it needs from the others.
-pub fn render_all() -> Result<Vec<(String, String)>, specta::ts::TsExportError> {
-    let groups = groups()?;
+pub fn render_all() -> BindingResult<Vec<(String, String)>> {
+    render_groups(&groups()?)
+}
+
+/// Validate the complete declaration and filename inventory before rendering.
+pub fn render_groups(groups: &[Group]) -> BindingResult<Vec<(String, String)>> {
+    let mut files = BTreeMap::new();
+    let mut declarations: BTreeMap<&str, (&str, &Group)> = BTreeMap::new();
+    for group in groups {
+        if !valid_file_stem(group.file) {
+            return Err(format!("invalid binding output filename: {:?}", group.file).into());
+        }
+        if let Some(previous) = files.insert(group.file, group.crate_name) {
+            return Err(format!(
+                "duplicate binding output filename {}.ts: {previous} and {}",
+                group.file, group.crate_name
+            )
+            .into());
+        }
+        for (name, text) in &group.types {
+            if let Some((previous, owner)) = declarations.get(name.as_str()) {
+                if previous != text {
+                    return Err(format!(
+                        "conflicting TypeScript declaration `{name}`: {} ({}.ts) and {} ({}.ts)",
+                        owner.crate_name, owner.file, group.crate_name, group.file
+                    )
+                    .into());
+                }
+            } else {
+                declarations.insert(name, (text, group));
+            }
+        }
+    }
     Ok(groups
         .iter()
-        .map(|g| (format!("{}.ts", g.file), render(g, &groups)))
+        .map(|g| (format!("{}.ts", g.file), render(g, groups)))
         .collect())
+}
+
+fn valid_file_stem(stem: &str) -> bool {
+    stem.starts_with(|c: char| c.is_ascii_lowercase())
+        && stem
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
 }
 
 /// Fields Rust omits when empty, as `(Rust type, Rust field)`.
@@ -211,7 +283,8 @@ pub const OMITTED_WHEN_EMPTY: &[(&str, &str)] = &[
     ("HistoricalConversationItem", "draft_revisions"),
     ("HistoricalConversationItem", "messages"),
     ("HistoricalConversationItem", "source_revisions"),
-    ("LookupRead", "offset"),    ("PacketOptions", "max_output_tokens"),
+    ("LookupRead", "offset"),
+    ("PacketOptions", "max_output_tokens"),
     ("PacketReceipt", "conversation_message_ids"),
     ("PacketReceipt", "guidance_handles"),
     ("PacketReceipt", "mandatory_source_handles"),
@@ -231,7 +304,8 @@ pub const OMITTED_WHEN_EMPTY: &[(&str, &str)] = &[
     ("Proposal", "kind"),
     ("SaveDiscussionDraft", "intent"),
     ("StartDiscussion", "intent"),
-    ("TypedReplacementInline", "marks"),    ("WorkshopAdoptionPreview", "endpoint_sources"),
+    ("TypedReplacementInline", "marks"),
+    ("WorkshopAdoptionPreview", "endpoint_sources"),
     ("WorkshopAdoptionPreview", "impacts"),
     ("WorkshopAdoptionPreview", "relationships"),
     ("WorkshopContext", "story_possibilities"),
@@ -247,11 +321,9 @@ pub const OMITTED_WHEN_EMPTY: &[(&str, &str)] = &[
 /// told otherwise, so the suffix is removed here, from a list that
 /// `tests/skipped.rs` re-derives from the Rust source.
 ///
-/// Removing it is safe in the request direction too: a caller that would have
-/// passed `null` can omit the field, and `#[serde(default)]` reads the two
-/// identically.
+/// This matters in the request direction too: some custom deserializers reject
+/// explicit `null` while allowing the field to be omitted with `serde(default)`.
 pub const SKIPPED_WHEN_NONE: &[(&str, &str)] = &[
-    // 141 fields across 64 types
     ("AssistantDraft", "predecessor_document_id"),
     ("BackgroundWorkItem", "title"),
     ("ChapterDiscussionFeedback", "range_error"),
@@ -300,6 +372,9 @@ pub const SKIPPED_WHEN_NONE: &[(&str, &str)] = &[
     ("HttpProviderUsage", "output_tokens"),
     ("HttpProviderUsage", "total_tokens"),
     ("LookupPacketInput", "source_projection"),
+    ("LookupPacketInput", "reviewed_memory"),
+    ("LookupRead", "block_ids"),
+    ("LookupRead", "topic_id"),
     ("MemoryResult", "app_server"),
     ("MemoryResult", "delivery"),
     ("PacketOptions", "provider_binding"),
@@ -444,7 +519,8 @@ fn mark_omitted(name: &str, block: &str) -> String {
     out
 }
 
-/// Drop the `| null` specta adds to an `Option` whose `None` is skipped.
+/// Mark a skipped `Option` as absent, including enum fields that specta does
+/// not mark optional, and drop its `| null` suffix.
 fn mark_absent(name: &str, block: &str) -> String {
     let mut out = block.to_owned();
     for (ty, field) in SKIPPED_WHEN_NONE {
@@ -455,9 +531,11 @@ fn mark_absent(name: &str, block: &str) -> String {
         let mut from = 0;
         while let Some(rel) = out[from..].find(&key) {
             let at = from + rel;
-            let free = !out[..at].chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_');
-            // `mark_omitted` has already inserted the `?` this field needs, so
-            // the key is followed by `?:` as often as by `:`.
+            let free = !out[..at]
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_');
+            // specta marks struct fields optional but misses enum fields.
             let mut after = at + key.len();
             if out[after..].starts_with('?') {
                 after += 1;
@@ -465,6 +543,10 @@ fn mark_absent(name: &str, block: &str) -> String {
             if !free || !out[after..].starts_with(':') {
                 from = at + key.len();
                 continue;
+            }
+            if after == at + key.len() {
+                out.insert(after, '?');
+                after += 1;
             }
             // The type runs to the next `;` or `}` at this depth; an inline
             // object inside it nests, so braces are counted.
@@ -474,9 +556,15 @@ fn mark_absent(name: &str, block: &str) -> String {
             for (offset, c) in out[start..].char_indices() {
                 match c {
                     '{' | '[' | '(' => depth += 1,
-                    '}' | ']' | ')' if depth == 0 => { end = start + offset; break }
+                    '}' | ']' | ')' if depth == 0 => {
+                        end = start + offset;
+                        break;
+                    }
                     '}' | ']' | ')' => depth -= 1,
-                    ';' if depth == 0 => { end = start + offset; break }
+                    ';' if depth == 0 => {
+                        end = start + offset;
+                        break;
+                    }
                     _ => {}
                 }
             }
@@ -534,7 +622,7 @@ fn declaration_name(block: &str) -> Option<String> {
 }
 
 /// Every group the frontend has been migrated onto.
-pub fn groups() -> Result<Vec<Group>, specta::ts::TsExportError> {
+pub fn groups() -> BindingResult<Vec<Group>> {
     Ok(vec![
         wns_groups::kernel()?,
         wns_groups::workshop()?,
@@ -542,7 +630,10 @@ pub fn groups() -> Result<Vec<Group>, specta::ts::TsExportError> {
         wns_groups::documents()?,
         wns_groups::conversation()?,
         wns_groups::story()?,
-    wns_groups::providers()?, wns_groups::transfer()?, wns_groups::library()?, ])
+        wns_groups::providers()?,
+        wns_groups::transfer()?,
+        wns_groups::library()?,
+    ])
 }
 
 /// The workspace root, from this crate's manifest directory.
@@ -554,10 +645,10 @@ pub fn workspace_root() -> std::path::PathBuf {
 }
 
 mod wns_groups {
-    use super::{group, one, Group};
+    use super::{BindingResult, Group, group, one};
 
     /// `wns-kernel`'s IPC types.
-    pub fn kernel() -> Result<Group, specta::ts::TsExportError> {
+    pub fn kernel() -> BindingResult<Group> {
         group(
             "kernel",
             "wns-kernel",
@@ -587,337 +678,1036 @@ mod wns_groups {
     /// dependencies without always declaring them, so every name the generated
     /// file mentions is listed here — closed against the frontend compiler
     /// rather than by hand.
-    pub fn workshop() -> Result<Group, specta::ts::TsExportError> {
+    pub fn workshop() -> BindingResult<Group> {
         group(
             "workshop",
             "wns-workshop",
             vec![
-                ("WorkshopRelationshipDraft", one::<wns_workshop::workshop::WorkshopRelationshipDraft>()),
-                ("WorkshopImpactDraft", one::<wns_workshop::workshop::WorkshopImpactDraft>()),
-                ("WorkshopAdoptionImpact", one::<wns_workshop::workshop::WorkshopAdoptionImpact>()),
-                ("WorkshopSnapshot", one::<wns_workshop::workshop::WorkshopSnapshot>()),
-                ("WorkshopCandidateImplication", one::<wns_workshop::workshop::WorkshopCandidateImplication>()),
-                ("WorkshopCandidateAffectedTarget", one::<wns_workshop::workshop::WorkshopCandidateAffectedTarget>()),
-                ("WorkshopCandidate", one::<wns_workshop::workshop::WorkshopCandidate>()),
-                ("WorkshopOutputInterpretation", one::<wns_workshop::workshop::WorkshopOutputInterpretation>()),
-                ("WorkshopOutput", one::<wns_workshop::workshop::WorkshopOutput>()),
-                ("WorkshopResult", one::<wns_workshop::workshop::WorkshopResult>()),
-                ("WorkshopView", one::<wns_workshop::workshop::WorkshopView>()),
-                ("SaveWorkshop", one::<wns_workshop::workshop::SaveWorkshop>()),
-                ("WorkshopAdoptionTarget", one::<wns_workshop::workshop::WorkshopAdoptionTarget>()),
-                ("AdoptionMode", one::<wns_workshop::workshop::AdoptionMode>()),
-                ("PreviewWorkshopAdoption", one::<wns_workshop::workshop::PreviewWorkshopAdoption>()),
-                ("WorkshopAdoptionPreview", one::<wns_workshop::workshop::WorkshopAdoptionPreview>()),
-                ("WorkshopAdoptionAck", one::<wns_workshop::workshop::WorkshopAdoptionAck>()),
-                ("WorkshopDepth", one::<wns_story::workshop_vocabulary::WorkshopDepth>()),
-                ("PreferencePolarity", one::<wns_story::workshop_vocabulary::PreferencePolarity>()),
-                ("PreferenceStrength", one::<wns_story::workshop_vocabulary::PreferenceStrength>()),
-                ("PreferenceScope", one::<wns_story::workshop_vocabulary::PreferenceScope>()),
-                ("CandidateChoiceStatus", one::<wns_story::workshop_vocabulary::CandidateChoiceStatus>()),
-                ("WorkshopQuestionStatus", one::<wns_story::workshop_vocabulary::WorkshopQuestionStatus>()),
-                ("UnknownTo", one::<wns_story::workshop_vocabulary::UnknownTo>()),
-                ("WorkshopRelationshipStatus", one::<wns_story::workshop_vocabulary::WorkshopRelationshipStatus>()),
-                ("WorkshopPreference", one::<wns_story::workshop_vocabulary::WorkshopPreference>()),
-                ("WorkshopQuestion", one::<wns_story::workshop_vocabulary::WorkshopQuestion>()),
-                ("StoryPossibilityKind", one::<wns_story::workshop_vocabulary::StoryPossibilityKind>()),
-                ("StoryPossibilityStatus", one::<wns_story::workshop_vocabulary::StoryPossibilityStatus>()),
-                ("StoryPossibility", one::<wns_story::workshop_vocabulary::StoryPossibility>()),
-                ("WorkshopRelationship", one::<wns_story::workshop_vocabulary::WorkshopRelationship>()),
-                ("WorkshopBranchKind", one::<wns_story::workshop_vocabulary::WorkshopBranchKind>()),
-                ("WorkshopDecisionStatus", one::<wns_story::workshop_vocabulary::WorkshopDecisionStatus>()),
-                ("WorkshopImpactKind", one::<wns_story::workshop_vocabulary::WorkshopImpactKind>()),
-                ("WorkshopImpactStatus", one::<wns_story::workshop_vocabulary::WorkshopImpactStatus>()),
-                ("SelectedDetail", one::<wns_story::workshop_vocabulary::SelectedDetail>()),
-                ("CandidateChoice", one::<wns_story::workshop_vocabulary::CandidateChoice>()),
-                ("WorkshopSession", one::<wns_story::workshop_vocabulary::WorkshopSession>()),
-                ("WorkshopDecision", one::<wns_story::workshop_vocabulary::WorkshopDecision>()),
-                ("WorkshopImpact", one::<wns_story::workshop_vocabulary::WorkshopImpact>()),
-                ("WorkshopPreset", one::<wns_story::workshop_vocabulary::WorkshopPreset>()),
-                ("WorkshopState", one::<wns_story::workshop_vocabulary::WorkshopState>()),
-                ("DiscussionRun", one::<wns_story::run_vocabulary::DiscussionRun>()),
+                (
+                    "WorkshopRelationshipDraft",
+                    one::<wns_workshop::workshop::WorkshopRelationshipDraft>(),
+                ),
+                (
+                    "WorkshopImpactDraft",
+                    one::<wns_workshop::workshop::WorkshopImpactDraft>(),
+                ),
+                (
+                    "WorkshopAdoptionImpact",
+                    one::<wns_workshop::workshop::WorkshopAdoptionImpact>(),
+                ),
+                (
+                    "WorkshopSnapshot",
+                    one::<wns_workshop::workshop::WorkshopSnapshot>(),
+                ),
+                (
+                    "WorkshopCandidateImplication",
+                    one::<wns_workshop::workshop::WorkshopCandidateImplication>(),
+                ),
+                (
+                    "WorkshopCandidateAffectedTarget",
+                    one::<wns_workshop::workshop::WorkshopCandidateAffectedTarget>(),
+                ),
+                (
+                    "WorkshopCandidate",
+                    one::<wns_workshop::workshop::WorkshopCandidate>(),
+                ),
+                (
+                    "WorkshopOutputInterpretation",
+                    one::<wns_workshop::workshop::WorkshopOutputInterpretation>(),
+                ),
+                (
+                    "WorkshopOutput",
+                    one::<wns_workshop::workshop::WorkshopOutput>(),
+                ),
+                (
+                    "WorkshopResult",
+                    one::<wns_workshop::workshop::WorkshopResult>(),
+                ),
+                (
+                    "WorkshopView",
+                    one::<wns_workshop::workshop::WorkshopView>(),
+                ),
+                (
+                    "SaveWorkshop",
+                    one::<wns_workshop::workshop::SaveWorkshop>(),
+                ),
+                (
+                    "WorkshopAdoptionTarget",
+                    one::<wns_workshop::workshop::WorkshopAdoptionTarget>(),
+                ),
+                (
+                    "AdoptionMode",
+                    one::<wns_workshop::workshop::AdoptionMode>(),
+                ),
+                (
+                    "PreviewWorkshopAdoption",
+                    one::<wns_workshop::workshop::PreviewWorkshopAdoption>(),
+                ),
+                (
+                    "WorkshopAdoptionPreview",
+                    one::<wns_workshop::workshop::WorkshopAdoptionPreview>(),
+                ),
+                (
+                    "WorkshopAdoptionAck",
+                    one::<wns_workshop::workshop::WorkshopAdoptionAck>(),
+                ),
+                (
+                    "WorkshopDepth",
+                    one::<wns_story::workshop_vocabulary::WorkshopDepth>(),
+                ),
+                (
+                    "PreferencePolarity",
+                    one::<wns_story::workshop_vocabulary::PreferencePolarity>(),
+                ),
+                (
+                    "PreferenceStrength",
+                    one::<wns_story::workshop_vocabulary::PreferenceStrength>(),
+                ),
+                (
+                    "PreferenceScope",
+                    one::<wns_story::workshop_vocabulary::PreferenceScope>(),
+                ),
+                (
+                    "CandidateChoiceStatus",
+                    one::<wns_story::workshop_vocabulary::CandidateChoiceStatus>(),
+                ),
+                (
+                    "WorkshopQuestionStatus",
+                    one::<wns_story::workshop_vocabulary::WorkshopQuestionStatus>(),
+                ),
+                (
+                    "UnknownTo",
+                    one::<wns_story::workshop_vocabulary::UnknownTo>(),
+                ),
+                (
+                    "WorkshopRelationshipStatus",
+                    one::<wns_story::workshop_vocabulary::WorkshopRelationshipStatus>(),
+                ),
+                (
+                    "WorkshopPreference",
+                    one::<wns_story::workshop_vocabulary::WorkshopPreference>(),
+                ),
+                (
+                    "WorkshopQuestion",
+                    one::<wns_story::workshop_vocabulary::WorkshopQuestion>(),
+                ),
+                (
+                    "StoryPossibilityKind",
+                    one::<wns_story::workshop_vocabulary::StoryPossibilityKind>(),
+                ),
+                (
+                    "StoryPossibilityStatus",
+                    one::<wns_story::workshop_vocabulary::StoryPossibilityStatus>(),
+                ),
+                (
+                    "StoryPossibility",
+                    one::<wns_story::workshop_vocabulary::StoryPossibility>(),
+                ),
+                (
+                    "WorkshopRelationship",
+                    one::<wns_story::workshop_vocabulary::WorkshopRelationship>(),
+                ),
+                (
+                    "WorkshopBranchKind",
+                    one::<wns_story::workshop_vocabulary::WorkshopBranchKind>(),
+                ),
+                (
+                    "WorkshopDecisionStatus",
+                    one::<wns_story::workshop_vocabulary::WorkshopDecisionStatus>(),
+                ),
+                (
+                    "WorkshopImpactKind",
+                    one::<wns_story::workshop_vocabulary::WorkshopImpactKind>(),
+                ),
+                (
+                    "WorkshopImpactStatus",
+                    one::<wns_story::workshop_vocabulary::WorkshopImpactStatus>(),
+                ),
+                (
+                    "SelectedDetail",
+                    one::<wns_story::workshop_vocabulary::SelectedDetail>(),
+                ),
+                (
+                    "CandidateChoice",
+                    one::<wns_story::workshop_vocabulary::CandidateChoice>(),
+                ),
+                (
+                    "WorkshopSession",
+                    one::<wns_story::workshop_vocabulary::WorkshopSession>(),
+                ),
+                (
+                    "WorkshopDecision",
+                    one::<wns_story::workshop_vocabulary::WorkshopDecision>(),
+                ),
+                (
+                    "WorkshopImpact",
+                    one::<wns_story::workshop_vocabulary::WorkshopImpact>(),
+                ),
+                (
+                    "WorkshopPreset",
+                    one::<wns_story::workshop_vocabulary::WorkshopPreset>(),
+                ),
+                (
+                    "WorkshopState",
+                    one::<wns_story::workshop_vocabulary::WorkshopState>(),
+                ),
+                (
+                    "DiscussionRun",
+                    one::<wns_story::run_vocabulary::DiscussionRun>(),
+                ),
                 ("Lens", one::<wns_story::workshop_vocabulary::Lens>()),
-                ("WorkshopWorkingSelection", one::<wns_story::workshop_metadata::WorkshopWorkingSelection>()),
+                (
+                    "WorkshopWorkingSelection",
+                    one::<wns_story::workshop_metadata::WorkshopWorkingSelection>(),
+                ),
                 ("BasisKind", one::<wns_context::contracts::BasisKind>()),
-                ("DiscussionRunStatus", one::<wns_story::run_vocabulary::DiscussionRunStatus>()),
-                ("FeedbackIntent", one::<wns_story::discussion_vocabulary::FeedbackIntent>()),
-                ("LookupRunSummary", one::<wns_story::run_vocabulary::LookupRunSummary>()),
-                ("ProviderBinding", one::<wns_providers::vocabulary::ProviderBinding>()),
-                ("ProviderResult", one::<wns_story::run_vocabulary::ProviderResult>()),
+                (
+                    "DiscussionRunStatus",
+                    one::<wns_story::run_vocabulary::DiscussionRunStatus>(),
+                ),
+                (
+                    "FeedbackIntent",
+                    one::<wns_story::discussion_vocabulary::FeedbackIntent>(),
+                ),
+                (
+                    "LookupRunSummary",
+                    one::<wns_story::run_vocabulary::LookupRunSummary>(),
+                ),
+                (
+                    "ProviderBinding",
+                    one::<wns_providers::vocabulary::ProviderBinding>(),
+                ),
+                (
+                    "ProviderResult",
+                    one::<wns_story::run_vocabulary::ProviderResult>(),
+                ),
                 ("RunOwner", one::<wns_story::run_vocabulary::RunOwner>()),
-                ("AppServerDelivery", one::<wns_providers::codex_app_server::AppServerDelivery>()),
-                ("HttpProviderBinding", one::<wns_providers::vocabulary::HttpProviderBinding>()),
-                ("LookupAllowance", one::<wns_context::lookup::LookupAllowance>()),
-                ("LookupInvocationSummary", one::<wns_story::run_vocabulary::LookupInvocationSummary>()),
-                ("ProviderCleanup", one::<wns_providers::vocabulary::ProviderCleanup>()),
-                ("ProviderDeliveryReceipt", one::<wns_providers::vocabulary::ProviderDeliveryReceipt>()),
-                ("ProviderOutcomeStatus", one::<wns_providers::vocabulary::ProviderOutcomeStatus>()),
-                ("ProviderRuntimeIdentity", one::<wns_providers::vocabulary::ProviderRuntimeIdentity>()),
-                ("ProviderUsage", one::<wns_providers::vocabulary::ProviderUsage>()),
-                ("AppServerConnectionSettlement", one::<wns_providers::codex_app_server::AppServerConnectionSettlement>()),
-                ("AppServerDispatch", one::<wns_providers::codex_app_server::AppServerDispatch>()),
-                ("AppServerRuntimeIdentity", one::<wns_providers::codex_app_server::AppServerRuntimeIdentity>()),
-                ("AppServerSubmission", one::<wns_providers::codex_app_server::AppServerSubmission>()),
-                ("AppServerTerminal", one::<wns_providers::codex_app_server::AppServerTerminal>()),
-                ("HttpDeliverySubmission", one::<wns_providers::vocabulary::HttpDeliverySubmission>()),
-                ("HttpProviderUsage", one::<wns_providers::vocabulary::HttpProviderUsage>()),
-                ("HttpResponseFormat", one::<wns_providers::vocabulary::HttpResponseFormat>()),
-                ("LookupInvocationState", one::<wns_story::run_vocabulary::LookupInvocationState>()),
+                (
+                    "AppServerDelivery",
+                    one::<wns_providers::codex_app_server::AppServerDelivery>(),
+                ),
+                (
+                    "HttpProviderBinding",
+                    one::<wns_providers::vocabulary::HttpProviderBinding>(),
+                ),
+                (
+                    "LookupAllowance",
+                    one::<wns_context::lookup::LookupAllowance>(),
+                ),
+                (
+                    "LookupInvocationSummary",
+                    one::<wns_story::run_vocabulary::LookupInvocationSummary>(),
+                ),
+                (
+                    "ProviderCleanup",
+                    one::<wns_providers::vocabulary::ProviderCleanup>(),
+                ),
+                (
+                    "ProviderDeliveryReceipt",
+                    one::<wns_providers::vocabulary::ProviderDeliveryReceipt>(),
+                ),
+                (
+                    "ProviderOutcomeStatus",
+                    one::<wns_providers::vocabulary::ProviderOutcomeStatus>(),
+                ),
+                (
+                    "ProviderRuntimeIdentity",
+                    one::<wns_providers::vocabulary::ProviderRuntimeIdentity>(),
+                ),
+                (
+                    "ProviderUsage",
+                    one::<wns_providers::vocabulary::ProviderUsage>(),
+                ),
+                (
+                    "AppServerConnectionSettlement",
+                    one::<wns_providers::codex_app_server::AppServerConnectionSettlement>(),
+                ),
+                (
+                    "AppServerDispatch",
+                    one::<wns_providers::codex_app_server::AppServerDispatch>(),
+                ),
+                (
+                    "AppServerRuntimeIdentity",
+                    one::<wns_providers::codex_app_server::AppServerRuntimeIdentity>(),
+                ),
+                (
+                    "AppServerSubmission",
+                    one::<wns_providers::codex_app_server::AppServerSubmission>(),
+                ),
+                (
+                    "AppServerTerminal",
+                    one::<wns_providers::codex_app_server::AppServerTerminal>(),
+                ),
+                (
+                    "HttpDeliverySubmission",
+                    one::<wns_providers::vocabulary::HttpDeliverySubmission>(),
+                ),
+                (
+                    "HttpProviderUsage",
+                    one::<wns_providers::vocabulary::HttpProviderUsage>(),
+                ),
+                (
+                    "HttpResponseFormat",
+                    one::<wns_providers::vocabulary::HttpResponseFormat>(),
+                ),
+                (
+                    "LookupInvocationState",
+                    one::<wns_story::run_vocabulary::LookupInvocationState>(),
+                ),
             ],
         )
     }
 
     /// `context`'s IPC closure: every name its generated file mentions, closed
     /// against the frontend compiler rather than typed by hand.
-    pub fn context() -> Result<Group, specta::ts::TsExportError> {
+    pub fn context() -> BindingResult<Group> {
         group(
             "context",
             "context",
             vec![
-                ("CompiledPacket", one::<wns_context::packet::CompiledPacket>()),
-                ("ContextEpochs", one::<wns_story::story_context::ContextEpochs>()),
-                ("ContextPurpose", one::<wns_context::contracts::ContextPurpose>()),
-                ("ConversationMessage", one::<wns_context::conversation::ConversationMessage>()),
-                ("ConversationTurn", one::<wns_context::conversation::ConversationTurn>()),
-                ("EvidenceHistory", one::<wns_context::evidence_history::EvidenceHistory>()),
-                ("EvidenceHistoryObservation", one::<wns_context::evidence_history::EvidenceHistoryObservation>()),
+                (
+                    "CompiledPacket",
+                    one::<wns_context::packet::CompiledPacket>(),
+                ),
+                (
+                    "ContextEpochs",
+                    one::<wns_story::story_context::ContextEpochs>(),
+                ),
+                (
+                    "ContextPurpose",
+                    one::<wns_context::contracts::ContextPurpose>(),
+                ),
+                (
+                    "ConversationMessage",
+                    one::<wns_context::conversation::ConversationMessage>(),
+                ),
+                (
+                    "ConversationTurn",
+                    one::<wns_context::conversation::ConversationTurn>(),
+                ),
+                (
+                    "EvidenceHistory",
+                    one::<wns_context::evidence_history::EvidenceHistory>(),
+                ),
+                (
+                    "EvidenceHistoryObservation",
+                    one::<wns_context::evidence_history::EvidenceHistoryObservation>(),
+                ),
                 ("FrozenContext", one::<wns_context::frozen::FrozenContext>()),
-                ("FrozenConversation", one::<wns_context::conversation::FrozenConversation>()),
-                ("FrozenNavigationView", one::<wns_context::navigation::FrozenNavigationView>()),
-                ("InformationPolicy", one::<wns_context::contracts::InformationPolicy>()),
-                ("KnowledgeHistory", one::<wns_context::knowledge_history::KnowledgeHistory>()),
-                ("KnowledgeHistoryObservation", one::<wns_context::knowledge_history::KnowledgeHistoryObservation>()),
-                ("LookupExchange", one::<wns_context::lookup::LookupExchange>()),
-                ("LookupPacketInput", one::<wns_context::lookup::LookupPacketInput>()),
-                ("LookupSourceProjection", one::<wns_context::lookup::LookupSourceProjection>()),
-                ("MockContextBudget", one::<wns_context::packet::MockContextBudget>()),
-                ("NavigationViewOmission", one::<wns_context::navigation::NavigationViewOmission>()),
-                ("NavigationViewRef", one::<wns_context::navigation::NavigationViewRef>()),
-                ("PacketReceipt", one::<wns_context::contracts::PacketReceipt>()),
-                ("PreparationResult", one::<wns_story::context_packets::PreparationResult>()),
-                ("PromiseHistory", one::<wns_context::promise_history::PromiseHistory>()),
-                ("PromiseHistoryObservation", one::<wns_context::promise_history::PromiseHistoryObservation>()),
-                ("ReviewedBasisManifest", one::<wns_context::contracts::ReviewedBasisManifest>()),
-                ("ReviewedEvidenceCoverage", one::<wns_context::reviewed_evidence::ReviewedEvidenceCoverage>()),
-                ("ReviewedEvidenceOmission", one::<wns_context::reviewed_evidence::ReviewedEvidenceOmission>()),
-                ("ReviewedEvidenceSet", one::<wns_context::reviewed_evidence::ReviewedEvidenceSet>()),
-                ("ReviewedHistoryResult", one::<wns_story::evidence_queries::ReviewedHistoryResult>()),
-                ("ReviewedKnowledgeHistoryResult", one::<wns_story::evidence_queries::ReviewedKnowledgeHistoryResult>()),
-                ("ReviewedKnowledgeSet", one::<wns_context::reviewed_knowledge::ReviewedKnowledgeSet>()),
-                ("ReviewedPromiseHistoryResult", one::<wns_story::evidence_queries::ReviewedPromiseHistoryResult>()),
-                ("ReviewedPromiseSet", one::<wns_context::reviewed_promises::ReviewedPromiseSet>()),
-                ("ReviewedSummaryCoverage", one::<wns_context::reviewed_summaries::ReviewedSummaryCoverage>()),
-                ("ReviewedSummaryOmission", one::<wns_context::reviewed_summaries::ReviewedSummaryOmission>()),
-                ("ReviewedSummarySet", one::<wns_context::reviewed_summaries::ReviewedSummarySet>()),
+                (
+                    "FrozenConversation",
+                    one::<wns_context::conversation::FrozenConversation>(),
+                ),
+                (
+                    "FrozenNavigationView",
+                    one::<wns_context::navigation::FrozenNavigationView>(),
+                ),
+                (
+                    "InformationPolicy",
+                    one::<wns_context::contracts::InformationPolicy>(),
+                ),
+                (
+                    "KnowledgeHistory",
+                    one::<wns_context::knowledge_history::KnowledgeHistory>(),
+                ),
+                (
+                    "KnowledgeHistoryObservation",
+                    one::<wns_context::knowledge_history::KnowledgeHistoryObservation>(),
+                ),
+                (
+                    "LookupExchange",
+                    one::<wns_context::lookup::LookupExchange>(),
+                ),
+                (
+                    "LookupPacketInput",
+                    one::<wns_context::lookup::LookupPacketInput>(),
+                ),
+                (
+                    "LookupSourceProjection",
+                    one::<wns_context::lookup::LookupSourceProjection>(),
+                ),
+                (
+                    "MockContextBudget",
+                    one::<wns_context::packet::MockContextBudget>(),
+                ),
+                (
+                    "NavigationViewOmission",
+                    one::<wns_context::navigation::NavigationViewOmission>(),
+                ),
+                (
+                    "NavigationViewRef",
+                    one::<wns_context::navigation::NavigationViewRef>(),
+                ),
+                (
+                    "PacketReceipt",
+                    one::<wns_context::contracts::PacketReceipt>(),
+                ),
+                (
+                    "PreparationResult",
+                    one::<wns_story::context_packets::PreparationResult>(),
+                ),
+                (
+                    "PromiseHistory",
+                    one::<wns_context::promise_history::PromiseHistory>(),
+                ),
+                (
+                    "PromiseHistoryObservation",
+                    one::<wns_context::promise_history::PromiseHistoryObservation>(),
+                ),
+                (
+                    "ReviewedBasisManifest",
+                    one::<wns_context::contracts::ReviewedBasisManifest>(),
+                ),
+                (
+                    "ReviewedEvidenceCoverage",
+                    one::<wns_context::reviewed_evidence::ReviewedEvidenceCoverage>(),
+                ),
+                (
+                    "ReviewedEvidenceOmission",
+                    one::<wns_context::reviewed_evidence::ReviewedEvidenceOmission>(),
+                ),
+                (
+                    "ReviewedEvidenceSet",
+                    one::<wns_context::reviewed_evidence::ReviewedEvidenceSet>(),
+                ),
+                (
+                    "ReviewedHistoryResult",
+                    one::<wns_story::evidence_queries::ReviewedHistoryResult>(),
+                ),
+                (
+                    "ReviewedKnowledgeHistoryResult",
+                    one::<wns_story::evidence_queries::ReviewedKnowledgeHistoryResult>(),
+                ),
+                (
+                    "ReviewedKnowledgeSet",
+                    one::<wns_context::reviewed_knowledge::ReviewedKnowledgeSet>(),
+                ),
+                (
+                    "ReviewedPromiseHistoryResult",
+                    one::<wns_story::evidence_queries::ReviewedPromiseHistoryResult>(),
+                ),
+                (
+                    "ReviewedPromiseSet",
+                    one::<wns_context::reviewed_promises::ReviewedPromiseSet>(),
+                ),
+                (
+                    "ReviewedSummaryCoverage",
+                    one::<wns_context::reviewed_summaries::ReviewedSummaryCoverage>(),
+                ),
+                (
+                    "ReviewedSummaryOmission",
+                    one::<wns_context::reviewed_summaries::ReviewedSummaryOmission>(),
+                ),
+                (
+                    "ReviewedSummarySet",
+                    one::<wns_context::reviewed_summaries::ReviewedSummarySet>(),
+                ),
                 ("ScopeGrant", one::<wns_documents::scope::ScopeGrant>()),
-                ("SourceDescriptor", one::<wns_context::contracts::SourceDescriptor>()),
+                (
+                    "SourceDescriptor",
+                    one::<wns_context::contracts::SourceDescriptor>(),
+                ),
                 ("SourcePassage", one::<wns_context::frozen::SourcePassage>()),
                 ("SourceRead", one::<wns_context::frozen::SourceRead>()),
                 ("SourceRef", one::<wns_context::contracts::SourceRef>()),
-                ("StorySnapshot", one::<wns_context::contracts::StorySnapshot>()),
+                (
+                    "StorySnapshot",
+                    one::<wns_context::contracts::StorySnapshot>(),
+                ),
                 ("Audience", one::<wns_context::contracts::Audience>()),
                 ("BudgetError", one::<wns_context::contracts::BudgetError>()),
-                ("CharacterGrant", one::<wns_context::contracts::CharacterGrant>()),
-                ("CoverageEntry", one::<wns_context::contracts::CoverageEntry>()),
-                ("CoverageLabel", one::<wns_context::contracts::CoverageLabel>()),
-                ("DigestCandidate", one::<wns_context::memory::DigestCandidate>()),
+                (
+                    "CharacterGrant",
+                    one::<wns_context::contracts::CharacterGrant>(),
+                ),
+                (
+                    "CoverageEntry",
+                    one::<wns_context::contracts::CoverageEntry>(),
+                ),
+                (
+                    "CoverageLabel",
+                    one::<wns_context::contracts::CoverageLabel>(),
+                ),
+                (
+                    "DigestCandidate",
+                    one::<wns_context::memory::DigestCandidate>(),
+                ),
                 ("Disclosure", one::<wns_context::contracts::Disclosure>()),
                 ("Endpoint", one::<wns_documents::scope::Endpoint>()),
-                ("EvidenceAnchor", one::<wns_context::story_records::EvidenceAnchor>()),
-                ("EvidenceAudience", one::<wns_context::story_records::EvidenceAudience>()),
-                ("EvidenceHistoryUncertainty", one::<wns_context::evidence_history::EvidenceHistoryUncertainty>()),
-                ("FrozenGuidance", one::<wns_context::guidance::FrozenGuidance>()),
-                ("FrozenProjectChat", one::<wns_context::chat_vocabulary::FrozenProjectChat>()),
-                ("KnowledgeAttitude", one::<wns_context::story_records::KnowledgeAttitude>()),
-                ("KnowledgeHistoryUncertainty", one::<wns_context::knowledge_history::KnowledgeHistoryUncertainty>()),
-                ("KnowledgeRecord", one::<wns_context::story_records::KnowledgeRecord>()),
+                (
+                    "EvidenceAnchor",
+                    one::<wns_context::story_records::EvidenceAnchor>(),
+                ),
+                (
+                    "EvidenceAudience",
+                    one::<wns_context::story_records::EvidenceAudience>(),
+                ),
+                (
+                    "EvidenceHistoryUncertainty",
+                    one::<wns_context::evidence_history::EvidenceHistoryUncertainty>(),
+                ),
+                (
+                    "FrozenGuidance",
+                    one::<wns_context::guidance::FrozenGuidance>(),
+                ),
+                (
+                    "FrozenProjectChat",
+                    one::<wns_context::chat_vocabulary::FrozenProjectChat>(),
+                ),
+                (
+                    "KnowledgeAttitude",
+                    one::<wns_context::story_records::KnowledgeAttitude>(),
+                ),
+                (
+                    "KnowledgeHistoryUncertainty",
+                    one::<wns_context::knowledge_history::KnowledgeHistoryUncertainty>(),
+                ),
+                (
+                    "KnowledgeRecord",
+                    one::<wns_context::story_records::KnowledgeRecord>(),
+                ),
                 ("LookupRead", one::<wns_context::lookup::LookupRead>()),
-                ("LookupReadResult", one::<wns_context::lookup::LookupReadResult>()),
-                ("LookupSourceProjectionSource", one::<wns_context::lookup::LookupSourceProjectionSource>()),
-                ("NavigationOmissionReason", one::<wns_context::navigation::NavigationOmissionReason>()),
-                ("PacketMessage", one::<wns_providers::vocabulary::PacketMessage>()),
-                ("PacketOptions", one::<wns_providers::vocabulary::PacketOptions>()),
-                ("PossessionRecord", one::<wns_context::story_records::PossessionRecord>()),
-                ("PossessionTiming", one::<wns_context::story_records::PossessionTiming>()),
-                ("PromiseHistoryUncertainty", one::<wns_context::promise_history::PromiseHistoryUncertainty>()),
-                ("PromisePhase", one::<wns_context::story_records::PromisePhase>()),
-                ("PromiseRecord", one::<wns_context::story_records::PromiseRecord>()),
-                ("ReviewedBasisMember", one::<wns_context::contracts::ReviewedBasisMember>()),
-                ("ReviewedEvidenceOmissionReason", one::<wns_context::reviewed_evidence::ReviewedEvidenceOmissionReason>()),
-                ("ReviewedSummaryOmissionReason", one::<wns_context::reviewed_summaries::ReviewedSummaryOmissionReason>()),
-                ("SafeBriefReceipt", one::<wns_context::contracts::SafeBriefReceipt>()),
+                (
+                    "LookupReadResult",
+                    one::<wns_context::lookup::LookupReadResult>(),
+                ),
+                (
+                    "LookupSourceProjectionSource",
+                    one::<wns_context::lookup::LookupSourceProjectionSource>(),
+                ),
+                (
+                    "NavigationOmissionReason",
+                    one::<wns_context::navigation::NavigationOmissionReason>(),
+                ),
+                (
+                    "PacketMessage",
+                    one::<wns_providers::vocabulary::PacketMessage>(),
+                ),
+                (
+                    "PacketOptions",
+                    one::<wns_providers::vocabulary::PacketOptions>(),
+                ),
+                (
+                    "PossessionRecord",
+                    one::<wns_context::story_records::PossessionRecord>(),
+                ),
+                (
+                    "PossessionTiming",
+                    one::<wns_context::story_records::PossessionTiming>(),
+                ),
+                (
+                    "PromiseHistoryUncertainty",
+                    one::<wns_context::promise_history::PromiseHistoryUncertainty>(),
+                ),
+                (
+                    "PromisePhase",
+                    one::<wns_context::story_records::PromisePhase>(),
+                ),
+                (
+                    "PromiseRecord",
+                    one::<wns_context::story_records::PromiseRecord>(),
+                ),
+                (
+                    "ReviewedBasisMember",
+                    one::<wns_context::contracts::ReviewedBasisMember>(),
+                ),
+                (
+                    "ReviewedEvidenceOmissionReason",
+                    one::<wns_context::reviewed_evidence::ReviewedEvidenceOmissionReason>(),
+                ),
+                (
+                    "ReviewedSummaryOmissionReason",
+                    one::<wns_context::reviewed_summaries::ReviewedSummaryOmissionReason>(),
+                ),
+                (
+                    "SafeBriefReceipt",
+                    one::<wns_context::contracts::SafeBriefReceipt>(),
+                ),
                 ("ScopeKind", one::<wns_documents::scope::ScopeKind>()),
                 ("SourceKind", one::<wns_context::contracts::SourceKind>()),
-                ("StoryEntityRef", one::<wns_context::story_records::StoryEntityRef>()),
+                (
+                    "StoryEntityRef",
+                    one::<wns_context::story_records::StoryEntityRef>(),
+                ),
                 ("StoryTime", one::<wns_context::contracts::StoryTime>()),
-                ("SummaryRevision", one::<wns_context::reviewed_summary::SummaryRevision>()),
-                ("BudgetErrorCode", one::<wns_context::contracts::BudgetErrorCode>()),
+                (
+                    "SummaryRevision",
+                    one::<wns_context::reviewed_summary::SummaryRevision>(),
+                ),
+                (
+                    "BudgetErrorCode",
+                    one::<wns_context::contracts::BudgetErrorCode>(),
+                ),
                 ("DigestItem", one::<wns_context::memory::DigestItem>()),
-                ("FrozenProjectChatDisposition", one::<wns_context::chat_vocabulary::FrozenProjectChatDisposition>()),
-                ("GuidanceVersion", one::<wns_context::guidance::GuidanceVersion>()),
-                ("MemoryEntityEntry", one::<wns_context::lookup::MemoryEntityEntry>()),
-                ("MemoryEntityKind", one::<wns_context::lookup::MemoryEntityKind>()),
-                ("ProjectBriefOrigin", one::<wns_context::contracts::ProjectBriefOrigin>()),
-                ("ProjectChatDraftRef", one::<wns_context::chat_vocabulary::ProjectChatDraftRef>()),
-                ("ReviewPrefixItem", one::<wns_context::reviewed_prefix::ReviewPrefixItem>()),
+                (
+                    "FrozenProjectChatDisposition",
+                    one::<wns_context::chat_vocabulary::FrozenProjectChatDisposition>(),
+                ),
+                (
+                    "GuidanceVersion",
+                    one::<wns_context::guidance::GuidanceVersion>(),
+                ),
+                (
+                    "MemoryEntityEntry",
+                    one::<wns_context::lookup::MemoryEntityEntry>(),
+                ),
+                (
+                    "MemoryEntityKind",
+                    one::<wns_context::lookup::MemoryEntityKind>(),
+                ),
+                (
+                    "ProjectBriefOrigin",
+                    one::<wns_context::contracts::ProjectBriefOrigin>(),
+                ),
+                (
+                    "ProjectChatDraftRef",
+                    one::<wns_context::chat_vocabulary::ProjectChatDraftRef>(),
+                ),
+                (
+                    "ReviewPrefixItem",
+                    one::<wns_context::reviewed_prefix::ReviewPrefixItem>(),
+                ),
                 ("SearchMode", one::<wns_context::frozen::SearchMode>()),
                 ("SearchResult", one::<wns_context::frozen::SearchResult>()),
-                ("SummaryAudience", one::<wns_context::reviewed_summary::SummaryAudience>()),
-                ("DigestEvidence", one::<wns_context::memory::DigestEvidence>()),
-                ("ChatDispositionScope", one::<wns_context::chat_vocabulary::ChatDispositionScope>()),
-                ("ChatUnknownTo", one::<wns_context::chat_vocabulary::ChatUnknownTo>()),
-                ("GuidanceScope", one::<wns_context::guidance::GuidanceScope>()),
+                (
+                    "SummaryAudience",
+                    one::<wns_context::reviewed_summary::SummaryAudience>(),
+                ),
+                (
+                    "DigestEvidence",
+                    one::<wns_context::memory::DigestEvidence>(),
+                ),
+                (
+                    "ChatDispositionScope",
+                    one::<wns_context::chat_vocabulary::ChatDispositionScope>(),
+                ),
+                (
+                    "ChatUnknownTo",
+                    one::<wns_context::chat_vocabulary::ChatUnknownTo>(),
+                ),
+                (
+                    "GuidanceScope",
+                    one::<wns_context::guidance::GuidanceScope>(),
+                ),
                 ("SearchHit", one::<wns_context::frozen::SearchHit>()),
-                ("ChatDispositionScopeKind", one::<wns_context::chat_vocabulary::ChatDispositionScopeKind>()),
+                (
+                    "ChatDispositionScopeKind",
+                    one::<wns_context::chat_vocabulary::ChatDispositionScopeKind>(),
+                ),
             ],
         )
     }
 
     /// `documents`'s IPC closure: every name its generated file mentions, closed
     /// against the frontend compiler rather than typed by hand.
-    pub fn documents() -> Result<Group, specta::ts::TsExportError> {
+    pub fn documents() -> BindingResult<Group> {
         group(
             "documents",
             "documents",
             vec![
-                ("CheckpointRequest", one::<wns_documents::records::CheckpointRequest>()),
+                (
+                    "CheckpointRequest",
+                    one::<wns_documents::records::CheckpointRequest>(),
+                ),
                 ("HistoryPage", one::<wns_documents::history::HistoryPage>()),
-                ("OperationReceipt", one::<wns_documents::records::OperationReceipt>()),
-                ("ReconcileRequest", one::<wns_documents::records::ReconcileRequest>()),
-                ("ReconciledDocument", one::<wns_documents::records::ReconciledDocument>()),
+                (
+                    "OperationReceipt",
+                    one::<wns_documents::records::OperationReceipt>(),
+                ),
+                (
+                    "ReconcileRequest",
+                    one::<wns_documents::records::ReconcileRequest>(),
+                ),
+                (
+                    "ReconciledDocument",
+                    one::<wns_documents::records::ReconciledDocument>(),
+                ),
                 ("RestoreAck", one::<wns_documents::history::RestoreAck>()),
-                ("RestoreRevision", one::<wns_documents::history::RestoreRevision>()),
-                ("RevisionSummary", one::<wns_documents::history::RevisionSummary>()),
+                (
+                    "RestoreRevision",
+                    one::<wns_documents::history::RestoreRevision>(),
+                ),
+                (
+                    "RevisionSummary",
+                    one::<wns_documents::history::RevisionSummary>(),
+                ),
                 ("SaveAck", one::<wns_documents::records::SaveAck>()),
-                ("SaveSnapshot", one::<wns_documents::records::SaveSnapshot>()),
+                (
+                    "SaveSnapshot",
+                    one::<wns_documents::records::SaveSnapshot>(),
+                ),
                 ("ViewState", one::<wns_documents::view_state::ViewState>()),
-                ("CheckpointReason", one::<wns_documents::records::CheckpointReason>()),
+                (
+                    "CheckpointReason",
+                    one::<wns_documents::records::CheckpointReason>(),
+                ),
                 ("SaveCause", one::<wns_documents::records::SaveCause>()),
                 // The frontend calls this `StructuredBlock`; nothing in
                 // `ipc/*.ts` names it, so the seeding pass cannot find it and
                 // it is listed here by hand. `ipc/proposals` aliases it.
-                ("TypedReplacementBlock", one::<wns_documents::structured::TypedReplacementBlock>()),
-                ("TypedReplacementInline", one::<wns_documents::structured::TypedReplacementInline>()),
-                ("TypedReplacementHeadingAttrs", one::<wns_documents::structured::TypedReplacementHeadingAttrs>()),
-                ("TypedReplacementMark", one::<wns_documents::structured::TypedReplacementMark>()),
-                ("TypedReplacementLinkAttrs", one::<wns_documents::structured::TypedReplacementLinkAttrs>()),
+                (
+                    "TypedReplacementBlock",
+                    one::<wns_documents::structured::TypedReplacementBlock>(),
+                ),
+                (
+                    "TypedReplacementInline",
+                    one::<wns_documents::structured::TypedReplacementInline>(),
+                ),
+                (
+                    "TypedReplacementHeadingAttrs",
+                    one::<wns_documents::structured::TypedReplacementHeadingAttrs>(),
+                ),
+                (
+                    "TypedReplacementMark",
+                    one::<wns_documents::structured::TypedReplacementMark>(),
+                ),
+                (
+                    "TypedReplacementLinkAttrs",
+                    one::<wns_documents::structured::TypedReplacementLinkAttrs>(),
+                ),
             ],
         )
     }
 
     /// `conversation`'s IPC closure: every name its generated file mentions, closed
     /// against the frontend compiler rather than typed by hand.
-    pub fn conversation() -> Result<Group, specta::ts::TsExportError> {
+    pub fn conversation() -> BindingResult<Group> {
         group(
             "conversation",
             "conversation",
             vec![
                 ("ApplyAck", one::<wns_conversation::proposals::ApplyAck>()),
-                ("ApplyProposal", one::<wns_conversation::proposals::ApplyProposal>()),
-                ("AssistantDraft", one::<wns_conversation::project_chat::AssistantDraft>()),
-                ("ChapterDiscussionFeedback", one::<wns_conversation::project_chat::ChapterDiscussionFeedback>()),
-                ("ChapterRangeProposal", one::<wns_context::project_chat_output::ChapterRangeProposal>()),
-                ("ChatAdoptionAck", one::<wns_conversation::project_chat::ChatAdoptionAck>()),
-                ("ChatAdoptionEffects", one::<wns_conversation::project_chat::ChatAdoptionEffects>()),
-                ("ChatAdoptionImpact", one::<wns_conversation::project_chat::ChatAdoptionImpact>()),
-                ("ChatAdoptionPlacement", one::<wns_conversation::project_chat::ChatAdoptionPlacement>()),
-                ("ChatAdoptionPreview", one::<wns_conversation::project_chat::ChatAdoptionPreview>()),
-                ("ChatAdoptionRelationship", one::<wns_conversation::project_chat::ChatAdoptionRelationship>()),
-                ("ChatAdoptionSupersession", one::<wns_conversation::project_chat::ChatAdoptionSupersession>()),
-                ("ChatAdoptionTarget", one::<wns_conversation::project_chat::ChatAdoptionTarget>()),
-                ("ChatDocumentSave", one::<wns_conversation::project_chat::ChatDocumentSave>()),
-                ("ChatProtectedContent", one::<wns_conversation::project_chat::ChatProtectedContent>()),
-                ("ChatRelationshipDependency", one::<wns_conversation::project_chat::ChatRelationshipDependency>()),
-                ("ConversationItem", one::<wns_conversation::project_chat::ConversationItem>()),
-                ("DiscussionDraft", one::<wns_conversation::discussions::DiscussionDraft>()),
-                ("DiscussionMessage", one::<wns_story::run_vocabulary::DiscussionMessage>()),
-                ("DiscussionMessageRole", one::<wns_story::run_vocabulary::DiscussionMessageRole>()),
-                ("DiscussionScopeInput", one::<wns_story::discussion_vocabulary::DiscussionScopeInput>()),
-                ("DiscussionView", one::<wns_conversation::discussions::DiscussionView>()),
-                ("HistoricalConversation", one::<wns_conversation::project_chat::HistoricalConversation>()),
-                ("HistoricalConversationItem", one::<wns_conversation::project_chat::HistoricalConversationItem>()),
-                ("HistoricalConversationRef", one::<wns_conversation::project_chat::HistoricalConversationRef>()),
-                ("HistoricalConversationSummary", one::<wns_conversation::project_chat::HistoricalConversationSummary>()),
-                ("HistoricalDraftRevision", one::<wns_conversation::project_chat::HistoricalDraftRevision>()),
-                ("HistoricalSourceRevision", one::<wns_conversation::project_chat::HistoricalSourceRevision>()),
-                ("PrepareContinuation", one::<wns_conversation::proposals::PrepareContinuation>()),
-                ("PrepareProposal", one::<wns_conversation::proposals::PrepareProposal>()),
-                ("PrepareStructured", one::<wns_conversation::proposals::PrepareStructured>()),
-                ("PreparedProposal", one::<wns_conversation::proposals::PreparedProposal>()),
-                ("ProjectChapterComposer", one::<wns_conversation::project_chat::ProjectChapterComposer>()),
-                ("ProjectComposer", one::<wns_conversation::project_chat::ProjectComposer>()),
-                ("ProjectComposerSnapshot", one::<wns_conversation::project_chat::ProjectComposerSnapshot>()),
+                (
+                    "ApplyProposal",
+                    one::<wns_conversation::proposals::ApplyProposal>(),
+                ),
+                (
+                    "AssistantDraft",
+                    one::<wns_conversation::project_chat::AssistantDraft>(),
+                ),
+                (
+                    "ChapterDiscussionFeedback",
+                    one::<wns_conversation::project_chat::ChapterDiscussionFeedback>(),
+                ),
+                (
+                    "ChapterRangeProposal",
+                    one::<wns_context::project_chat_output::ChapterRangeProposal>(),
+                ),
+                (
+                    "ChatAdoptionAck",
+                    one::<wns_conversation::project_chat::ChatAdoptionAck>(),
+                ),
+                (
+                    "ChatAdoptionEffects",
+                    one::<wns_conversation::project_chat::ChatAdoptionEffects>(),
+                ),
+                (
+                    "ChatAdoptionImpact",
+                    one::<wns_conversation::project_chat::ChatAdoptionImpact>(),
+                ),
+                (
+                    "ChatAdoptionPlacement",
+                    one::<wns_conversation::project_chat::ChatAdoptionPlacement>(),
+                ),
+                (
+                    "ChatAdoptionPreview",
+                    one::<wns_conversation::project_chat::ChatAdoptionPreview>(),
+                ),
+                (
+                    "ChatAdoptionRelationship",
+                    one::<wns_conversation::project_chat::ChatAdoptionRelationship>(),
+                ),
+                (
+                    "ChatAdoptionSupersession",
+                    one::<wns_conversation::project_chat::ChatAdoptionSupersession>(),
+                ),
+                (
+                    "ChatAdoptionTarget",
+                    one::<wns_conversation::project_chat::ChatAdoptionTarget>(),
+                ),
+                (
+                    "ChatDocumentSave",
+                    one::<wns_conversation::project_chat::ChatDocumentSave>(),
+                ),
+                (
+                    "ChatProtectedContent",
+                    one::<wns_conversation::project_chat::ChatProtectedContent>(),
+                ),
+                (
+                    "ChatRelationshipDependency",
+                    one::<wns_conversation::project_chat::ChatRelationshipDependency>(),
+                ),
+                (
+                    "ConversationItem",
+                    one::<wns_conversation::project_chat::ConversationItem>(),
+                ),
+                (
+                    "DiscussionDraft",
+                    one::<wns_conversation::discussions::DiscussionDraft>(),
+                ),
+                (
+                    "DiscussionMessage",
+                    one::<wns_story::run_vocabulary::DiscussionMessage>(),
+                ),
+                (
+                    "DiscussionMessageRole",
+                    one::<wns_story::run_vocabulary::DiscussionMessageRole>(),
+                ),
+                (
+                    "DiscussionScopeInput",
+                    one::<wns_story::discussion_vocabulary::DiscussionScopeInput>(),
+                ),
+                (
+                    "DiscussionView",
+                    one::<wns_conversation::discussions::DiscussionView>(),
+                ),
+                (
+                    "HistoricalConversation",
+                    one::<wns_conversation::project_chat::HistoricalConversation>(),
+                ),
+                (
+                    "HistoricalConversationItem",
+                    one::<wns_conversation::project_chat::HistoricalConversationItem>(),
+                ),
+                (
+                    "HistoricalConversationRef",
+                    one::<wns_conversation::project_chat::HistoricalConversationRef>(),
+                ),
+                (
+                    "HistoricalConversationSummary",
+                    one::<wns_conversation::project_chat::HistoricalConversationSummary>(),
+                ),
+                (
+                    "HistoricalDraftRevision",
+                    one::<wns_conversation::project_chat::HistoricalDraftRevision>(),
+                ),
+                (
+                    "HistoricalSourceRevision",
+                    one::<wns_conversation::project_chat::HistoricalSourceRevision>(),
+                ),
+                (
+                    "PrepareContinuation",
+                    one::<wns_conversation::proposals::PrepareContinuation>(),
+                ),
+                (
+                    "PrepareProposal",
+                    one::<wns_conversation::proposals::PrepareProposal>(),
+                ),
+                (
+                    "PrepareStructured",
+                    one::<wns_conversation::proposals::PrepareStructured>(),
+                ),
+                (
+                    "PreparedProposal",
+                    one::<wns_conversation::proposals::PreparedProposal>(),
+                ),
+                (
+                    "ProjectChapterComposer",
+                    one::<wns_conversation::project_chat::ProjectChapterComposer>(),
+                ),
+                (
+                    "ProjectComposer",
+                    one::<wns_conversation::project_chat::ProjectComposer>(),
+                ),
+                (
+                    "ProjectComposerSnapshot",
+                    one::<wns_conversation::project_chat::ProjectComposerSnapshot>(),
+                ),
                 ("Proposal", one::<wns_conversation::proposals::Proposal>()),
-                ("ProposalCandidate", one::<wns_conversation::proposals::ProposalCandidate>()),
-                ("ProposalContent", one::<wns_conversation::proposals::ProposalContent>()),
-                ("ProposalDecision", one::<wns_conversation::proposals::ProposalDecision>()),
-                ("ProposalKind", one::<wns_conversation::proposals::ProposalKind>()),
-                ("ReadProjectChatHistory", one::<wns_conversation::project_chat::ReadProjectChatHistory>()),
-                ("SafeBriefInput", one::<wns_context::contracts::SafeBriefInput>()),
-                ("SaveDiscussionDraft", one::<wns_conversation::discussions::SaveDiscussionDraft>()),
-                ("SaveGuidance", one::<wns_conversation::guidance::SaveGuidance>()),
-                ("SaveProjectComposer", one::<wns_conversation::project_chat::SaveProjectComposer>()),
-                ("StartProjectChapter", one::<wns_conversation::project_chat::StartProjectChapter>()),
-                ("StartProjectChat", one::<wns_conversation::project_chat::StartProjectChat>()),
-                ("ContinuationCandidate", one::<wns_context::continuation::ContinuationCandidate>()),
-                ("StructuredProposalCandidate", one::<wns_conversation::proposals::StructuredProposalCandidate>()),
+                (
+                    "ProposalCandidate",
+                    one::<wns_conversation::proposals::ProposalCandidate>(),
+                ),
+                (
+                    "ProposalContent",
+                    one::<wns_conversation::proposals::ProposalContent>(),
+                ),
+                (
+                    "ProposalDecision",
+                    one::<wns_conversation::proposals::ProposalDecision>(),
+                ),
+                (
+                    "ProposalKind",
+                    one::<wns_conversation::proposals::ProposalKind>(),
+                ),
+                (
+                    "ReadProjectChatHistory",
+                    one::<wns_conversation::project_chat::ReadProjectChatHistory>(),
+                ),
+                (
+                    "SafeBriefInput",
+                    one::<wns_context::contracts::SafeBriefInput>(),
+                ),
+                (
+                    "SaveDiscussionDraft",
+                    one::<wns_conversation::discussions::SaveDiscussionDraft>(),
+                ),
+                (
+                    "SaveGuidance",
+                    one::<wns_conversation::guidance::SaveGuidance>(),
+                ),
+                (
+                    "SaveProjectComposer",
+                    one::<wns_conversation::project_chat::SaveProjectComposer>(),
+                ),
+                (
+                    "StartProjectChapter",
+                    one::<wns_conversation::project_chat::StartProjectChapter>(),
+                ),
+                (
+                    "StartProjectChat",
+                    one::<wns_conversation::project_chat::StartProjectChat>(),
+                ),
+                (
+                    "ContinuationCandidate",
+                    one::<wns_context::continuation::ContinuationCandidate>(),
+                ),
+                (
+                    "StructuredProposalCandidate",
+                    one::<wns_conversation::proposals::StructuredProposalCandidate>(),
+                ),
             ],
         )
     }
 
     /// `story`'s IPC closure: every name its generated file mentions, closed
     /// against the frontend compiler rather than typed by hand.
-    pub fn story() -> Result<Group, specta::ts::TsExportError> {
+    pub fn story() -> BindingResult<Group> {
         group(
             "story",
             "story",
             vec![
-                ("DiscussionMessage", one::<wns_story::run_vocabulary::DiscussionMessage>()),
-                ("DiscussionStart", one::<wns_story::run_vocabulary::DiscussionStart>()),
+                (
+                    "DiscussionMessage",
+                    one::<wns_story::run_vocabulary::DiscussionMessage>(),
+                ),
+                (
+                    "DiscussionStart",
+                    one::<wns_story::run_vocabulary::DiscussionStart>(),
+                ),
                 ("MarkReady", one::<wns_story::reviewed_story::MarkReady>()),
-                ("MemoryDispatchState", one::<wns_story::memory::MemoryDispatchState>()),
+                (
+                    "MemoryDispatchState",
+                    one::<wns_story::memory::MemoryDispatchState>(),
+                ),
                 ("MemoryJob", one::<wns_story::memory::MemoryJob>()),
-                ("MemoryJobStatus", one::<wns_story::memory::MemoryJobStatus>()),
+                (
+                    "MemoryJobStatus",
+                    one::<wns_story::memory::MemoryJobStatus>(),
+                ),
                 ("MemoryOwner", one::<wns_story::memory::MemoryOwner>()),
                 ("MemoryRead", one::<wns_story::memory::MemoryRead>()),
                 ("MemoryResult", one::<wns_story::memory::MemoryResult>()),
-                ("PreparationResult", one::<wns_story::context_packets::PreparationResult>()),
-                ("ReadyBundle", one::<wns_story::reviewed_story::ReadyBundle>()),
-                ("ReviewStage", one::<wns_story::reviewed_story::ReviewStage>()),
-                ("ReviewStatus", one::<wns_story::reviewed_story::ReviewStatus>()),
-                ("ReviewedEntityCatalog", one::<wns_story::evidence_queries::ReviewedEntityCatalog>()),
-                ("ReviewedEntityChoice", one::<wns_story::evidence_queries::ReviewedEntityChoice>()),
-                ("ReviewedRecordSet", one::<wns_story::reviewed_story::ReviewedRecordSet>()),
-                ("SaveSourcePins", one::<wns_story::source_pins::SaveSourcePins>()),
-                ("SourcePinScope", one::<wns_story::source_pins::SourcePinScope>()),
-                ("SourcePinSet", one::<wns_story::source_pins::SourcePinSet>()),
-                ("SourcePinsView", one::<wns_story::source_pins::SourcePinsView>()),
-                ("StageAuthorReview", one::<wns_story::reviewed_story::StageAuthorReview>()),
-                ("StartDiscussion", one::<wns_story::discussion_vocabulary::StartDiscussion>()),
+                (
+                    "PreparationResult",
+                    one::<wns_story::context_packets::PreparationResult>(),
+                ),
+                (
+                    "ReadyBundle",
+                    one::<wns_story::reviewed_story::ReadyBundle>(),
+                ),
+                (
+                    "ReviewStage",
+                    one::<wns_story::reviewed_story::ReviewStage>(),
+                ),
+                (
+                    "ReviewStatus",
+                    one::<wns_story::reviewed_story::ReviewStatus>(),
+                ),
+                (
+                    "ReviewedEntityCatalog",
+                    one::<wns_story::evidence_queries::ReviewedEntityCatalog>(),
+                ),
+                (
+                    "ReviewedEntityChoice",
+                    one::<wns_story::evidence_queries::ReviewedEntityChoice>(),
+                ),
+                (
+                    "ReviewedRecordSet",
+                    one::<wns_story::reviewed_story::ReviewedRecordSet>(),
+                ),
+                (
+                    "SaveSourcePins",
+                    one::<wns_story::source_pins::SaveSourcePins>(),
+                ),
+                (
+                    "SourcePinScope",
+                    one::<wns_story::source_pins::SourcePinScope>(),
+                ),
+                (
+                    "SourcePinSet",
+                    one::<wns_story::source_pins::SourcePinSet>(),
+                ),
+                (
+                    "SourcePinsView",
+                    one::<wns_story::source_pins::SourcePinsView>(),
+                ),
+                (
+                    "StageAuthorReview",
+                    one::<wns_story::reviewed_story::StageAuthorReview>(),
+                ),
+                (
+                    "StartDiscussion",
+                    one::<wns_story::discussion_vocabulary::StartDiscussion>(),
+                ),
                 ("StartMemory", one::<wns_story::memory::StartMemory>()),
-                ("WorkshopExploration", one::<wns_story::workshop_metadata::WorkshopExploration>()),
+                (
+                    "WorkshopExploration",
+                    one::<wns_story::workshop_metadata::WorkshopExploration>(),
+                ),
                 ("MemoryView", one::<wns_story::memory::MemoryView>()),
-                ("ReviewState", one::<wns_story::reviewed_story::ReviewState>()),
-                ("SummaryChange", one::<wns_context::reviewed_summary::SummaryChange>()),
+                (
+                    "ReviewState",
+                    one::<wns_story::reviewed_story::ReviewState>(),
+                ),
+                (
+                    "SummaryChange",
+                    one::<wns_context::reviewed_summary::SummaryChange>(),
+                ),
             ],
         )
     }
 
     /// `providers`'s IPC closure: every name its generated file mentions, closed
     /// against the frontend compiler rather than typed by hand.
-    pub fn providers() -> Result<Group, specta::ts::TsExportError> {
+    pub fn providers() -> BindingResult<Group> {
         group(
             "providers",
             "providers",
             vec![
-                ("EndpointProfile", one::<wns_providers::endpoints::EndpointProfile>()),
-                ("ModelDescriptor", one::<wns_providers::catalog::ModelDescriptor>()),
+                (
+                    "EndpointProfile",
+                    one::<wns_providers::endpoints::EndpointProfile>(),
+                ),
+                (
+                    "ModelDescriptor",
+                    one::<wns_providers::catalog::ModelDescriptor>(),
+                ),
                 ("ModelKey", one::<wns_providers::preferences::ModelKey>()),
-                ("ModelSelection", one::<wns_providers::preferences::ModelSelection>()),
-                ("ModelSettings", one::<wns_providers::preferences::ModelSettings>()),
-                ("ProviderState", one::<wns_providers::catalog::ProviderState>()),
-                ("CatalogOrigin", one::<wns_providers::catalog::CatalogOrigin>()),
-                ("CatalogSnapshot", one::<wns_providers::catalog::CatalogSnapshot>()),
-                ("DispatchResolution", one::<wns_providers::catalog::DispatchResolution>()),
+                (
+                    "ModelSelection",
+                    one::<wns_providers::preferences::ModelSelection>(),
+                ),
+                (
+                    "ModelSettings",
+                    one::<wns_providers::preferences::ModelSettings>(),
+                ),
+                (
+                    "ProviderState",
+                    one::<wns_providers::catalog::ProviderState>(),
+                ),
+                (
+                    "CatalogOrigin",
+                    one::<wns_providers::catalog::CatalogOrigin>(),
+                ),
+                (
+                    "CatalogSnapshot",
+                    one::<wns_providers::catalog::CatalogSnapshot>(),
+                ),
+                (
+                    "DispatchResolution",
+                    one::<wns_providers::catalog::DispatchResolution>(),
+                ),
                 ("ServiceTier", one::<wns_providers::catalog::ServiceTier>()),
             ],
         )
@@ -925,42 +1715,96 @@ mod wns_groups {
 
     /// `transfer`'s IPC closure: every name its generated file mentions, closed
     /// against the frontend compiler rather than typed by hand.
-    pub fn transfer() -> Result<Group, specta::ts::TsExportError> {
+    pub fn transfer() -> BindingResult<Group> {
         group(
             "transfer",
             "transfer",
             vec![
-                ("DraftExportPreview", one::<wns_transfer::transfer::DraftExportPreview>()),
+                (
+                    "DraftExportPreview",
+                    one::<wns_transfer::transfer::DraftExportPreview>(),
+                ),
                 ("DraftFormat", one::<wns_transfer::transfer::DraftFormat>()),
-                ("V2ChapterBodyChoice", one::<wns_transfer::import::V2ChapterBodyChoice>()),
-                ("V2ChapterBodyDecision", one::<wns_transfer::import::V2ChapterBodyDecision>()),
-                ("V2ChapterPreview", one::<wns_transfer::v2_import::V2ChapterPreview>()),
-                ("V2DraftPreview", one::<wns_transfer::v2_import::V2DraftPreview>()),
-                ("V2ImportPreview", one::<wns_transfer::v2_import::V2ImportPreview>()),
-                ("V2ImportRequest", one::<wns_transfer::import::V2ImportRequest>()),
-                ("V2ProjectSummary", one::<wns_transfer::v2_import::V2ProjectSummary>()),
-                ("V2WorkingProse", one::<wns_transfer::v2_import::V2WorkingProse>()),
-                ("V2BodySelection", one::<wns_transfer::v2_import::V2BodySelection>()),
-                ("V2LegacyPreview", one::<wns_transfer::v2_import::V2LegacyPreview>()),
-                ("V2ProjectPreview", one::<wns_transfer::v2_import::V2ProjectPreview>()),
-                ("V2SourceManifest", one::<wns_transfer::v2_import::V2SourceManifest>()),
-                ("V2LegacyRecord", one::<wns_transfer::v2_import::V2LegacyRecord>()),
+                (
+                    "V2ChapterBodyChoice",
+                    one::<wns_transfer::import::V2ChapterBodyChoice>(),
+                ),
+                (
+                    "V2ChapterBodyDecision",
+                    one::<wns_transfer::import::V2ChapterBodyDecision>(),
+                ),
+                (
+                    "V2ChapterPreview",
+                    one::<wns_transfer::v2_import::V2ChapterPreview>(),
+                ),
+                (
+                    "V2DraftPreview",
+                    one::<wns_transfer::v2_import::V2DraftPreview>(),
+                ),
+                (
+                    "V2ImportPreview",
+                    one::<wns_transfer::v2_import::V2ImportPreview>(),
+                ),
+                (
+                    "V2ImportRequest",
+                    one::<wns_transfer::import::V2ImportRequest>(),
+                ),
+                (
+                    "V2ProjectSummary",
+                    one::<wns_transfer::v2_import::V2ProjectSummary>(),
+                ),
+                (
+                    "V2WorkingProse",
+                    one::<wns_transfer::v2_import::V2WorkingProse>(),
+                ),
+                (
+                    "V2BodySelection",
+                    one::<wns_transfer::v2_import::V2BodySelection>(),
+                ),
+                (
+                    "V2LegacyPreview",
+                    one::<wns_transfer::v2_import::V2LegacyPreview>(),
+                ),
+                (
+                    "V2ProjectPreview",
+                    one::<wns_transfer::v2_import::V2ProjectPreview>(),
+                ),
+                (
+                    "V2SourceManifest",
+                    one::<wns_transfer::v2_import::V2SourceManifest>(),
+                ),
+                (
+                    "V2LegacyRecord",
+                    one::<wns_transfer::v2_import::V2LegacyRecord>(),
+                ),
             ],
         )
     }
 
     /// `library`'s IPC closure: every name its generated file mentions, closed
     /// against the frontend compiler rather than typed by hand.
-    pub fn library() -> Result<Group, specta::ts::TsExportError> {
+    pub fn library() -> BindingResult<Group> {
         group(
             "library",
             "library",
             vec![
-                ("CodexTransport", one::<wns_library::codex_transport::CodexTransport>()),
-                ("CodexTransportSettings", one::<wns_library::codex_transport::CodexTransportSettings>()),
+                (
+                    "CodexTransport",
+                    one::<wns_library::codex_transport::CodexTransport>(),
+                ),
+                (
+                    "CodexTransportSettings",
+                    one::<wns_library::codex_transport::CodexTransportSettings>(),
+                ),
                 ("LibraryEntry", one::<wns_library::library::LibraryEntry>()),
-                ("PendingProject", one::<wns_library::library::PendingProject>()),
-                ("CreationOrigin", one::<wns_storage::creation::CreationOrigin>()),
+                (
+                    "PendingProject",
+                    one::<wns_library::library::PendingProject>(),
+                ),
+                (
+                    "CreationOrigin",
+                    one::<wns_storage::creation::CreationOrigin>(),
+                ),
             ],
         )
     }

@@ -33,7 +33,7 @@ export interface SaveAttempt {
 }
 
 export interface SaveLoop {
-  /** Drain until nothing is left to write. Concurrent callers share one drain. */
+  /** Run or join one drain. Callers requiring a clean store must recheck dirtiness after awaiting. */
   flush(): Promise<void>;
   /** True while a drain is in progress. */
   readonly saving: boolean;
@@ -73,8 +73,9 @@ export function createSaveLoop(options: {
   const flush = async (): Promise<void> => {
     // A second caller joins the in-flight drain rather than starting a rival
     // one. It does not re-run afterwards: `drain` already re-checks `isDirty`
-    // between writes, and a caller that wants to catch an edit made during the
-    // drain can re-check itself. Re-running here would livelock whenever a
+    // between writes, but an edit can arrive after the drain resolves and
+    // before `flight` clears. A caller requiring a clean store must re-check.
+    // Re-running here would livelock whenever a
     // `capture` legitimately returns `null` for a still-dirty store.
     if (flight) {
       await flight;

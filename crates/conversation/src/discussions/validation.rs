@@ -8,7 +8,11 @@
 
 use super::*;
 
-pub(super) fn validate_output_event(owner: &RunOwner, event_id: &str, text: &str) -> CoreResult<()> {
+pub(super) fn validate_output_event(
+    owner: &RunOwner,
+    event_id: &str,
+    text: &str,
+) -> CoreResult<()> {
     check_id(&owner.project_id)?;
     check_id(&owner.operation_namespace)?;
     check_id(&owner.run_id)?;
@@ -22,7 +26,11 @@ pub(super) fn validate_output_event(owner: &RunOwner, event_id: &str, text: &str
     Ok(())
 }
 
-pub(super) fn validate_finish_request(owner: &RunOwner, event_id: &str, text: &str) -> CoreResult<()> {
+pub(super) fn validate_finish_request(
+    owner: &RunOwner,
+    event_id: &str,
+    text: &str,
+) -> CoreResult<()> {
     check_id(&owner.project_id)?;
     check_id(&owner.operation_namespace)?;
     check_id(&owner.run_id)?;
@@ -289,7 +297,10 @@ pub(super) fn validate_stored_http_delivery(
     Ok(())
 }
 
-pub(super) fn provider_result_matches_report(saved: &ProviderResult, report: &ProviderTerminalReport) -> bool {
+pub(super) fn provider_result_matches_report(
+    saved: &ProviderResult,
+    report: &ProviderTerminalReport,
+) -> bool {
     saved.run_id == report.owner.run_id
         && saved.event_id == report.event_id
         && saved.expected_sequence == report.expected_sequence
@@ -375,7 +386,11 @@ pub(super) fn provider_terminal_message(
     Ok(message)
 }
 
-pub(super) fn validate_final_output(current: &str, final_text: &str, allow_empty: bool) -> CoreResult<()> {
+pub(super) fn validate_final_output(
+    current: &str,
+    final_text: &str,
+    allow_empty: bool,
+) -> CoreResult<()> {
     if !allow_empty && final_text.is_empty() {
         return Err(CoreError::new(
             "InvalidRequest",
@@ -581,7 +596,10 @@ pub(super) fn validate_safe_brief_start(request: &StartDiscussion) -> CoreResult
     Ok(())
 }
 
-pub(super) fn validate_safe_brief_origin(tx: &Connection, request: &StartDiscussion) -> CoreResult<()> {
+pub(super) fn validate_safe_brief_origin(
+    tx: &Connection,
+    request: &StartDiscussion,
+) -> CoreResult<()> {
     let Some(brief) = request.safe_brief.as_ref() else {
         return Ok(());
     };

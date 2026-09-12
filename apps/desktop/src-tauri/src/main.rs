@@ -28,8 +28,11 @@ mod app_server_test_lock {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
+mod app_state;
+mod author_start;
 #[cfg(windows)]
 mod claude_live_discussion;
+mod commands;
 mod discussion_recovery;
 mod http_discussion;
 mod http_memory;
@@ -43,9 +46,6 @@ mod provider_bindings;
 mod provider_runtime;
 #[cfg(windows)]
 mod reload_accelerators;
-mod app_state;
-mod commands;
-mod author_start;
 
 #[tauri::command]
 fn validate_snapshot(snapshot_json: String) -> Result<SnapshotReceipt, String> {

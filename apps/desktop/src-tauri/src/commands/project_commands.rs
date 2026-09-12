@@ -19,7 +19,8 @@ pub async fn list_document_history(
     access: ProjectAccess,
     document_id: String,
     before_version: Option<String>,
-    limit: u32, state: State<'_, AppState>,
+    limit: u32,
+    state: State<'_, AppState>,
 ) -> CoreResult<HistoryPage> {
     let app = &*state;
     let state = &app.projects;
@@ -31,7 +32,8 @@ pub async fn list_document_history(
 pub async fn read_document_revision(
     access: ProjectAccess,
     document_id: String,
-    revision_id: String, state: State<'_, AppState>,
+    revision_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<Revision> {
     let app = &*state;
     let state = &app.projects;
@@ -41,7 +43,8 @@ pub async fn read_document_revision(
 
 #[tauri::command]
 pub async fn restore_revision(
-    request: RestoreRevision, state: State<'_, AppState>,
+    request: RestoreRevision,
+    state: State<'_, AppState>,
 ) -> CoreResult<RestoreAck> {
     let app = &*state;
     let state = &app.projects;
@@ -208,7 +211,8 @@ pub(crate) async fn execute<T: Send + 'static>(
 pub async fn create_project(
     path: String,
     title: String,
-    session: String, state: State<'_, AppState>,
+    session: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
     let app = &*state;
     let state = &app.projects;
@@ -218,7 +222,8 @@ pub async fn create_project(
 #[tauri::command]
 pub async fn open_project(
     path: String,
-    session: String, state: State<'_, AppState>,
+    session: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
     let app = &*state;
     let state = &app.projects;
@@ -231,7 +236,8 @@ pub async fn open_project(
 #[tauri::command]
 pub async fn reconcile_project(
     project_id: String,
-    session: String, state: State<'_, AppState>,
+    session: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
     let app = &*state;
     let state = &app.projects;
@@ -252,7 +258,8 @@ pub async fn reconcile_project(
 }
 #[tauri::command]
 pub async fn create_document(
-    request: CreateDocument, state: State<'_, AppState>,
+    request: CreateDocument,
+    state: State<'_, AppState>,
 ) -> CoreResult<DocumentRecord> {
     let app = &*state;
     let state = &app.projects;
@@ -261,7 +268,8 @@ pub async fn create_document(
 }
 #[tauri::command]
 pub async fn list_documents(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<Vec<DocumentRecord>> {
     let app = &*state;
     let state = &app.projects;
@@ -271,7 +279,8 @@ pub async fn list_documents(
 #[tauri::command]
 pub async fn read_document(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<DocumentRecord> {
     let app = &*state;
     let state = &app.projects;
@@ -280,7 +289,8 @@ pub async fn read_document(
 }
 #[tauri::command]
 pub async fn save_snapshot(
-    request: SaveSnapshot, state: State<'_, AppState>,
+    request: SaveSnapshot,
+    state: State<'_, AppState>,
 ) -> CoreResult<SaveAck> {
     let app = &*state;
     let state = &app.projects;
@@ -289,7 +299,8 @@ pub async fn save_snapshot(
 }
 #[tauri::command]
 pub async fn reconcile_document(
-    request: ReconcileRequest, state: State<'_, AppState>,
+    request: ReconcileRequest,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReconciledDocument> {
     let app = &*state;
     let state = &app.projects;
@@ -298,7 +309,8 @@ pub async fn reconcile_document(
 }
 #[tauri::command]
 pub async fn checkpoint_document(
-    request: CheckpointRequest, state: State<'_, AppState>,
+    request: CheckpointRequest,
+    state: State<'_, AppState>,
 ) -> CoreResult<Revision> {
     let app = &*state;
     let state = &app.projects;
@@ -308,7 +320,8 @@ pub async fn checkpoint_document(
 #[tauri::command]
 pub async fn document_history(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<Vec<Revision>> {
     let app = &*state;
     let state = &app.projects;
@@ -318,7 +331,8 @@ pub async fn document_history(
 
 #[tauri::command]
 pub async fn project_metadata(
-    project_id: String, state: State<'_, AppState>,
+    project_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<ProjectMetadata> {
     let app = &*state;
     let state = &app.projects;
@@ -329,7 +343,8 @@ pub async fn project_metadata(
 pub async fn rename_project(
     access: ProjectAccess,
     expected_metadata_version: String,
-    title: String, state: State<'_, AppState>,
+    title: String,
+    state: State<'_, AppState>,
     library: State<'_, crate::commands::library_commands::DesktopLibrary>,
 ) -> CoreResult<ProjectMetadataResult> {
     let app = &*state;
@@ -337,7 +352,9 @@ pub async fn rename_project(
     let project = state.project(&access.project_id)?;
     let library = library.inner().clone();
     execute(move || {
-        let metadata = project.project().rename(access, expected_metadata_version, title)?;
+        let metadata = project
+            .project()
+            .rename(access, expected_metadata_version, title)?;
         let library_warning = match library.0.lock() {
             Ok(mut library) => library.register(&project).err().map(|e| e.detail),
             Err(_) => {
@@ -356,17 +373,23 @@ pub async fn rename_document(
     access: ProjectAccess,
     document_id: String,
     expected_metadata_version: String,
-    title: String, state: State<'_, AppState>,
+    title: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<DocumentRecord> {
     let app = &*state;
     let state = &app.projects;
     let project = state.project(&access.project_id)?;
-    execute(move || project.project().rename_document(access, document_id, expected_metadata_version, title))
-        .await
+    execute(move || {
+        project
+            .project()
+            .rename_document(access, document_id, expected_metadata_version, title)
+    })
+    .await
 }
 #[tauri::command]
 pub async fn read_view_state(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<Option<ViewState>> {
     let app = &*state;
     let state = &app.projects;
@@ -378,10 +401,16 @@ pub async fn save_view_state(
     access: ProjectAccess,
     head: Head,
     anchor: Endpoint,
-    focus: Endpoint, state: State<'_, AppState>,
+    focus: Endpoint,
+    state: State<'_, AppState>,
 ) -> CoreResult<ViewState> {
     let app = &*state;
     let state = &app.projects;
     let project = state.project(&access.project_id)?;
-    execute(move || project.documents().save_view_state(access, head, anchor, focus)).await
+    execute(move || {
+        project
+            .documents()
+            .save_view_state(access, head, anchor, focus)
+    })
+    .await
 }

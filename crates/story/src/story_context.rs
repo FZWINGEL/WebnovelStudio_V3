@@ -1,13 +1,16 @@
 //! Frozen, project-owned evidence. Revisions remain the only text authority;
 //! passage projections can be deleted without losing story material.
-use wns_storage::{checkpoint_at, read_document, read_document_with_role, read_revision};
+use crate::host::StoryHost;
+use crate::reviewed_story;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use crate::reviewed_story;
-use wns_context::guidance;
 use wns_context::conversation as conversation_context;
-use crate::host::StoryHost;
-use wns_kernel::{CoreError, CoreResult, DocumentRole, Head, ProjectAccess, Reply, Revision, check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head, sha256_hex, SourceEpoch};
+use wns_context::guidance;
+use wns_kernel::{
+    CoreError, CoreResult, DocumentRole, Head, ProjectAccess, Reply, Revision, SourceEpoch,
+    check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head, sha256_hex,
+};
+use wns_storage::{checkpoint_at, read_document, read_document_with_role, read_revision};
 // The frozen-context vocabulary moved to wns-context (L2) — the compiler
 // consumes it, so it cannot sit above the compiler. Re-exported here so the
 // many `crate::story_context::{…}` imports keep resolving.
@@ -33,22 +36,21 @@ use wns_context::chat_vocabulary::ProjectChatFreeze;
 // was the last one standing between `story_context` and `wns-story`.
 use wns_context::frozen::{augment_frozen_chat, validate_frozen_project_chat};
 
-
+use std::collections::{BTreeMap, HashSet};
 use wns_context::navigation::{
     FrozenNavigationView, MAX_FROZEN_NAVIGATION_VIEWS, NavigationViewRef, navigation_content_hash,
     validate_frozen_navigation_views, validate_navigation_view_payload,
 };
 use wns_context::reviewed_evidence::{
-    from_storage_parts, validate_evidence_payload,
-    validate_frozen_evidence_set,
+    from_storage_parts, validate_evidence_payload, validate_frozen_evidence_set,
 };
 use wns_context::reviewed_knowledge::{
-    from_storage_parts as knowledge_from_storage_parts,
-    validate_frozen_knowledge_set, validate_knowledge_payload,
+    from_storage_parts as knowledge_from_storage_parts, validate_frozen_knowledge_set,
+    validate_knowledge_payload,
 };
 use wns_context::reviewed_promises::{
-    from_storage_parts as promise_from_storage_parts,
-    validate_frozen_promise_set, validate_promise_payload,
+    from_storage_parts as promise_from_storage_parts, validate_frozen_promise_set,
+    validate_promise_payload,
 };
 use wns_context::reviewed_summaries::{
     ReviewedSummarySet, validate_frozen_set as validate_frozen_summary,
@@ -58,7 +60,6 @@ use wns_context::{
     ReviewedBasisManifest, ReviewedBasisMember, SourceDescriptor, SourceKind, SourceRef,
     StorySnapshot,
 };
-use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -87,7 +88,6 @@ pub struct FreezeReviewedContinuation {
     pub policy: InformationPolicy,
 }
 
-
 pub enum ContextCommand {
     Epochs(ProjectAccess, Reply<ContextEpochs>),
     ReadAliases(ProjectAccess, String, Reply<DocumentAliases>),
@@ -107,7 +107,6 @@ pub enum ContextCommand {
     ),
     Index(ProjectAccess, Option<String>, Reply<u32>),
 }
-
 
 // Actor-side logic, as free functions over `StoryHost`.
 
@@ -151,7 +150,10 @@ pub fn handle_context(host: &mut impl StoryHost, command: ContextCommand) {
             respond!(reply, context_revoke(host, access, &expected))
         }
         ContextCommand::Aliases(access, id, expected, aliases, reply) => {
-            respond!(reply, context_aliases(host, access, &id, &expected, aliases))
+            respond!(
+                reply,
+                context_aliases(host, access, &id, &expected, aliases)
+            )
         }
         ContextCommand::Index(access, clear, reply) => {
             respond!(reply, context_index(host, access, clear))
@@ -256,7 +258,11 @@ pub fn freeze_reviewed_continuation(
     Ok(frozen)
 }
 
-pub fn context_snapshot(host: &impl StoryHost, access: &ProjectAccess, id: &str) -> CoreResult<FrozenContext> {
+pub fn context_snapshot(
+    host: &impl StoryHost,
+    access: &ProjectAccess,
+    id: &str,
+) -> CoreResult<FrozenContext> {
     host.check_access(access)?;
     load_snapshot(host.db()?, access, id)
 }
@@ -1407,7 +1413,6 @@ fn read_aliases(db: &Connection, id: &str) -> CoreResult<Vec<String>> {
         .collect::<Result<Vec<_>, _>>()?)
 }
 
-
 pub fn load_snapshot(
     db: &Connection,
     access: &ProjectAccess,
@@ -1432,10 +1437,7 @@ pub fn load_snapshot(
 /// Check retained data integrity without granting access under today's policy.
 /// Backup validation must retain valid historical records after revocation;
 /// request-facing readers must additionally use `load_snapshot` above.
-pub fn validated_snapshot_record(
-    db: &Connection,
-    id: &str,
-) -> CoreResult<(FrozenContext, String)> {
+pub fn validated_snapshot_record(db: &Connection, id: &str) -> CoreResult<(FrozenContext, String)> {
     check_id(id)?;
     navigation_pin_table_available(db)?;
     let row: Option<(String,String,String,String,i64,i64)> = db.query_row("SELECT project_id,operation_namespace,manifest_json,manifest_hash,context_source_epoch,disclosure_policy_epoch FROM story_snapshots WHERE id=?", [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).optional()?;
@@ -1448,7 +1450,8 @@ pub fn validated_snapshot_record(
     let frozen = decode_snapshot(&json, &hash)?;
     if frozen.snapshot.snapshot_id != id
         || frozen.snapshot.project_id != project
-        || frozen.snapshot.context_source_epoch != SourceEpoch::new(parse_stored_version(source_epoch)?)
+        || frozen.snapshot.context_source_epoch
+            != SourceEpoch::new(parse_stored_version(source_epoch)?)
         || frozen.policy.version != parse_stored_version(policy_epoch)?
     {
         return Err(CoreError::new(
@@ -1868,8 +1871,6 @@ pub fn search_frozen(
     })
 }
 
-/// Deterministic search over caller-validated frozen evidence. Packet
-
 /// Transfer validation keeps historical namespaces intact while verifying all
 /// immutable manifests and revision pins before installing an independent copy.
 pub fn validate_context_storage(db: &Connection) -> CoreResult<()> {
@@ -1916,7 +1917,8 @@ pub fn validate_context_storage(db: &Connection) -> CoreResult<()> {
         let frozen = decode_snapshot(&json, &hash)?;
         if frozen.snapshot.snapshot_id != id
             || frozen.snapshot.project_id != project
-            || frozen.snapshot.context_source_epoch != SourceEpoch::new(parse_stored_version(source_epoch)?)
+            || frozen.snapshot.context_source_epoch
+                != SourceEpoch::new(parse_stored_version(source_epoch)?)
             || frozen.policy.version != parse_stored_version(policy_epoch)?
         {
             return Err(CoreError::new(

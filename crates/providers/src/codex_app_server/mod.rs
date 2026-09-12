@@ -1,8 +1,8 @@
 //! Versioned contracts for the application-owned Codex app-server transport.
 //! A retained process is not retained story context or permission to replay work.
 
-use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
+use wns_kernel::{CoreError, CoreResult};
 
 pub const AUTHOR_PROFILE: &str = "codex-app-server.author.v1";
 pub const MAINTENANCE_PROFILE: &str = "codex-app-server.maintenance.v1";

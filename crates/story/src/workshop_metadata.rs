@@ -13,8 +13,7 @@
 //! extraction is the only thing that can fail here.
 
 use crate::workshop_vocabulary::{
-    Lens, StoryPossibility, StoryPossibilityStatus,
-    WorkshopDepth, WorkshopQuestion,
+    Lens, StoryPossibility, StoryPossibilityStatus, WorkshopDepth, WorkshopQuestion,
     WorkshopRelationship,
 };
 use serde::{Deserialize, Serialize};
@@ -402,7 +401,11 @@ impl WorkshopPacketMetadata {
         ] {
             validate_workshop_text(text, MAX_WORKSHOP_TEXT_BYTES, "workshop context")?;
         }
-        validate_workshop_text(&context.original_notes, MAX_WORKSHOP_TEXT_BYTES, "original notes")?;
+        validate_workshop_text(
+            &context.original_notes,
+            MAX_WORKSHOP_TEXT_BYTES,
+            "original notes",
+        )?;
         if let Some(brief) = &context.author_brief {
             validate_workshop_text(brief, MAX_WORKSHOP_TEXT_BYTES, "author brief")?;
         }
@@ -419,8 +422,16 @@ impl WorkshopPacketMetadata {
             )?;
         }
         validate_story_possibilities(&context.story_possibilities)?;
-        validate_string_list(&context.chosen_details, MAX_WORKSHOP_TEXT_BYTES, "chosen details")?;
-        validate_string_list(&context.fixed_details, MAX_WORKSHOP_TEXT_BYTES, "fixed details")?;
+        validate_string_list(
+            &context.chosen_details,
+            MAX_WORKSHOP_TEXT_BYTES,
+            "chosen details",
+        )?;
+        validate_string_list(
+            &context.fixed_details,
+            MAX_WORKSHOP_TEXT_BYTES,
+            "fixed details",
+        )?;
         validate_string_list(
             &context.fixed_source_refs,
             MAX_DETAIL_BYTES,

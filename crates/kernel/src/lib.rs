@@ -1,11 +1,10 @@
 //! L0 — foundation types shared by every layer.
 //!
-//! Two things live here and nothing else does:
+//! Shared foundations live here:
 //!
 //! * [`CoreError`] / [`CoreResult`] / [`Head`] — the error and identity types
-//!   every layer must be able to name. They live at L0 so that `wns-storage`
-//!   can be extracted without depending on the crate that holds the document
-//!   model, which is what today's storage↔projects cycle is made of.
+//!   every layer must be able to name, together with project/document records,
+//!   [`SourceEpoch`], actor reply vocabulary and validation/hash helpers.
 //! * W0 snapshot validation and canonicalization — the editor contract's Rust
 //!   half. The validator deliberately accepts only the small document vocabulary
 //!   used by the first slice. It constructs a canonical document while parsing
@@ -13,6 +12,8 @@
 //!   them later.
 //!
 //! This crate depends on nothing else in the workspace. Everything depends on it.
+//! It still names `rusqlite::Error` in its error conversion; it is not a
+//! persistence-independent error layer. See `docs/ARCHITECTURE.md`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -96,7 +97,9 @@ impl From<serde_json::Error> for CoreError {
 /// replaces and no historical packet bytes change; `specta` emits it as
 /// `export type SourceEpoch = string`, so the generated bindings are unchanged
 /// in meaning too.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, specta::Type)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, specta::Type,
+)]
 #[serde(transparent)]
 pub struct SourceEpoch(String);
 
@@ -305,7 +308,9 @@ pub struct DocumentRecord {
 /// Authority role for a document row.  This is deliberately an enum rather
 /// than a title/ID convention so every source consumer can apply the same
 /// fence.  New roles must be added with a reader-floor migration.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash, specta::Type)]
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash, specta::Type,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum DocumentRole {
     #[default]
@@ -896,8 +901,6 @@ mod tests {
     use rusqlite::Connection;
     use serde::Deserialize;
     use serde_json::{Value, json};
-    
-    
 
     #[derive(Debug, Deserialize)]
     struct FixtureFile {

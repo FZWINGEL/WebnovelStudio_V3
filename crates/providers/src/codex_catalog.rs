@@ -7,10 +7,10 @@
 
 use super::catalog::ServiceTier;
 use super::preferences::ModelSelection;
-use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
+use wns_kernel::{CoreError, CoreResult};
 
 pub const CODEX_CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const CODEX_CATALOG_KEY: &str = "codex-model-catalog-v1";

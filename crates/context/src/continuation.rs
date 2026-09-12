@@ -4,8 +4,8 @@
 //! response before it becomes a durable candidate; document identities and
 //! editor operations remain outside this response contract.
 
-use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
+use wns_kernel::{CoreError, CoreResult};
 
 /// Versioned response contract for a continuation request.
 pub const CONTINUATION_RESPONSE_CONTRACT: &str = "continuation-output.v1";

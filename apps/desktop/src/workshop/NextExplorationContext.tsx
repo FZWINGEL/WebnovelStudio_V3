@@ -6,7 +6,7 @@ import { POSSIBILITY_KINDS } from './StoryPossibilities';
 export interface NextExplorationContextProps {
   state: WorkshopState;
   session: WorkshopSession;
-  results: WorkshopResult[];
+  results: readonly WorkshopResult[];
   documents: DocumentRecord[];
   onOpenDocument?: (documentId: string) => void;
 }
@@ -45,7 +45,7 @@ function savedResult(result: WorkshopResult): boolean {
 function candidateForChoice(
   state: WorkshopState,
   session: WorkshopSession,
-  results: WorkshopResult[],
+  results: readonly WorkshopResult[],
   candidateId: string,
 ): { result: WorkshopResult; title: string; content: string; stale: boolean } | null {
   const lineageIds = new Set(sessionLineage(state, session).map(item => item.id));
@@ -65,7 +65,7 @@ function candidateForChoice(
   };
 }
 
-function includedAlternatives(state: WorkshopState, session: WorkshopSession, results: WorkshopResult[]): IncludedAlternative[] {
+function includedAlternatives(state: WorkshopState, session: WorkshopSession, results: readonly WorkshopResult[]): IncludedAlternative[] {
   return session.choices
     .filter(choice => choice.status === 'saved' && choice.includeInContext)
     .map(choice => {

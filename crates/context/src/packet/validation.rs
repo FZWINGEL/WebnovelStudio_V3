@@ -805,7 +805,8 @@ pub(super) fn validate_response_contract(request: &PacketRequest) -> Result<(), 
         // parsed metadata was not built by the workshop path.
         if request.workshop_metadata.is_none() {
             return Err(PacketError::InvalidRequest {
-                message: "The workshop response contract requires parsed packet metadata.".to_owned(),
+                message: "The workshop response contract requires parsed packet metadata."
+                    .to_owned(),
             });
         }
         return Ok(());

@@ -1,128 +1,43 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { isTauri } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { DocumentSession } from '../editor';
-import { canonicalJson } from '../editor';
-import { createDocument, reconcileProject, readDocument, projectTransport, projectMetadata, renameProject, renameDocument, type CreateDocumentIntent, type DocumentRecord, type OpenedProject, type ProjectAccess, type ViewState } from '../ipc/projects';
-import { CreateIntentRecoveryError, CreateIntentUnresolvedError, runCreateIntent } from '../ipc/createIntent';
-import { librarySnapshot, libraryCreate, libraryOpen, libraryArchive, libraryRecover, libraryDuplicate, libraryResumeImport, projectBackup, type LibrarySnapshot } from '../ipc/library';
-import { prepareDraftExport, prepareReviewedDraftExport, exportPreparedDraft, type DraftExportPreview, type DraftFormat } from '../ipc/exports';
-import { Writer } from '../chat';
-import type { DiscussionRun } from '../ipc/discussions';
-import { ExportDialog, type ExportBasis } from './ExportDialog';
+import { lazy, Suspense } from 'react';
+import { Writer, ProjectConversation, ConversationHistoryPanel } from '../chat';
+import { ModelSelector, ModelSettings } from '../providers';
+import type { ProjectActivitySnapshot } from '../ipc/projectActivity';
+import { ExportDialog } from './ExportDialog';
 import { V2ImportDialog } from './V2ImportDialog';
-import { runtimeInfo } from '../ipc/native';
-import { ModelSelector } from '../providers';
-import { ModelSettings } from '../providers';
-import { PROJECT_TABS, documentsForTab, tabForKind, readProjectTabs, writeProjectTabs, type ProjectTabId } from './projectTabs';
-import { readWorkspaceMode, writeWorkspaceMode, CHAT_FIRST_TRIAL_ENABLED, type WorkspaceMode } from './workspaceModes';
+import { PROJECT_TABS, documentsForTab, type ProjectTabId } from './projectTabs';
+import { CHAT_FIRST_TRIAL_ENABLED, type WorkspaceMode } from './workspaceModes';
 import { RecentProjectPicker, type RecentProjectPickerItem } from './RecentProjectPicker';
 import { CoauthorSidebar } from './CoauthorSidebar';
-import { ProjectConversation, type ProjectConversationHandle } from '../chat';
-import { ConversationHistoryPanel } from '../chat';
-import type { ChatAdoptionTarget } from '../ipc/projectChat';
-import { readProjectActivity, type ProjectActivitySnapshot } from '../ipc/projectActivity';
-import { Workshop, type WorkshopHandle } from './Workshop';
+import { Workshop } from './Workshop';
 import { StoryBible } from './StoryBible';
 import { AppCloseDialog } from './AppCloseDialog';
-import { useAppClose } from './useAppClose';
-import { appCloseStatus, beginAppClose, cancelAppClose, finishAppClose, stopAppJobs, type AppCloseStatus } from '../ipc/appClose';
+import { useWorkspaceModel } from './workspaceModel';
 import './workspaceModes.css';
 import './CoauthorWorkspace.css';
 
-import { EditorTrial, kinds, useWorkspaceModel } from './workspaceModel';
+const EditorTrial = typeof __WNS_EDITOR_TRIAL__ !== 'undefined' && __WNS_EDITOR_TRIAL__
+  ? lazy(() => import('./App').then(module => ({ default: module.App })))
+  : null;
 
 export function Workspace() {
-  const {
-    library,
-    project,
-    active,
-    exporting,
-    setExporting,
-    exportButton,
-    search,
-    setSearch,
-    archived,
-    setArchived,
-    newProject,
-    setNewProject,
-    importingV2,
-    setImportingV2,
-    title,
-    setTitle,
-    newDocument,
-    setNewDocument,
-    renaming,
-    setRenaming,
-    renamedTitle,
-    setRenamedTitle,
-    renamingDocument,
-    setRenamingDocument,
-    renamedDocumentTitle,
-    setRenamedDocumentTitle,
-    documentTitle,
-    setDocumentTitle,
-    kind,
-    setKind,
-    projectTab,
-    workspaceMode,
-    chatReviewRun,
-    chatHistoryOpen,
-    setChatHistoryOpen,
-    storyBibleOpen,
-    setStoryBibleOpen,
-    storyBibleButton,
-    trial,
-    setTrial,
-    trialAvailable,
-    busy,
-    setProjectPickerOpen,
-    projectActivity,
-    notice,
-    error,
-    setError,
-    renderer,
-    creation,
-    recovery,
-    workshopRef,
-    projectChatRef,
-    loading,
-    appClose,
-    acceptChatAccess,
-    refreshLibrary,
-    perform,
-    activate,
-    mergeWorkshopDocuments,
-    selectWorkspaceMode,
-    openChatChapterResult,
-    prepareChatAdoption,
-    acceptChatDocuments,
-    restoreChatAdoption,
-    createChatNote,
-    createChatChapter,
-    prepareChatChapter,
-    prepareChatSource,
-    openDocumentFromWorkshop,
-    openStoryBible,
-    closeStoryBible,
-    open,
-    create,
-    backToLibrary,
-    recover,
-    duplicate,
-    resumeDuplicate,
-    resumeImport,
-    rename,
-    selectDocument,
-    selectTab,
-    beginDocument,
-    renameCurrentDocument,
-    addDocument,
-    backup,
-    exportDraft,
-    prepareExport,
-    writeExport,
-  } = useWorkspaceModel();
+  const model = useWorkspaceModel();
+  const { snapshot: library, loading, archived, newProject, title } = model.library.view;
+  const { open, create, backToLibrary, recover, duplicate, resumeDuplicate, resumeImport, archive,
+    setArchived, setNewProject, setTitle, openImport } = model.library.actions;
+  const { importDialog } = model.library;
+  const { project, active, exporting, projectTab, workspaceMode, chatReviewRun, kinds,
+    newDocument, renaming, renamedTitle, renamingDocument, renamedDocumentTitle, documentTitle, kind } = model.workspace.view;
+  const { setNewDocument, setRenaming, setRenamedTitle, setRenamingDocument, setRenamedDocumentTitle, setDocumentTitle, setKind,
+    closeExport, acceptChatAccess, mergeWorkshopDocuments, selectWorkspaceMode, openChatChapterResult,
+    prepareChatAdoption, acceptChatDocuments, restoreChatAdoption, createChatNote, createChatChapter,
+    prepareChatChapter, prepareChatSource, openDocumentFromWorkshop, openStoryBible, rename,
+    selectDocument, selectTab, beginDocument, renameCurrentDocument, addDocument,
+    backup, exportDraft, prepareExport, writeExport } = model.workspace.actions;
+  const { busy, notice, error, setError } = model.status;
+  const { search, setSearch, chatHistoryOpen, setChatHistoryOpen, storyBibleOpen, setStoryBibleOpen,
+    trial, setTrial, trialAvailable, projectActivity, setProjectPickerOpen, closeStoryBible } = model.presentation;
+  const { exportButton, storyBibleButton, workshopRef, projectChatRef } = model.refs;
+  const { appClose } = model;
 
   if (trial && trialAvailable && EditorTrial) return <><button className="trial-return" onClick={() => setTrial(false)}>Back to library</button><Suspense fallback={<p role="status">Opening editor trial…</p>}><EditorTrial /></Suspense></>;
   const entries = library.entries.filter(entry => entry.archived === archived && entry.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
@@ -175,7 +90,7 @@ export function Workspace() {
           {([...(CHAT_FIRST_TRIAL_ENABLED ? ['chat' as const] : []), 'develop', 'write'] as WorkspaceMode[]).map(mode => <button key={mode} id={`workspace-mode-${mode}`} role="tab" aria-selected={workspaceMode === mode} aria-controls="workspace-mode-panel" tabIndex={workspaceMode === mode ? 0 : -1} disabled={busy} onClick={() => selectWorkspaceMode(mode)}>{mode === 'chat' ? 'Project chat · trial' : mode === 'develop' ? 'Develop' : 'Write'}</button>)}
         </div>
         <button ref={storyBibleButton} className="story-bible-action" disabled={busy} onClick={openStoryBible}>Story Bible</button>
-        <details className="project-tools"><summary>Project options</summary><div className="project-tools-menu"><button disabled={busy} onClick={() => { setRenamedTitle(project.project.title); setRenaming(!renaming); }}>Rename</button><button disabled={busy} onClick={() => setChatHistoryOpen(true)}>Conversation history</button><button disabled={busy} onClick={duplicate}>Duplicate</button><button disabled={busy} onClick={() => void perform(backup)}>Backup</button><button ref={exportButton} disabled={busy || !active} onClick={() => void perform(exportDraft)}>Export draft</button></div></details>
+        <details className="project-tools"><summary>Project options</summary><div className="project-tools-menu"><button disabled={busy} onClick={() => { setRenamedTitle(project.project.title); setRenaming(!renaming); }}>Rename</button><button disabled={busy} onClick={() => setChatHistoryOpen(true)}>Conversation history</button><button disabled={busy} onClick={duplicate}>Duplicate</button><button disabled={busy} onClick={backup}>Backup</button><button ref={exportButton} disabled={busy || !active} onClick={exportDraft}>Export draft</button></div></details>
       </div>
       {workspaceMode === 'write' && <div className="project-tabs" role="tablist" aria-label="Project workspace" onKeyDown={event => {
         const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
@@ -187,10 +102,10 @@ export function Workspace() {
     {project && renaming && <form className="rename-project-form" onSubmit={rename}><label htmlFor="rename-project">Project title</label><input autoFocus id="rename-project" value={renamedTitle} maxLength={160} onChange={event => setRenamedTitle(event.target.value)} /><button type="button" onClick={() => setRenaming(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedTitle.trim()}>Save title</button></form>}
     {project && active && renamingDocument && <form className="rename-project-form" onSubmit={renameCurrentDocument}><label htmlFor="rename-document">Document title</label><input autoFocus id="rename-document" value={renamedDocumentTitle} maxLength={160} onChange={event => setRenamedDocumentTitle(event.target.value)} /><button type="button" onClick={() => setRenamingDocument(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || !renamedDocumentTitle.trim()}>Save document title</button></form>}
     {!project ? <main className="library-page" aria-label="Project library">
-      <div className="library-heading"><div><h1 tabIndex={-1}>Your stories</h1><p>Start wherever the idea begins.</p></div><div className="header-actions"><button className="secondary-button" disabled={busy} onClick={() => open(null)}>Open folder</button><button className="secondary-button" disabled={busy} onClick={() => setImportingV2(true)}>Import V2 project</button><button className="primary-button" disabled={busy} onClick={() => setNewProject(true)}>New project</button></div></div>
+      <div className="library-heading"><div><h1 tabIndex={-1}>Your stories</h1><p>Start wherever the idea begins.</p></div><div className="header-actions"><button className="secondary-button" disabled={busy} onClick={() => open(null)}>Open folder</button><button className="secondary-button" disabled={busy} onClick={openImport}>Import V2 project</button><button className="primary-button" disabled={busy} onClick={() => setNewProject(true)}>New project</button></div></div>
       {newProject && <form className="inline-form" onSubmit={event => { event.preventDefault(); create(title); }}><label htmlFor="project-title">Project title</label><input autoFocus id="project-title" value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder="Untitled project" disabled={busy} /><div><button type="button" disabled={busy} onClick={() => setNewProject(false)}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? 'Creating…' : 'Create project'}</button></div></form>}
       <div className="library-filters"><label className="search-field"><span className="sr-only">Find a project</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Find a project" /></label><button aria-pressed={archived} onClick={() => setArchived(!archived)}>{archived ? 'Show active' : 'Archived'}</button></div>
-      {loading ? <p role="status">Opening your library…</p> : entries.length ? <ul className="project-list">{entries.map(entry => <li key={entry.projectId}><button className="project-open" disabled={busy || entry.missing} onClick={() => open(entry.path)}><strong>{entry.title}</strong><span>{entry.missing ? 'Folder moved or unavailable' : `Last opened ${new Date(entry.lastOpened).toLocaleDateString()}`}</span></button>{entry.missing && <button disabled={busy} onClick={() => open(null)}>Locate</button>}<button disabled={busy} aria-label={`${entry.archived ? 'Unarchive' : 'Archive'} ${entry.title}`} onClick={() => void perform(async () => { await libraryArchive(entry.projectId, !entry.archived); await refreshLibrary(); })}>{entry.archived ? 'Unarchive' : 'Archive'}</button></li>)}</ul>
+      {loading ? <p role="status">Opening your library…</p> : entries.length ? <ul className="project-list">{entries.map(entry => <li key={entry.projectId}><button className="project-open" disabled={busy || entry.missing} onClick={() => open(entry.path)}><strong>{entry.title}</strong><span>{entry.missing ? 'Folder moved or unavailable' : `Last opened ${new Date(entry.lastOpened).toLocaleDateString()}`}</span></button>{entry.missing && <button disabled={busy} onClick={() => open(null)}>Locate</button>}<button disabled={busy} aria-label={`${entry.archived ? 'Unarchive' : 'Archive'} ${entry.title}`} onClick={() => archive(entry.projectId, !entry.archived)}>{entry.archived ? 'Unarchive' : 'Archive'}</button></li>)}</ul>
         : <div className="library-empty"><h2>{search ? 'No matching projects' : archived ? 'No archived projects' : 'A place for your next story'}</h2><p>{search ? 'Try a different title.' : archived ? 'Archived projects stay on your computer.' : 'Create a project, then add a character, a world, a chapter, or a simple note. There is no required order.'}</p></div>}
       {!!library.pending.length && <section className="pending-projects" aria-label="Unfinished project operations"><h2>Unfinished setup</h2>{library.pending.map(pending => <div key={pending.origin.operationId}><span>{pending.title}</span>{pending.kind === 'create' && <button disabled={busy} onClick={() => create(pending.title, pending.origin.operationId)}>Resume creation</button>}{pending.kind === 'duplicate' && <button disabled={busy} onClick={() => resumeDuplicate(pending.origin.operationId, pending.title)}>Resume copy</button>}{pending.kind === 'recover' && <button disabled={busy} onClick={() => recover(pending.origin.operationId, pending.title)}>Resume recovery</button>}{pending.kind === 'import' && <button disabled={busy} onClick={() => resumeImport(pending.origin.operationId)}>Check import</button>}</div>)}</section>}
       <footer className="library-footer"><span>Projects are saved on this computer.</span><div className="header-actions"><button disabled={busy} onClick={() => recover()}>Recover backup</button>{EditorTrial && trialAvailable && <button disabled={busy} onClick={() => setTrial(true)}>Open editor trial</button>}</div></footer>
@@ -209,7 +124,7 @@ export function Workspace() {
       <ProjectConversation ref={projectChatRef} key={`${project.project.projectId}:${project.access.operationNamespace}:${project.access.session}`} project={project} activeDocument={active?.record} onOpenDocument={selectDocument} onDocumentsChanged={acceptChatDocuments} onPrepareSource={prepareChatSource} onPrepareChapter={prepareChatChapter} onEarlierWorkshop={() => selectWorkspaceMode('develop')} onBeforeAdoption={prepareChatAdoption} onAdoptionFailure={restoreChatAdoption} onAccessChanged={acceptChatAccess} onCreateChapter={createChatChapter} onCreateNote={createChatNote} onOpenChapterResult={openChatChapterResult} editor={active ? { active, sources: project.documents.map(document => ({ id: document.head.documentId, title: document.title })), onError: setError, onRename: () => { setRenamedDocumentTitle(active.record.title); setRenamingDocument(!renamingDocument); } } : undefined} reviewRunId={chatReviewRun && active && chatReviewRun.target.documentId === active.record.head.documentId ? chatReviewRun.id : null} />
     </main> : workspaceMode === 'develop' ? <main className="workspace-develop" id="workspace-mode-panel" aria-labelledby="workspace-mode-develop-title">
       <h1 id="workspace-mode-develop-title" className="sr-only">Develop your story</h1>
-      <Workshop ref={workshopRef} project={project} navigationBusy={busy} onOpenDocument={(documentId: string) => openDocumentFromWorkshop(project.project.projectId, documentId)} onDocumentsChanged={(documents: DocumentRecord[]) => mergeWorkshopDocuments(project.project.projectId, documents)} onError={setError} />
+      <Workshop ref={workshopRef} project={project} navigationBusy={busy} onOpenDocument={(documentId: string) => openDocumentFromWorkshop(project.project.projectId, documentId)} onDocumentsChanged={documents => mergeWorkshopDocuments(project.project.projectId, documents)} onError={setError} />
     </main> : <div className="workspace" id="project-workspace-panel" role="tabpanel" aria-labelledby={`project-tab-${projectTab}`}>
       <aside className="document-sidebar" aria-label="Project documents"><div className="sidebar-heading"><h2>{currentTab.label}</h2><button className="primary-button" disabled={busy} onClick={() => beginDocument()}>Add</button></div><input aria-label="Find a document" type="search" placeholder={`Find ${currentTab.label.toLocaleLowerCase()}`} value={search} onChange={event => setSearch(event.target.value)} />
         {newDocument && <form className="inline-form document-form" onSubmit={addDocument}><label htmlFor="document-kind">Start with</label><select id="document-kind" value={kind} onChange={event => setKind(event.target.value)}>{kinds.map(kind => <option key={kind} value={kind}>{kind.charAt(0).toUpperCase() + kind.slice(1)}</option>)}</select><label htmlFor="document-title">Title</label><input id="document-title" autoFocus value={documentTitle} onChange={event => setDocumentTitle(event.target.value)} maxLength={160} /><div><button type="button" onClick={() => setNewDocument(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy}>Create</button></div></form>}
@@ -222,10 +137,8 @@ export function Workspace() {
     {appClose.prompt && <AppCloseDialog phase={appClose.prompt.phase} status={appClose.prompt.status} message={appClose.prompt.message} onStop={() => { void appClose.stopAndClose(); }} onStayOpen={() => { void appClose.stayOpen(); }} />}
     {exporting && active?.session === exporting.session && <ExportDialog access={exporting.session.projectAccess} documentId={exporting.record.head.documentId} title={exporting.record.title} isChapter={exporting.record.kind === 'chapter'}
       onPrepare={(format, basis) => prepareExport(exporting, format, basis)} onExport={preview => writeExport(exporting, preview)}
-      onClose={() => { setExporting(null); exportButton.current?.focus(); }} />}
-    {importingV2 && !project && <V2ImportDialog session={renderer.current}
-      onImported={opened => { setImportingV2(false); activate(opened); void refreshLibrary(); }}
-      onClose={() => { setImportingV2(false); void refreshLibrary(); }} />}
+      onClose={closeExport} />}
+    {importDialog && !project && <V2ImportDialog {...importDialog} />}
     {storyBibleOpen && project && <StoryBible project={project} onClose={closeStoryBible} onOpenDocument={(documentId: string) => { setStoryBibleOpen(false); openDocumentFromWorkshop(project.project.projectId, documentId); }} />}
     {chatHistoryOpen && project && <ConversationHistoryPanel access={active?.session.projectAccess ?? project.access} onClose={() => setChatHistoryOpen(false)} />}
     {(error || notice || busy) && <footer className="workspace-notice" role={error ? 'alert' : 'status'}><span className={error ? 'error-status' : ''}>{error || notice || 'Working…'}</span>{error && <button onClick={() => setError('')}>Dismiss</button>}</footer>}

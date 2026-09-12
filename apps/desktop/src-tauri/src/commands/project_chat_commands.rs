@@ -1,8 +1,8 @@
 //! Project chat uses the existing provider workers and local recovery ledger.
 use crate::app_state::AppState;
 use crate::author_start::{AuthorStart, start_author_native};
-use crate::discussion_recovery::{PendingSave, SaveOutcome, WorkerIssue};
 use crate::commands::project_commands::execute;
+use crate::discussion_recovery::{PendingSave, SaveOutcome, WorkerIssue};
 use serde::Serialize;
 use tauri::State;
 use webnovel_core::projects::discussions::{DiscussionRun, DiscussionStart};
@@ -50,7 +50,8 @@ fn collect_project_activity(
 /// This command never opens a path, attaches a renderer, acquires a lease, or
 /// contacts a provider; it returns counts and identities only.
 #[tauri::command]
-pub async fn project_activity( state: State<'_, AppState>,
+pub async fn project_activity(
+    state: State<'_, AppState>,
 ) -> CoreResult<Vec<ProjectActivitySnapshot>> {
     let app = &*state;
     let state = &app.projects;
@@ -68,7 +69,8 @@ pub struct DesktopProjectConversation {
 
 #[tauri::command]
 pub async fn read_project_conversation(
-    request: ReadProjectConversation, state: State<'_, AppState>,
+    request: ReadProjectConversation,
+    state: State<'_, AppState>,
 ) -> CoreResult<DesktopProjectConversation> {
     let app = &*state;
     let state = &app.projects;
@@ -112,7 +114,8 @@ pub async fn read_project_conversation(
 /// resumes work from the retained conversation.
 #[tauri::command]
 pub async fn read_project_chat_history(
-    request: ReadProjectChatHistory, state: State<'_, AppState>,
+    request: ReadProjectChatHistory,
+    state: State<'_, AppState>,
 ) -> CoreResult<HistoricalConversation> {
     let app = &*state;
     let state = &app.projects;
@@ -122,7 +125,8 @@ pub async fn read_project_chat_history(
 
 #[tauri::command]
 pub async fn list_project_chat_history(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<Vec<HistoricalConversationSummary>> {
     let app = &*state;
     let state = &app.projects;
@@ -132,7 +136,8 @@ pub async fn list_project_chat_history(
 
 #[tauri::command]
 pub async fn save_project_composer(
-    request: SaveProjectComposer, state: State<'_, AppState>,
+    request: SaveProjectComposer,
+    state: State<'_, AppState>,
 ) -> CoreResult<ProjectComposerSnapshot> {
     let app = &*state;
     let state = &app.projects;
@@ -143,7 +148,8 @@ pub async fn save_project_composer(
 #[tauri::command]
 pub async fn start_project_chat(
     request: StartProjectChat,
-    model_selection: Option<ModelSelection>, state: State<'_, AppState>,
+    model_selection: Option<ModelSelection>,
+    state: State<'_, AppState>,
 ) -> CoreResult<DiscussionStart> {
     let app = &*state;
     let state = &app.projects;
@@ -169,7 +175,8 @@ pub async fn start_project_chat(
 #[tauri::command]
 pub async fn start_project_chapter(
     request: StartProjectChapter,
-    model_selection: Option<ModelSelection>, state: State<'_, AppState>,
+    model_selection: Option<ModelSelection>,
+    state: State<'_, AppState>,
 ) -> CoreResult<DiscussionStart> {
     let app = &*state;
     let state = &app.projects;
@@ -198,7 +205,8 @@ pub async fn start_project_chapter(
 #[tauri::command]
 pub async fn read_project_chapter_feedback(
     access: ProjectAccess,
-    run_id: String, state: State<'_, AppState>,
+    run_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<Option<ChapterDiscussionFeedback>> {
     let app = &*state;
     let state = &app.projects;
@@ -210,7 +218,8 @@ pub async fn read_project_chapter_feedback(
 pub async fn retry_project_chat_save(
     access: ProjectAccess,
     conversation_id: String,
-    run_id: String, state: State<'_, AppState>,
+    run_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<()> {
     let app = &*state;
     let state = &app.projects;
@@ -224,7 +233,8 @@ pub async fn retry_project_chat_save(
 pub async fn read_assistant_draft(
     access: ProjectAccess,
     conversation_id: String,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<AssistantDraft> {
     let app = &*state;
     let state = &app.projects;
@@ -234,7 +244,8 @@ pub async fn read_assistant_draft(
 
 #[tauri::command]
 pub async fn save_assistant_draft(
-    request: SaveAssistantDraft, state: State<'_, AppState>,
+    request: SaveAssistantDraft,
+    state: State<'_, AppState>,
 ) -> CoreResult<SaveAck> {
     let app = &*state;
     let state = &app.projects;
@@ -245,7 +256,8 @@ pub async fn save_assistant_draft(
 #[tauri::command]
 pub async fn checkpoint_assistant_draft(
     conversation_id: String,
-    request: CheckpointRequest, state: State<'_, AppState>,
+    request: CheckpointRequest,
+    state: State<'_, AppState>,
 ) -> CoreResult<Revision> {
     let app = &*state;
     let state = &app.projects;
@@ -256,7 +268,8 @@ pub async fn checkpoint_assistant_draft(
 #[tauri::command]
 pub async fn reconcile_assistant_draft(
     conversation_id: String,
-    request: ReconcileRequest, state: State<'_, AppState>,
+    request: ReconcileRequest,
+    state: State<'_, AppState>,
 ) -> CoreResult<ReconciledDocument> {
     let app = &*state;
     let state = &app.projects;
@@ -266,7 +279,8 @@ pub async fn reconcile_assistant_draft(
 
 #[tauri::command]
 pub async fn set_chat_disposition(
-    request: SetChatDisposition, state: State<'_, AppState>,
+    request: SetChatDisposition,
+    state: State<'_, AppState>,
 ) -> CoreResult<ConversationItem> {
     let app = &*state;
     let state = &app.projects;
@@ -276,7 +290,8 @@ pub async fn set_chat_disposition(
 
 #[tauri::command]
 pub async fn prepare_chat_adoption(
-    request: PrepareChatAdoption, state: State<'_, AppState>,
+    request: PrepareChatAdoption,
+    state: State<'_, AppState>,
 ) -> CoreResult<ChatAdoptionPreview> {
     let app = &*state;
     let state = &app.projects;
@@ -286,7 +301,8 @@ pub async fn prepare_chat_adoption(
 
 #[tauri::command]
 pub async fn adopt_chat_preview(
-    request: AdoptChatPreview, state: State<'_, AppState>,
+    request: AdoptChatPreview,
+    state: State<'_, AppState>,
 ) -> CoreResult<ChatAdoptionAck> {
     let app = &*state;
     let state = &app.projects;
@@ -298,7 +314,8 @@ pub async fn adopt_chat_preview(
 pub async fn read_chat_adoption_preview(
     access: ProjectAccess,
     conversation_id: String,
-    preview_id: String, state: State<'_, AppState>,
+    preview_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<ChatAdoptionPreview> {
     let app = &*state;
     let state = &app.projects;
@@ -310,8 +327,8 @@ pub async fn read_chat_adoption_preview(
 mod tests {
     use super::*;
     use crate::author_start::{AuthorStart, start_author_native};
-    use crate::discussion_recovery::DiscussionRecovery;
     use crate::commands::library_commands::DesktopLibrary;
+    use crate::discussion_recovery::DiscussionRecovery;
     use crate::provider_runtime::DesktopProviders;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -352,7 +369,8 @@ mod tests {
                 ProjectSession::create(root.join("project"), "Native project chat").unwrap();
             let access = project.documents().attach("native-test".into()).unwrap();
             let chapter = project
-                .documents().create(CreateDocument {
+                .documents()
+                .create(CreateDocument {
                     access: access.clone(),
                     operation_id: "create-chapter".into(),
                     document_id: "chapter".into(),

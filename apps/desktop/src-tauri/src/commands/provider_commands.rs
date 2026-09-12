@@ -13,8 +13,7 @@ pub fn unavailable() -> CoreError {
 }
 
 #[tauri::command]
-pub async fn provider_state( state: State<'_, AppState>,
-) -> CoreResult<DesktopProviderState> {
+pub async fn provider_state(state: State<'_, AppState>) -> CoreResult<DesktopProviderState> {
     let app = &*state;
     let state = &app.library;
     let runtime = &app.providers;
@@ -24,7 +23,8 @@ pub async fn provider_state( state: State<'_, AppState>,
 }
 
 #[tauri::command]
-pub async fn check_codex_connection( state: State<'_, AppState>,
+pub async fn check_codex_connection(
+    state: State<'_, AppState>,
 ) -> CoreResult<DesktopProviderState> {
     let app = &*state;
     let state = &app.library;
@@ -57,7 +57,8 @@ pub async fn check_codex_connection( state: State<'_, AppState>,
 pub async fn save_model_settings(
     expected_revision: String,
     active: ModelSelection,
-    favorites: Vec<ModelKey>, state: State<'_, AppState>,
+    favorites: Vec<ModelKey>,
+    state: State<'_, AppState>,
 ) -> CoreResult<DesktopProviderState> {
     let app = &*state;
     let state = &app.library;
@@ -73,7 +74,8 @@ pub async fn save_model_settings(
 }
 
 #[tauri::command]
-pub async fn check_claude_connection( state: State<'_, AppState>,
+pub async fn check_claude_connection(
+    state: State<'_, AppState>,
 ) -> CoreResult<DesktopProviderState> {
     let app = &*state;
     let state = &app.library;
@@ -90,7 +92,8 @@ pub async fn check_claude_connection( state: State<'_, AppState>,
 #[tauri::command]
 pub async fn save_story_memory_provider(
     expected_revision: String,
-    provider_id: String, state: State<'_, AppState>,
+    provider_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<DesktopProviderState> {
     let app = &*state;
     let state = &app.library;

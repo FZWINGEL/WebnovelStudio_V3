@@ -3,11 +3,11 @@
 //! This module validates a bounded evidence-linked response. It does not infer
 //! semantic truth, install a generated view, or authorize manuscript edits.
 
-use crate::{CoverageLabel, SourceKind, SourceRef};
 use crate::frozen::{SourcePassage, SourceRead};
-use wns_kernel::{CoreError, CoreResult};
+use crate::{CoverageLabel, SourceKind, SourceRef};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use wns_kernel::{CoreError, CoreResult};
 
 /// Wire version for the single-chapter navigation response.
 pub const DIGEST_SCHEMA_VERSION: &str = "navigation-digest.v1";

@@ -57,8 +57,8 @@ pub use workshop_api::*;
 // including the `use super::*` globs in this crate's own submodules, keeps
 // resolving unchanged.
 pub use wns_kernel::{
-    CoreError, CoreResult, Head, ProjectAccess, Revision, check_id, logical_hash, parse_stored_version,
-    parse_version,
+    CoreError, CoreResult, Head, ProjectAccess, Revision, check_id, logical_hash,
+    parse_stored_version, parse_version,
 };
 
 // The shared primitive layer, moved down so the remaining step-7 modules can
@@ -1032,8 +1032,7 @@ fn write_project_marker(path: &Path, info: &ProjectInfo) -> CoreResult<()> {
 }
 #[test]
 fn save_receipt_matches_shared_literal_fixture() {
-    let fixture: serde_json::Value = serde_json::from_str(contracts::W2_SAVE_RECEIPT)
-    .unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(contracts::W2_SAVE_RECEIPT).unwrap();
     let request: SaveSnapshot = serde_json::from_value(fixture["request"].clone()).unwrap();
     assert_eq!(
         logical_hash(&request).unwrap(),
@@ -1054,6 +1053,11 @@ fn save_receipt_matches_shared_literal_fixture() {
 fn hold_context_after_commit_before_ack(operation_id: &str) {
     tests::hold_after_commit_before_ack(operation_id);
 }
+
+// The view state and its read/validate helpers moved to `wns-documents` (L2).
+// `transfer` validates a stored view state before accepting a backup, and
+// cannot reach it through the crate being decomposed.
+pub(crate) use wns_documents::{read_view_state, validate_endpoint};
 
 #[cfg(test)]
 mod tests {
@@ -1119,7 +1123,8 @@ mod tests {
             ProjectSession::create(root.join("project"), "Crash recovery fixture").unwrap();
         let access = project.documents().attach("parent".into()).unwrap();
         let document = project
-            .documents().create(CreateDocument {
+            .documents()
+            .create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -1171,7 +1176,8 @@ mod tests {
         assert!(committed, "Child did not reach the commit barrier");
         let recovered = ProjectSession::open(root.join("project")).unwrap();
         let snapshot = recovered
-            .documents().reconcile(ReconcileRequest {
+            .documents()
+            .reconcile(ReconcileRequest {
                 project_id: recovered.info.project_id.clone(),
                 operation_namespace: recovered.info.operation_namespace.clone(),
                 session: "new-renderer".into(),
@@ -1205,7 +1211,8 @@ mod tests {
             ProjectSession::create(root.join("project"), "Context crash fixture").unwrap();
         let access = project.documents().attach("parent".into()).unwrap();
         let document = project
-            .documents().create(CreateDocument {
+            .documents()
+            .create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -1281,7 +1288,8 @@ mod tests {
 
         let recovered = ProjectSession::open(root.join("project")).unwrap();
         let reconciled = recovered
-            .documents().reconcile(ReconcileRequest {
+            .documents()
+            .reconcile(ReconcileRequest {
                 project_id: recovered.info.project_id.clone(),
                 operation_namespace: recovered.info.operation_namespace.clone(),
                 session: "new-renderer".into(),
@@ -1372,7 +1380,8 @@ mod tests {
         let access = project.documents().attach("parent".into()).unwrap();
         let body = |text: &str| json!({"schemaVersion":1,"body":{"type":"doc","content":[{"type":"paragraph","attrs":{"id":"p"},"content":[{"type":"text","text":text}]}]}});
         let document = project
-            .documents().create(CreateDocument {
+            .documents()
+            .create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -1488,7 +1497,8 @@ mod tests {
         assert!(committed, "Child did not reach the Apply commit barrier");
         let recovered = ProjectSession::open(root.join("project")).unwrap();
         let snapshot = recovered
-            .documents().reconcile(ReconcileRequest {
+            .documents()
+            .reconcile(ReconcileRequest {
                 project_id: recovered.info.project_id.clone(),
                 operation_namespace: recovered.info.operation_namespace.clone(),
                 session: "new-renderer".into(),
@@ -1506,7 +1516,8 @@ mod tests {
         assert_eq!(repeated.document.head, snapshot.document.head);
         assert_eq!(
             recovered
-                .documents().history(snapshot.access.clone(), "chapter".into())
+                .documents()
+                .history(snapshot.access.clone(), "chapter".into())
                 .unwrap()
                 .len(),
             2
@@ -1535,7 +1546,8 @@ mod tests {
         let access = project.documents().attach("parent".into()).unwrap();
         let initial_body = blank_document();
         let document = project
-            .documents().create(CreateDocument {
+            .documents()
+            .create(CreateDocument {
                 access: access.clone(),
                 operation_id: "create".into(),
                 document_id: "chapter".into(),
@@ -1545,14 +1557,16 @@ mod tests {
             })
             .unwrap();
         let source = project
-            .documents().checkpoint(CheckpointRequest {
+            .documents()
+            .checkpoint(CheckpointRequest {
                 access: access.clone(),
                 expected: document.head.clone(),
                 reason: CheckpointReason::Manual,
             })
             .unwrap();
         let current = project
-            .documents().save(SaveSnapshot {
+            .documents()
+            .save(SaveSnapshot {
                 access: access.clone(),
                 operation_id: "restore-current".into(),
                 expected: document.head,
@@ -1608,7 +1622,8 @@ mod tests {
         assert!(committed, "Child did not reach the Restore commit barrier");
         let recovered = ProjectSession::open(root.join("project")).unwrap();
         let snapshot = recovered
-            .documents().reconcile(ReconcileRequest {
+            .documents()
+            .reconcile(ReconcileRequest {
                 project_id: recovered.info.project_id.clone(),
                 operation_namespace: recovered.info.operation_namespace.clone(),
                 session: "new-renderer".into(),
@@ -1651,10 +1666,3 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
-
-// The view state and its read/validate helpers moved to `wns-documents` (L2).
-// `transfer` validates a stored view state before accepting a backup, and
-// cannot reach it through the crate being decomposed.
-pub(crate) use wns_documents::{
-    read_view_state, validate_endpoint,
-};

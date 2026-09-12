@@ -8,7 +8,8 @@ use webnovel_core::projects::{CoreResult, ProjectAccess};
 #[tauri::command]
 pub async fn read_guidance(
     access: ProjectAccess,
-    document_id: String, state: State<'_, AppState>,
+    document_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<Vec<GuidanceVersion>> {
     let app = &*state;
     let state = &app.projects;
@@ -18,7 +19,8 @@ pub async fn read_guidance(
 
 #[tauri::command]
 pub async fn save_guidance(
-    request: SaveGuidance, state: State<'_, AppState>,
+    request: SaveGuidance,
+    state: State<'_, AppState>,
 ) -> CoreResult<GuidanceVersion> {
     let app = &*state;
     let state = &app.projects;

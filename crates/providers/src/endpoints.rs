@@ -6,10 +6,10 @@
 
 use super::credentials::CredentialTarget;
 use super::openai_compatible::normalize_base_url;
-use wns_kernel::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
+use wns_kernel::{CoreError, CoreResult};
 
 pub const ENDPOINT_PROFILES_SCHEMA_VERSION: u32 = 1;
 pub const ENDPOINT_PROFILES_KEY: &str = "openai-compatible-endpoints-v1";

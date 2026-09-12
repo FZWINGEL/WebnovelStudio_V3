@@ -2,8 +2,8 @@
 //! only settles the saved operation and never reloads credentials or resends it.
 use crate::commands::library_commands::DesktopLibrary;
 use crate::commands::memory_commands::{StartMemoryRequest, check_maintenance_choice};
-use crate::memory_recovery::MemoryRecovery;
 use crate::commands::project_commands::execute;
+use crate::memory_recovery::MemoryRecovery;
 use crate::provider_runtime::DesktopProviders;
 use webnovel_core::context::packet::{HTTP_MEMORY_MODEL_ID, ProviderBinding};
 use webnovel_core::projects::discussions::{
@@ -438,7 +438,10 @@ mod tests {
             std::fs::create_dir(&root).unwrap();
             let project =
                 ProjectSession::create(root.join("project"), "API memory fixture").unwrap();
-            let access = project.documents().attach("fixture-session".into()).unwrap();
+            let access = project
+                .documents()
+                .attach("fixture-session".into())
+                .unwrap();
             let chapter = project.documents().create(CreateDocument {
                 access: access.clone(), operation_id: "create-chapter".into(), document_id: "chapter".into(),
                 title: "A promise".into(), kind: "chapter".into(),
@@ -634,7 +637,8 @@ mod tests {
         assert_eq!(
             fixture
                 .project
-                .documents().read(fixture.access.clone(), "chapter".into())
+                .documents()
+                .read(fixture.access.clone(), "chapter".into())
                 .unwrap()
                 .head,
             fixture.request.expected

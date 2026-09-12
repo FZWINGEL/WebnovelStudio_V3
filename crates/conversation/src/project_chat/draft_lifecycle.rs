@@ -5,15 +5,15 @@
 //! draft editor and retain the same immutable revision and receipt rules.
 
 use super::*;
-use serde_json::json;
-use wns_story::context_packets;
 use crate::project_chat::materialize::{
     allowed_chapter_target_handles, allowed_predecessor_handles, allowed_target_handles,
 };
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use serde_json::json;
 use wns_context::project_chat_output::{
     MAX_PROJECT_CHAT_KEY_BYTES, parse_project_assistant_output_with_predecessors_and_chapters,
 };
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use wns_story::context_packets;
 
 const SAVE_DRAFT_KIND: &str = "saveAssistantDraft";
 
@@ -203,7 +203,7 @@ fn draft_save_payload_hash(request: &SaveAssistantDraft) -> CoreResult<String> {
 // Actor-side logic, as free functions over `ProjectChatHost`.
 
 pub fn save_assistant_draft(
-host: &mut impl ProjectChatHost,
+    host: &mut impl ProjectChatHost,
     request: SaveAssistantDraft,
 ) -> CoreResult<SaveAck> {
     let access = request.snapshot.access.clone();
@@ -224,9 +224,7 @@ host: &mut impl ProjectChatHost,
         &request.conversation_id,
         &request.snapshot.expected.document_id,
     )?;
-    if disposition != "pending"
-        || disposition_version.to_string() != request.disposition_version
-    {
+    if disposition != "pending" || disposition_version.to_string() != request.disposition_version {
         return Err(CoreError::new(
             "DraftChanged",
             "The draft is no longer pending at the requested disposition version.",
@@ -319,7 +317,7 @@ host: &mut impl ProjectChatHost,
 }
 
 pub fn checkpoint_assistant_draft(
-host: &mut impl ProjectChatHost,
+    host: &mut impl ProjectChatHost,
     conversation_id: String,
     request: CheckpointRequest,
 ) -> CoreResult<Revision> {
@@ -348,7 +346,7 @@ host: &mut impl ProjectChatHost,
 }
 
 pub fn reconcile_assistant_draft(
-host: &mut impl ProjectChatHost,
+    host: &mut impl ProjectChatHost,
     conversation_id: String,
     request: ReconcileRequest,
 ) -> CoreResult<ReconciledDocument> {
@@ -377,8 +375,7 @@ host: &mut impl ProjectChatHost,
     let tx = host.db()?;
     store::require_conversation(tx, &access, &conversation_id)?;
     let _ = draft_row(tx, &access, &conversation_id, &request.document_id)?;
-    let document =
-        read_document_with_role(tx, &request.document_id, DocumentRole::AssistantDraft)?;
+    let document = read_document_with_role(tx, &request.document_id, DocumentRole::AssistantDraft)?;
     let mut receipts = Vec::new();
     for id in request.pending_operation_ids {
         let row: Option<(String, String, String)> = tx
@@ -406,7 +403,7 @@ host: &mut impl ProjectChatHost,
 }
 
 pub fn set_chat_disposition(
-host: &mut impl ProjectChatHost,
+    host: &mut impl ProjectChatHost,
     request: SetChatDisposition,
 ) -> CoreResult<ConversationItem> {
     host.check_access(&request.access)?;
@@ -502,10 +499,8 @@ host: &mut impl ProjectChatHost,
             |r| r.get(0),
         )?;
         let packet = context_packets::validated_packet_record(&tx, &packet_id)?;
-        let (frozen, _) = wns_story::story_context::validated_snapshot_record(
-            &tx,
-            &packet.receipt.snapshot_id,
-        )?;
+        let (frozen, _) =
+            wns_story::story_context::validated_snapshot_record(&tx, &packet.receipt.snapshot_id)?;
         let handles = allowed_target_handles(&tx, &frozen)?;
         let predecessor_handles = allowed_predecessor_handles(&tx, &frozen)?;
         let chapter_handles = allowed_chapter_target_handles(&tx, &frozen)?;

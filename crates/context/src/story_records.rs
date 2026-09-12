@@ -4,11 +4,11 @@
 //! from prose, generated memory, or a display label, and they do not replace
 //! the immutable source revision that supports them.
 
-use wns_kernel::{CoreError, CoreResult, Revision, validate_snapshot_json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use unicode_segmentation::UnicodeSegmentation;
+use wns_kernel::{CoreError, CoreResult, Revision, validate_snapshot_json};
 
 pub const MAX_RECORDS: usize = 64;
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;

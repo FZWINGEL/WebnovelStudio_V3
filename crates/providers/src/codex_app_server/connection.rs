@@ -6,13 +6,13 @@ use super::launch::AppServerLaunch;
 use super::protocol::ThreadStartConfig;
 use super::runtime::{AppServerAuth, AppServerConnection, AppServerHealth, AppServerReservation};
 use super::{AppServerRuntimeIdentity, MAINTENANCE_PROFILE};
+use crate::codex_runtime::CodexConnection;
+use crate::preferences::ModelSelection;
 use crate::vocabulary::{
     CODEX_MAINTENANCE_MODEL_ID, CODEX_MAINTENANCE_REASONING, CODEX_SERVICE_TIER, ProviderBinding,
 };
-use wns_kernel::{CoreError, CoreResult};
-use crate::codex_runtime::CodexConnection;
-use crate::preferences::ModelSelection;
 use std::sync::{Arc, Mutex};
+use wns_kernel::{CoreError, CoreResult};
 
 #[derive(Clone)]
 pub struct ManagedAppServer(Arc<CheckedServer>);

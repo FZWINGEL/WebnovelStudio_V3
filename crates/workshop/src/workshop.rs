@@ -9,35 +9,54 @@ pub use wns_story::workshop_metadata::{
     validate_text,
 };
 pub use wns_story::workshop_vocabulary::{
-    WorkshopBranchKind, WorkshopDecisionStatus, WorkshopImpactKind, WorkshopImpactStatus, SelectedDetail, CandidateChoice, WorkshopSession, WorkshopDecision, WorkshopImpact, WorkshopPreset, WorkshopState, WorkshopSnapshotOrigin,
-    CandidateChoiceStatus, Lens, PreferencePolarity, PreferenceScope, PreferenceStrength,
-    StoryPossibility, StoryPossibilityKind, StoryPossibilityStatus, UnknownTo, WorkshopDepth,
-    WorkshopPreference, WorkshopQuestion, WorkshopQuestionStatus, WorkshopRelationship,
-    WorkshopRelationshipStatus,
+    CandidateChoice, CandidateChoiceStatus, Lens, PreferencePolarity, PreferenceScope,
+    PreferenceStrength, SelectedDetail, StoryPossibility, StoryPossibilityKind,
+    StoryPossibilityStatus, UnknownTo, WorkshopBranchKind, WorkshopDecision,
+    WorkshopDecisionStatus, WorkshopDepth, WorkshopImpact, WorkshopImpactKind,
+    WorkshopImpactStatus, WorkshopPreference, WorkshopPreset, WorkshopQuestion,
+    WorkshopQuestionStatus, WorkshopRelationship, WorkshopRelationshipStatus, WorkshopSession,
+    WorkshopSnapshotOrigin, WorkshopState,
 };
-// The run vocabulary now lives below both conversation crates; naming it there
-// is what will let this module move to `wns-workshop` without an L5→L5 edge.
-use wns_story::run_vocabulary::{DiscussionRun, DiscussionRunStatus, DiscussionStart};
+// Shared run vocabulary lives below conversation and Workshop; readers cross
+// the host seam so these sibling crates remain independent.
 use crate::host::WorkshopHost;
-// The state layer moved to L4 and is re-exported here, which is where the
-// Workshop's own call sites and the desktop app both name it.
-pub use wns_story::workshop_state::*;
+use wns_story::run_vocabulary::{
+    CompletedDiscussionOutput, DiscussionRun, DiscussionRunStatus, DiscussionStart,
+};
+// Shared state vocabulary is re-exported at Workshop's existing public path.
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
 use wns_kernel::{
     CoreError, CoreResult, DocumentRecord, Head, ProjectAccess, check_id, logical_hash, new_id,
     parse_stored_version, parse_version, sha256_hex, valid_hash, validate_snapshot_json,
     validate_title,
 };
-use wns_storage::{
-    read_document, read_revision,
-};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use wns_storage::{read_document, read_revision};
+pub use wns_story::workshop_state::*;
 
 type WorkshopCandidateRecord = (String, String, Option<WorkshopRelationship>);
 type WorkshopAdoptionPreviewRecord = (String, String, String, i64, String, String, String, String);
 type WorkshopCandidateOutput = (String, WorkshopCandidate, Option<WorkshopRelationship>);
+
+/// Carries the caller's active database view through candidate interpretation.
+/// The stateless conversation reader executes only when the helper reaches the
+/// original query boundary, including inside save/adoption transactions.
+#[derive(Clone, Copy)]
+struct CandidateReadContext<'a> {
+    connection: &'a Connection,
+    completed_outputs: fn(&Connection) -> CoreResult<Vec<CompletedDiscussionOutput>>,
+}
+
+impl<'a> CandidateReadContext<'a> {
+    fn new<H: WorkshopHost>(connection: &'a Connection) -> Self {
+        Self {
+            connection,
+            completed_outputs: H::completed_outputs_at,
+        }
+    }
+}
 
 fn storage_valid_id(value: &str) -> bool {
     !value.is_empty()
@@ -46,29 +65,6 @@ fn storage_valid_id(value: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /// A relationship proposed as part of an atomic adoption.  This remains a
 /// request shape until the adoption commits the exact endpoint heads into a
@@ -86,7 +82,6 @@ pub struct WorkshopRelationshipDraft {
     pub from_expected: Option<Head>,
     pub to_expected: Option<Head>,
 }
-
 
 /// An author classification supplied with an adoption preview.  It is tied
 /// to a candidate affected target and becomes an immutable impact provenance
@@ -108,9 +103,6 @@ pub struct WorkshopAdoptionImpact {
     pub reason: String,
     pub status: WorkshopImpactStatus,
 }
-
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -315,10 +307,7 @@ fn read_workshop_results(
     source_epoch: &str,
 ) -> CoreResult<Vec<WorkshopResult>> {
     let connection = host.db()?;
-    let mut statement = connection.prepare("SELECT id FROM discussion_runs ORDER BY rowid")?;
-    let run_ids = statement
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
+    let run_ids = host.run_ids()?;
     let mut results = Vec::new();
     for run_id in run_ids {
         let run = host.read_run(&run_id)?;
@@ -339,8 +328,7 @@ fn read_workshop_results(
                     "A workshop discussion packet has no user instruction.",
                 )
             })?;
-        let metadata =
-            crate::workshop_generation::metadata_from_instruction(instruction)?;
+        let metadata = crate::workshop_generation::metadata_from_instruction(instruction)?;
         let (frozen, namespace) = wns_story::story_context::validated_snapshot_record(
             connection,
             &packet.receipt.snapshot_id,
@@ -374,21 +362,19 @@ fn read_workshop_results(
                 session.working_generation != metadata.exploration.working_generation
             })
             || relationship_stale;
-        let (output, validation_error) = if run.status
-            == DiscussionRunStatus::Completed
-            && run.dispatch_state == "delivered"
-        {
-            match crate::workshop_generation::validate_workshop_output(
-                &run.output_text,
-                &metadata,
-                &run.id,
-            ) {
-                Ok(output) => (Some(output), None),
-                Err(error) => (None, Some(error.detail)),
-            }
-        } else {
-            (None, None)
-        };
+        let (output, validation_error) =
+            if run.status == DiscussionRunStatus::Completed && run.dispatch_state == "delivered" {
+                match crate::workshop_generation::validate_workshop_output(
+                    &run.output_text,
+                    &metadata,
+                    &run.id,
+                ) {
+                    Ok(output) => (Some(output), None),
+                    Err(error) => (None, Some(error.detail)),
+                }
+            } else {
+                (None, None)
+            };
         results.push(WorkshopResult {
             run,
             session_id: metadata.exploration.session_id,
@@ -402,8 +388,6 @@ fn read_workshop_results(
     }
     Ok(results)
 }
-
-
 
 fn resolve_workshop_relationship(
     connection: &Connection,
@@ -488,7 +472,6 @@ fn resolve_workshop_relationship(
     Ok(Some(relationship))
 }
 
-
 // Actor-side logic, as free functions over `WorkshopHost`.
 
 /// Start is kept on the project actor so the workshop CAS, first-anchor
@@ -496,8 +479,8 @@ fn resolve_workshop_relationship(
 /// project boundary. A durable workshop receipt is checked before reading
 /// the current workshop version: retrying a lost acknowledgment must
 /// replay the original run even when the editor has since advanced.
-pub fn start_workshop(
-    host: &mut impl WorkshopHost,
+pub fn start_workshop<H: WorkshopHost>(
+    host: &mut H,
     request: crate::workshop_generation::StartWorkshop,
 ) -> CoreResult<DiscussionStart> {
     host.check_access(&request.access)?;
@@ -533,11 +516,7 @@ pub fn start_workshop(
             .iter()
             .rev()
             .find(|message| message.role == "user")
-            .map(|message| {
-                crate::workshop_generation::metadata_from_instruction(
-                    &message.content,
-                )
-            })
+            .map(|message| crate::workshop_generation::metadata_from_instruction(&message.content))
             .transpose()?;
         let prepared_budget_json: String = host.db()?.query_row(
             "SELECT request_json FROM context_packets WHERE id=?",
@@ -549,8 +528,7 @@ pub fn start_workshop(
         let budget_matches = prepared.budget.model_id == request.budget.model_id
             && prepared.budget.context_window_tokens == request.budget.context_window_tokens
             && prepared.budget.reserved_output_tokens == request.budget.reserved_output_tokens
-            && prepared.budget.reserved_protocol_tokens
-                == request.budget.reserved_protocol_tokens;
+            && prepared.budget.reserved_protocol_tokens == request.budget.reserved_protocol_tokens;
         let access_matches = prepared.access.project_id == request.access.project_id
             && prepared.access.operation_namespace == request.access.operation_namespace
             && prepared.operation_id == request.operation_id;
@@ -582,9 +560,7 @@ pub fn start_workshop(
         .iter()
         .find(|session| session.id == request.exploration.session_id)
         .cloned()
-        .ok_or_else(|| {
-            CoreError::new("InvalidWorkshop", "The workshop session does not exist.")
-        })?;
+        .ok_or_else(|| CoreError::new("InvalidWorkshop", "The workshop session does not exist."))?;
     if session.working_generation != request.exploration.working_generation {
         return Err(CoreError::new(
             "InvalidWorkshop",
@@ -595,15 +571,17 @@ pub fn start_workshop(
     let anchor = ensure_workshop_anchor(host, &session)?;
     let source_epoch = current_context_epoch(host.db()?)?;
     let candidates = workshop_candidate_records(
-        host.db()?,
+        CandidateReadContext::new::<H>(host.db()?),
         &host.info().project_id,
         &request.access.operation_namespace,
         Some(&source_epoch),
     )?;
     let mut included_alternatives = Vec::new();
-    for choice in session.choices.iter().filter(|choice| {
-        choice.status == CandidateChoiceStatus::Saved && choice.include_in_context
-    }) {
+    for choice in session
+        .choices
+        .iter()
+        .filter(|choice| choice.status == CandidateChoiceStatus::Saved && choice.include_in_context)
+    {
         let Some((candidate_session_id, content, candidate_relationship)) =
             candidates.get(&choice.candidate_id)
         else {
@@ -693,17 +671,17 @@ pub fn existing_workshop_run(
     access: &ProjectAccess,
     operation_id: &str,
 ) -> CoreResult<Option<String>> {
-    host.db()?
-        .query_row(
-            "SELECT id FROM discussion_runs WHERE project_id=? AND operation_namespace=? AND operation_id=?",
-            params![access.project_id, access.operation_namespace, operation_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(CoreError::from)
+    host.run_id_for_operation(
+        &access.project_id,
+        &access.operation_namespace,
+        operation_id,
+    )
 }
 
-pub fn ensure_workshop_anchor(host: &mut impl WorkshopHost, session: &WorkshopSession) -> CoreResult<DocumentRecord> {
+pub fn ensure_workshop_anchor(
+    host: &mut impl WorkshopHost,
+    session: &WorkshopSession,
+) -> CoreResult<DocumentRecord> {
     let document_id = session.anchor_document_id.as_deref().ok_or_else(|| {
         CoreError::new(
             "InvalidWorkshop",
@@ -712,8 +690,7 @@ pub fn ensure_workshop_anchor(host: &mut impl WorkshopHost, session: &WorkshopSe
     })?;
     match read_document(host.db()?, document_id) {
         Ok(document) => return Ok(document),
-        Err(error)
-            if error.code == "DocumentNotFound" && document_id.starts_with("workshop-") => {}
+        Err(error) if error.code == "DocumentNotFound" && document_id.starts_with("workshop-") => {}
         Err(error) => return Err(error),
     }
     let body = json!({
@@ -769,7 +746,10 @@ pub fn read_workshop(host: &impl WorkshopHost, access: ProjectAccess) -> CoreRes
     })
 }
 
-pub fn save_workshop(host: &mut impl WorkshopHost, request: SaveWorkshop) -> CoreResult<WorkshopSnapshot> {
+pub fn save_workshop<H: WorkshopHost>(
+    host: &mut H,
+    request: SaveWorkshop,
+) -> CoreResult<WorkshopSnapshot> {
     host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     let expected = parse_version(&request.expected_version)?;
@@ -794,7 +774,7 @@ pub fn save_workshop(host: &mut impl WorkshopHost, request: SaveWorkshop) -> Cor
     validate_relationship_freshness(&tx, &request.state, Some(&current_state))?;
     let source_epoch = current_context_epoch(&tx)?;
     validate_candidate_provenance(
-        &tx,
+        CandidateReadContext::new::<H>(&tx),
         &request.state,
         &current_project_id,
         &request.access.operation_namespace,
@@ -877,8 +857,8 @@ pub fn workshop_history(
     Ok(output)
 }
 
-pub fn preview_workshop_adoption(
-    host: &mut impl WorkshopHost,
+pub fn preview_workshop_adoption<H: WorkshopHost>(
+    host: &mut H,
     request: PreviewWorkshopAdoption,
 ) -> CoreResult<WorkshopAdoptionPreview> {
     host.check_access(&request.access)?;
@@ -907,8 +887,7 @@ pub fn preview_workshop_adoption(
         ));
     }
     let mut targets = request.targets.clone();
-    let before =
-        validate_adoption_targets(host.db()?, &state, &request.session_id, &mut targets)?;
+    let before = validate_adoption_targets(host.db()?, &state, &request.session_id, &mut targets)?;
     let target_ids = targets
         .iter()
         .map(|target| target.document_id.clone())
@@ -916,7 +895,7 @@ pub fn preview_workshop_adoption(
     validate_state_references(host.db()?, &state, None, &target_ids)?;
     let source_epoch = current_context_epoch(host.db()?)?;
     validate_candidate_provenance(
-        host.db()?,
+        CandidateReadContext::new::<H>(host.db()?),
         &state,
         &host.info().project_id,
         &request.access.operation_namespace,
@@ -927,7 +906,7 @@ pub fn preview_workshop_adoption(
     let relationships =
         validate_relationship_drafts(host.db()?, &state, &targets, &request.relationships)?;
     let impacts = build_adoption_impacts(
-        host.db()?,
+        CandidateReadContext::new::<H>(host.db()?),
         &host.info().project_id,
         &request.access.operation_namespace,
         &source_epoch,
@@ -945,8 +924,9 @@ pub fn preview_workshop_adoption(
         &request.protected_text,
     )?;
     validate_target_dependencies(&state, &targets, host.db()?)?;
-    let request_json =
-        serde_json::to_string(&wns_kernel::canonicalize_value(serde_json::to_value(&request)?))?;
+    let request_json = serde_json::to_string(&wns_kernel::canonicalize_value(
+        serde_json::to_value(&request)?,
+    ))?;
     let preview = WorkshopAdoptionPreview {
         id: new_id(),
         session_id: request.session_id,
@@ -960,8 +940,9 @@ pub fn preview_workshop_adoption(
         endpoint_sources,
         impacts,
     };
-    let preview_json =
-        serde_json::to_string(&wns_kernel::canonicalize_value(serde_json::to_value(&preview)?))?;
+    let preview_json = serde_json::to_string(&wns_kernel::canonicalize_value(
+        serde_json::to_value(&preview)?,
+    ))?;
     let preview_hash = sha256_hex(preview_json.as_bytes());
     let current_project_id = host.info().project_id.clone();
     let tx = host
@@ -975,8 +956,8 @@ pub fn preview_workshop_adoption(
     Ok(preview)
 }
 
-pub fn adopt_workshop(
-    host: &mut impl WorkshopHost,
+pub fn adopt_workshop<H: WorkshopHost>(
+    host: &mut H,
     access: ProjectAccess,
     operation_id: String,
     preview_id: String,
@@ -1037,8 +1018,9 @@ pub fn adopt_workshop(
         ));
     }
     let preview: WorkshopAdoptionPreview = serde_json::from_str(&preview_json)?;
-    let canonical_preview =
-        serde_json::to_string(&wns_kernel::canonicalize_value(serde_json::to_value(&preview)?))?;
+    let canonical_preview = serde_json::to_string(&wns_kernel::canonicalize_value(
+        serde_json::to_value(&preview)?,
+    ))?;
     if preview.id != preview_id || sha256_hex(canonical_preview.as_bytes()) != preview_hash {
         return Err(CoreError::new(
             "InvalidProject",
@@ -1100,7 +1082,7 @@ pub fn adopt_workshop(
     validate_state_references(&tx, &state, None, &target_ids)?;
     let source_epoch = current_context_epoch(&tx)?;
     validate_candidate_provenance(
-        &tx,
+        CandidateReadContext::new::<H>(&tx),
         &state,
         &current_project_id,
         &access.operation_namespace,
@@ -1111,7 +1093,7 @@ pub fn adopt_workshop(
     let expected_relationships =
         validate_relationship_drafts(&tx, &state, &targets, &stored_request.relationships)?;
     let expected_impacts = build_adoption_impacts(
-        &tx,
+        CandidateReadContext::new::<H>(&tx),
         &current_project_id,
         &access.operation_namespace,
         &source_epoch,
@@ -1145,18 +1127,19 @@ pub fn adopt_workshop(
     let mut decisions = Vec::new();
     let mut changed_heads: HashMap<String, Head> = HashMap::new();
     for target in &targets {
-        let record = wns_documents::material_adoption::write_material_target_at(
+        let material_target = wns_documents::material_adoption::MaterialTarget {
+            document_id: target.document_id.clone(),
+            title: target.title.clone(),
+            kind: target.kind.clone(),
+            body: target.body.clone(),
+            expected: target.expected.clone(),
+        };
+        let record = wns_documents::material_adoption::ApprovedMaterialWrite::new(
             &tx,
-            &wns_documents::material_adoption::MaterialTarget {
-                document_id: target.document_id.clone(),
-                title: target.title.clone(),
-                kind: target.kind.clone(),
-                body: target.body.clone(),
-                expected: target.expected.clone(),
-            },
-            "beforeWorkshopAdoption",
-            "workshopAdoption",
-        )?;
+            &material_target,
+            wns_documents::material_adoption::MaterialAdoptionFlow::Workshop,
+        )
+        .apply()?;
         changed_heads.insert(target.document_id.clone(), record.head.clone());
         let supersedes = state
             .decisions
@@ -1194,8 +1177,7 @@ pub fn adopt_workshop(
     for relationship in &expected_relationships {
         for document_id in [&relationship.from_document_id, &relationship.to_document_id] {
             if !committed_heads.contains_key(document_id) {
-                committed_heads
-                    .insert(document_id.clone(), read_document(&tx, document_id)?.head);
+                committed_heads.insert(document_id.clone(), read_document(&tx, document_id)?.head);
             }
         }
     }
@@ -1288,9 +1270,9 @@ pub fn adopt_workshop(
             relationship_id: None,
         });
     }
-    let next_version = expected.checked_add(1).ok_or_else(|| {
-        CoreError::new("VersionLimit", "The workshop version limit was reached.")
-    })?;
+    let next_version = expected
+        .checked_add(1)
+        .ok_or_else(|| CoreError::new("VersionLimit", "The workshop version limit was reached."))?;
     validate_state_shape(&state)?;
     store_state(&tx, next_version, &state)?;
     insert_snapshot(
@@ -1315,7 +1297,6 @@ pub fn adopt_workshop(
     tx.commit().map_err(CoreError::uncertain)?;
     Ok(ack)
 }
-
 
 fn validate_protected_texts_for_targets(
     connection: &Connection,
@@ -1489,16 +1470,18 @@ pub fn validate_storage(
             .map_err(|_| CoreError::new("InvalidBackup", "A workshop preview is invalid."))?;
         validate_preview_relationships(&request, &parsed)
             .map_err(|error| CoreError::new("InvalidBackup", &error.detail))?;
-        let canonical_request =
-            serde_json::to_string(&wns_kernel::canonicalize_value(serde_json::to_value(&request)?))?;
+        let canonical_request = serde_json::to_string(&wns_kernel::canonicalize_value(
+            serde_json::to_value(&request)?,
+        ))?;
         let mut canonical_targets = request.targets.clone();
         for target in &mut canonical_targets {
             target.body = canonical_body(&target.body)
                 .map_err(|_| CoreError::new("InvalidBackup", "A workshop target body is invalid."))?
                 .0;
         }
-        let canonical =
-            serde_json::to_string(&wns_kernel::canonicalize_value(serde_json::to_value(&parsed)?))?;
+        let canonical = serde_json::to_string(&wns_kernel::canonicalize_value(
+            serde_json::to_value(&parsed)?,
+        ))?;
         if parsed.id != id
             || parsed.session_id != session
             || parsed.expected_version != version.to_string()
@@ -1542,10 +1525,9 @@ pub fn validate_storage(
             ));
         }
         if kind == "startWorkshop" {
-            let started: DiscussionStart =
-                serde_json::from_str(&result).map_err(|_| {
-                    CoreError::new("InvalidBackup", "A workshop start receipt is invalid.")
-                })?;
+            let started: DiscussionStart = serde_json::from_str(&result).map_err(|_| {
+                CoreError::new("InvalidBackup", "A workshop start receipt is invalid.")
+            })?;
             if started.run.owner.operation_namespace != namespace
                 || started.run.operation_id != operation
                 || started.run.intent

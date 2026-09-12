@@ -89,7 +89,8 @@ impl Drop for DiscoveryRead {
 
 #[tauri::command]
 pub fn cancel_endpoint_discovery(
-    discovery_id: String, state: State<'_, AppState>,
+    discovery_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<()> {
     let app = &*state;
     let state = &app.endpoint_discovery;

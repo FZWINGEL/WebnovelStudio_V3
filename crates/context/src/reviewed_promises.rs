@@ -13,10 +13,10 @@ use super::{
 };
 use crate::frozen::SourceRead;
 use crate::story_records::{EvidenceAudience, PromiseRecord};
-use wns_kernel::{CoreError, CoreResult};
-use wns_kernel::sha256_hex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use wns_kernel::sha256_hex;
+use wns_kernel::{CoreError, CoreResult};
 
 pub const MAX_REVIEWED_PROMISE_RECORDS: usize = 64;
 pub const MAX_REVIEWED_PROMISE_BYTES: usize = 64 * 1024;

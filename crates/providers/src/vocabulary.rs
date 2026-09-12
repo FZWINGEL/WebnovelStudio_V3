@@ -23,8 +23,7 @@ pub const MOCK_TOKEN_ACCOUNTING_METHOD: &str = "utf8-byte-count/mock-story-conte
 pub const CODEX_PROVIDER_ID: &str = "codex";
 pub const CODEX_LUNA_MODEL_ID: &str = "gpt-5.6-luna";
 pub const CODEX_REASONING_EFFORT: &str = crate::codex_profile::CODEX_REASONING_EFFORT;
-pub const CODEX_MAINTENANCE_MODEL_ID: &str =
-    crate::codex_profile::CODEX_MAINTENANCE_MODEL;
+pub const CODEX_MAINTENANCE_MODEL_ID: &str = crate::codex_profile::CODEX_MAINTENANCE_MODEL;
 pub const CODEX_MAINTENANCE_REASONING: &str =
     crate::codex_profile::CODEX_MAINTENANCE_REASONING_EFFORT;
 pub const CODEX_SERVICE_TIER: &str = "priority";
@@ -38,10 +37,8 @@ pub const CODEX_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 pub const CODEX_TOKEN_ACCOUNTING_METHOD: &str = "utf8-byte-count/codex-stdin-application-cap-v1";
 pub const CLAUDE_PROVIDER_ID: &str = "claude";
 pub const CLAUDE_PROFILE_VERSION: &str = crate::claude_profile::CLAUDE_PROFILE_VERSION;
-pub const CLAUDE_INPUT_LIMIT_BYTES: usize =
-    crate::claude_profile::CLAUDE_INPUT_LIMIT_BYTES;
-pub const CLAUDE_OUTPUT_LIMIT_BYTES: usize =
-    crate::claude_profile::CLAUDE_OUTPUT_LIMIT_BYTES;
+pub const CLAUDE_INPUT_LIMIT_BYTES: usize = crate::claude_profile::CLAUDE_INPUT_LIMIT_BYTES;
+pub const CLAUDE_OUTPUT_LIMIT_BYTES: usize = crate::claude_profile::CLAUDE_OUTPUT_LIMIT_BYTES;
 pub const CLAUDE_TOKEN_ACCOUNTING_METHOD: &str =
     crate::claude_profile::CLAUDE_TOKEN_ACCOUNTING_METHOD;
 /// Provider-neutral accounting label for the bounded OpenAI-compatible HTTP
@@ -293,8 +290,7 @@ impl ProviderBinding {
         catalog_sha256: &str,
     ) -> Self {
         let mut binding = Self::codex_luna_runtime(cli_version, executable_sha256);
-        binding.profile_version =
-            crate::codex_profile::CODEX_AUTHOR_PROFILE_VERSION.into();
+        binding.profile_version = crate::codex_profile::CODEX_AUTHOR_PROFILE_VERSION.into();
         binding.model_id = model_id.into();
         binding.reasoning = Some(reasoning.into());
         binding.service_tier = service_tier.map(str::to_owned);
@@ -404,8 +400,7 @@ impl ProviderBinding {
                 );
             }
             let mut shape = self.clone();
-            shape.profile_version =
-                crate::codex_profile::CODEX_AUTHOR_PROFILE_VERSION.into();
+            shape.profile_version = crate::codex_profile::CODEX_AUTHOR_PROFILE_VERSION.into();
             shape.accounting_method = CODEX_TOKEN_ACCOUNTING_METHOD.into();
             shape
                 .runtime
@@ -705,7 +700,6 @@ pub fn parse_decimal(value: &str) -> Result<u128, String> {
         .parse::<u128>()
         .map_err(|_| "decimal value exceeds the supported counter range".to_owned())
 }
-
 
 // ---------------------------------------------------------------------------
 // Provider delivery vocabulary.

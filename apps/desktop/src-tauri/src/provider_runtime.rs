@@ -1,8 +1,8 @@
 //! Session-local readiness and Stop ownership; saved preferences remain in Library.
+use crate::commands::endpoint_commands::credential_available;
 use crate::provider_bindings::{
     ClaudeConnectionView, ConnectionView, claude_binding_for_choice, memory_selection,
 };
-use crate::commands::endpoint_commands::credential_available;
 use serde::Serialize;
 #[cfg(windows)]
 use std::collections::HashMap;
@@ -131,16 +131,6 @@ struct StoryMemoryView {
     ready: bool,
     detail: String,
 }
-
-
-
-
-
-
-
-
-
-
 
 pub(crate) fn unavailable() -> CoreError {
     CoreError::new(

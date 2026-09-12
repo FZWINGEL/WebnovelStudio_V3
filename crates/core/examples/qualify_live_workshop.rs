@@ -234,7 +234,9 @@ mod windows {
         report["projectPath"] = Value::String(project_root.display().to_string());
         let project = ProjectSession::create(&project_root, "Live Workshop qualification")
             .map_err(display_error)?;
-        let access = project.documents().attach(format!("workshop-qualifier-{run_key}"));
+        let access = project
+            .documents()
+            .attach(format!("workshop-qualifier-{run_key}"));
         let access = access.map_err(display_error)?;
         let session = synthetic_session();
         let state = WorkshopState {
@@ -245,7 +247,8 @@ mod windows {
         };
         let expected_state = state.clone();
         let saved = project
-            .workshop().save(SaveWorkshop {
+            .workshop()
+            .save(SaveWorkshop {
                 access: access.clone(),
                 operation_id: format!("workshop-state-{run_key}"),
                 expected_version: "0".into(),
@@ -285,7 +288,8 @@ mod windows {
             })
             .map_err(display_error)?;
         let anchor_before = project
-            .documents().read(access.clone(), WORKSHOP_ANCHOR.into())
+            .documents()
+            .read(access.clone(), WORKSHOP_ANCHOR.into())
             .map_err(display_error)?;
         if anchor_before.kind != "note" {
             return Err("The Workshop start did not create an author-room note anchor.".into());
@@ -666,7 +670,8 @@ mod windows {
         }
 
         let view = project
-            .workshop().read(access.clone())
+            .workshop()
+            .read(access.clone())
             .map_err(display_error)?;
         let result = view
             .results
@@ -714,12 +719,16 @@ mod windows {
         }
 
         let anchor_after = project
-            .documents().read(access.clone(), WORKSHOP_ANCHOR.into())
+            .documents()
+            .read(access.clone(), WORKSHOP_ANCHOR.into())
             .map_err(display_error)?;
         if anchor_after.body != anchor_before.body || anchor_after.head != anchor_before.head {
             return Err("The Workshop dispatch mutated the author-room anchor.".into());
         }
-        let documents = project.documents().list(access.clone()).map_err(display_error)?;
+        let documents = project
+            .documents()
+            .list(access.clone())
+            .map_err(display_error)?;
         if documents.len() != 1 || documents[0].kind != "note" {
             return Err(
                 "The qualification project contains an unexpected document or chapter.".into(),

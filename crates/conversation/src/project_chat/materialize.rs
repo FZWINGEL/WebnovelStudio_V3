@@ -7,15 +7,15 @@
 //! readable in the originating run but never become story documents.
 
 use super::*;
-use wns_story::context_packets;
+use rusqlite::{OptionalExtension, Transaction, params};
+use serde_json::json;
+use std::collections::BTreeSet;
 use wns_context::project_chat_output::{
     ChatDraftOutput, ChatGroupEffectsOutput, materialize_draft_body,
     parse_project_assistant_output_with_predecessors_and_chapters,
 };
+use wns_story::context_packets;
 use wns_story::story_context;
-use rusqlite::{OptionalExtension, Transaction, params};
-use serde_json::json;
-use std::collections::BTreeSet;
 
 const MATERIALIZE_RECEIPT_KIND: &str = "materializeChatResult";
 const MATERIALIZE_ITEM_KIND: &str = "materializeChatResult";
@@ -423,7 +423,7 @@ fn insert_draft(
 // Actor-side logic, as free functions over `ProjectChatHost`.
 
 pub fn materialize_chat_result(
-host: &mut impl ProjectChatHost,
+    host: &mut impl ProjectChatHost,
     owner: RunOwner,
 ) -> CoreResult<Option<ChatMaterialization>> {
     if owner.project_id != host.info().project_id

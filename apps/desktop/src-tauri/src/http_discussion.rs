@@ -1,8 +1,8 @@
 //! One frozen OpenAI-compatible request. Only local outcome saves can be retried.
 use crate::author_start::AuthorStart;
-use crate::discussion_recovery::{DiscussionRecovery, PendingSave, SaveOutcome};
 use crate::commands::library_commands::DesktopLibrary;
 use crate::commands::project_commands::execute;
+use crate::discussion_recovery::{DiscussionRecovery, PendingSave, SaveOutcome};
 use crate::provider_runtime::DesktopProviders;
 use webnovel_core::context::packet::{
     HTTP_INPUT_LIMIT_BYTES, HTTP_OUTPUT_LIMIT_BYTES, HTTP_PROFILE_VERSION,
@@ -595,7 +595,8 @@ mod tests {
         assert_eq!(
             fixture
                 .project
-                .documents().read(fixture.access.clone(), "chapter".into())
+                .documents()
+                .read(fixture.access.clone(), "chapter".into())
                 .unwrap()
                 .head,
             fixture.request.expected

@@ -1,10 +1,10 @@
-//! L2 — source-bound story-context contracts and the deterministic packet compiler.
+//! L3 — source-bound context, frozen inputs and deterministic packet compilation.
 //!
-//! This crate deliberately stops at source eligibility and packet compilation.
-//! It does not read SQLite, call a provider, install memory, or authorize a
-//! manuscript edit. The project owner supplies a frozen [`StorySnapshot`] whose
-//! source descriptors have already been resolved against the authoritative
-//! project.
+//! The packet compiler operates on a frozen [`StorySnapshot`]. Snapshot,
+//! guidance and conversation readers also live here because they supply the
+//! compiler's input vocabulary. Those readers use the caller's SQLite
+//! connection; the compiler itself does not dispatch providers or authorize
+//! manuscript edits. See `docs/ARCHITECTURE.md` for the current ownership map.
 //!
 //! # Why this crate exists
 //!
@@ -25,7 +25,7 @@
 //!
 //! # Dependency rule
 //!
-//! L2. May depend on L0–L1 (`wns-kernel`, `wns-storage`, `wns-documents`,
+//! L3. May depend on L0–L2 (`wns-kernel`, `wns-storage`, `wns-documents`,
 //! `wns-providers`). Must not depend on `wns-story` or above.
 
 pub mod contracts;
@@ -35,13 +35,13 @@ pub mod continuation;
 pub mod conversation;
 pub mod evidence_history;
 pub mod guidance;
-pub mod project_chat_output;
 pub mod knowledge_history;
 pub mod lookup;
 pub mod memory;
 pub mod memory_lookup;
 pub mod navigation;
 pub mod packet;
+pub mod project_chat_output;
 pub mod promise_history;
 pub mod reviewed_evidence;
 pub mod reviewed_knowledge;

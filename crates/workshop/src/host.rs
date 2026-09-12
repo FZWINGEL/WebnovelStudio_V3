@@ -1,25 +1,15 @@
-//! What the Workshop needs from the actor.
+//! Workshop's access to the project actor and conversation-owned operations.
 //!
-//! Four of these are the same four `SourcePinHost`, `HistoryHost`,
-//! `ReviewedStoryHost` and `StoryHost` declare. The other three are specific to
-//! what a workshop is: **a workshop request is a discussion run**.
-//!
-//! `read_start` and `start_discussion` live on the host rather than travelling
-//! with the vocabulary because the readers cannot travel. `read_run` and
-//! `read_start` call `intent_for_packet`, `read_provider_result` and
-//! `read_message`, so their call graph is roughly as large again as the types
-//! they return — the difference between a bounded extraction and an unbounded
-//! one, learned by reverting that extraction three times.
-//!
-//! `read_run` is not here: its one workshop caller is `read_workshop_results`, a
-//! free function taking an explicit `&Connection`, and it wants the
-//! already-materialised-input signature change rather than a trait method.
+//! Workshop owns its state, candidate interpretation, previews and adoption.
+//! Conversation owns run selection, materialization and dispatch. Core forwards
+//! those operations here without a dependency between the two domain crates.
+//! Workshop still uses the actor's database for its own atomic workflows; the
+//! completed-output reader must use that same connection during validation.
 
 use rusqlite::Connection;
-use wns_story::discussion_vocabulary::StartDiscussion;
-use wns_story::run_vocabulary::{DiscussionRun, DiscussionStart};
 use wns_kernel::{CoreResult, ProjectAccess, ProjectInfo};
-
+use wns_story::discussion_vocabulary::StartDiscussion;
+use wns_story::run_vocabulary::{CompletedDiscussionOutput, DiscussionRun, DiscussionStart};
 
 pub trait WorkshopHost {
     fn check_access(&self, access: &ProjectAccess) -> CoreResult<()>;
@@ -30,16 +20,27 @@ pub trait WorkshopHost {
     fn start_discussion(&mut self, request: StartDiscussion) -> CoreResult<DiscussionStart>;
     /// The immutable discussion row, for the recovery window after a commit.
     fn read_start(&self, run_id: &str) -> CoreResult<DiscussionStart>;
-    /// A run by id.
+    /// Every run identity in insertion order, before Workshop's intent filter.
+    fn run_ids(&self) -> CoreResult<Vec<String>>;
+    /// A run for this exact operation owner, regardless of discussion intent.
+    fn run_id_for_operation(
+        &self,
+        project_id: &str,
+        operation_namespace: &str,
+        operation_id: &str,
+    ) -> CoreResult<Option<String>>;
+    /// Raw completed, delivered outputs on the caller's active connection.
     ///
-    /// `workshop` needs a run, not a run's *reader*: `read_run` calls
-    /// `intent_for_packet`, `read_provider_result` and `read_message`, so it
-    /// stays in `discussions` and is reached from here instead of travelling.
+    /// This stateless reader must not open another connection, dispatch an actor
+    /// command or cache rows: save and adoption call it inside their transaction.
+    /// Packet validation remains separate so unrelated malformed output can be
+    /// skipped by candidate scanning without changing full-run validation.
+    fn completed_outputs_at(connection: &Connection) -> CoreResult<Vec<CompletedDiscussionOutput>>;
+    /// A fully materialized and validated run by identity.
     fn read_run(&self, run_id: &str) -> CoreResult<DiscussionRun>;
     /// The immutable authority chain for a chat-origin workshop snapshot.
     ///
-    /// Its owner is `project_chat`; this is the seam rather than a move, which
-    /// is what `project_chat` called it when the forwarding function was added.
+    /// Its owner is conversation's `project_chat` module.
     fn validate_chat_workshop_snapshot(
         &self,
         origin: crate::workshop::WorkshopSnapshotOrigin<'_>,

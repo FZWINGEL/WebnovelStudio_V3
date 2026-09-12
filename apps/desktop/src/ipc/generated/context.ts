@@ -153,13 +153,13 @@ export type LookupExchange = { request: LookupRead; result: LookupReadResult }
  * packet compiler owns semantic validation of request/result correspondence,
  * source identity, and byte budgets.
  */
-export type LookupPacketInput = { allowance: LookupAllowance; completedInvocations: number; exchanges: LookupExchange[]; sourceProjection?: LookupSourceProjection; reviewedMemory?: string | null }
+export type LookupPacketInput = { allowance: LookupAllowance; completedInvocations: number; exchanges: LookupExchange[]; sourceProjection?: LookupSourceProjection; reviewedMemory?: string }
 
 /**
  * One application-executed lookup request. The provider cannot supply a
  * path, command, source body, or arbitrary tool arguments.
  */
-export type LookupRead = { kind: "search"; id: string; query: string; mode: SearchMode; limit: number } | { kind: "read"; id: string; handle: string; blockIds: string[] | null } | { kind: "findEntities"; id: string; entityKind: MemoryEntityKind; query: string; offset?: number; limit: number } | { kind: "knowledgeHistory"; id: string; characterId: string; topicId: string | null; offset?: number; limit: number } | { kind: "promiseHistory"; id: string; promiseId: string; offset?: number; limit: number } | { kind: "possessionHistory"; id: string; objectId: string; offset?: number; limit: number }
+export type LookupRead = { kind: "search"; id: string; query: string; mode: SearchMode; limit: number } | { kind: "read"; id: string; handle: string; blockIds?: string[] } | { kind: "findEntities"; id: string; entityKind: MemoryEntityKind; query: string; offset?: number; limit: number } | { kind: "knowledgeHistory"; id: string; characterId: string; topicId?: string; offset?: number; limit: number } | { kind: "promiseHistory"; id: string; promiseId: string; offset?: number; limit: number } | { kind: "possessionHistory"; id: string; objectId: string; offset?: number; limit: number }
 
 /**
  * The application result for one previously authorized lookup request.

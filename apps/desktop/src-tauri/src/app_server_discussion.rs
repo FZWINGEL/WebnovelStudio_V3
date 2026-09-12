@@ -646,10 +646,12 @@ mod tests {
         let project =
             ProjectSession::create(path, "App-server discussion fixture").expect("create project");
         let access = project
-            .documents().attach("app-server-discussion-test".into())
+            .documents()
+            .attach("app-server-discussion-test".into())
             .expect("attach");
         let document = project
-            .documents().create(CreateDocument {
+            .documents()
+            .create(CreateDocument {
                 access: access.clone(),
                 operation_id: format!("create-{label}"),
                 document_id: "chapter".into(),

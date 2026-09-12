@@ -7,7 +7,7 @@
 
 use super::*;
 use wns_story::discussion_vocabulary::StartDiscussion;
-use wns_story::run_vocabulary::{DiscussionRun, DiscussionStart};
+use wns_story::run_vocabulary::{CompletedDiscussionOutput, DiscussionRun, DiscussionStart};
 pub use wns_workshop::workshop::{WorkshopSnapshotOrigin, WorkshopState};
 
 impl wns_workshop::host::WorkshopHost for OwnedProject {
@@ -28,6 +28,25 @@ impl wns_workshop::host::WorkshopHost for OwnedProject {
     }
     fn read_start(&self, run_id: &str) -> CoreResult<DiscussionStart> {
         crate::projects::discussions::read_start(self.db()?, run_id)
+    }
+    fn run_ids(&self) -> CoreResult<Vec<String>> {
+        wns_conversation::discussions::queries::run_ids_at(self.db()?)
+    }
+    fn run_id_for_operation(
+        &self,
+        project_id: &str,
+        operation_namespace: &str,
+        operation_id: &str,
+    ) -> CoreResult<Option<String>> {
+        wns_conversation::discussions::queries::run_id_for_operation_at(
+            self.db()?,
+            project_id,
+            operation_namespace,
+            operation_id,
+        )
+    }
+    fn completed_outputs_at(connection: &Connection) -> CoreResult<Vec<CompletedDiscussionOutput>> {
+        wns_conversation::discussions::queries::completed_outputs_at(connection)
     }
     fn read_run(&self, run_id: &str) -> CoreResult<DiscussionRun> {
         crate::projects::discussions::read_run(self.db()?, run_id)

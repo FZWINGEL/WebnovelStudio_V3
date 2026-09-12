@@ -1,33 +1,33 @@
-//! The discussion run lifecycle's vocabulary, shared below both conversation crates.
+//! Discussion run vocabulary shared by conversation and Workshop.
 //!
-//! Moved down from `webnovel-core`'s `projects/discussions.rs` and
-//! `projects/discussion_lookup.rs`. A workshop request *is* a discussion run:
-//! `workshop` (bound for `wns-workshop`, L5) reads `DiscussionRun`,
-//! `DiscussionRunStatus` and `DiscussionStart`, while `discussions`,
-//! `discussion_lookup`, `proposals` and `project_chat` (all bound for
-//! `wns-conversation`, L5) own them. Vocabulary two future siblings both need
-//! has to sit below both.
-//!
-//! **The readers did not come.** `read_run` and `read_start` call
-//! `intent_for_packet`, `read_provider_result` and `read_message`, and their call
-//! graph is roughly as large again as these types. They stay in `discussions`,
-//! and the two workshop call sites reach a run through the host trait instead —
-//! the same inversion `hold_context_after_commit_before_ack` already uses.
-//!
-//! Both source modules re-export everything at the historical paths.
+//! Conversation owns run selection, materialization and lifecycle operations.
+//! Workshop consumes those operations through its host, with core forwarding to
+//! conversation. These shared types live in story below both domain crates so
+//! the siblings do not depend on each other. Raw output rows remain distinct
+//! from fully validated runs and are not part of the serialized IPC contract.
 
 use crate::discussion_vocabulary::FeedbackIntent;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use wns_context::BasisKind;
 use wns_context::lookup::LookupAllowance;
 use wns_context::packet::{CompiledPacket, ProviderBinding};
-use wns_context::BasisKind;
 use wns_documents::ScopeGrant;
 use wns_kernel::{CoreError, CoreResult, Head};
 use wns_providers::vocabulary::{
     ProviderCleanup, ProviderDeliveryReceipt, ProviderOutcomeStatus, ProviderUsage,
 };
+
+/// An internal raw output row selected by conversation for domain consumers.
+/// Packet integrity and output interpretation remain the consumer's policy;
+/// this type is deliberately separate from serialized, fully validated runs.
+#[derive(Debug, PartialEq, Eq)]
+pub struct CompletedDiscussionOutput {
+    pub run_id: String,
+    pub packet_id: String,
+    pub output_text: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]

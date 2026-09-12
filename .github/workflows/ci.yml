@@ -65,8 +65,8 @@ jobs:
         if: inputs.cargo_network != 'locked'
         run: node scripts/prepare-cargo.mjs
       - run: cargo fmt --all --check
-      - run: cargo clippy -p webnovel-core --all-targets ${{ env.CARGO_NETWORK_FLAG }} --timings -- -D warnings
-      - run: cargo test -p webnovel-core ${{ env.CARGO_NETWORK_FLAG }} --timings
+      - run: cargo clippy --workspace --exclude webnovel-desktop --all-targets ${{ env.CARGO_NETWORK_FLAG }} --timings -- -D warnings
+      - run: cargo test --workspace --exclude webnovel-desktop ${{ env.CARGO_NETWORK_FLAG }} --timings
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:

@@ -10,16 +10,16 @@
 use wns_kernel::SourceEpoch;
 
 use super::*;
-use wns_documents::material_adoption::{self, MaterialTarget};
-use wns_context::project_chat_output::{
-    ChatGroupEffectsOutput, parse_project_assistant_output_with_predecessors_and_chapters,
-};
-use wns_story::workshop_state;
-use wns_story::{context_packets, story_context, workshop_vocabulary as workshop};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
+use wns_context::project_chat_output::{
+    ChatGroupEffectsOutput, parse_project_assistant_output_with_predecessors_and_chapters,
+};
+use wns_documents::material_adoption::{self, MaterialAdoptionFlow, MaterialTarget};
+use wns_story::workshop_state;
+use wns_story::{context_packets, story_context, workshop_vocabulary as workshop};
 
 const PREVIEW_KIND: &str = "adoptionPreview";
 const DECISION_KIND: &str = "adoptionDecision";
@@ -471,12 +471,10 @@ pub(super) fn adopt(
 
     let mut documents = Vec::with_capacity(targets.len());
     for target in &targets {
-        documents.push(material_adoption::write_material_target_at(
-            &tx,
-            target,
-            "beforeChatAdoption",
-            "chatAdoption",
-        )?);
+        documents.push(
+            material_adoption::ApprovedMaterialWrite::new(&tx, target, MaterialAdoptionFlow::Chat)
+                .apply()?,
+        );
     }
     if !documents.is_empty() {
         tx.execute(
@@ -1172,7 +1170,7 @@ fn expand_preview(
         project_id: metadata.project_id,
         operation_namespace: metadata.operation_namespace,
         conversation_id: metadata.conversation_id,
-        source_epoch: SourceEpoch::from(metadata.source_epoch),
+        source_epoch: metadata.source_epoch,
         policy_epoch: metadata.policy_epoch,
         workshop_version: metadata.workshop_version,
         targets,

@@ -148,11 +148,18 @@ pub(super) fn build_serialized(
     let target_source = PacketSource {
         handle: pricing.target_handle.to_owned(),
         source: pricing.target.read.descriptor.source.clone(),
-        display_name: include_display_names.then(|| pricing.target.read.descriptor.display_name.clone()),
+        display_name: include_display_names
+            .then(|| pricing.target.read.descriptor.display_name.clone()),
         mandatory: true,
         kind: pricing.target.read.descriptor.kind,
         coverage: pricing.target.read.descriptor.coverage,
-        reader_position: pricing.target.read.descriptor.disclosure.reader_position.clone(),
+        reader_position: pricing
+            .target
+            .read
+            .descriptor
+            .disclosure
+            .reader_position
+            .clone(),
         author_only: pricing.target.read.descriptor.disclosure.author_only,
         story_time: pricing.target.read.descriptor.story_time.clone(),
         representation: "fullText".to_owned(),
@@ -165,7 +172,8 @@ pub(super) fn build_serialized(
         .map(|source| packet_source(source, include_display_names))
         .collect::<Vec<_>>();
     let recent_discussion: Vec<_> =
-        pricing.request
+        pricing
+            .request
             .frozen
             .conversation
             .as_ref()
@@ -185,18 +193,19 @@ pub(super) fn build_serialized(
         .iter()
         .flat_map(|turn| [turn.user.id.clone(), turn.assistant.id.clone()])
         .collect();
-    let workshop_metadata = if pricing.request.response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT)
-    {
-        // Received, not parsed. The builder validated and serialised this; the
-        // compiler only checks that a workshop pricing.request actually carries it.
-        Some(pricing.request.workshop_metadata.clone().ok_or_else(|| {
-            PacketError::InvalidRequest {
-                message: "The workshop response contract requires parsed packet metadata.".to_owned(),
-            }
-        })?)
-    } else {
-        None
-    };
+    let workshop_metadata =
+        if pricing.request.response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT) {
+            // Received, not parsed. The builder validated and serialised this; the
+            // compiler only checks that a workshop pricing.request actually carries it.
+            Some(pricing.request.workshop_metadata.clone().ok_or_else(|| {
+                PacketError::InvalidRequest {
+                    message: "The workshop response contract requires parsed packet metadata."
+                        .to_owned(),
+                }
+            })?)
+        } else {
+            None
+        };
     let envelope = ContextEnvelope {
         schema: packing.schema.envelope_schema(),
         snapshot_id: pricing.request.frozen.snapshot.snapshot_id.clone(),
@@ -354,7 +363,8 @@ pub(super) fn build_serialized(
     {
         PACKET_CONTINUATION_BRIEF_INSTRUCTION
     } else if pricing.request.safe_brief.is_some()
-        && pricing.request
+        && pricing
+            .request
             .scope
             .as_ref()
             .is_some_and(|scope| matches!(scope.kind, ScopeKind::Blocks | ScopeKind::WholeDocument))
@@ -385,7 +395,8 @@ pub(super) fn build_serialized(
         Some(LOOKUP_RESPONSE_CONTRACT) => {
             let mut instruction =
                 format!("{base_system_instruction}\n\n{LOOKUP_RESPONSE_INSTRUCTION}");
-            if pricing.request
+            if pricing
+                .request
                 .lookup
                 .as_ref()
                 .is_some_and(|lookup| lookup.reviewed_memory.is_some())
@@ -399,7 +410,8 @@ pub(super) fn build_serialized(
             format!("{base_system_instruction}\n\n{WORKSHOP_RESPONSE_INSTRUCTION}")
         }
         Some(PROJECT_CHAT_RESPONSE_CONTRACT) => {
-            let prompt_recipe_version = pricing.request
+            let prompt_recipe_version = pricing
+                .request
                 .frozen
                 .project_chat
                 .as_ref()
@@ -475,10 +487,9 @@ pub(super) fn pack_reviewed_evidence(
                 });
             }
             let packet = build_serialized(
-                &pricing,
+                pricing,
                 sources,
                 &pricing.omissions(context.handles, context.views, &HashMap::new()),
-
                 Packing {
                     schema: shape.schema,
                     method: "layeredExcerpt",
@@ -505,7 +516,6 @@ pub(super) fn pack_reviewed_evidence(
 /// `pack_reviewed_evidence`. It names what it reads: the pricing and stage
 /// contexts, its own candidates, whatever the stages before it delivered, and
 /// the two things it changes.
-
 pub(super) fn pack_reviewed_knowledge(
     pricing: &Pricing<'_>,
     shape: Shape,
@@ -536,10 +546,9 @@ pub(super) fn pack_reviewed_knowledge(
                 });
             }
             let packet = build_serialized(
-                &pricing,
+                pricing,
                 sources,
                 &pricing.omissions(context.handles, context.views, &HashMap::new()),
-
                 Packing {
                     schema: shape.schema,
                     method: "layeredExcerpt",
@@ -566,7 +575,6 @@ pub(super) fn pack_reviewed_knowledge(
 /// `pack_reviewed_evidence`. It names what it reads: the pricing and stage
 /// contexts, its own candidates, whatever the stages before it delivered, and
 /// the two things it changes.
-
 pub(super) fn pack_reviewed_promises(
     pricing: &Pricing<'_>,
     shape: Shape,
@@ -597,10 +605,9 @@ pub(super) fn pack_reviewed_promises(
                 });
             }
             let packet = build_serialized(
-                &pricing,
+                pricing,
                 sources,
                 &pricing.omissions(context.handles, context.views, &HashMap::new()),
-
                 Packing {
                     schema: shape.schema,
                     method: "layeredExcerpt",
@@ -640,7 +647,8 @@ pub(super) fn pack_reviewed_summaries(
 ) -> Result<Vec<ReviewedSummarySet>, PacketError> {
     let mut delivered: Vec<ReviewedSummarySet> = Vec::new();
     for handle in handles {
-        let Some(summary) = pricing.request
+        let Some(summary) = pricing
+            .request
             .frozen
             .reviewed_summaries
             .iter()
@@ -656,10 +664,9 @@ pub(super) fn pack_reviewed_summaries(
         let mut candidate = delivered.clone();
         candidate.push(summary.clone());
         let packet = build_serialized(
-            &pricing,
+            pricing,
             sources,
             omissions,
-
             Packing {
                 schema: shape.schema,
                 method: "layeredExcerpt",
@@ -720,10 +727,9 @@ pub(super) fn pack_navigation_views(
             pricing.navigation_by_handle,
         ));
         let packet = build_serialized(
-            &pricing,
+            pricing,
             sources,
             &candidate_omissions,
-
             Packing {
                 schema: shape.schema,
                 method: "layeredExcerpt",
@@ -763,10 +769,9 @@ pub(super) fn pack_conversation_prefix(
     let mut included_turns = 0;
     for count in 1..=total_turns {
         let candidate = build_serialized(
-            &pricing,
+            pricing,
             sources,
             omissions,
-
             Packing {
                 schema,
                 method: "layeredExcerpt",
@@ -844,7 +849,6 @@ pub(super) fn try_full_eligible_packet(
         pricing,
         sources,
         omissions,
-
         Packing {
             schema,
             method: "fullText",
@@ -921,7 +925,6 @@ pub(super) fn try_mandatory_packet(
         pricing,
         sources,
         omissions,
-
         Packing {
             schema,
             method: "layeredExcerpt",
@@ -970,8 +973,7 @@ pub(super) fn validate_request(
         });
     }
     validate_response_contract(request)?;
-    let workshop_request =
-        request.response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT);
+    let workshop_request = request.response_contract.as_deref() == Some(WORKSHOP_RESPONSE_CONTRACT);
     validate_frozen_navigation_views(
         &request.frozen.navigation_views,
         &request.frozen.snapshot,
@@ -1005,7 +1007,6 @@ pub(super) fn validate_request(
     })?;
     Ok(workshop_request)
 }
-
 
 /// The request's sources, read and checked.
 ///
@@ -1045,13 +1046,13 @@ pub(super) fn resolve_sources(
                 handle: Some(read.descriptor.handle.clone()),
             });
         }
-        let manifest = manifest_index
-            .get(&read.descriptor.handle)
-            .ok_or_else(|| PacketError::SourceBinding {
+        let manifest = manifest_index.get(&read.descriptor.handle).ok_or_else(|| {
+            PacketError::SourceBinding {
                 code: "SourceOutsideFrozenManifest".to_owned(),
                 message: "A packet source is outside the frozen manifest.".to_owned(),
                 handle: Some(read.descriptor.handle.clone()),
-            })?;
+            }
+        })?;
         if *manifest != &read.descriptor {
             return Err(PacketError::SourceBinding {
                 code: "SourceDescriptorMismatch".to_owned(),
@@ -1178,4 +1179,3 @@ pub(super) fn resolve_sources(
         reviewed_knowledge: validated_reviewed_knowledge,
     })
 }
-

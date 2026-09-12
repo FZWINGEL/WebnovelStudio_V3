@@ -70,7 +70,7 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
   const relationshipUnavailable = !!session?.relationshipId && (!activeRelationship || activeRelationship.status === 'archived');
   const reviewableImpacts = state.impacts.filter(impact => !impact.documentId.startsWith('workshop-'));
   const participants = adoptionParticipants(material, targets);
-  store.locked = adopting || adoptionOperation.current !== null;
+  store.setInteractionLocked(adopting || adoptionOperation.current !== null);
 
   useImperativeHandle(ref, () => ({ flush: async () => {
     if (adoptionOperation.current) throw new Error('Finish checking the Workshop adoption before leaving this project.');
@@ -291,7 +291,7 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
       const started = await startWorkshop(access, pending.operationId, pending.exploration, pending.selection);
       pendingRequest.current = null;
       const provisional: WorkshopResult = { run: started.run, sessionId: pending.exploration.sessionId, workingGeneration: pending.exploration.workingGeneration, action: pending.exploration.action, workingSelection: pending.exploration.workingSelection, output: null, validationError: null, stale: false };
-      store.results = [...store.results.filter(item => item.run.id !== started.run.id), provisional];
+      store.recordProvisionalResult(provisional);
       store.editSession(pending.exploration.sessionId, value => ({ ...value, activeRunId: started.run.id }));
       if (store.state.currentSessionId === pending.exploration.sessionId) { setSelectedRun(started.run.id); setAction(pending.exploration.action); if (pending.exploration.action === 'voiceGuidance') setCapture(null); }
       await store.refreshResults();
@@ -380,11 +380,11 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
         adoptionOperation.current = crypto.randomUUID();
       }
       const ack = await adoptWorkshop(access, adoptionOperation.current, preview.id);
-      store.acceptAdoption(ack.snapshot, previewGeneration.current); adoptionOperation.current = null; store.locked = false;
+      store.acceptAdoption(ack.snapshot, previewGeneration.current); adoptionOperation.current = null; store.setInteractionLocked(false);
       onDocumentsChanged(ack.documents); setPreview(null); setNotice('Version chosen. Its source and rationale are saved; writing access remains author only.');
     } catch (reason) {
       const code = reason && typeof reason === 'object' && 'code' in reason ? String(reason.code) : '';
-      if (code && !['UncertainOutcome', 'PersistenceUnavailable', 'ActorUnavailable'].includes(code)) { adoptionOperation.current = null; store.locked = false; }
+      if (code && !['UncertainOutcome', 'PersistenceUnavailable', 'ActorUnavailable'].includes(code)) { adoptionOperation.current = null; store.setInteractionLocked(false); }
       report(reason);
     }
     finally { setAdopting(false); }

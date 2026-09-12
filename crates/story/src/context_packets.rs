@@ -2,7 +2,8 @@
 //! supervisor; preparing a packet never invokes a provider or edits prose.
 use crate::host::StoryHost;
 use crate::story_context;
-use wns_kernel::{CoreError, CoreResult, ProjectAccess, Reply, check_id, logical_hash, new_id, parse_stored_version, parse_version, sha256_hex};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use serde::{Deserialize, Serialize};
 use wns_context::BudgetError;
 use wns_context::packet::{
     CONTEXT_PACKET_SCHEMA_V1, CONTEXT_PACKET_SCHEMA_V2, CompiledPacket, MOCK_MODEL_ID,
@@ -10,8 +11,10 @@ use wns_context::packet::{
     compile_packet, compile_packet_legacy, packet_input_hash, serialized_input,
 };
 use wns_documents::ScopeGrant;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use serde::{Deserialize, Serialize};
+use wns_kernel::{
+    CoreError, CoreResult, ProjectAccess, Reply, check_id, logical_hash, new_id,
+    parse_stored_version, parse_version, sha256_hex,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -47,9 +50,7 @@ pub enum PreparationResult {
         current: bool,
     },
     #[specta(rename_all = "camelCase")]
-    BudgetRejected {
-        error: BudgetError,
-    },
+    BudgetRejected { error: BudgetError },
 }
 
 pub enum PacketCommand {
@@ -57,7 +58,6 @@ pub enum PacketCommand {
     Read(ProjectAccess, String, Reply<CompiledPacket>),
     Current(ProjectAccess, String, Reply<bool>),
 }
-
 
 // Actor-side logic, as free functions over `StoryHost`.
 
@@ -73,11 +73,8 @@ pub fn handle_packet(host: &mut impl StoryHost, command: PacketCommand) {
         }
         PacketCommand::Current(access, id, reply) => {
             let result = read_context_packet(host, &access, &id).and_then(|packet| {
-                let snapshot = story_context::load_snapshot(
-                    host.db()?,
-                    &access,
-                    &packet.receipt.snapshot_id,
-                )?;
+                let snapshot =
+                    story_context::load_snapshot(host.db()?, &access, &packet.receipt.snapshot_id)?;
                 Ok(snapshot.snapshot.context_source_epoch == host.context_source_epoch()?)
             });
             let _ = reply.send(result);
@@ -85,7 +82,10 @@ pub fn handle_packet(host: &mut impl StoryHost, command: PacketCommand) {
     }
 }
 
-pub fn prepare_context_packet(host: &mut impl StoryHost, request: PrepareContext) -> CoreResult<PreparationResult> {
+pub fn prepare_context_packet(
+    host: &mut impl StoryHost,
+    request: PrepareContext,
+) -> CoreResult<PreparationResult> {
     host.check_access(&request.access)?;
     check_id(&request.operation_id)?;
     if request.lookup.is_some() {
@@ -120,18 +120,14 @@ pub fn prepare_context_packet(host: &mut impl StoryHost, request: PrepareContext
             ));
         }
         let packet = read_context_packet(host, &request.access, &id)?;
-        let frozen = story_context::load_snapshot(
-            host.db()?,
-            &request.access,
-            &packet.receipt.snapshot_id,
-        )?;
+        let frozen =
+            story_context::load_snapshot(host.db()?, &request.access, &packet.receipt.snapshot_id)?;
         return Ok(PreparationResult::Prepared {
             packet: Box::new(packet),
             current: frozen.snapshot.context_source_epoch == host.context_source_epoch()?,
         });
     }
-    let frozen =
-        story_context::load_snapshot(host.db()?, &request.access, &request.snapshot_id)?;
+    let frozen = story_context::load_snapshot(host.db()?, &request.access, &request.snapshot_id)?;
     if frozen
         .guidance
         .iter()
@@ -206,11 +202,14 @@ pub fn prepare_context_packet(host: &mut impl StoryHost, request: PrepareContext
     })
 }
 
-pub fn read_context_packet(host: &impl StoryHost, access: &ProjectAccess, id: &str) -> CoreResult<CompiledPacket> {
+pub fn read_context_packet(
+    host: &impl StoryHost,
+    access: &ProjectAccess,
+    id: &str,
+) -> CoreResult<CompiledPacket> {
     host.check_access(access)?;
     let stored = read_packet_row(host.db()?, id)?;
-    if stored.project_id != access.project_id || stored.namespace != access.operation_namespace
-    {
+    if stored.project_id != access.project_id || stored.namespace != access.operation_namespace {
         return Err(CoreError::new(
             "ContextProjectMismatch",
             "This prepared request belongs to another project or an independent recovered copy.",

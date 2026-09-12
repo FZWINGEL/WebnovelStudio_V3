@@ -9,8 +9,7 @@ pub use wns_story::workshop_metadata::{
     MAX_DETAIL_BYTES, MAX_WORKSHOP_TEXT_BYTES, VOICE_GUIDANCE_ACTION, VOICE_GUIDANCE_DIMENSIONS,
     WORKSHOP_ACTIONS, invalid, is_supported_action, is_voice_guidance_action, validate_exploration,
     validate_id, validate_relationship_metadata, validate_string_list,
-    validate_voice_guidance_metadata,
-    validate_workshop_text,
+    validate_voice_guidance_metadata, validate_workshop_text,
 };
 pub use wns_story::workshop_metadata::{
     WorkshopContext, WorkshopExploration, WorkshopLiteral, WorkshopPacketMetadata,
@@ -19,17 +18,17 @@ pub use wns_story::workshop_metadata::{
 
 // Named at the crate that owns them: two future L5 siblings both need these,
 // so they sit below both rather than in either.
-use wns_story::discussion_vocabulary::{FeedbackIntent, StartDiscussion};
 use crate::workshop::{
-    CandidateChoiceStatus, StoryPossibilityStatus,
-    WorkshopPreference, WorkshopRelationship, WorkshopSession, WorkshopState,
+    CandidateChoiceStatus, StoryPossibilityStatus, WorkshopPreference, WorkshopRelationship,
+    WorkshopSession, WorkshopState,
 };
 pub use crate::workshop::{WorkshopCandidate, WorkshopOutput};
-use wns_kernel::{CoreResult, Head, ProjectAccess};
-use wns_context::packet::{MockContextBudget, ProviderBinding};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
+use wns_context::packet::{MockContextBudget, ProviderBinding};
+use wns_kernel::{CoreResult, Head, ProjectAccess};
+use wns_story::discussion_vocabulary::{FeedbackIntent, StartDiscussion};
 
 // Moved to wns-context (L2): the compiler embeds this contract name, so it
 // cannot sit above the compiler. Re-exported at the historical path.
@@ -42,24 +41,6 @@ const MAX_CANDIDATES: usize = 3;
 // readable, so keep that exact instruction prefix as a compatibility marker
 // when projecting historical stored results.
 const LEGACY_SITUATION_INSTRUCTION_PREFIX: &str = "Use one concrete situation to offer three contrasting tentative choices by this person or relationship. Show commitments and pressure through behavior, not a required trauma or biography.";
-
-/// The renderer sends only this exploration intent. The project actor fills
-/// the remaining request fields from its current workshop state and anchor
-
-
-/// A literal protected by the actor. The core checks exact string presence
-/// only when the literal falls inside the editable response scope; semantic
-
-/// A trusted snapshot assembled by the workshop actor. The IDs are resolved
-/// to current project documents before this value reaches the packet builder;
-
-/// Metadata retained inside the immutable discussion request and packet.
-/// Optional fields keep historical discussion request and packet bytes
-/// unchanged when this value is absent.
-
-/// Frozen author material for a voice-guidance request. This is evidence for
-/// reviewable style instructions only; it is never a canon or writing record.
-
 
 /// The internal request assembled by the actor after resolving workshop CAS
 /// state. It can be converted into the existing discussion lifecycle without
@@ -368,10 +349,6 @@ fn workshop_instruction(
     Ok(encoded)
 }
 
-/// Decode the immutable workshop envelope embedded in the trusted final
-/// instruction. The actor is responsible for constructing this instruction
-/// from the current workshop CAS state before calling `start_discussion`.
-
 /// Validate a completed workshop response. `run_id` is used to assign stable
 /// candidate IDs, so IDs stay durable and cannot collide across runs.
 pub fn validate_workshop_output(
@@ -411,7 +388,11 @@ pub fn validate_workshop_output(
     }
     validate_workshop_text(&output.request_kind, 256, "request kind")?;
     validate_workshop_text(&output.question, MAX_WORKSHOP_TEXT_BYTES, "question")?;
-    validate_workshop_text(&output.question_reason, MAX_WORKSHOP_TEXT_BYTES, "question reason")?;
+    validate_workshop_text(
+        &output.question_reason,
+        MAX_WORKSHOP_TEXT_BYTES,
+        "question reason",
+    )?;
     validate_workshop_text(&output.dimension, 256, "dimension")?;
     for text in [
         &output.interpretation.you_said,
@@ -478,7 +459,11 @@ fn validate_candidate(
 ) -> CoreResult<()> {
     for (value, label, limit) in [
         (&candidate.title, "candidate title", 256),
-        (&candidate.content, "candidate content", MAX_WORKSHOP_TEXT_BYTES),
+        (
+            &candidate.content,
+            "candidate content",
+            MAX_WORKSHOP_TEXT_BYTES,
+        ),
         (&candidate.dimension_value, "candidate dimension", 512),
     ] {
         validate_workshop_text(value, limit, label)?;
@@ -595,7 +580,6 @@ fn is_direction_action(action: &str) -> bool {
     )
 }
 
-
 fn is_legacy_situation_instruction(exploration: &WorkshopExploration) -> bool {
     exploration.action == "situation"
         && exploration
@@ -603,7 +587,6 @@ fn is_legacy_situation_instruction(exploration: &WorkshopExploration) -> bool {
             .trim_start()
             .starts_with(LEGACY_SITUATION_INSTRUCTION_PREFIX)
 }
-
 
 fn validate_voice_guidance_candidate(
     candidate: &WorkshopCandidate,
@@ -630,7 +613,6 @@ fn validate_voice_guidance_candidate(
     }
     Ok(())
 }
-
 
 fn preference_applies(
     preference: &WorkshopPreference,
@@ -677,7 +659,6 @@ fn format_preference(preference: &WorkshopPreference) -> String {
     value
 }
 
-
 fn validate_working_selection(
     exploration: &WorkshopExploration,
     working_text: &str,
@@ -721,23 +702,17 @@ fn utf16_slice(value: &str, from: u32, to: u32) -> Option<String> {
     Some(value.get(start?..end?)?.to_owned())
 }
 
-
-
-
-
-
-/// Packet metadata is JSON by design so old packet rows can be read without
-/// knowing this feature. This helper is useful to packet and transfer code.
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wns_story::workshop_metadata::{WorkshopContext, WorkshopExploration, WorkshopLiteral, WorkshopPacketMetadata};
     use wns_kernel::{Head, ProjectAccess};
+    use wns_story::workshop_metadata::{
+        WorkshopContext, WorkshopExploration, WorkshopLiteral, WorkshopPacketMetadata,
+    };
     // Named at the crate that owns it; the module itself no longer builds one.
-    use wns_story::workshop_vocabulary::WorkshopQuestion;
     use crate::workshop::WorkshopSession;
     use crate::workshop::{Lens, WorkshopBranchKind, WorkshopDepth};
+    use wns_story::workshop_vocabulary::WorkshopQuestion;
 
     fn exploration(action: &str) -> WorkshopExploration {
         WorkshopExploration {
@@ -1342,23 +1317,21 @@ mod tests {
         };
         let mut state = WorkshopState::default();
         state.sessions.push(session.clone());
-        state
-            .decisions
-            .push(crate::workshop::WorkshopDecision {
-                id: "decision-1".into(),
-                session_id: "older-session".into(),
-                title: "A project rule".into(),
-                document_id: "world-1".into(),
-                revision_id: "revision-1".into(),
-                head: context().expected,
-                candidate_ids: Vec::new(),
-                rationale: "Keep this rule visible across explorations.".into(),
-                status: crate::workshop::WorkshopDecisionStatus::Archived,
-                fixed: true,
-                protected_text: vec!["The older session's protected rule".into()],
-                access: "authorRoom".into(),
-                supersedes_id: None,
-            });
+        state.decisions.push(crate::workshop::WorkshopDecision {
+            id: "decision-1".into(),
+            session_id: "older-session".into(),
+            title: "A project rule".into(),
+            document_id: "world-1".into(),
+            revision_id: "revision-1".into(),
+            head: context().expected,
+            candidate_ids: Vec::new(),
+            rationale: "Keep this rule visible across explorations.".into(),
+            status: crate::workshop::WorkshopDecisionStatus::Archived,
+            fixed: true,
+            protected_text: vec!["The older session's protected rule".into()],
+            access: "authorRoom".into(),
+            supersedes_id: None,
+        });
         let generated = from_session(
             start_request("directions"),
             &session,

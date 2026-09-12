@@ -9,22 +9,24 @@
 
 // Defined with the commands it serves; the dispatch below is its only caller.
 use crate::commands::discussion_commands::dispatch_started;
-use crate::discussion_recovery::{DiscussionRecovery, PendingSave, SaveOutcome};
 use crate::commands::library_commands::DesktopLibrary;
-use crate::provider_runtime::{DesktopProviders};
-use crate::provider_bindings::{binding_matches_author_choice};
-use webnovel_core::context::packet::{CompiledPacket, MOCK_MODEL_ID, ProviderBinding, packet_input_hash};
+use crate::discussion_recovery::{DiscussionRecovery, PendingSave, SaveOutcome};
+use crate::provider_bindings::binding_matches_author_choice;
+use crate::provider_runtime::DesktopProviders;
+use webnovel_core::context::packet::{
+    CompiledPacket, MOCK_MODEL_ID, ProviderBinding, packet_input_hash,
+};
+#[cfg(windows)]
+use webnovel_core::library::codex_transport::CodexTransport;
 use webnovel_core::projects::discussions::*;
 use webnovel_core::projects::project_chat::{StartProjectChapter, StartProjectChat};
-use webnovel_core::projects::workshop_generation::StartWorkshop;
 use webnovel_core::projects::project_chat_output::{
     CHAPTER_DISCUSSION_RESPONSE_CONTRACT, CHAPTER_TARGET_HEAD_MARKER,
 };
+use webnovel_core::projects::workshop_generation::StartWorkshop;
 use webnovel_core::projects::{CoreError, CoreResult, Head, ProjectSession};
 #[cfg(windows)]
 use webnovel_core::providers::codex_app_server::is_app_server;
-#[cfg(windows)]
-use webnovel_core::library::codex_transport::CodexTransport;
 use webnovel_core::providers::preferences::ModelSelection;
 
 /// Typed acceptance into the same native dispatch lifecycle. The enum changes
@@ -368,7 +370,10 @@ pub(crate) fn check_model_choice(
     ))
 }
 
-pub(crate) fn has_saved_request(project: &ProjectSession, request: &StartDiscussion) -> CoreResult<bool> {
+pub(crate) fn has_saved_request(
+    project: &ProjectSession,
+    request: &StartDiscussion,
+) -> CoreResult<bool> {
     Ok(saved_request(project, request)?.is_some())
 }
 
@@ -387,7 +392,11 @@ pub(super) fn saved_request(
         }))
 }
 
-pub(crate) fn run_mock(project: ProjectSession, recovery: DiscussionRecovery, dispatch: DiscussionDispatch) {
+pub(crate) fn run_mock(
+    project: ProjectSession,
+    recovery: DiscussionRecovery,
+    dispatch: DiscussionDispatch,
+) {
     if dispatch.run.lookup.is_some() {
         crate::lookup_discussion::run_mock(project, recovery, dispatch);
         return;
@@ -507,7 +516,10 @@ pub(crate) fn save_worker_outcome(
 }
 
 /// Fixed local fixtures, deliberately labelled; no external model is invoked.
-pub(crate) fn mock_output(packet: &CompiledPacket, intent: FeedbackIntent) -> CoreResult<Vec<String>> {
+pub(crate) fn mock_output(
+    packet: &CompiledPacket,
+    intent: FeedbackIntent,
+) -> CoreResult<Vec<String>> {
     let invalid = || {
         CoreError::new(
             "InvalidMockInput",

@@ -1,5 +1,69 @@
 # V3 implementation status
 
+## Material capabilities and command parity — 12 September 2026
+
+The [10-task capability/parity plan](../openspec/changes/narrow-writes-and-check-invokes/tasks.md)
+is implemented locally on `arch-module`. Chat and Workshop ordinary-material
+adoption now use a consuming capability bound to one transaction, target and
+fixed checkpoint origin. The bindings tool derives actual registered Tauri
+commands and top-level argument keys, with independent drift checks and
+source-hash validation. The parsed frontend check verifies all 120 production
+invoke sites against 123 registrations. See the
+[evidence and compatibility report](ARCHITECTURE_CAPABILITIES_AND_IPC.md).
+
+The complete pinned check passed 978 Rust tests (one intentionally ignored),
+824 frontend tests across 78 files and 25 tooling tests. Formatting, strict
+workspace Clippy, TypeScript and the production build passed; Vite retains the
+existing large-chunk advisory. Independent review found no remaining material
+blocker after the parser regressions were repaired. A fresh debug executable
+passed 31 Workshop and 24 chat native checks, both with zero page errors.
+The report records the exact executable hash and retained synthetic evidence.
+
+All ten tasks and strict OpenSpec validation are complete. The nine wire-type
+modules, schema 40 and existing transaction/receipt behavior are preserved.
+These results were recorded before publication; the Git history records the
+subsequent commit and merge. Hosted, installed-package, live-provider and human
+qualification remain separate gates.
+
+## Architecture ownership checkpoint — 12 September 2026
+
+The [17-task ownership plan](../openspec/changes/strengthen-domain-ownership/tasks.md)
+is implemented locally on `arch-module`, preserving the six review fixes below.
+Conversation owns Workshop's run queries; document and library lifecycles have
+explicit owners; Workshop store mutations and generated binding inventory are
+guarded. Independent review also found and verified the repair of an
+adoption/navigation race. See the [current architecture map](ARCHITECTURE.md)
+and [implementation report and assessment](ARCHITECTURE_IMPROVEMENTS.md).
+
+After the final repair, the pinned complete check passed 962 Rust tests (one
+intentionally ignored), 794 frontend tests and 25 tooling tests, with formatting,
+strict workspace Clippy, TypeScript and production build passing. The existing
+Vite large-chunk advisory remains. A fresh debug executable passed 31 Workshop
+checks, 24 chat/workspace checks and both app-close fixtures using synthetic
+projects and local mocks. Its hash, commands, retained evidence and fixture
+limits are recorded in the report. Independent review found no remaining
+material blocker in the reviewed surfaces.
+
+All plan tasks and strict OpenSpec validation are complete. Changes remain
+uncommitted; schema 40, product rollout and separate hosted, installed-package,
+live-provider and human qualification gates are unchanged.
+
+## Architecture branch review checkpoint — 12 September 2026
+
+The six review findings on `arch-module` are fixed locally on top of `c91151b`:
+the Workshop flush race, generated lookup omission/null contracts, both dependency
+guards, Ubuntu workspace test selection, and the required formatting/Clippy gates.
+The complete pinned local check passes 943 Rust tests (one intentionally ignored),
+745 frontend tests, 25 tooling tests, formatting, strict Clippy, TypeScript, and
+the production build. Vite retains its existing large-chunk advisory.
+
+A fresh debug executable passed 31 native Workshop checks and three native
+reviewed-memory lookup checks with the local mock and zero live model calls.
+The changes remain uncommitted. See the [review and assessment](ARCH_MODULE_REVIEW.md)
+for source identities, the build hash, detailed fixes, and retained evidence.
+Hosted Ubuntu, package/release, live-provider, and author qualification remain
+separate; this checkpoint does not change product rollout or schema.
+
 ## Current status — opt-in chat-first project conversation (9 September 2026)
 
 The current development surface is an **opt-in** project conversation described

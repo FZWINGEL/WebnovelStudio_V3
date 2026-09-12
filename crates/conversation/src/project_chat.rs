@@ -1,37 +1,37 @@
 //! Project conversation projection. Text remains in discussion messages and
 //! document revisions; this module owns references, composer CAS and decisions.
+pub use super::project_chat_context::ProjectChatDraftRef;
 use crate::discussions::{
     DiscussionRun, DiscussionScopeInput, DiscussionStart, FeedbackIntent, RunOwner,
 };
-pub use super::project_chat_context::ProjectChatDraftRef;
 // Moved to wns-context (L2) as part of the packet-compiler inversion:
 // FrozenContext embeds FrozenProjectChat, so this vocabulary cannot sit above
 // the compiler it feeds. Re-exported at the historical path.
-pub use wns_context::chat_vocabulary::{
-    ChatDispositionScope, ChatDispositionScopeKind, ChatUnknownTo,
-};
-use wns_context::project_chat_output::ChapterRangeProposal;
-pub use wns_context::project_chat_output::ChatGroupEffectsOutput;
+use crate::discussions;
+use crate::host::ProjectChatHost;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+pub use wns_context::chat_vocabulary::{
+    ChatDispositionScope, ChatDispositionScopeKind, ChatUnknownTo,
+};
+use wns_context::packet::{MockContextBudget, ProviderBinding};
+use wns_context::project_chat_output::ChapterRangeProposal;
+pub use wns_context::project_chat_output::ChatGroupEffectsOutput;
+use wns_context::{BasisKind, SafeBriefInput};
 use wns_documents::records::{
-    CheckpointRequest, OperationReceipt, ReconcileRequest, ReconciledDocument, SaveAck,
-    SaveCause, SaveSnapshot,
+    CheckpointRequest, OperationReceipt, ReconcileRequest, ReconciledDocument, SaveAck, SaveCause,
+    SaveSnapshot,
 };
 use wns_kernel::{
     CoreError, CoreResult, DocumentRecord, DocumentRole, Head, ProjectAccess, Reply, Revision,
-    StoredResult, check_id, logical_hash, new_id, parse_stored_version, parse_version, require_head,
-    SourceEpoch, sha256_hex, valid_hash, validate_snapshot_json,
+    SourceEpoch, StoredResult, check_id, logical_hash, new_id, parse_stored_version, parse_version,
+    require_head, sha256_hex, valid_hash, validate_snapshot_json,
 };
 use wns_storage::{
     checkpoint_at, existing_receipt, insert_receipt, read_document, read_document_with_role,
     read_revision,
 };
-use crate::host::ProjectChatHost;
-use crate::discussions;
-use wns_context::packet::{MockContextBudget, ProviderBinding};
-use wns_context::{BasisKind, SafeBriefInput};
 
 mod adoption;
 mod chapters;
@@ -445,7 +445,6 @@ pub enum ProjectChatCommand {
     Adopt(AdoptChatPreview, Reply<ChatAdoptionAck>),
 }
 
-
 // Actor-side logic, as free functions over `ProjectChatHost`.
 
 pub fn handle_project_chat(host: &mut impl ProjectChatHost, command: ProjectChatCommand) {
@@ -464,12 +463,8 @@ pub fn handle_project_chat(host: &mut impl ProjectChatHost, command: ProjectChat
         ),
         ProjectChatCommand::FindChapterRun(a, c, o, r) => reply!(
             r,
-            host.check_access(&a).and_then(|()| store::find_chapter_run(
-                host.db()?,
-                &a,
-                &c,
-                &o
-            ))
+            host.check_access(&a)
+                .and_then(|()| store::find_chapter_run(host.db()?, &a, &c, &o))
         ),
         ProjectChatCommand::ReadChapterFeedback(a, run_id, r) => reply!(
             r,
@@ -498,7 +493,7 @@ pub fn handle_project_chat(host: &mut impl ProjectChatHost, command: ProjectChat
                     .and_then(|db| store::is_root_project_chat_run(db, &access, &owner.run_id))
             }
         ),
-        ProjectChatCommand::Activity(r) => reply!(r, project_chat_activity_snapshot(host, )),
+        ProjectChatCommand::Activity(r) => reply!(r, project_chat_activity_snapshot(host,)),
         ProjectChatCommand::Read(q, r) => reply!(r, store::read_project_conversation(host, q)),
         ProjectChatCommand::ListHistory(a, r) => reply!(
             r,
@@ -512,21 +507,29 @@ pub fn handle_project_chat(host: &mut impl ProjectChatHost, command: ProjectChat
         ),
         ProjectChatCommand::SaveComposer(q, r) => reply!(r, store::save_project_composer(host, q)),
         ProjectChatCommand::Start(q, r) => reply!(r, store::start_project_chat(host, q)),
-        ProjectChatCommand::StartChapter(q, r) => reply!(r, chapters::start_project_chapter(host, q)),
-        ProjectChatCommand::Materialize(q, r) => reply!(r, materialize::materialize_chat_result(host, q)),
+        ProjectChatCommand::StartChapter(q, r) => {
+            reply!(r, chapters::start_project_chapter(host, q))
+        }
+        ProjectChatCommand::Materialize(q, r) => {
+            reply!(r, materialize::materialize_chat_result(host, q))
+        }
         ProjectChatCommand::ReadDraft(a, c, d, r) => reply!(
             r,
             host.check_access(&a)
                 .and_then(|()| store::read_draft(host.db()?, &a, &c, &d))
         ),
-        ProjectChatCommand::SaveDraft(q, r) => reply!(r, draft_lifecycle::save_assistant_draft(host, q)),
+        ProjectChatCommand::SaveDraft(q, r) => {
+            reply!(r, draft_lifecycle::save_assistant_draft(host, q))
+        }
         ProjectChatCommand::CheckpointDraft(c, q, r) => {
             reply!(r, draft_lifecycle::checkpoint_assistant_draft(host, c, q))
         }
         ProjectChatCommand::ReconcileDraft(c, q, r) => {
             reply!(r, draft_lifecycle::reconcile_assistant_draft(host, c, q))
         }
-        ProjectChatCommand::Disposition(q, r) => reply!(r, draft_lifecycle::set_chat_disposition(host, q)),
+        ProjectChatCommand::Disposition(q, r) => {
+            reply!(r, draft_lifecycle::set_chat_disposition(host, q))
+        }
         ProjectChatCommand::Preview(q, r) => reply!(r, adoption::prepare(host, q)),
         ProjectChatCommand::ReadPreview(a, c, p, r) => {
             reply!(r, adoption::read_preview(host, &a, &c, &p))
@@ -535,7 +538,9 @@ pub fn handle_project_chat(host: &mut impl ProjectChatHost, command: ProjectChat
     }
 }
 
-pub fn project_chat_activity_snapshot(host: &impl ProjectChatHost) -> CoreResult<ProjectChatActivity> {
+pub fn project_chat_activity_snapshot(
+    host: &impl ProjectChatHost,
+) -> CoreResult<ProjectChatActivity> {
     host.current_access()?;
     let db = host.db()?;
     let pending_drafts: i64 = db.query_row(

@@ -1,117 +1,172 @@
-//! The layering rule, checked against the real manifests.
-//!
-//! Run with the rest of the suite: `cargo test -p wns-architecture`.
+//! Validate the production graph using one Cargo metadata snapshot per workspace.
 
-use std::path::PathBuf;
-use wns_architecture::{
-    LAYERS, LEGACY_CRATE, internal_dependencies, layer_of, workspace_root,
-};
+use cargo_metadata::{DependencyKind, Metadata};
+use std::path::Path;
+use std::sync::OnceLock;
+use wns_architecture::{LAYERS, layering_violations, workspace_metadata, workspace_root};
+
+fn metadata() -> &'static Metadata {
+    static METADATA: OnceLock<Metadata> = OnceLock::new();
+    METADATA.get_or_init(|| {
+        workspace_metadata(&workspace_root().join("Cargo.toml")).expect("read workspace metadata")
+    })
+}
+
+fn violating_metadata() -> &'static Metadata {
+    static METADATA: OnceLock<Metadata> = OnceLock::new();
+    METADATA.get_or_init(|| {
+        workspace_metadata(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/violating/Cargo.toml"),
+        )
+        .expect("read isolated violating workspace metadata")
+    })
+}
 
 #[test]
-fn every_layered_crate_exists_with_its_manifest() {
-    let root = workspace_root();
+fn every_layered_package_has_its_declared_identity_and_workspace_membership() {
+    let packages = metadata().workspace_packages();
     for (name, path, _) in LAYERS {
-        let manifest = root.join(path).join("Cargo.toml");
+        let package = packages
+            .iter()
+            .find(|package| package.name.as_str() == *name)
+            .unwrap_or_else(|| panic!("{name} must be a workspace member"));
+        assert_eq!(
+            package.manifest_path.as_std_path().canonicalize().unwrap(),
+            workspace_root()
+                .join(path)
+                .join("Cargo.toml")
+                .canonicalize()
+                .unwrap(),
+            "{name} must be the package declared at {path}",
+        );
+    }
+    for package in packages {
         assert!(
-            manifest.is_file(),
-            "{name} is declared at layer but has no manifest at {}",
-            manifest.display()
+            matches!(
+                package.name.as_str(),
+                "contracts"
+                    | "wns-architecture"
+                    | "wns-bindings"
+                    | "webnovel-core"
+                    | "webnovel-desktop"
+            ) || LAYERS
+                .iter()
+                .any(|(name, _, _)| *name == package.name.as_str()),
+            "{} must be assigned a layer before joining the workspace",
+            package.name,
         );
     }
 }
 
 #[test]
-fn the_workspace_declares_every_layered_crate_as_a_member() {
-    let root = workspace_root();
-    let workspace = std::fs::read_to_string(root.join("Cargo.toml"))
-        .expect("workspace manifest must be readable");
-    for (name, path, _) in LAYERS {
-        assert!(
-            workspace.contains(&format!("\"{path}\"")),
-            "{name} lives at {path} but the workspace `members` list does not include it"
-        );
-    }
-}
-
-#[test]
-fn a_crate_depends_only_on_strictly_lower_layers() {
-    let root = workspace_root();
-    let mut violations = Vec::new();
-    for (name, path, layer) in LAYERS {
-        let manifest = root.join(path).join("Cargo.toml");
-        for (dependency, _) in internal_dependencies(&manifest) {
-            if dependency == LEGACY_CRATE {
-                violations.push(format!(
-                    "{name} (L{layer}) depends on {LEGACY_CRATE} — a layered crate must not \
-                     depend on the crate being decomposed"
-                ));
-                continue;
-            }
-            let Some(dependency_layer) = layer_of(&dependency) else {
-                // A workspace-internal crate with no declared layer is either the
-                // app shell or not yet registered; neither is a layering error.
-                continue;
-            };
-            if dependency_layer >= *layer {
-                let relation = if dependency_layer == *layer {
-                    "a sibling at the same layer"
-                } else {
-                    "a higher layer"
-                };
-                violations.push(format!(
-                    "{name} (L{layer}) depends on {dependency} (L{dependency_layer}) — {relation}. \
-                     A boundary that needs a sideways edge is the wrong boundary."
-                ));
-            }
-        }
-    }
+fn production_dependencies_point_only_to_strictly_lower_layers() {
+    let violations = layering_violations(metadata());
     assert!(
         violations.is_empty(),
-        "layering violations:\n  {}",
-        violations.join("\n  ")
+        "layering violations:\n{}",
+        violations.join("\n")
     );
 }
 
 #[test]
-fn no_layered_crate_depends_on_the_legacy_crate() {
-    let root = workspace_root();
-    let mut offenders = Vec::new();
-    for (name, path, _) in LAYERS {
-        let manifest = root.join(path).join("Cargo.toml");
-        if internal_dependencies(&manifest).contains_key(LEGACY_CRATE) {
-            offenders.push(format!("{name} -> {LEGACY_CRATE}"));
+fn aliases_inheritance_optional_and_target_dependencies_cannot_hide_violations() {
+    let violations = layering_violations(violating_metadata());
+    assert_eq!(violations.len(), 6, "{violations:#?}");
+    for edge in [
+        "wns-context (L3) -> wns-story", // optional, aliased dependency subtable
+        "wns-context (L3) -> webnovel-core", // Windows-only alias
+        "wns-context (L3) -> wns-workshop", // build dependency
+        "wns-storage (L1) -> wns-providers", // same-layer alias
+        "wns-kernel (L0) -> wns-story",  // workspace-inherited alias
+        "wns-providers (L1) -> wns-story", // Linux-only alias
+    ] {
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.starts_with(edge)),
+            "missing {edge}: {violations:#?}"
+        );
+    }
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.contains("for cfg(windows)"))
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.contains("for cfg(target_os = \"linux\")"))
+    );
+}
+
+#[test]
+fn development_dependencies_are_explicitly_outside_the_production_graph() {
+    let fixture = violating_metadata();
+    let story = fixture
+        .packages
+        .iter()
+        .find(|package| package.name == "wns-story")
+        .unwrap();
+    assert!(story.dependencies.iter().any(|dependency| {
+        dependency.name == "webnovel-core" && dependency.kind == DependencyKind::Development
+    }));
+    assert!(
+        !layering_violations(fixture)
+            .iter()
+            .any(|violation| violation.starts_with("wns-story "))
+    );
+}
+
+#[test]
+fn ubuntu_contracts_select_the_workspace_including_extracted_unit_tests() {
+    let workflow =
+        std::fs::read_to_string(workspace_root().join(".github/workflows/ci.yml")).unwrap();
+    let workflow = workflow.replace("\r\n", "\n");
+    let contracts = workflow
+        .split("  contracts:\n")
+        .nth(1)
+        .unwrap()
+        .split("  windows-native:\n")
+        .next()
+        .unwrap();
+    for command in ["test", "clippy"] {
+        let prefix = format!("- run: cargo {command} ");
+        let commands: Vec<_> = contracts
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix(&prefix))
+            .collect();
+        assert_eq!(
+            commands.len(),
+            1,
+            "expected one Ubuntu cargo {command} command"
+        );
+        let flags: Vec<_> = commands[0].split_whitespace().collect();
+        assert!(
+            flags.contains(&"--workspace"),
+            "Ubuntu cargo {command} must select dependency packages' tests too"
+        );
+        assert!(
+            !flags
+                .iter()
+                .any(|flag| *flag == "-p" || flag.starts_with("--package"))
+        );
+        let exclusions: Vec<_> = flags
+            .windows(2)
+            .filter_map(|pair| (pair[0] == "--exclude").then_some(pair[1]))
+            .collect();
+        assert_eq!(
+            exclusions,
+            ["webnovel-desktop"],
+            "only the native Tauri package is excluded on Ubuntu"
+        );
+        if command == "clippy" {
+            assert!(flags.contains(&"--all-targets"));
         }
     }
     assert!(
-        offenders.is_empty(),
-        "backward edges into the crate under decomposition:\n  {}",
-        offenders.join("\n  ")
+        metadata()
+            .workspace_packages()
+            .iter()
+            .any(|package| package.name == "webnovel-desktop")
     );
-}
-
-#[test]
-fn the_rule_can_actually_fail() {
-    // A check that cannot fail is not a check. This pins the parser's behaviour
-    // against a manifest that violates the rule, so a future refactor that
-    // neuters `internal_dependencies` breaks here rather than silently passing.
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("violating.Cargo.toml");
-    let parsed = internal_dependencies(&manifest);
-    assert!(
-        parsed.contains_key("wns-story"),
-        "the fixture's wns-* dependency must be parsed, got {parsed:?}"
-    );
-    assert!(
-        parsed.contains_key(LEGACY_CRATE),
-        "the fixture's legacy dependency must be parsed, got {parsed:?}"
-    );
-    // Pinned as "resolves" rather than to an ordinal: the layers are ordinals in
-    // a partial order and are renumbered whenever a crate's dependencies change
-    // (documents moved L1→L2, which shifted every layer above it). Only kernel's
-    // 0 is structural — nothing may sit below it.
-    assert!(layer_of("wns-story").is_some());
-    assert_eq!(layer_of("wns-kernel"), Some(0));
-    assert_eq!(layer_of("ends-with-kernel"), None);
 }

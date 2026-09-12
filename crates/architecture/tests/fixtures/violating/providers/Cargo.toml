@@ -1,0 +1,7 @@
+[package]
+name = "wns-providers"
+version = "0.0.0"
+edition = "2024"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+linux_story = { package = "wns-story", path = "../story" }

@@ -16,13 +16,14 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use uuid::Uuid;
 use wns_documents::records::{CheckpointReason, CheckpointRequest};
+use wns_kernel::validate_snapshot_json;
 use wns_kernel::{
     CoreError, CoreResult, DocumentRole, Head, ProjectAccess, ProjectInfo, SourceEpoch,
-    StoredResult,};
-use wns_kernel::validate_snapshot_json;
-use wns_story::source_pins::AUTHOR_ROOM_AUDIENCE;
-use wns_storage::{configure, migrate};
+    StoredResult,
+};
 use wns_storage::{CreationOrigin, read_creation_origin, write_creation_origin};
+use wns_storage::{configure, migrate};
+use wns_story::source_pins::AUTHOR_ROOM_AUDIENCE;
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 use crate::host::{TransferFactory, TransferSource};
@@ -657,7 +658,8 @@ fn validate_project_connection_heads(
     wns_workshop::workshop::validate_storage(
         connection,
         &wns_conversation::project_chat::validate_chat_workshop_snapshot,
-    ).map_err(|error| {
+    )
+    .map_err(|error| {
         transfer_error(
             "InvalidBackup",
             format!("The Story Workshop records are invalid: {error}"),
@@ -1635,7 +1637,11 @@ fn rotate_identity(path: &Path, old: &ProjectInfo, new: &ProjectInfo) -> CoreRes
 }
 
 /// Recover a backup into a new project directory with a fresh identity.
-pub fn recover_backup<F: TransferFactory>(archive: &Path, target: &Path, title: &str) -> CoreResult<F::Session> {
+pub fn recover_backup<F: TransferFactory>(
+    archive: &Path,
+    target: &Path,
+    title: &str,
+) -> CoreResult<F::Session> {
     let target = output_new(target)?;
     let parent = target.parent().ok_or_else(|| {
         transfer_error(

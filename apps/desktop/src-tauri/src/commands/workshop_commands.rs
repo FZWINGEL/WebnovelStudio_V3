@@ -58,7 +58,8 @@ fn imported_preset(file: WorkshopPresetFile) -> CoreResult<WorkshopPreset> {
 
 #[tauri::command]
 pub async fn read_workshop(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<WorkshopView> {
     let app = &*state;
     let state = &app.projects;
@@ -68,7 +69,8 @@ pub async fn read_workshop(
 
 #[tauri::command]
 pub async fn save_workshop(
-    request: SaveWorkshop, state: State<'_, AppState>,
+    request: SaveWorkshop,
+    state: State<'_, AppState>,
 ) -> CoreResult<WorkshopSnapshot> {
     let app = &*state;
     let state = &app.projects;
@@ -78,7 +80,8 @@ pub async fn save_workshop(
 
 #[tauri::command]
 pub async fn workshop_history(
-    access: ProjectAccess, state: State<'_, AppState>,
+    access: ProjectAccess,
+    state: State<'_, AppState>,
 ) -> CoreResult<Vec<WorkshopSnapshot>> {
     let app = &*state;
     let state = &app.projects;
@@ -88,7 +91,8 @@ pub async fn workshop_history(
 
 #[tauri::command]
 pub async fn preview_workshop_adoption(
-    request: PreviewWorkshopAdoption, state: State<'_, AppState>,
+    request: PreviewWorkshopAdoption,
+    state: State<'_, AppState>,
 ) -> CoreResult<WorkshopAdoptionPreview> {
     let app = &*state;
     let state = &app.projects;
@@ -100,7 +104,8 @@ pub async fn preview_workshop_adoption(
 pub async fn adopt_workshop(
     access: ProjectAccess,
     operation_id: String,
-    preview_id: String, state: State<'_, AppState>,
+    preview_id: String,
+    state: State<'_, AppState>,
 ) -> CoreResult<WorkshopAdoptionAck> {
     let app = &*state;
     let state = &app.projects;

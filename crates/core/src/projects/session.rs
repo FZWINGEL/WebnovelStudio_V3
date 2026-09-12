@@ -4,16 +4,13 @@
 //! project, one owned SQLite connection, one command channel, explicit renderer
 //! leases.
 //!
-//! `ProjectSession` is the deepest coupling in the tree: its `Command` enum
-//! carries ~28 variants and its impl exposes 32 public methods, so every project
-//! operation in the codebase routes through it. Isolating it here is the
-//! prerequisite for step 5 of the architecture sequence — replacing that single
-//! façade with per-concern ones (`DocumentApi`, `ContextApi`, `StoryApi`, …)
-//! over the same handle, without touching the actor, the channel or the
-//! ordering guarantees the tests assert.
+//! Project, document, context, Workshop and work facades use this same handle.
+//! Domain command enums route through the same actor; the facade split changes
+//! which operations callers can name, not their queue or ordering guarantees.
+//! See `docs/ARCHITECTURE.md` for current ownership and transaction boundaries.
 
-use super::*;
 use super::records::*;
+use super::*;
 use super::{
     background_work, context_packets, discussions, evidence_queries, exports, guidance, history,
     memory, project_chat, proposals, reviewed_story, source_pins, story_context, workshop,
@@ -210,13 +207,22 @@ impl ProjectSession {
                                 )
                             }
                             Command::Packet(command) => {
-                                crate::projects::context_packets::handle_packet(&mut project, *command)
+                                crate::projects::context_packets::handle_packet(
+                                    &mut project,
+                                    *command,
+                                )
                             }
                             Command::Context(command) => {
-                                crate::projects::story_context::handle_context(&mut project, *command)
+                                crate::projects::story_context::handle_context(
+                                    &mut project,
+                                    *command,
+                                )
                             }
                             Command::Discussion(command) => {
-                                crate::projects::discussions::handle_discussion(&mut project, *command)
+                                crate::projects::discussions::handle_discussion(
+                                    &mut project,
+                                    *command,
+                                )
                             }
                             Command::Guidance(command) => {
                                 wns_conversation::guidance::handle_guidance(&mut project, *command)
@@ -228,8 +234,7 @@ impl ProjectSession {
                             Command::Review(command) => project.handle_review(*command),
                             Command::EvidenceQuery(command) => {
                                 crate::projects::evidence_queries::handle_evidence_query(
-                                    &project,
-                                    *command,
+                                    &project, *command,
                                 )
                             }
                             Command::Export(command) => {
@@ -237,27 +242,44 @@ impl ProjectSession {
                             }
                             Command::SourcePins(command) => project.handle_source_pins(*command),
                             Command::WorkshopStart(request, reply) => {
-                                let result = crate::projects::workshop::start_workshop(&mut project, *request);
+                                let result = crate::projects::workshop::start_workshop(
+                                    &mut project,
+                                    *request,
+                                );
                                 project.fence_uncertain(&result);
                                 let _ = reply.send(result);
                             }
                             Command::WorkshopRead(access, reply) => {
-                                let _ = reply.send(crate::projects::workshop::read_workshop(&project, access));
+                                let _ = reply.send(crate::projects::workshop::read_workshop(
+                                    &project, access,
+                                ));
                             }
                             Command::WorkshopSave(request, reply) => {
-                                let result = crate::projects::workshop::save_workshop(&mut project, request);
+                                let result =
+                                    crate::projects::workshop::save_workshop(&mut project, request);
                                 project.fence_uncertain(&result);
                                 let _ = reply.send(result);
                             }
                             Command::WorkshopHistory(access, reply) => {
-                                let _ = reply.send(crate::projects::workshop::workshop_history(&project, access));
+                                let _ = reply.send(crate::projects::workshop::workshop_history(
+                                    &project, access,
+                                ));
                             }
                             Command::WorkshopPreview(request, reply) => {
-                                let _ = reply.send(crate::projects::workshop::preview_workshop_adoption(&mut project, request));
+                                let _ = reply.send(
+                                    crate::projects::workshop::preview_workshop_adoption(
+                                        &mut project,
+                                        request,
+                                    ),
+                                );
                             }
                             Command::WorkshopAdopt(access, operation_id, preview_id, reply) => {
-                                let result =
-                                    crate::projects::workshop::adopt_workshop(&mut project, access, operation_id, preview_id);
+                                let result = crate::projects::workshop::adopt_workshop(
+                                    &mut project,
+                                    access,
+                                    operation_id,
+                                    preview_id,
+                                );
                                 project.fence_uncertain(&result);
                                 let _ = reply.send(result);
                             }
@@ -267,17 +289,19 @@ impl ProjectSession {
                                 );
                             }
                             Command::StopBackgroundWork(expected, reply) => {
-                                let result = wns_conversation::background_work::stop_background_work(
-                                    &mut project,
-                                    expected,
-                                );
+                                let result =
+                                    wns_conversation::background_work::stop_background_work(
+                                        &mut project,
+                                        expected,
+                                    );
                                 let _ = reply.send(result);
                             }
                             Command::InterruptBackgroundWork(expected, reply) => {
-                                let result = wns_conversation::background_work::interrupt_background_work(
-                                    &mut project,
-                                    expected,
-                                );
+                                let result =
+                                    wns_conversation::background_work::interrupt_background_work(
+                                        &mut project,
+                                        expected,
+                                    );
                                 let _ = reply.send(result);
                             }
                             Command::Attach(session, reply) => {
@@ -427,4 +451,3 @@ impl ProjectSession {
         WorkApi::new(Arc::clone(&self.handle))
     }
 }
-

@@ -1,15 +1,13 @@
 //! What the story-context cluster needs from the actor.
 //!
-//! `story_context`, `memory` and `context_packets` move together: they are
-//! mutually dependent through `memory → context_packets → story_context →
-//! memory`, so no one of them can leave `webnovel-core` before the others. One
-//! trait covers all three, because the union of what their actor sides need is
-//! five methods — and four of those five are the same four `SourcePinHost`,
-//! `HistoryHost` and `ReviewedStoryHost` declare.
+//! Core implements this seam for its owned project. Story operations validate
+//! the current access and use the actor's connection; they do not create a
+//! second writer. The trait also supplies the source epoch, project identity,
+//! filesystem root and current renderer access needed by its consumers.
 //!
-//! The fifth, `context_source_epoch`, is the actor's own reader for the
-//! project's source epoch; `context_packets` compares it against a frozen
-//! snapshot to answer whether a prepared packet is still current.
+//! Raw connection access is still part of this boundary. Domain functions own
+//! their transaction scopes and call `fence_uncertain` after uncertain outcomes.
+//! This is a composition seam, not a compile-time restriction on SQL ownership.
 
 use rusqlite::Connection;
 use wns_kernel::{CoreResult, ProjectAccess, ProjectInfo, SourceEpoch};
@@ -42,4 +40,3 @@ pub trait StoryHost {
     /// is shared.
     fn current_access(&self) -> CoreResult<ProjectAccess>;
 }
-

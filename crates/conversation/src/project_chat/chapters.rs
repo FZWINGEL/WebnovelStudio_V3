@@ -5,9 +5,9 @@
 //! The conversation item is only a durable timeline reference; the chapter
 //! discussion and its source packet remain authoritative for generation.
 
-use crate::discussions::{self, FeedbackIntent, StartDiscussion};
 use super::store;
 use super::*;
+use crate::discussions::{self, FeedbackIntent, StartDiscussion};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde_json::json;
 
@@ -69,7 +69,7 @@ fn exact_pinned_documents(
 // Actor-side logic, as free functions over `ProjectChatHost`.
 
 pub fn start_project_chapter(
-host: &mut impl ProjectChatHost,
+    host: &mut impl ProjectChatHost,
     request: StartProjectChapter,
 ) -> CoreResult<DiscussionStart> {
     host.check_access(&request.access)?;
@@ -110,12 +110,7 @@ host: &mut impl ProjectChatHost,
                 "This request ID already has another chapter task.",
             ));
         }
-        store::read_item_by_reference(
-            &tx,
-            &request.conversation_id,
-            "chapterRequest",
-            &run_id,
-        )?;
+        store::read_item_by_reference(&tx, &request.conversation_id, "chapterRequest", &run_id)?;
         let result = discussions::read_start(&tx, &run_id)?;
         tx.commit().map_err(CoreError::uncertain)?;
         return Ok(result);
@@ -149,16 +144,14 @@ host: &mut impl ProjectChatHost,
         ));
     }
     let current = store::read_composer(&tx, &request.conversation_id)?;
-    if current.version != request.expected_composer_version || current.body != request.composer
-    {
+    if current.version != request.expected_composer_version || current.body != request.composer {
         return Err(CoreError::new(
             "VersionConflict",
             "Save the exact chapter task before sending.",
         ));
     }
 
-    let target =
-        read_document_with_role(&tx, &chapter.target.document_id, DocumentRole::Ordinary)?;
+    let target = read_document_with_role(&tx, &chapter.target.document_id, DocumentRole::Ordinary)?;
     require_head(&target.head, &chapter.target)?;
     if target.kind != "chapter" {
         return Err(CoreError::new(
@@ -185,13 +178,8 @@ host: &mut impl ProjectChatHost,
     discussions::validate_start(&discussion)?;
     let chapter_range_response =
         chapter.intent == FeedbackIntent::Discuss && chapter.scope.is_none();
-    let result = discussions::start_discussion_at(
-        &tx,
-        &discussion,
-        &payload,
-        None,
-        chapter_range_response,
-    )?;
+    let result =
+        discussions::start_discussion_at(&tx, &discussion, &payload, None, chapter_range_response)?;
     store::append_item(
         &tx,
         &request.access,
