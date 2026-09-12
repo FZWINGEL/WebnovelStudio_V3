@@ -48,7 +48,22 @@ export interface MemoryRead {
   documentId: string;
   jobs: MemoryJob[];
   views: MemoryViewRecord[];
-  /** Desktop recovery envelope; true while a terminal result is being persisted. */
+  /**
+   * A designed recovery envelope that Rust does not send.
+   *
+   * `read_memory` returns a document's jobs and views and nothing else — there
+   * is no `pending_save` or `pending_job_ids` anywhere in the workspace. These
+   * two fields were declared here and read by `ChapterMemory`, so the
+   * pre-existing branch that used them was unreachable in the app while the
+   * tests, which pass them in by hand, exercised it. Anything built on them —
+   * the retry-a-pending-save path in `reconcile` — has never run.
+   *
+   * Kept declared rather than deleted because the consuming code is real and
+   * reviewed; what is missing is the producer. Either `MemoryRead` gains the
+   * two fields and the path goes live, or the path is removed. That is a
+   * decision about whether the app should offer recovery here, so it is not
+   * taken by a type migration.
+   */
   pendingSave?: boolean;
   pendingJobIds?: string[];
 }
