@@ -9,6 +9,7 @@ import type {
   MarkReady,
   ReviewedRecordSet,
 } from './generated/story';
+import type { ReviewPrefixItem } from './generated/context';
 export type {
   ReviewedEntityChoice,
   ReviewedEntityCatalog,
@@ -56,7 +57,8 @@ export const knowledgeAttitudeLabels: Record<KnowledgeAttitude, string> = {
 export const promisePhaseLabels: Record<PromisePhase, string> = {
   setup: 'Promise introduced', payoff: 'Payoff recorded', cancelled: 'Cancellation recorded', unclear: 'Outcome unclear',
 };
-export interface ReviewMember { documentId: string; title: string; bundleId: string; revisionId: string; head: Head }
+/** The frontend's name for the generated `ReviewPrefixItem` — same fields. */
+export type ReviewMember = ReviewPrefixItem;
 export type ReviewSummaryAudience = 'authorRoom' | 'reader';
 export const chapterReviewStatus = (access: ProjectAccess, documentId: string): Promise<ReviewStatus> => invoke('chapter_review_status', { access, documentId });
 export const stageAuthorReview = (request: StageAuthorReview): Promise<ReviewStage> => invoke('stage_author_review', { request });

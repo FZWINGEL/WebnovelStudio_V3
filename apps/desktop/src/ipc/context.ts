@@ -41,6 +41,7 @@ import type {
   StorySnapshot,
   BudgetError,
   PreparationResult as GeneratedPreparationResult,
+  MemoryEntityEntry,
 } from './generated/context';
 export type {
   CompiledPacket,
@@ -136,12 +137,8 @@ export interface StorySearchResult {
 }
 export type LookupSearchMode = 'literal' | 'lexical' | 'exactAlias';
 export type LookupMemoryEntityKind = 'character' | 'topic' | 'object' | 'promise';
-export interface LookupMemoryEntityEntry {
-  entity: StoryEntityRef;
-  labelVariants: string[];
-  sourceHandle: string;
-  source: SourceRef;
-}
+/** The frontend's name for the generated `MemoryEntityEntry` — same fields. */
+export type LookupMemoryEntityEntry = MemoryEntityEntry;
 export interface LookupMemoryEntitiesResult {
   kind: 'findEntities';
   entityKind: LookupMemoryEntityKind;

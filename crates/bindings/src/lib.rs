@@ -50,15 +50,25 @@
 //!   frontend tail from 83 errors to 24 in one step, which is most of what that
 //!   tail was.
 //!
-//! * **A field Rust omits when empty needs telling, not inferring.**
-//!   `#[serde(default, skip_serializing_if = "Vec::is_empty")]` means the field
-//!   is *absent* on the wire, so a generated `string[]` is a latent crash: the
-//!   frontend reads `undefined` where the type promised an array. specta cannot
-//!   express it — `tests/variant_fields.rs` pins the four attribute spellings
-//!   that do nothing — so [`OMITTED_WHEN_EMPTY`] lists the fields and
-//!   `tests/omitted.rs` re-derives the list from the Rust source and fails when
-//!   the two disagree. That test found three the first scan had missed, which
-//!   is the argument for deriving it rather than writing it down.
+//! * **A field Rust omits when empty needs telling, not inferring.** What
+//!   specta keys the `?` on is narrow, and `tests/variant_fields.rs` pins it
+//!   exactly: an `Option` carrying an omission attribute, or a bare
+//!   `#[serde(default)]` on anything. A `Vec` with
+//!   `skip_serializing_if = "Vec::is_empty"` gets nothing — so the generated
+//!   type promises `string[]` for a field the wire leaves out, and the frontend
+//!   reads `undefined` where a type said array. [`OMITTED_WHEN_EMPTY`] lists
+//!   those fields and `tests/omitted.rs` re-derives the list from the Rust
+//!   source, failing when the two disagree in either direction.
+//!
+//!   That re-derivation has itself been wrong twice, and both were whole
+//!   classes rather than cases. It scanned only `pub name: Type`, so an enum
+//!   variant's field — `name: Type`, no `pub`, and serde honours the attribute
+//!   there just the same — was invisible; widening it immediately named
+//!   `LookupRead::offset`, which the wire omits at zero while the generated
+//!   TypeScript promised a number. And [`mark_omitted`] inserted the `?` at the
+//!   *first* occurrence of a name, which for an enum is one variant of several:
+//!   `LookupRead` carries `offset` in four of its six. A derivation is only as
+//!   good as the grammar it reads, and the compiler is the check on both.
 //!
 //! **Let the compiler close both lists.** The workshop's derives converged in 6
 //!   rounds (workshop → story vocabulary → run vocabulary → provider and context
