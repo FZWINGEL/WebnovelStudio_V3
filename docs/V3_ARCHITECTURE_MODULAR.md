@@ -1601,6 +1601,17 @@ frontend `kernel/` (§4.2) · frontend save loop (§4.3). Plus two defects fixed
    — and then it is the 323 lines again. Step one's commit stands; step two was reverted
    rather than pushed through, and the branch is green at `378fddb`.
 
+   **Both steps landed.** The collision was resolved the way this paragraph said it had to be —
+   by rename: the parser's copy became `validate_workshop_text` in the commit before the
+   extraction, and the extraction then had nothing left to disambiguate. The parser and all six
+   metadata types are in `crates/story/src/workshop_metadata.rs`, which records the whole
+   episode in its own module doc; `crates/workshop/src/workshop.rs` re-exports
+   `MAX_STORY_POSSIBILITIES`, `validate_story_possibilities` and `validate_text` from there at
+   the historical paths, so every existing import resolves unchanged — the same route
+   `webnovel-core` took for `wns-kernel` in step 1. `crates/core/src/projects/workshop.rs` is a
+   53-line shim. The lesson the attempt produced is the durable part: a name is not an identity,
+   and the compiler caught this one six times by argument count before anything else did.
+
    `wns-library` (step 8) is still additionally blocked on `projects::import` being a direct
    module import; `crates/architecture` will refuse the backward edge if it is attempted too
    early.
