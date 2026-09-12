@@ -1,9 +1,10 @@
 //! Author commands use renderer leases; the local test worker owns only its run.
+use crate::app_state::AppState;
 use crate::discussion_recovery::{
     DesktopDiscussionView, DiscussionRecovery, PendingSave, SaveOutcome,
 };
 use crate::library_commands::DesktopLibrary;
-use crate::project_commands::{DesktopProjects, execute};
+use crate::project_commands::execute;
 use crate::provider_runtime::{DesktopProviders, binding_matches_author_choice};
 use tauri::State;
 use webnovel_core::context::packet::ProviderBinding;
@@ -27,12 +28,13 @@ use webnovel_core::providers::{claude_runtime::ClaudeConnection, codex_runtime::
 #[tauri::command]
 pub async fn read_discussion(
     access: ProjectAccess,
-    document_id: String,
-    state: State<'_, DesktopProjects>,
-    recovery: State<'_, DiscussionRecovery>,
+    document_id: String, state: State<'_, AppState>,
 ) -> CoreResult<DesktopDiscussionView> {
+    let app = &*state;
+    let state = &app.projects;
+    let recovery = &app.discussion_recovery;
     let project = state.project(&access.project_id)?;
-    let recovery = recovery.inner().clone();
+    let recovery = recovery.clone();
     execute(move || Ok(recovery.view(project.read_discussion(access, document_id)?))).await
 }
 
@@ -40,30 +42,33 @@ pub async fn read_discussion(
 pub async fn retry_discussion_save(
     access: ProjectAccess,
     document_id: String,
-    run_id: String,
-    state: State<'_, DesktopProjects>,
-    recovery: State<'_, DiscussionRecovery>,
+    run_id: String, state: State<'_, AppState>,
 ) -> CoreResult<DesktopDiscussionView> {
+    let app = &*state;
+    let state = &app.projects;
+    let recovery = &app.discussion_recovery;
     let project = state.project(&access.project_id)?;
-    let recovery = recovery.inner().clone();
+    let recovery = recovery.clone();
     execute(move || recovery.retry(&project, access, document_id, run_id)).await
 }
 
 #[tauri::command]
 pub async fn discussion_retry(
     access: ProjectAccess,
-    run_id: String,
-    state: State<'_, DesktopProjects>,
+    run_id: String, state: State<'_, AppState>,
 ) -> CoreResult<DiscussionRetry> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.discussion_retry(access, run_id)).await
 }
 
 #[tauri::command]
 pub async fn save_discussion_draft(
-    request: SaveDiscussionDraft,
-    state: State<'_, DesktopProjects>,
+    request: SaveDiscussionDraft, state: State<'_, AppState>,
 ) -> CoreResult<DiscussionDraft> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.save_discussion_draft(request)).await
 }
@@ -71,12 +76,13 @@ pub async fn save_discussion_draft(
 #[tauri::command]
 pub async fn stop_discussion(
     access: ProjectAccess,
-    run_id: String,
-    state: State<'_, DesktopProjects>,
-    runtime: State<'_, DesktopProviders>,
+    run_id: String, state: State<'_, AppState>,
 ) -> CoreResult<DiscussionStop> {
+    let app = &*state;
+    let state = &app.projects;
+    let runtime = &app.providers;
     let project = state.project(&access.project_id)?;
-    let runtime = runtime.inner().clone();
+    let runtime = runtime.clone();
     execute(move || {
         let owner = RunOwner {
             project_id: access.project_id.clone(),
@@ -104,54 +110,60 @@ pub async fn stop_discussion(
 #[tauri::command]
 pub async fn proposals(
     access: ProjectAccess,
-    document_id: String,
-    state: State<'_, DesktopProjects>,
+    document_id: String, state: State<'_, AppState>,
 ) -> CoreResult<Vec<Proposal>> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.proposals(access, document_id)).await
 }
 
 #[tauri::command]
 pub async fn prepare_proposal(
-    request: PrepareProposal,
-    state: State<'_, DesktopProjects>,
+    request: PrepareProposal, state: State<'_, AppState>,
 ) -> CoreResult<PreparedProposal> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.prepare_proposal(request)).await
 }
 
 #[tauri::command]
 pub async fn prepare_continuation(
-    request: PrepareContinuation,
-    state: State<'_, DesktopProjects>,
+    request: PrepareContinuation, state: State<'_, AppState>,
 ) -> CoreResult<PreparedProposal> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.prepare_continuation(request)).await
 }
 
 #[tauri::command]
 pub async fn prepare_structured(
-    request: PrepareStructured,
-    state: State<'_, DesktopProjects>,
+    request: PrepareStructured, state: State<'_, AppState>,
 ) -> CoreResult<PreparedProposal> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.prepare_structured(request)).await
 }
 
 #[tauri::command]
 pub async fn apply_proposal(
-    request: ApplyProposal,
-    state: State<'_, DesktopProjects>,
+    request: ApplyProposal, state: State<'_, AppState>,
 ) -> CoreResult<ApplyAck> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.apply_proposal(request)).await
 }
 
 #[tauri::command]
 pub async fn reject_proposal(
-    request: RejectProposal,
-    state: State<'_, DesktopProjects>,
+    request: RejectProposal, state: State<'_, AppState>,
 ) -> CoreResult<ProposalDecision> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.reject_proposal(request)).await
 }
@@ -159,16 +171,17 @@ pub async fn reject_proposal(
 #[tauri::command]
 pub async fn start_discussion(
     mut request: StartDiscussion,
-    model_selection: Option<ModelSelection>,
-    state: State<'_, DesktopProjects>,
-    recovery: State<'_, DiscussionRecovery>,
-    library: State<'_, DesktopLibrary>,
-    runtime: State<'_, DesktopProviders>,
+    model_selection: Option<ModelSelection>, state: State<'_, AppState>,
 ) -> CoreResult<DiscussionStart> {
+    let app = &*state;
+    let state = &app.projects;
+    let recovery = &app.discussion_recovery;
+    let library = &app.library;
+    let runtime = &app.providers;
     let project = state.project(&request.access.project_id)?;
-    let recovery = recovery.inner().clone();
-    let library = library.inner().clone();
-    let runtime = runtime.inner().clone();
+    let recovery = recovery.clone();
+    let library = library.clone();
+    let runtime = runtime.clone();
     if model_selection
         .as_ref()
         .is_some_and(|choice| choice.provider_id.starts_with("openai-compatible:"))

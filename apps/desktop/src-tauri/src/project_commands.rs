@@ -1,4 +1,5 @@
 //! Thin IPC adapters. All SQL and execution-time lease checks stay in the core.
+use crate::app_state::AppState;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -18,9 +19,10 @@ pub async fn list_document_history(
     access: ProjectAccess,
     document_id: String,
     before_version: Option<String>,
-    limit: u32,
-    state: State<'_, DesktopProjects>,
+    limit: u32, state: State<'_, AppState>,
 ) -> CoreResult<HistoryPage> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.list_document_history(access, document_id, before_version, limit)).await
 }
@@ -29,18 +31,20 @@ pub async fn list_document_history(
 pub async fn read_document_revision(
     access: ProjectAccess,
     document_id: String,
-    revision_id: String,
-    state: State<'_, DesktopProjects>,
+    revision_id: String, state: State<'_, AppState>,
 ) -> CoreResult<Revision> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.read_document_revision(access, document_id, revision_id)).await
 }
 
 #[tauri::command]
 pub async fn restore_revision(
-    request: RestoreRevision,
-    state: State<'_, DesktopProjects>,
+    request: RestoreRevision, state: State<'_, AppState>,
 ) -> CoreResult<RestoreAck> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.restore_revision(request)).await
 }
@@ -204,19 +208,21 @@ pub(super) async fn execute<T: Send + 'static>(
 pub async fn create_project(
     path: String,
     title: String,
-    session: String,
-    state: State<'_, DesktopProjects>,
+    session: String, state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
-    let registry = state.inner().clone();
+    let app = &*state;
+    let state = &app.projects;
+    let registry = state.clone();
     execute(move || registry.open(PathBuf::from(path), Some(title), session)).await
 }
 #[tauri::command]
 pub async fn open_project(
     path: String,
-    session: String,
-    state: State<'_, DesktopProjects>,
+    session: String, state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
-    let registry = state.inner().clone();
+    let app = &*state;
+    let state = &app.projects;
+    let registry = state.clone();
     execute(move || registry.open(PathBuf::from(path), None, session)).await
 }
 /// Recover a project actor after an uncertain renderer command and return one
@@ -225,9 +231,10 @@ pub async fn open_project(
 #[tauri::command]
 pub async fn reconcile_project(
     project_id: String,
-    session: String,
-    state: State<'_, DesktopProjects>,
+    session: String, state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&project_id)?;
     execute(move || {
         let attached = project.documents().attach_snapshot(session)?;
@@ -245,68 +252,76 @@ pub async fn reconcile_project(
 }
 #[tauri::command]
 pub async fn create_document(
-    request: CreateDocument,
-    state: State<'_, DesktopProjects>,
+    request: CreateDocument, state: State<'_, AppState>,
 ) -> CoreResult<DocumentRecord> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.documents().create(request)).await
 }
 #[tauri::command]
 pub async fn list_documents(
-    access: ProjectAccess,
-    state: State<'_, DesktopProjects>,
+    access: ProjectAccess, state: State<'_, AppState>,
 ) -> CoreResult<Vec<DocumentRecord>> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.documents().list(access)).await
 }
 #[tauri::command]
 pub async fn read_document(
     access: ProjectAccess,
-    document_id: String,
-    state: State<'_, DesktopProjects>,
+    document_id: String, state: State<'_, AppState>,
 ) -> CoreResult<DocumentRecord> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.documents().read(access, document_id)).await
 }
 #[tauri::command]
 pub async fn save_snapshot(
-    request: SaveSnapshot,
-    state: State<'_, DesktopProjects>,
+    request: SaveSnapshot, state: State<'_, AppState>,
 ) -> CoreResult<SaveAck> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.documents().save(request)).await
 }
 #[tauri::command]
 pub async fn reconcile_document(
-    request: ReconcileRequest,
-    state: State<'_, DesktopProjects>,
+    request: ReconcileRequest, state: State<'_, AppState>,
 ) -> CoreResult<ReconciledDocument> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.project_id)?;
     execute(move || project.documents().reconcile(request)).await
 }
 #[tauri::command]
 pub async fn checkpoint_document(
-    request: CheckpointRequest,
-    state: State<'_, DesktopProjects>,
+    request: CheckpointRequest, state: State<'_, AppState>,
 ) -> CoreResult<Revision> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.documents().checkpoint(request)).await
 }
 #[tauri::command]
 pub async fn document_history(
     access: ProjectAccess,
-    document_id: String,
-    state: State<'_, DesktopProjects>,
+    document_id: String, state: State<'_, AppState>,
 ) -> CoreResult<Vec<Revision>> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.documents().history(access, document_id)).await
 }
 
 #[tauri::command]
 pub async fn project_metadata(
-    project_id: String,
-    state: State<'_, DesktopProjects>,
+    project_id: String, state: State<'_, AppState>,
 ) -> CoreResult<ProjectMetadata> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&project_id)?;
     execute(move || project.project().metadata()).await
 }
@@ -314,10 +329,11 @@ pub async fn project_metadata(
 pub async fn rename_project(
     access: ProjectAccess,
     expected_metadata_version: String,
-    title: String,
-    state: State<'_, DesktopProjects>,
+    title: String, state: State<'_, AppState>,
     library: State<'_, crate::library_commands::DesktopLibrary>,
 ) -> CoreResult<ProjectMetadataResult> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     let library = library.inner().clone();
     execute(move || {
@@ -340,18 +356,20 @@ pub async fn rename_document(
     access: ProjectAccess,
     document_id: String,
     expected_metadata_version: String,
-    title: String,
-    state: State<'_, DesktopProjects>,
+    title: String, state: State<'_, AppState>,
 ) -> CoreResult<DocumentRecord> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.project().rename_document(access, document_id, expected_metadata_version, title))
         .await
 }
 #[tauri::command]
 pub async fn read_view_state(
-    access: ProjectAccess,
-    state: State<'_, DesktopProjects>,
+    access: ProjectAccess, state: State<'_, AppState>,
 ) -> CoreResult<Option<ViewState>> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.documents().view_state(access)).await
 }
@@ -360,9 +378,10 @@ pub async fn save_view_state(
     access: ProjectAccess,
     head: Head,
     anchor: Endpoint,
-    focus: Endpoint,
-    state: State<'_, DesktopProjects>,
+    focus: Endpoint, state: State<'_, AppState>,
 ) -> CoreResult<ViewState> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.documents().save_view_state(access, head, anchor, focus)).await
 }

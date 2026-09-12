@@ -4,10 +4,8 @@
 //! discussion run. This adapter supplies only the native model binding and
 //! dispatches that run through the existing provider/recovery workers.
 
-use crate::discussion_recovery::DiscussionRecovery;
-use crate::library_commands::DesktopLibrary;
-use crate::project_commands::{DesktopProjects, execute};
-use crate::provider_runtime::DesktopProviders;
+use crate::app_state::AppState;
+use crate::project_commands::execute;
 use serde::Deserialize;
 use tauri::State;
 use webnovel_core::context::packet::MockContextBudget;
@@ -31,12 +29,13 @@ pub struct WorkshopCommandRequest {
 
 #[tauri::command]
 pub async fn start_workshop(
-    request: WorkshopCommandRequest,
-    state: State<'_, DesktopProjects>,
-    recovery: State<'_, DiscussionRecovery>,
-    library: State<'_, DesktopLibrary>,
-    runtime: State<'_, DesktopProviders>,
+    request: WorkshopCommandRequest, state: State<'_, AppState>,
 ) -> CoreResult<DiscussionStart> {
+    let app = &*state;
+    let state = &app.projects;
+    let recovery = &app.discussion_recovery;
+    let library = &app.library;
+    let runtime = &app.providers;
     let WorkshopCommandRequest {
         access,
         operation_id,
@@ -44,9 +43,9 @@ pub async fn start_workshop(
         model_selection,
     } = request;
     let project = state.project(&access.project_id)?;
-    let recovery = recovery.inner().clone();
-    let library = library.inner().clone();
-    let runtime = runtime.inner().clone();
+    let recovery = recovery.clone();
+    let library = library.clone();
+    let runtime = runtime.clone();
     let selected = model_selection;
     let start = StartWorkshop {
         access,

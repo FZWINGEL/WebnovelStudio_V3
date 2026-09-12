@@ -2,11 +2,11 @@
 //!
 //! Reading memory is safe on project open.  Starting a refresh is always an
 //! author action and captures the selected model into the immutable core job.
-use crate::library_commands::DesktopLibrary;
+use crate::app_state::AppState;
 use crate::memory_recovery::MemoryRecovery;
-use crate::project_commands::{DesktopProjects, execute};
+use crate::project_commands::execute;
 use crate::provider_runtime::{
-    DesktopProviders, binding_matches_choice, is_legacy_maintenance_choice, is_supported_choice,
+    binding_matches_choice, is_legacy_maintenance_choice, is_supported_choice,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -56,9 +56,10 @@ fn model_settings_error() -> CoreError {
 #[tauri::command]
 pub async fn read_memory_source(
     access: ProjectAccess,
-    view_id: String,
-    state: State<'_, DesktopProjects>,
+    view_id: String, state: State<'_, AppState>,
 ) -> CoreResult<webnovel_core::projects::story_context::SourceRead> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.read_memory_source(access, view_id)).await
 }
@@ -66,12 +67,13 @@ pub async fn read_memory_source(
 #[tauri::command]
 pub async fn read_memory(
     access: ProjectAccess,
-    document_id: String,
-    state: State<'_, DesktopProjects>,
-    recovery: State<'_, MemoryRecovery>,
+    document_id: String, state: State<'_, AppState>,
 ) -> CoreResult<DesktopMemoryRead> {
+    let app = &*state;
+    let state = &app.projects;
+    let recovery = &app.memory_recovery;
     let project = state.project(&access.project_id)?;
-    let recovery = recovery.inner().clone();
+    let recovery = recovery.clone();
     execute(move || {
         let pending_job_ids = recovery.pending_job_ids(
             &access.project_id,
@@ -90,12 +92,13 @@ pub async fn read_memory(
 #[tauri::command]
 pub async fn retry_memory_save(
     access: ProjectAccess,
-    job_id: String,
-    state: State<'_, DesktopProjects>,
-    recovery: State<'_, MemoryRecovery>,
+    job_id: String, state: State<'_, AppState>,
 ) -> CoreResult<MemoryJob> {
+    let app = &*state;
+    let state = &app.projects;
+    let recovery = &app.memory_recovery;
     let project = state.project(&access.project_id)?;
-    let recovery = recovery.inner().clone();
+    let recovery = recovery.clone();
     execute(move || {
         let owner = MemoryOwner {
             project_id: access.project_id.clone(),
@@ -115,12 +118,13 @@ pub async fn retry_memory_save(
 #[tauri::command]
 pub async fn stop_memory(
     access: ProjectAccess,
-    job_id: String,
-    state: State<'_, DesktopProjects>,
-    runtime: State<'_, DesktopProviders>,
+    job_id: String, state: State<'_, AppState>,
 ) -> CoreResult<MemoryJob> {
+    let app = &*state;
+    let state = &app.projects;
+    let runtime = &app.providers;
     let project = state.project(&access.project_id)?;
-    let runtime = runtime.inner().clone();
+    let runtime = runtime.clone();
     execute(move || {
         let owner = MemoryOwner {
             project_id: access.project_id.clone(),
@@ -145,15 +149,16 @@ pub async fn stop_memory(
 
 #[tauri::command]
 pub async fn start_memory(
-    request: StartMemoryRequest,
-    state: State<'_, DesktopProjects>,
-    recovery: State<'_, MemoryRecovery>,
-    library: State<'_, DesktopLibrary>,
-    runtime: State<'_, DesktopProviders>,
+    request: StartMemoryRequest, state: State<'_, AppState>,
 ) -> CoreResult<MemoryJob> {
+    let app = &*state;
+    let state = &app.projects;
+    let recovery = &app.memory_recovery;
+    let library = &app.library;
+    let runtime = &app.providers;
     let project = state.project(&request.access.project_id)?;
-    let recovery = recovery.inner().clone();
-    let library = library.inner().clone();
+    let recovery = recovery.clone();
+    let library = library.clone();
     if request
         .model_selection
         .provider_id
@@ -164,11 +169,11 @@ pub async fn start_memory(
             project,
             recovery,
             library,
-            runtime.inner().clone(),
+            runtime.clone(),
         )
         .await;
     }
-    let runtime = runtime.inner().clone();
+    let runtime = runtime.clone();
     execute(move || {
         let _admission = runtime.admit_request()?;
         let selected = request.model_selection.clone();

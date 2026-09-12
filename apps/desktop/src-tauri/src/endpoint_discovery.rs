@@ -1,4 +1,5 @@
 //! App-local cancellation for explicit model-list reads. No generation jobs.
+use crate::app_state::AppState;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -88,9 +89,10 @@ impl Drop for DiscoveryRead {
 
 #[tauri::command]
 pub fn cancel_endpoint_discovery(
-    discovery_id: String,
-    state: State<'_, EndpointDiscovery>,
+    discovery_id: String, state: State<'_, AppState>,
 ) -> CoreResult<()> {
+    let app = &*state;
+    let state = &app.endpoint_discovery;
     state.cancel(discovery_id)
 }
 

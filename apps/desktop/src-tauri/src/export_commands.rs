@@ -1,5 +1,6 @@
 //! Preview a frozen draft before the explicit native destination choice.
-use crate::project_commands::{DesktopProjects, execute};
+use crate::app_state::AppState;
+use crate::project_commands::execute;
 use serde::Serialize;
 use tauri::State;
 use webnovel_core::projects::{CoreResult, Head, ProjectAccess};
@@ -18,9 +19,10 @@ pub struct DraftExportResult {
 pub async fn prepare_draft_export(
     access: ProjectAccess,
     expected: Head,
-    format: DraftFormat,
-    projects: State<'_, DesktopProjects>,
+    format: DraftFormat, state: State<'_, AppState>,
 ) -> CoreResult<DraftExportPreview> {
+    let app = &*state;
+    let projects = &app.projects;
     let project = projects.project(&access.project_id)?;
     execute(move || transfer::prepare_draft_export(&project, &access, expected, format)).await
 }
@@ -29,9 +31,10 @@ pub async fn prepare_draft_export(
 pub async fn prepare_reviewed_draft_export(
     access: ProjectAccess,
     expected: Head,
-    format: DraftFormat,
-    projects: State<'_, DesktopProjects>,
+    format: DraftFormat, state: State<'_, AppState>,
 ) -> CoreResult<DraftExportPreview> {
+    let app = &*state;
+    let projects = &app.projects;
     let project = projects.project(&access.project_id)?;
     execute(move || transfer::prepare_reviewed_draft_export(&project, &access, expected, format))
         .await
@@ -40,9 +43,10 @@ pub async fn prepare_reviewed_draft_export(
 #[tauri::command]
 pub async fn export_prepared_draft(
     access: ProjectAccess,
-    preview: DraftExportPreview,
-    projects: State<'_, DesktopProjects>,
+    preview: DraftExportPreview, state: State<'_, AppState>,
 ) -> CoreResult<Option<DraftExportResult>> {
+    let app = &*state;
+    let projects = &app.projects;
     let project = projects.project(&access.project_id)?;
     execute(move || {
         let reviewed = preview.review_bundle_id.is_some();

@@ -4,7 +4,7 @@
 //! any accepted project operation. Runtime dispatch may consume it later;
 //! changing it here never starts, stops, or retries generation.
 
-use crate::library_commands::DesktopLibrary;
+use crate::app_state::AppState;
 use crate::project_commands::execute;
 use tauri::State;
 use webnovel_core::library::Library;
@@ -31,10 +31,11 @@ fn save_with_library(
 }
 
 #[tauri::command]
-pub async fn codex_transport_settings(
-    state: State<'_, DesktopLibrary>,
+pub async fn codex_transport_settings( state: State<'_, AppState>,
 ) -> CoreResult<CodexTransportSettings> {
-    let state = state.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let state = state.clone();
     execute(move || {
         let library = state.0.lock().map_err(|_| unavailable())?;
         read_with_library(&library)
@@ -45,10 +46,11 @@ pub async fn codex_transport_settings(
 #[tauri::command]
 pub async fn save_codex_transport(
     expected_revision: String,
-    transport: CodexTransport,
-    state: State<'_, DesktopLibrary>,
+    transport: CodexTransport, state: State<'_, AppState>,
 ) -> CoreResult<CodexTransportSettings> {
-    let state = state.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let state = state.clone();
     execute(move || {
         let mut library = state.0.lock().map_err(|_| unavailable())?;
         save_with_library(&mut library, &expected_revision, transport)

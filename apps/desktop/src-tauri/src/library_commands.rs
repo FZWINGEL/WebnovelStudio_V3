@@ -1,4 +1,5 @@
-use crate::project_commands::{DesktopProjects, OpenedProject, execute};
+use crate::app_state::AppState;
+use crate::project_commands::{OpenedProject, execute};
 use serde::Serialize;
 use std::{
     path::PathBuf,
@@ -27,8 +28,10 @@ fn lock_error() -> CoreError {
 }
 
 #[tauri::command]
-pub async fn library_snapshot(state: State<'_, DesktopLibrary>) -> CoreResult<LibrarySnapshot> {
-    let state = state.inner().clone();
+pub async fn library_snapshot( state: State<'_, AppState>) -> CoreResult<LibrarySnapshot> {
+    let app = &*state;
+    let state = &app.library;
+    let state = state.clone();
     execute(move || {
         let library = state.0.lock().map_err(|_| lock_error())?;
         Ok(LibrarySnapshot {
@@ -42,12 +45,13 @@ pub async fn library_snapshot(state: State<'_, DesktopLibrary>) -> CoreResult<Li
 pub async fn library_create(
     operation_id: String,
     title: String,
-    session: String,
-    state: State<'_, DesktopLibrary>,
-    projects: State<'_, DesktopProjects>,
+    session: String, state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
-    let state = state.inner().clone();
-    let projects = projects.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let projects = &app.projects;
+    let state = state.clone();
+    let projects = projects.clone();
     execute(move || {
         let mut library = state.0.lock().map_err(|_| lock_error())?;
         let pending = library.begin(&operation_id, "create", &title, None)?;
@@ -84,12 +88,13 @@ pub async fn library_create(
 #[tauri::command]
 pub async fn library_open(
     path: Option<String>,
-    session: String,
-    state: State<'_, DesktopLibrary>,
-    projects: State<'_, DesktopProjects>,
+    session: String, state: State<'_, AppState>,
 ) -> CoreResult<Option<OpenedProject>> {
-    let state = state.inner().clone();
-    let projects = projects.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let projects = &app.projects;
+    let state = state.clone();
+    let projects = projects.clone();
     execute(move || {
         let path = path.map(PathBuf::from).or_else(|| {
             rfd::FileDialog::new()
@@ -114,12 +119,13 @@ pub async fn library_open(
 #[tauri::command]
 pub async fn library_archive(
     project_id: String,
-    archived: bool,
-    state: State<'_, DesktopLibrary>,
-    projects: State<'_, DesktopProjects>,
+    archived: bool, state: State<'_, AppState>,
 ) -> CoreResult<()> {
-    let state = state.inner().clone();
-    let projects = projects.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let projects = &app.projects;
+    let state = state.clone();
+    let projects = projects.clone();
     execute(move || {
         if archived {
             projects.close(&project_id)?;
@@ -136,12 +142,13 @@ pub async fn library_archive(
 pub async fn library_recover(
     operation_id: String,
     title: String,
-    session: String,
-    state: State<'_, DesktopLibrary>,
-    projects: State<'_, DesktopProjects>,
+    session: String, state: State<'_, AppState>,
 ) -> CoreResult<Option<OpenedProject>> {
-    let state = state.inner().clone();
-    let projects = projects.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let projects = &app.projects;
+    let state = state.clone();
+    let projects = projects.clone();
     execute(move || {
         let mut library = state.0.lock().map_err(|_| lock_error())?;
         let pending = if let Some(pending) = library.operation(&operation_id)? {
@@ -225,12 +232,13 @@ pub async fn library_duplicate(
     operation_id: String,
     access: Option<ProjectAccess>,
     title: String,
-    session: String,
-    state: State<'_, DesktopLibrary>,
-    projects: State<'_, DesktopProjects>,
+    session: String, state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
-    let state = state.inner().clone();
-    let projects = projects.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let projects = &app.projects;
+    let state = state.clone();
+    let projects = projects.clone();
     execute(move || {
         let mut library = state.0.lock().map_err(|_| lock_error())?;
         let pending = if let Some(pending) = library.operation(&operation_id)? {
@@ -334,12 +342,13 @@ pub async fn library_duplicate(
 #[tauri::command]
 pub async fn library_resume_import(
     operation_id: String,
-    session: String,
-    state: State<'_, DesktopLibrary>,
-    projects: State<'_, DesktopProjects>,
+    session: String, state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
-    let state = state.inner().clone();
-    let projects = projects.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let projects = &app.projects;
+    let state = state.clone();
+    let projects = projects.clone();
     execute(move || {
         let mut library = state.0.lock().map_err(|_| lock_error())?;
         let result = library.resume_v2_import(&operation_id)?;
@@ -366,9 +375,10 @@ pub async fn library_resume_import(
 }
 #[tauri::command]
 pub async fn project_backup(
-    access: ProjectAccess,
-    projects: State<'_, DesktopProjects>,
+    access: ProjectAccess, state: State<'_, AppState>,
 ) -> CoreResult<Option<String>> {
+    let app = &*state;
+    let projects = &app.projects;
     let project = projects.project(&access.project_id)?;
     execute(move || {
         project.documents().list(access)?;

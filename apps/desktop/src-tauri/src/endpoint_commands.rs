@@ -1,5 +1,5 @@
 //! App-local endpoint setup. Credentials never enter project or renderer reads.
-use crate::library_commands::DesktopLibrary;
+use crate::app_state::AppState;
 use crate::project_commands::execute;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -274,10 +274,11 @@ fn save_with_store(
 }
 
 #[tauri::command]
-pub async fn endpoint_settings(
-    state: State<'_, DesktopLibrary>,
+pub async fn endpoint_settings( state: State<'_, AppState>,
 ) -> CoreResult<EndpointSettingsView> {
-    let state = state.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let state = state.clone();
     execute(move || {
         Ok(state
             .0
@@ -291,10 +292,11 @@ pub async fn endpoint_settings(
 
 #[tauri::command]
 pub async fn save_endpoint_settings(
-    request: SaveEndpoint,
-    state: State<'_, DesktopLibrary>,
+    request: SaveEndpoint, state: State<'_, AppState>,
 ) -> CoreResult<EndpointSettingsView> {
-    let state = state.inner().clone();
+    let app = &*state;
+    let state = &app.library;
+    let state = state.clone();
     execute(move || {
         save_with_store(
             &mut *state
@@ -313,11 +315,12 @@ pub async fn discover_endpoint_models(
     profile_id: String,
     config_revision: String,
     discovery_id: String,
-    discovery: State<'_, crate::endpoint_discovery::EndpointDiscovery>,
-    state: State<'_, DesktopLibrary>,
+    discovery: State<'_, crate::endpoint_discovery::EndpointDiscovery>, state: State<'_, AppState>,
 ) -> CoreResult<EndpointSettingsView> {
+    let app = &*state;
+    let state = &app.library;
     let read = discovery.begin(discovery_id)?;
-    let state = state.inner().clone();
+    let state = state.clone();
     let read_state = state.clone();
     let profile_id_copy = profile_id.clone();
     let revision_copy = config_revision.clone();

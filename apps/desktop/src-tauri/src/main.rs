@@ -57,6 +57,7 @@ mod recovery_commands;
 #[cfg(windows)]
 mod reload_accelerators;
 mod review_commands;
+mod app_state;
 mod source_pin_commands;
 mod v2_import_commands;
 mod workshop_commands;
@@ -90,11 +91,6 @@ fn runtime_info() -> RuntimeInfo {
 
 fn main() {
     tauri::Builder::default()
-        .manage(project_commands::DesktopProjects::default())
-        .manage(discussion_recovery::DiscussionRecovery::default())
-        .manage(memory_recovery::MemoryRecovery::default())
-        .manage(provider_runtime::DesktopProviders::default())
-        .manage(endpoint_discovery::EndpointDiscovery::default())
         .setup(|app| {
             // Installed releases keep their library across rebuilds and upgrades.
             // Development checkouts and synthetic qualification data stay separate.
@@ -115,9 +111,20 @@ fn main() {
                     })
             };
             let data_directory = library_root.join("webview");
-            app.manage(library_commands::DesktopLibrary(std::sync::Arc::new(
-                std::sync::Mutex::new(webnovel_core::library::Library::open(library_root)?),
-            )));
+            // One managed state for the whole shell. The library is the only
+            // field whose construction can fail, which is why this happens in
+            // `setup` rather than on the builder; nothing invokes a command
+            // before `setup` returns.
+            app.manage(app_state::AppState {
+                projects: Default::default(),
+                library: library_commands::DesktopLibrary(std::sync::Arc::new(
+                    std::sync::Mutex::new(webnovel_core::library::Library::open(library_root)?),
+                )),
+                providers: Default::default(),
+                discussion_recovery: Default::default(),
+                memory_recovery: Default::default(),
+                endpoint_discovery: Default::default(),
+            });
             #[cfg(debug_assertions)]
             let data_directory = std::env::var_os("WNS_V3_TRIAL_WEBVIEW_DIR")
                 .map(PathBuf::from)
@@ -134,7 +141,8 @@ fn main() {
                     .on_page_load(|window, payload| {
                         if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
                             window
-                                .state::<provider_runtime::DesktopProviders>()
+                                .state::<app_state::AppState>()
+                                .providers
                                 .renderer_started();
                         }
                     });

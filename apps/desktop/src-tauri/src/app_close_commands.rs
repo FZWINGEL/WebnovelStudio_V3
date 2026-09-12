@@ -1,5 +1,6 @@
 //! Normal close coordinates the existing project actors and owned workers.
 //! The renderer owns its editor barrier; this module never saves or replaces text.
+use crate::app_state::AppState;
 use crate::discussion_recovery::DiscussionRecovery;
 use crate::memory_recovery::MemoryRecovery;
 use crate::project_commands::{DesktopProjects, execute};
@@ -133,12 +134,16 @@ impl CloseCoordinator {
 }
 
 #[tauri::command]
-pub fn begin_app_close(close_id: String, runtime: State<'_, DesktopProviders>) -> CoreResult<()> {
+pub fn begin_app_close(close_id: String, state: State<'_, AppState>) -> CoreResult<()> {
+    let app = &*state;
+    let runtime = &app.providers;
     runtime.begin_close(&close_id)
 }
 
 #[tauri::command]
-pub fn cancel_app_close(close_id: String, runtime: State<'_, DesktopProviders>) -> CoreResult<()> {
+pub fn cancel_app_close(close_id: String, state: State<'_, AppState>) -> CoreResult<()> {
+    let app = &*state;
+    let runtime = &app.providers;
     runtime.cancel_close(&close_id)
 }
 
@@ -158,36 +163,39 @@ fn coordinator(
 
 #[tauri::command]
 pub async fn app_close_status(
-    close_id: String,
-    projects: State<'_, DesktopProjects>,
-    runtime: State<'_, DesktopProviders>,
-    discussions: State<'_, DiscussionRecovery>,
-    memory: State<'_, MemoryRecovery>,
+    close_id: String, state: State<'_, AppState>,
 ) -> CoreResult<AppCloseStatus> {
+    let app = &*state;
+    let projects = &app.projects;
+    let runtime = &app.providers;
+    let discussions = &app.discussion_recovery;
+    let memory = &app.memory_recovery;
     let close = coordinator(&projects, &runtime, &discussions, &memory);
     execute(move || close.status(&close_id)).await
 }
 
 #[tauri::command]
 pub async fn stop_app_jobs(
-    close_id: String,
-    projects: State<'_, DesktopProjects>,
-    runtime: State<'_, DesktopProviders>,
-    discussions: State<'_, DiscussionRecovery>,
-    memory: State<'_, MemoryRecovery>,
+    close_id: String, state: State<'_, AppState>,
 ) -> CoreResult<AppCloseStatus> {
+    let app = &*state;
+    let projects = &app.projects;
+    let runtime = &app.providers;
+    let discussions = &app.discussion_recovery;
+    let memory = &app.memory_recovery;
     let close = coordinator(&projects, &runtime, &discussions, &memory);
     execute(move || close.stop(&close_id)).await
 }
 
 #[tauri::command]
 pub async fn finish_app_close(
-    close_id: String,
-    projects: State<'_, DesktopProjects>,
-    runtime: State<'_, DesktopProviders>,
-    discussions: State<'_, DiscussionRecovery>,
-    memory: State<'_, MemoryRecovery>,
+    close_id: String, state: State<'_, AppState>,
 ) -> CoreResult<()> {
+    let app = &*state;
+    let projects = &app.projects;
+    let runtime = &app.providers;
+    let discussions = &app.discussion_recovery;
+    let memory = &app.memory_recovery;
     let close = coordinator(&projects, &runtime, &discussions, &memory);
     execute(move || close.finish(&close_id)).await
 }

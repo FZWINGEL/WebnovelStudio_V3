@@ -1,5 +1,5 @@
-use crate::library_commands::DesktopLibrary;
-use crate::project_commands::{DesktopProjects, OpenedProject, execute};
+use crate::app_state::AppState;
+use crate::project_commands::{OpenedProject, execute};
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::State;
@@ -75,12 +75,13 @@ pub async fn v2_import_preview(
 #[tauri::command]
 pub async fn v2_import(
     request: V2ImportRequest,
-    session: String,
-    library_state: State<'_, DesktopLibrary>,
-    projects: State<'_, DesktopProjects>,
+    session: String, state: State<'_, AppState>,
 ) -> CoreResult<OpenedProject> {
-    let library_state = library_state.inner().clone();
-    let projects = projects.inner().clone();
+    let app = &*state;
+    let library_state = &app.library;
+    let projects = &app.projects;
+    let library_state = library_state.clone();
+    let projects = projects.clone();
     execute(move || {
         let mut library = library_state.0.lock().map_err(|_| {
             CoreError::new(

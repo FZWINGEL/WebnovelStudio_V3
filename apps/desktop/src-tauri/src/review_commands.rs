@@ -1,5 +1,6 @@
 //! Explicit author review. The core owns source validation and activation.
-use crate::project_commands::{DesktopProjects, execute};
+use crate::app_state::AppState;
+use crate::project_commands::execute;
 use tauri::State;
 use webnovel_core::projects::evidence_queries::{
     ReviewedEntityCatalog, ReviewedHistoryResult, ReviewedKnowledgeHistoryResult,
@@ -12,9 +13,10 @@ use webnovel_core::projects::{CoreResult, ProjectAccess};
 
 #[tauri::command]
 pub async fn reviewed_entity_catalog(
-    access: ProjectAccess,
-    state: State<'_, DesktopProjects>,
+    access: ProjectAccess, state: State<'_, AppState>,
 ) -> CoreResult<ReviewedEntityCatalog> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.reviewed_entity_catalog(access)).await
 }
@@ -23,18 +25,20 @@ pub async fn reviewed_entity_catalog(
 pub async fn reviewed_evidence_history(
     access: ProjectAccess,
     snapshot_id: String,
-    object_id: String,
-    state: State<'_, DesktopProjects>,
+    object_id: String, state: State<'_, AppState>,
 ) -> CoreResult<ReviewedHistoryResult> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.reviewed_evidence_history(access, snapshot_id, object_id)).await
 }
 
 #[tauri::command]
 pub async fn reviewed_promise_catalog(
-    access: ProjectAccess,
-    state: State<'_, DesktopProjects>,
+    access: ProjectAccess, state: State<'_, AppState>,
 ) -> CoreResult<ReviewedEntityCatalog> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.reviewed_promise_catalog(access)).await
 }
@@ -43,27 +47,30 @@ pub async fn reviewed_promise_catalog(
 pub async fn reviewed_promise_history(
     access: ProjectAccess,
     snapshot_id: String,
-    promise_id: String,
-    state: State<'_, DesktopProjects>,
+    promise_id: String, state: State<'_, AppState>,
 ) -> CoreResult<ReviewedPromiseHistoryResult> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.reviewed_promise_history(access, snapshot_id, promise_id)).await
 }
 
 #[tauri::command]
 pub async fn reviewed_knowledge_character_catalog(
-    access: ProjectAccess,
-    state: State<'_, DesktopProjects>,
+    access: ProjectAccess, state: State<'_, AppState>,
 ) -> CoreResult<ReviewedEntityCatalog> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.reviewed_knowledge_character_catalog(access)).await
 }
 
 #[tauri::command]
 pub async fn reviewed_knowledge_topic_catalog(
-    access: ProjectAccess,
-    state: State<'_, DesktopProjects>,
+    access: ProjectAccess, state: State<'_, AppState>,
 ) -> CoreResult<ReviewedEntityCatalog> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.reviewed_knowledge_topic_catalog(access)).await
 }
@@ -73,9 +80,10 @@ pub async fn reviewed_knowledge_history(
     access: ProjectAccess,
     snapshot_id: String,
     character_id: String,
-    topic_id: Option<String>,
-    state: State<'_, DesktopProjects>,
+    topic_id: Option<String>, state: State<'_, AppState>,
 ) -> CoreResult<ReviewedKnowledgeHistoryResult> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.reviewed_knowledge_history(access, snapshot_id, character_id, topic_id))
         .await
@@ -84,9 +92,10 @@ pub async fn reviewed_knowledge_history(
 #[tauri::command]
 pub async fn chapter_review_status(
     access: ProjectAccess,
-    document_id: String,
-    state: State<'_, DesktopProjects>,
+    document_id: String, state: State<'_, AppState>,
 ) -> CoreResult<ReviewStatus> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.chapter_review_status(access, document_id)).await
 }
@@ -94,18 +103,20 @@ pub async fn chapter_review_status(
 #[tauri::command]
 pub async fn read_reviewed_record_set(
     access: ProjectAccess,
-    document_id: String,
-    state: State<'_, DesktopProjects>,
+    document_id: String, state: State<'_, AppState>,
 ) -> CoreResult<Option<ReviewedRecordSet>> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.read_reviewed_record_set(access, document_id)).await
 }
 
 #[tauri::command]
 pub async fn stage_author_review(
-    request: StageAuthorReview,
-    state: State<'_, DesktopProjects>,
+    request: StageAuthorReview, state: State<'_, AppState>,
 ) -> CoreResult<ReviewStage> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.stage_author_review(request)).await
 }
@@ -113,18 +124,20 @@ pub async fn stage_author_review(
 #[tauri::command]
 pub async fn read_review_stage(
     access: ProjectAccess,
-    stage_id: String,
-    state: State<'_, DesktopProjects>,
+    stage_id: String, state: State<'_, AppState>,
 ) -> CoreResult<ReviewStage> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&access.project_id)?;
     execute(move || project.read_review_stage(access, stage_id)).await
 }
 
 #[tauri::command]
 pub async fn mark_ready(
-    request: MarkReady,
-    state: State<'_, DesktopProjects>,
+    request: MarkReady, state: State<'_, AppState>,
 ) -> CoreResult<ReadyBundle> {
+    let app = &*state;
+    let state = &app.projects;
     let project = state.project(&request.access.project_id)?;
     execute(move || project.mark_ready(request)).await
 }
