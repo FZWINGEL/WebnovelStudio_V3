@@ -51,27 +51,35 @@ pub struct OptionalVec {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[specta(optional)]
     pub marked: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[specta(default)]
+    pub defaulted: Vec<String>,
 }
 
-/// A gap, pinned so it cannot be forgotten.
+/// A gap, pinned so it cannot be forgotten, and confirmed four ways.
 ///
 /// A field Rust omits when empty — `#[serde(default, skip_serializing_if =
 /// "Vec::is_empty")]` — is *absent* on the wire. Generated as `string[]`, the
-/// frontend reads `undefined` while TypeScript promised an array, which is a
-/// latent crash rather than a type error. Neither `#[specta(optional)]` nor
-/// any other specta 1.0 attribute expresses it: the field is not an `Option`,
-/// and specta reads no serde attribute at all.
+/// frontend reads `undefined` while TypeScript promised an array: a latent
+/// crash rather than a type error.
 ///
-/// When this test starts failing, specta has learned to express it and the
-/// affected Rust fields can stay as they are. Until then the honest fixes are
-/// to make those fields `Option<Vec<T>>` in Rust, or to hand-write the
-/// optionality in the frontend — and both are decisions, not patches.
+/// Neither `#[specta(optional)]`, `#[specta(optional = true)]`,
+/// `#[specta(default)]` nor `#[specta(default = true)]` changes this. specta
+/// 1.0.5's macro does set `optional` for all four and its TypeScript emitter
+/// does render `?` for it, so the flag is lost between the two and the field
+/// comes out required. Whatever the cause, the effect is that specta cannot
+/// express "Rust omits this when empty".
+///
+/// When this test starts failing, that is fixed and the affected fields can
+/// stay as they are. Until then the honest remedy is a decision, not a patch:
+/// make those Rust fields `Option<Vec<T>>` (wire-compatible — empty and absent
+/// serialize identically), or hand-write the optionality in the frontend.
 #[test]
-fn specta_cannot_express_a_field_rust_omits_when_empty() {
+fn specta_cannot_mark_a_non_option_field_optional() {
     let text = specta::ts::export::<OptionalVec>(&cfg()).unwrap();
     assert_eq!(
         text,
-        "export type OptionalVec = { bare: string[]; marked: string[] }",
-        "specta can express omission now — the affected fields no longer need          a workaround"
+        "export type OptionalVec = { bare: string[]; marked: string[]; defaulted: string[] }",
+        "specta can express omission now — the affected fields no longer need a workaround"
     );
 }
