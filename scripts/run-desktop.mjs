@@ -27,9 +27,18 @@ async function ensureFrontendDependencies() {
   }
 }
 
+async function ensureNativeDependencies() {
+  const nativeDir = resolve(root, 'tests/native');
+  if (!existsSync(resolve(nativeDir, 'node_modules/playwright-core/package.json'))) {
+    if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
+    await node([npm, 'ci'], nativeDir);
+  }
+}
+
 if (action === 'setup') {
   if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
   await node([npm, 'ci']);
+  await node([npm, 'ci'], resolve(root, 'tests/native'));
   process.exit(0);
 }
 
@@ -143,8 +152,8 @@ switch (action) {
     await node([npm, 'run', 'test:watch', ...(extraArgs.length ? ['--', ...extraArgs] : [])]);
     break;
   case 'native':
-    await ensureFrontendDependencies();
-    await node(['scripts/native-smoke.mjs']);
+    await ensureNativeDependencies();
+    await node(['native-smoke.mjs'], resolve(root, 'tests/native'));
     break;
   case 'quick': {
     const pkg = extraArgs[0];
@@ -163,13 +172,15 @@ switch (action) {
     break;
   case 'prune': await pruneTarget(); break;
   case 'check':
-    await node([resolve(root, 'scripts/run-tooling-tests.mjs')]);
+    await node([resolve(root, 'scripts/run-tooling-tests.mjs'), '--profile=core']);
     await run('cargo', ['fmt', '--all', '--check']);
     await run('cargo', ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings']);
     await run('cargo', ['test', '--workspace', '--locked']);
     await ensureFrontendDependencies();
     await node(['scripts/build.mjs']);
     await node([npm, 'test']);
+    await ensureNativeDependencies();
+    await node([resolve(root, 'scripts/run-tooling-tests.mjs'), '--profile=native-preflight']);
     break;
   default: throw new Error(`Unknown desktop command: ${action}`);
 }

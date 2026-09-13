@@ -97,3 +97,8 @@ test('every registered suite in native-suites.json belongs to active consumer pl
     assert.equal(new Set(assigned).size, allSuites.length, `Topology ${topologyName} contains duplicate suite assignments`);
   }
 });
+
+test('reconciliation rejects unknown topology', () => {
+  assert.throws(() => reconcileConsumers(fixture(), identity, 'invalid-topology'), /Unknown topology: invalid-topology/);
+});
+

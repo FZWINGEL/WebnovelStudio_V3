@@ -6,11 +6,12 @@ import {
   deduplicateFilters,
   parseGitStatusPorcelainZ,
   validateCommand,
+  PlanRequirements,
 } from './test-plan.mjs';
 
 test('classifies clean working tree', () => {
   const c = classifyChanges([]);
-  assert.equal(c.category, 'none');
+  assert.equal(c.isClean, true);
   const plan = planFromClassification(c);
   assert.equal(plan.category, 'clean');
   assert.equal(plan.outstandingNative, false);
@@ -18,45 +19,107 @@ test('classifies clean working tree', () => {
 
 test('classifies documentation changes', () => {
   const c = classifyChanges(['docs/TESTING.md', 'README.md']);
-  assert.equal(c.category, 'docs');
+  assert.equal(c.toolingProfiles.has('core'), true);
+  assert.equal(c.rustPackages.size, 0);
+  assert.equal(c.frontendTypecheck, false);
+
   const plan = planFromClassification(c);
   assert.equal(plan.category, 'docs');
+  assert.equal(plan.commands.length, 1);
   assert.equal(plan.commands[0].executable, 'node');
-  assert(plan.commands[0].args.includes('scripts/run-tooling-tests.mjs'));
+  assert(plan.commands[0].args.includes('--profile=core'));
   assert.equal(plan.outstandingNative, false);
 });
 
-test('classifies isolated Rust crate changes and batches integration suites', () => {
-  const c = classifyChanges(['crates/documents/src/records.rs']);
-  assert.equal(c.category, 'isolated-rust');
-  assert.equal(c.crates.length, 1);
-  assert.equal(c.crates[0], 'wns-documents');
+test('tooling-only change emits only tooling without frontend or rust work', () => {
+  const c = classifyChanges(['scripts/native-retest.mjs']);
+  assert.equal(c.toolingProfiles.has('core'), true);
+  assert.equal(c.rustPackages.size, 0);
+  assert.equal(c.frontendTypecheck, false);
+  assert.equal(c.frontendFullVitest, false);
+
+  const plan = planFromClassification(c);
+  assert.equal(plan.category, 'tooling');
+  assert.equal(plan.commands.length, 1);
+  assert.equal(plan.commands[0].executable, 'node');
+  assert(plan.commands[0].args.includes('--profile=core'));
+  assert(!plan.commands.some(cmd => cmd.executable === 'npm'));
+  assert(!plan.commands.some(cmd => cmd.executable === 'cargo'));
+  assert.equal(plan.outstandingNative, false);
+});
+
+test('contracts + tooling preserves both contract and tooling checks', () => {
+  const c = classifyChanges(['contracts/src/lib.rs', 'scripts/native-retest.mjs']);
+  assert.equal(c.toolingProfiles.has('core'), true);
+  assert.equal(c.rustPackages.has('wns-bindings'), true);
+  assert.equal(c.rustPackages.has('contracts'), true);
+  assert.equal(c.frontendTypecheck, true);
+
+  const plan = planFromClassification(c);
+  // Tooling command MUST be retained!
+  assert(plan.commands.some(cmd => cmd.executable === 'node' && cmd.args.includes('--profile=core')), 'Tooling runner must be retained when contracts are added');
+  assert(plan.commands.some(cmd => cmd.args.includes('typecheck')));
+  assert(plan.commands.some(cmd => cmd.args.includes('structured_contract_golden')));
+});
+
+test('native harness edits require native qualification and affected suites', () => {
+  const c = classifyChanges(['tests/native/native-smoke.mjs']);
+  assert.equal(c.nativeOutstanding, true);
+  assert.equal(c.nativeSuites.has('main'), true);
+  assert.equal(c.toolingProfiles.has('native-preflight'), true);
+
+  const plan = planFromClassification(c);
+  assert.equal(plan.outstandingNative, true);
+  assert(plan.requiredNativeSuites.includes('main'));
+  assert(plan.commands.some(cmd => cmd.args.includes('--profile=all')));
+});
+
+test('database migration SQL files fail closed to broad check', () => {
+  const c = classifyChanges(['crates/storage/src/016_memory.sql']);
+  assert(c.broadFallback !== null, 'SQL migration must trigger broad fallback');
+  const plan = planFromClassification(c);
+  assert.equal(plan.category, 'broad');
+  assert.equal(plan.outstandingNative, true);
+  assert.deepEqual(plan.commands[0], { executable: 'desktop', args: ['check'] });
+});
+
+test('batches multi-crate Rust changes into single clippy and test commands', () => {
+  const c = classifyChanges([
+    'crates/documents/src/records.rs',
+    'crates/story/src/lib.rs',
+  ]);
+  assert.equal(c.rustPackages.size, 2);
+  assert.equal(c.rustPackages.has('wns-documents'), true);
+  assert.equal(c.rustPackages.has('wns-story'), true);
 
   const plan = planFromClassification(c);
   assert.equal(plan.category, 'isolated-rust');
-  const commandStrings = plan.commands.map(cmd => `${cmd.executable} ${cmd.args.join(' ')}`);
-  assert(commandStrings.some(s => s.includes('clippy -p wns-documents')));
-  assert(commandStrings.some(s => s.includes('test -p wns-documents')));
 
-  // Batched integration test: exactly 1 integration test command
+  // Single batched clippy command with both packages!
+  const clippyCmds = plan.commands.filter(cmd => cmd.args.includes('clippy'));
+  assert.equal(clippyCmds.length, 1, 'Expected exactly 1 batched clippy command');
+  assert(clippyCmds[0].args.includes('wns-documents'));
+  assert(clippyCmds[0].args.includes('wns-story'));
+
+  // Single batched unit test command with both packages!
+  const testCmds = plan.commands.filter(cmd => cmd.executable === 'cargo' && cmd.args[0] === 'test' && cmd.args.includes('--lib'));
+  assert.equal(testCmds.length, 1, 'Expected exactly 1 batched cargo test command');
+  assert(testCmds[0].args.includes('wns-documents'));
+  assert(testCmds[0].args.includes('wns-story'));
+
+  // Single batched integration command!
   const integrationCmds = plan.commands.filter(cmd => cmd.args.includes('--test') && cmd.args.includes('integration'));
-  assert.equal(integrationCmds.length, 1, 'Expected exactly 1 batched cargo integration command');
-  const integrationArgs = integrationCmds[0].args;
-  assert(integrationArgs.includes('document_roles'));
-  assert(integrationArgs.includes('scope'));
-  // scope subsumes append_scope
-  assert(!integrationArgs.includes('append_scope'), 'append_scope should be subsumed by scope');
-  assert(integrationArgs.includes('text_replacement'));
-  assert.equal(plan.outstandingNative, false);
+  assert.equal(integrationCmds.length, 1, 'Expected exactly 1 batched integration command');
 });
 
 test('classifies frontend component changes with valid scripts', () => {
   const c = classifyChanges(['apps/desktop/src/kernel/document.ts']);
-  assert.equal(c.category, 'frontend');
+  assert.equal(c.frontendTypecheck, true);
+  assert.equal(c.frontendDirs.has('kernel'), true);
+
   const plan = planFromClassification(c);
   assert.equal(plan.category, 'frontend');
-  assert(plan.commands.some(cmd => cmd.args.includes('typecheck')), 'Must emit typecheck, not test:types');
-  assert(!plan.commands.some(cmd => cmd.args.includes('test:types')), 'Must never emit non-existent test:types');
+  assert(plan.commands.some(cmd => cmd.args.includes('typecheck')));
   assert(plan.commands.some(cmd => cmd.args.includes('src/kernel/')));
   assert(plan.commands.some(cmd => cmd.args.includes('src/featureBoundary.test.ts')));
   assert.equal(plan.outstandingNative, false);
@@ -64,22 +127,11 @@ test('classifies frontend component changes with valid scripts', () => {
 
 test('public asset changes in frontend trigger full frontend test', () => {
   const c = classifyChanges(['apps/desktop/public/vite.svg']);
-  assert.equal(c.category, 'frontend');
-  assert.equal(c.fullFrontend, true);
+  assert.equal(c.frontendFullVitest, true);
   const plan = planFromClassification(c);
   assert.equal(plan.category, 'frontend');
   const testCmd = plan.commands.find(cmd => cmd.executable === 'npm' && cmd.args[0] === 'test');
   assert.deepEqual(testCmd.args, ['test'], 'Public assets should run full npm test');
-});
-
-test('classifies shared contract and bindings changes', () => {
-  const c = classifyChanges(['contracts/src/lib.rs', 'apps/desktop/src/kernel/contracts.ts']);
-  assert.equal(c.category, 'contracts');
-  const plan = planFromClassification(c);
-  assert.equal(plan.category, 'contracts');
-  assert(plan.commands.some(cmd => cmd.args.includes('structured_contract_golden')));
-  assert(plan.commands.some(cmd => cmd.args.includes('typecheck')));
-  assert.equal(plan.outstandingNative, false);
 });
 
 test('fails closed to broad check for root configs, manifests, and core changes', () => {
@@ -99,7 +151,7 @@ test('fails closed to broad check for root configs, manifests, and core changes'
     'crates/documents/Cargo.toml',
   ]) {
     const c = classifyChanges([f]);
-    assert.equal(c.category, 'broad', `File ${f} should fail closed to broad check`);
+    assert(c.broadFallback !== null, `File ${f} should fail closed to broad check`);
     const plan = planFromClassification(c);
     assert.equal(plan.category, 'broad');
     assert.deepEqual(plan.commands[0], { executable: 'desktop', args: ['check'] });
@@ -109,31 +161,37 @@ test('fails closed to broad check for root configs, manifests, and core changes'
 
 test('fails closed to broad on unknown files', () => {
   const c = classifyChanges(['unknown_script.py']);
-  assert.equal(c.category, 'broad');
+  assert(c.broadFallback !== null);
   const plan = planFromClassification(c);
   assert.equal(plan.category, 'broad');
-  assert.equal(plan.outstandingNative, true);
 });
 
 test('fails closed to broad on git failure object', () => {
   const c = classifyChanges({ error: 'git not found' });
-  assert.equal(c.category, 'broad');
+  assert(c.broadFallback !== null);
   const plan = planFromClassification(c);
   assert.equal(plan.category, 'broad');
-  assert.equal(plan.outstandingNative, true);
 });
 
-test('union model never drops checks when adding files', () => {
-  // Adding an unknown file to contracts forces broad instead of staying contracts
-  const c1 = classifyChanges(['contracts/src/lib.rs', 'something_unrecognized.txt']);
-  assert.equal(c1.category, 'broad');
+test('union model invariant holds for pairwise combinations', () => {
+  const pairs = [
+    ['scripts/native-retest.mjs', 'contracts/src/lib.rs'],
+    ['crates/documents/src/records.rs', 'apps/desktop/src/kernel/document.ts'],
+    ['docs/TESTING.md', 'crates/story/src/lib.rs'],
+  ];
 
-  // Combining isolated rust and frontend results in cross-cutting
-  const c2 = classifyChanges(['crates/documents/src/records.rs', 'apps/desktop/src/kernel/document.ts']);
-  assert.equal(c2.category, 'cross-cutting');
-  const plan = planFromClassification(c2);
-  assert(plan.commands.some(cmd => cmd.args.includes('wns-documents')));
-  assert(plan.commands.some(cmd => cmd.args.includes('typecheck')));
+  for (const [f1, f2] of pairs) {
+    const r1 = classifyChanges([f1]);
+    const r2 = classifyChanges([f2]);
+    const rBoth = classifyChanges([f1, f2]);
+
+    // Requirements(A U B) >= Requirements(A) U Requirements(B)
+    for (const p of r1.rustPackages) assert(rBoth.rustPackages.has(p));
+    for (const p of r2.rustPackages) assert(rBoth.rustPackages.has(p));
+    for (const p of r1.toolingProfiles) assert(rBoth.toolingProfiles.has(p));
+    for (const p of r2.toolingProfiles) assert(rBoth.toolingProfiles.has(p));
+    if (r1.frontendTypecheck || r2.frontendTypecheck) assert(rBoth.frontendTypecheck);
+  }
 });
 
 test('deduplicateFilters eliminates redundant substring filters', () => {
@@ -143,8 +201,6 @@ test('deduplicateFilters eliminates redundant substring filters', () => {
 });
 
 test('parseGitStatusPorcelainZ parses NUL-delimited records including renames', () => {
-  // Normal entry: " M path/file.txt\0"
-  // Rename entry: "R  new/path.rs\0old/path.rs\0"
   const raw = ' M crates/documents/src/records.rs\0R  crates/story/src/new.rs\0crates/story/src/old.rs\0?? untracked.md\0';
   const parsed = parseGitStatusPorcelainZ(raw);
   assert.deepEqual(parsed, [

@@ -55,7 +55,7 @@ export function getConsumerSuites(name) {
 }
 
 export function reconcileConsumers(consumers, identity, topology = 'parallel') {
-  const expectedPlan = suiteManifest.topologies?.[topology] ?? suiteManifest.consumers;
+  const expectedPlan = suiteManifest.topologies?.[topology];
   assert(expectedPlan, `Unknown topology: ${topology}`);
   assert.equal(consumers.length, Object.keys(expectedPlan).length);
   for (const consumer of consumers) {

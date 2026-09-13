@@ -6,11 +6,16 @@ import assert from 'node:assert/strict';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-export async function discoverToolingTests(baseDir = root) {
-  const dirs = [
-    resolve(baseDir, 'scripts'),
-    resolve(baseDir, 'tests/native'),
-  ];
+export const PROFILES = Object.freeze({
+  core: ['scripts'],
+  'native-preflight': ['tests/native'],
+  all: ['scripts', 'tests/native'],
+});
+
+export async function discoverToolingTests(baseDir = root, profile = 'all') {
+  const dirNames = PROFILES[profile];
+  assert(dirNames, `Unknown tooling test profile: '${profile}'. Supported profiles: ${Object.keys(PROFILES).join(', ')}`);
+  const dirs = dirNames.map(d => resolve(baseDir, d));
   const testFiles = [];
   for (const dir of dirs) {
     try {
@@ -27,17 +32,33 @@ export async function discoverToolingTests(baseDir = root) {
   return testFiles.sort();
 }
 
-export function runToolingTests(baseDir = root, extraArgs = []) {
-  return discoverToolingTests(baseDir).then(testFiles => {
-    assert(testFiles.length > 0, 'No tooling test files found!');
-    const args = ['--test', ...testFiles, ...extraArgs];
-    const result = spawnSync(process.execPath, args, {
-      cwd: baseDir,
-      stdio: 'inherit',
-      windowsHide: true,
-    });
-    return result.status ?? 1;
+export function parseProfileArg(args = []) {
+  let profile = 'all';
+  const remainingArgs = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith('--profile=')) {
+      profile = arg.slice('--profile='.length);
+    } else if (arg === '--profile' && i + 1 < args.length) {
+      profile = args[++i];
+    } else {
+      remainingArgs.push(arg);
+    }
+  }
+  return { profile, remainingArgs };
+}
+
+export async function runToolingTests(baseDir = root, args = []) {
+  const { profile, remainingArgs } = parseProfileArg(args);
+  const testFiles = await discoverToolingTests(baseDir, profile);
+  assert(testFiles.length > 0, `No tooling test files found for profile '${profile}'!`);
+  const nodeArgs = ['--test', ...testFiles, ...remainingArgs];
+  const result = spawnSync(process.execPath, nodeArgs, {
+    cwd: baseDir,
+    stdio: 'inherit',
+    windowsHide: true,
   });
+  return result.status ?? 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

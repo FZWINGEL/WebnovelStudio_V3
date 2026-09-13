@@ -56,23 +56,23 @@ export const CRATE_MAPPINGS = {
   },
 };
 
-export const KNOWN_WORKSPACE_PACKAGES = new Set([
-  'wns-kernel',
-  'wns-storage',
-  'wns-providers',
-  'wns-documents',
-  'wns-context',
-  'wns-story',
-  'wns-conversation',
-  'wns-workshop',
-  'wns-transfer',
-  'wns-library',
-  'wns-architecture',
-  'contracts',
-  'wns-bindings',
-  'webnovel-core',
-  'webnovel-desktop',
-]);
+let cachedWorkspacePackages = null;
+export function getWorkspacePackages(baseDir = root) {
+  if (cachedWorkspacePackages) return cachedWorkspacePackages;
+  try {
+    const stdout = execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: baseDir, encoding: 'utf8' });
+    const meta = JSON.parse(stdout);
+    cachedWorkspacePackages = new Set(meta.packages.map(p => p.name));
+    return cachedWorkspacePackages;
+  } catch {
+    return new Set([
+      'wns-kernel', 'wns-storage', 'wns-providers', 'wns-documents',
+      'wns-context', 'wns-story', 'wns-conversation', 'wns-workshop',
+      'wns-transfer', 'wns-library', 'wns-architecture', 'contracts',
+      'wns-bindings', 'webnovel-core', 'webnovel-desktop',
+    ]);
+  }
+}
 
 export function deduplicateFilters(filters) {
   const unique = Array.from(new Set(filters)).filter(Boolean);
@@ -106,8 +106,15 @@ export function parseGitStatusPorcelainZ(output) {
   return files;
 }
 
-export function getChangedFiles(baseDir = root) {
+export function getChangedFiles(options = {}) {
+  const baseDir = options.baseDir || root;
+  const base = options.base;
+  const head = options.head;
   try {
+    if (base && head) {
+      const stdout = execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', `${base}..${head}`], { cwd: baseDir, encoding: 'utf8' });
+      return stdout.split('\0').filter(Boolean).map(s => s.replaceAll('\\', '/'));
+    }
     const stdout = execFileSync('git', ['status', '--porcelain', '-z', '-uall'], { cwd: baseDir, encoding: 'utf8' });
     return parseGitStatusPorcelainZ(stdout);
   } catch (err) {
@@ -130,7 +137,9 @@ export function isBroadPath(f) {
     f === 'apps/desktop/src-tauri/Cargo.toml' ||
     f.startsWith('crates/core/') ||
     f.startsWith('crates/architecture/') ||
-    f.endsWith('/Cargo.toml')
+    f.endsWith('/Cargo.toml') ||
+    f.endsWith('.sql') ||
+    f.includes('/migrations/')
   );
 }
 
@@ -143,116 +152,150 @@ export function isDocPath(f) {
   );
 }
 
-export function classifyChanges(files) {
-  if (files && typeof files === 'object' && !Array.isArray(files) && files.error) {
-    return { category: 'broad', reason: `git status error: ${files.error}`, files: [] };
+export class PlanRequirements {
+  constructor() {
+    this.isClean = false;
+    this.broadFallback = null;
+    this.rustFmt = false;
+    this.rustPackages = new Set();
+    this.rustIntegrationFilters = new Set();
+    this.frontendTypecheck = false;
+    this.frontendFullVitest = false;
+    this.frontendDirs = new Set();
+    this.frontendFiles = new Set();
+    this.toolingProfiles = new Set();
+    this.nativeSuites = new Set();
+    this.nativeOutstanding = false;
+    this.files = [];
   }
 
+  merge(other) {
+    if (other.broadFallback) {
+      this.broadFallback = this.broadFallback ? `${this.broadFallback}; ${other.broadFallback}` : other.broadFallback;
+    }
+    if (other.rustFmt) this.rustFmt = true;
+    for (const p of other.rustPackages) this.rustPackages.add(p);
+    for (const f of other.rustIntegrationFilters) this.rustIntegrationFilters.add(f);
+    if (other.frontendTypecheck) this.frontendTypecheck = true;
+    if (other.frontendFullVitest) this.frontendFullVitest = true;
+    for (const d of other.frontendDirs) this.frontendDirs.add(d);
+    for (const f of other.frontendFiles) this.frontendFiles.add(f);
+    for (const tp of other.toolingProfiles) this.toolingProfiles.add(tp);
+    for (const s of other.nativeSuites) this.nativeSuites.add(s);
+    if (other.nativeOutstanding) this.nativeOutstanding = true;
+    if (other.files?.length) this.files.push(...other.files);
+  }
+}
+
+export function classifyPath(f) {
+  const req = new PlanRequirements();
+
+  if (isBroadPath(f)) {
+    req.broadFallback = `Manifest, config, migration, or core changed: ${f}`;
+    return req;
+  }
+
+  if (isDocPath(f)) {
+    req.toolingProfiles.add('core');
+    return req;
+  }
+
+  if (f.startsWith('scripts/')) {
+    req.toolingProfiles.add('core');
+    return req;
+  }
+
+  if (f.startsWith('tests/native/')) {
+    req.toolingProfiles.add('core');
+    req.toolingProfiles.add('native-preflight');
+    req.nativeOutstanding = true;
+
+    if (f.includes('native-smoke.mjs') || f.includes('native-save-dialog.ps1')) {
+      req.nativeSuites.add('main');
+    } else if (f.includes('native-chat-smoke.mjs') || f.includes('native-chat-failures.mjs') || f.includes('native-chat-live.mjs') || f.includes('native-chat-window.ps1')) {
+      req.nativeSuites.add('chat');
+    } else if (f.includes('native-workshop-smoke.mjs')) {
+      req.nativeSuites.add('workshop');
+    } else if (f.includes('native-http-smoke.mjs')) {
+      req.nativeSuites.add('http');
+    } else if (f.includes('native-app-close.mjs') || f.includes('native-app-close.ps1')) {
+      req.nativeSuites.add('close');
+    } else if (f.includes('native-interruption.mjs') || f.includes('native-context-menu') || f.includes('native-refresh-shortcut')) {
+      req.nativeSuites.add('interruption');
+    } else if (f.includes('native-project-recovery.mjs') || f.includes('native-backup-dialog.ps1')) {
+      req.nativeSuites.add('recovery');
+    } else if (f.includes('native-memory-lookup')) {
+      req.nativeSuites.add('memory');
+    } else if (f.includes('native-app-server-smoke.mjs')) {
+      req.nativeSuites.add('app-server-transport');
+    } else {
+      req.nativeSuites.add('all');
+    }
+    return req;
+  }
+
+  if (f.startsWith('contracts/') || f.startsWith('crates/bindings/')) {
+    req.rustFmt = true;
+    req.rustPackages.add('wns-bindings');
+    req.rustPackages.add('contracts');
+    req.rustIntegrationFilters.add('structured_contract_golden');
+    req.frontendTypecheck = true;
+    req.frontendDirs.add('kernel');
+    req.frontendFiles.add('src/featureBoundary.test.ts');
+    return req;
+  }
+
+  for (const [prefix, config] of Object.entries(CRATE_MAPPINGS)) {
+    if (f.startsWith(prefix + '/')) {
+      req.rustFmt = true;
+      req.rustPackages.add(config.crate);
+      config.integrationPrefixes.forEach(p => req.rustIntegrationFilters.add(p));
+      return req;
+    }
+  }
+
+  if (f.startsWith('apps/desktop/src/') || f.startsWith('apps/desktop/public/')) {
+    req.frontendTypecheck = true;
+    if (f.startsWith('apps/desktop/public/') || f === 'apps/desktop/src/index.html' || f.match(/^apps\/desktop\/src\/[^/]+$/)) {
+      req.frontendFullVitest = true;
+    } else {
+      const rel = f.replace('apps/desktop/src/', '');
+      const dir = rel.split('/')[0];
+      if (dir && !dir.includes('.')) {
+        req.frontendDirs.add(dir);
+      } else {
+        req.frontendFullVitest = true;
+      }
+      req.frontendFiles.add('src/featureBoundary.test.ts');
+    }
+    return req;
+  }
+
+  req.broadFallback = `Unrecognized file path: ${f}`;
+  return req;
+}
+
+export function classifyChanges(files) {
+  if (files && typeof files === 'object' && !Array.isArray(files) && files.error) {
+    const req = new PlanRequirements();
+    req.broadFallback = `git status error: ${files.error}`;
+    return req;
+  }
+
+  const req = new PlanRequirements();
   if (!files || files.length === 0) {
-    return { category: 'none', files: [] };
+    req.isClean = true;
+    return req;
   }
 
   const normalized = files.map(f => String(f).replaceAll('\\', '/').replace(/^\.\//, ''));
-
-  // If any changed path is a broad/manifest path -> broad
-  const broadFile = normalized.find(isBroadPath);
-  if (broadFile) {
-    return { category: 'broad', reason: `Manifest, config, or core changed: ${broadFile}`, files: normalized };
-  }
-
-  // Union model: check every file against known areas
-  const crates = new Set();
-  const integrationPrefixes = new Set();
-  let needsFrontend = false;
-  let fullFrontend = false;
-  const frontendDirs = new Set();
-  let needsTooling = false;
-  let allDocs = true;
+  req.files = normalized;
 
   for (const f of normalized) {
-    let matched = false;
-
-    if (isDocPath(f)) {
-      matched = true;
-      continue;
-    }
-
-    allDocs = false;
-
-    if (f.startsWith('scripts/') || f.startsWith('tests/native/')) {
-      needsTooling = true;
-      matched = true;
-      continue;
-    }
-
-    if (f.startsWith('contracts/') || f.startsWith('crates/bindings/')) {
-      crates.add('wns-bindings');
-      crates.add('contracts');
-      integrationPrefixes.add('structured_contract_golden');
-      needsFrontend = true;
-      frontendDirs.add('kernel');
-      matched = true;
-      continue;
-    }
-
-    for (const [prefix, config] of Object.entries(CRATE_MAPPINGS)) {
-      if (f.startsWith(prefix + '/')) {
-        crates.add(config.crate);
-        config.integrationPrefixes.forEach(p => integrationPrefixes.add(p));
-        matched = true;
-        break;
-      }
-    }
-    if (matched) continue;
-
-    if (f.startsWith('apps/desktop/src/') || f.startsWith('apps/desktop/public/')) {
-      needsFrontend = true;
-      if (f.startsWith('apps/desktop/public/') || f === 'apps/desktop/src/index.html' || f.match(/^apps\/desktop\/src\/[^/]+$/)) {
-        fullFrontend = true;
-      } else {
-        const rel = f.replace('apps/desktop/src/', '');
-        const dir = rel.split('/')[0];
-        if (dir && !dir.includes('.')) {
-          frontendDirs.add(dir);
-        } else {
-          fullFrontend = true;
-        }
-      }
-      matched = true;
-      continue;
-    }
-
-    // Any unmatched file fails closed to broad
-    return { category: 'broad', reason: `Unrecognized file path: ${f}`, files: normalized };
+    req.merge(classifyPath(f));
   }
 
-  if (allDocs) {
-    return { category: 'docs', files: normalized };
-  }
-
-  const isContractOnly = crates.size === 2 && crates.has('wns-bindings') && crates.has('contracts') && !fullFrontend && frontendDirs.size === 1 && frontendDirs.has('kernel');
-  if (isContractOnly) {
-    return { category: 'contracts', files: normalized, crates: Array.from(crates), integrationPrefixes: Array.from(integrationPrefixes) };
-  }
-
-  if (crates.size > 0 && !needsFrontend) {
-    return { category: 'isolated-rust', files: normalized, crates: Array.from(crates), integrationPrefixes: Array.from(integrationPrefixes), needsTooling };
-  }
-
-  if (needsFrontend && crates.size === 0) {
-    return { category: 'frontend', files: normalized, fullFrontend, frontendDirs: Array.from(frontendDirs), needsTooling };
-  }
-
-  return {
-    category: 'cross-cutting',
-    files: normalized,
-    crates: Array.from(crates),
-    integrationPrefixes: Array.from(integrationPrefixes),
-    needsFrontend,
-    fullFrontend,
-    frontendDirs: Array.from(frontendDirs),
-    needsTooling,
-  };
+  return req;
 }
 
 export function validateCommand(cmd, baseDir = root) {
@@ -266,10 +309,11 @@ export function validateCommand(cmd, baseDir = root) {
       }
     }
   } else if (cmd.executable === 'cargo') {
+    const known = getWorkspacePackages(baseDir);
     for (let i = 0; i < cmd.args.length; i++) {
       if (cmd.args[i] === '-p' && i + 1 < cmd.args.length) {
         const pkg = cmd.args[i + 1];
-        if (!KNOWN_WORKSPACE_PACKAGES.has(pkg)) {
+        if (!known.has(pkg)) {
           throw new Error(`Emitted invalid Cargo package: '${pkg}'. Package not in workspace Cargo.toml.`);
         }
       }
@@ -278,149 +322,122 @@ export function validateCommand(cmd, baseDir = root) {
 }
 
 export function planFromClassification(classification, baseDir = root) {
-  let plan;
-  switch (classification.category) {
-    case 'none':
-      plan = {
-        category: 'clean',
-        description: 'Working tree is clean.',
-        commands: [
-          { executable: 'cargo', args: ['fmt', '--all', '--check'] },
-          { executable: 'node', args: ['scripts/run-tooling-tests.mjs'] },
-        ],
-        exclusions: ['Skipped full workspace compilation and frontend tests'],
-        outstandingNative: false,
-      };
-      break;
+  // Support either PlanRequirements instance or object
+  const req = classification instanceof PlanRequirements
+    ? classification
+    : (() => {
+        const r = new PlanRequirements();
+        if (classification.category === 'none' || classification.isClean) r.isClean = true;
+        if (classification.category === 'broad' || classification.broadFallback) {
+          r.broadFallback = classification.reason || classification.broadFallback || 'Broad qualification required';
+        }
+        if (classification.category === 'docs') r.toolingProfiles.add('core');
+        if (classification.crates) classification.crates.forEach(c => r.rustPackages.add(typeof c === 'string' ? c : c.crate));
+        if (classification.integrationPrefixes) classification.integrationPrefixes.forEach(p => r.rustIntegrationFilters.add(p));
+        if (classification.needsFrontend) r.frontendTypecheck = true;
+        if (classification.fullFrontend) r.frontendFullVitest = true;
+        if (classification.frontendDirs) classification.frontendDirs.forEach(d => r.frontendDirs.add(d));
+        if (classification.needsTooling) r.toolingProfiles.add('core');
+        if (classification.files) r.files = classification.files;
+        return r;
+      })();
 
-    case 'docs':
-      plan = {
-        category: 'docs',
-        description: 'Documentation changes only.',
-        commands: [
-          { executable: 'node', args: ['scripts/run-tooling-tests.mjs'] },
-        ],
-        exclusions: ['Skipped Rust compilation and frontend Vitest suite'],
-        outstandingNative: false,
-      };
-      break;
-
-    case 'isolated-rust': {
-      const commands = [{ executable: 'cargo', args: ['fmt', '--all', '--check'] }];
-      for (const crate of classification.crates) {
-        commands.push({ executable: 'cargo', args: ['clippy', '-p', crate, '--all-targets', '--locked', '--', '-D', 'warnings'] });
-        commands.push({ executable: 'cargo', args: ['test', '-p', crate, '--lib', '--bins', '--locked'] });
-      }
-      if (classification.integrationPrefixes?.length > 0) {
-        const filters = deduplicateFilters(classification.integrationPrefixes);
-        commands.push({ executable: 'cargo', args: ['test', '-p', 'webnovel-core', '--test', 'integration', '--locked', '--', ...filters] });
-      }
-      if (classification.needsTooling) {
-        commands.push({ executable: 'node', args: ['scripts/run-tooling-tests.mjs'] });
-      }
-      plan = {
-        category: 'isolated-rust',
-        description: `Scoped Rust changes in: ${classification.crates.join(', ')}`,
-        commands,
-        exclusions: ['Skipped unrelated Rust crates', 'Skipped frontend Vitest suite', 'Skipped native WebView2 suite'],
-        outstandingNative: false,
-      };
-      break;
-    }
-
-    case 'contracts': {
-      const commands = [
+  if (req.isClean) {
+    return {
+      category: 'clean',
+      description: 'Working tree is clean.',
+      commands: [
         { executable: 'cargo', args: ['fmt', '--all', '--check'] },
-        { executable: 'cargo', args: ['clippy', '-p', 'wns-bindings', '-p', 'contracts', '--all-targets', '--locked', '--', '-D', 'warnings'] },
-        { executable: 'cargo', args: ['test', '-p', 'wns-bindings', '-p', 'contracts', '--locked'] },
-        { executable: 'cargo', args: ['test', '-p', 'webnovel-core', '--test', 'integration', '--locked', '--', 'structured_contract_golden'] },
-        { executable: 'npm', args: ['run', 'typecheck'], cwd: 'apps/desktop' },
-        { executable: 'npm', args: ['test', '--', 'src/kernel/', 'src/featureBoundary.test.ts'], cwd: 'apps/desktop' },
-      ];
-      plan = {
-        category: 'contracts',
-        description: 'Shared contract and bindings changes.',
-        commands,
-        exclusions: ['Skipped unrelated concern crates', 'Skipped full frontend Vitest suite', 'Skipped native WebView2 suite'],
-        outstandingNative: false,
-      };
-      break;
-    }
-
-    case 'frontend': {
-      const commands = [
-        { executable: 'npm', args: ['run', 'typecheck'], cwd: 'apps/desktop' },
-      ];
-      if (classification.fullFrontend || !classification.frontendDirs?.length || classification.frontendDirs.length > 2) {
-        commands.push({ executable: 'npm', args: ['test'], cwd: 'apps/desktop' });
-      } else {
-        const targets = classification.frontendDirs.map(d => `src/${d}/`);
-        targets.push('src/featureBoundary.test.ts');
-        commands.push({ executable: 'npm', args: ['test', '--', ...targets], cwd: 'apps/desktop' });
-      }
-      if (classification.needsTooling) {
-        commands.push({ executable: 'node', args: ['scripts/run-tooling-tests.mjs'] });
-      }
-      plan = {
-        category: 'frontend',
-        description: 'Frontend component changes only.',
-        commands,
-        exclusions: ['Skipped Rust workspace test and compilation', 'Skipped native WebView2 suite'],
-        outstandingNative: false,
-      };
-      break;
-    }
-
-    case 'cross-cutting': {
-      const commands = [{ executable: 'cargo', args: ['fmt', '--all', '--check'] }];
-      for (const crate of classification.crates) {
-        commands.push({ executable: 'cargo', args: ['clippy', '-p', crate, '--all-targets', '--locked', '--', '-D', 'warnings'] });
-        commands.push({ executable: 'cargo', args: ['test', '-p', crate, '--lib', '--bins', '--locked'] });
-      }
-      if (classification.integrationPrefixes?.length > 0) {
-        const filters = deduplicateFilters(classification.integrationPrefixes);
-        commands.push({ executable: 'cargo', args: ['test', '-p', 'webnovel-core', '--test', 'integration', '--locked', '--', ...filters] });
-      }
-      commands.push({ executable: 'npm', args: ['run', 'typecheck'], cwd: 'apps/desktop' });
-      if (classification.fullFrontend || !classification.frontendDirs?.length || classification.frontendDirs.length > 2) {
-        commands.push({ executable: 'npm', args: ['test'], cwd: 'apps/desktop' });
-      } else {
-        const targets = classification.frontendDirs.map(d => `src/${d}/`);
-        targets.push('src/featureBoundary.test.ts');
-        commands.push({ executable: 'npm', args: ['test', '--', ...targets], cwd: 'apps/desktop' });
-      }
-      if (classification.needsTooling) {
-        commands.push({ executable: 'node', args: ['scripts/run-tooling-tests.mjs'] });
-      }
-      plan = {
-        category: 'cross-cutting',
-        description: `Scoped cross-cutting changes across Rust crates (${classification.crates.join(', ')}) and frontend.`,
-        commands,
-        exclusions: ['Skipped unrelated Rust crates', 'Skipped native WebView2 suite'],
-        outstandingNative: false,
-      };
-      break;
-    }
-
-    case 'broad':
-    default:
-      plan = {
-        category: 'broad',
-        description: classification.reason || 'Broad, architectural, persistence, or root changes: full qualification required.',
-        commands: [
-          { executable: 'desktop', args: ['check'] },
-        ],
-        exclusions: ['No exclusions (fails closed to full check)'],
-        outstandingNative: true,
-      };
-      break;
+        { executable: 'node', args: ['scripts/run-tooling-tests.mjs', '--profile=core'] },
+      ],
+      exclusions: ['Skipped full workspace compilation and frontend tests'],
+      outstandingNative: false,
+      requiredNativeSuites: [],
+    };
   }
 
-  for (const cmd of plan.commands) {
+  if (req.broadFallback) {
+    return {
+      category: 'broad',
+      description: req.broadFallback,
+      commands: [
+        { executable: 'desktop', args: ['check'] },
+      ],
+      exclusions: ['No exclusions (fails closed to full check)'],
+      outstandingNative: true,
+      requiredNativeSuites: ['all'],
+    };
+  }
+
+  const commands = [];
+  const exclusions = [];
+
+  if (req.rustFmt) {
+    commands.push({ executable: 'cargo', args: ['fmt', '--all', '--check'] });
+  }
+
+  if (req.rustPackages.size > 0) {
+    const pkgs = Array.from(req.rustPackages).sort();
+    const pkgArgs = pkgs.flatMap(p => ['-p', p]);
+    commands.push({ executable: 'cargo', args: ['clippy', ...pkgArgs, '--all-targets', '--locked', '--', '-D', 'warnings'] });
+    commands.push({ executable: 'cargo', args: ['test', ...pkgArgs, '--lib', '--bins', '--locked'] });
+  } else {
+    exclusions.push('Skipped Rust workspace test and compilation');
+  }
+
+  if (req.rustIntegrationFilters.size > 0) {
+    const filters = deduplicateFilters(Array.from(req.rustIntegrationFilters));
+    commands.push({ executable: 'cargo', args: ['test', '-p', 'webnovel-core', '--test', 'integration', '--locked', '--', ...filters] });
+  }
+
+  if (req.frontendTypecheck) {
+    commands.push({ executable: 'npm', args: ['run', 'typecheck'], cwd: 'apps/desktop' });
+    if (req.frontendFullVitest || (!req.frontendDirs.size && !req.frontendFiles.size) || req.frontendDirs.size > 2) {
+      commands.push({ executable: 'npm', args: ['test'], cwd: 'apps/desktop' });
+    } else {
+      const targets = Array.from(req.frontendDirs).sort().map(d => `src/${d}/`);
+      targets.push(...Array.from(req.frontendFiles).sort());
+      commands.push({ executable: 'npm', args: ['test', '--', ...targets], cwd: 'apps/desktop' });
+    }
+  } else {
+    exclusions.push('Skipped frontend Vitest suite');
+  }
+
+  if (req.toolingProfiles.size > 0) {
+    const profiles = Array.from(req.toolingProfiles);
+    if (profiles.includes('native-preflight') && profiles.includes('core')) {
+      commands.push({ executable: 'node', args: ['scripts/run-tooling-tests.mjs', '--profile=all'] });
+    } else if (profiles.includes('native-preflight')) {
+      commands.push({ executable: 'node', args: ['scripts/run-tooling-tests.mjs', '--profile=native-preflight'] });
+    } else {
+      commands.push({ executable: 'node', args: ['scripts/run-tooling-tests.mjs', '--profile=core'] });
+    }
+  }
+
+  let category = 'scoped';
+  if (req.rustPackages.size > 0 && req.frontendTypecheck) category = 'cross-cutting';
+  else if (req.rustPackages.size > 0) category = 'isolated-rust';
+  else if (req.frontendTypecheck) category = 'frontend';
+  else if (req.nativeSuites.size > 0) category = 'native-harness';
+  else if (req.toolingProfiles.size > 0) category = req.files.every(isDocPath) ? 'docs' : 'tooling';
+
+  const outstandingNative = Boolean(req.nativeOutstanding || req.nativeSuites.size > 0);
+  if (!outstandingNative) {
+    exclusions.push('Skipped native WebView2 suite');
+  }
+
+  for (const cmd of commands) {
     validateCommand(cmd, baseDir);
   }
 
-  return plan;
+  return {
+    category,
+    description: `Targeted plan based on accumulated requirements for ${req.files.length} changed file(s).`,
+    commands,
+    exclusions,
+    outstandingNative,
+    requiredNativeSuites: Array.from(req.nativeSuites).sort(),
+  };
 }
 
 export function formatPlan(plan) {
@@ -436,17 +453,25 @@ export function formatPlan(plan) {
     output += `  - ${exc}\n`;
   });
   output += `\nNative Qualification:\n`;
-  output += `  - ${plan.outstandingNative ? 'Outstanding: full native suite required.' : 'Not required for scoped changes.'}\n`;
+  output += `  - ${plan.outstandingNative ? `Outstanding: native qualification required (${plan.requiredNativeSuites.join(', ') || 'all'}).` : 'Not required for scoped changes.'}\n`;
   return output;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const jsonMode = process.argv.includes('--json');
-  const files = getChangedFiles();
+  let base = null;
+  let head = null;
+  for (let i = 2; i < process.argv.length; i++) {
+    if (process.argv[i] === '--base' && i + 1 < process.argv.length) base = process.argv[++i];
+    else if (process.argv[i] === '--head' && i + 1 < process.argv.length) head = process.argv[++i];
+  }
+
+  const files = getChangedFiles({ base, head });
   const classification = classifyChanges(files);
   const plan = planFromClassification(classification);
   if (jsonMode) {
     console.log(JSON.stringify({
+      scope: base && head ? { type: 'revision-range', base, head } : { type: 'worktree' },
       snapshot: {
         timestamp: new Date().toISOString(),
         changedFiles: Array.isArray(files) ? files : [],

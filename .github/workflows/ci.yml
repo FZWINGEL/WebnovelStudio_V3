@@ -50,7 +50,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
       - name: Check product versions and release guard
-        run: node scripts/run-tooling-tests.mjs
+        run: node scripts/run-tooling-tests.mjs --profile=core
       - run: npm ci --prefer-offline --no-audit
         working-directory: apps/desktop
       - run: npm run build
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: cargo-timings-ubuntu
+          name: cargo-timings-ubuntu-${{ github.run_attempt }}
           path: |
             target/cargo-timings/
             .local/performance/
@@ -96,8 +96,11 @@ jobs:
           node-version-file: .node-version
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
-      - name: Check product versions and release guard
-        run: node scripts/run-tooling-tests.mjs
+      - name: Install native harness dependencies
+        working-directory: tests/native
+        run: npm ci --prefer-offline --no-audit
+      - name: Check product versions, tooling, and native preflight
+        run: node scripts/run-tooling-tests.mjs --profile=all
       - run: rustup toolchain install 1.98.1 --profile minimal --component clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -132,14 +135,14 @@ jobs:
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: native-spike-evidence
+          name: native-spike-evidence-${{ github.run_attempt }}
           path: .local/native-results/
           include-hidden-files: true
           if-no-files-found: warn
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: cargo-timings-windows
+          name: cargo-timings-windows-${{ github.run_attempt }}
           path: |
             target/cargo-timings/
             .local/performance/
