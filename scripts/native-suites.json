@@ -1,5 +1,35 @@
 {
   "schemaVersion": 1,
+  "topologies": {
+    "parallel": {
+      "main": [
+        "main"
+      ],
+      "lifecycle": [
+        "chat",
+        "workshop",
+        "http",
+        "close",
+        "interruption",
+        "recovery",
+        "memory",
+        "app-server-transport"
+      ]
+    },
+    "serial": {
+      "serial": [
+        "workshop",
+        "chat",
+        "main",
+        "http",
+        "close",
+        "interruption",
+        "recovery",
+        "memory",
+        "app-server-transport"
+      ]
+    }
+  },
   "consumers": {
     "main": [
       "main"

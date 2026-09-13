@@ -19,13 +19,23 @@ async function run(executable, args, cwd = root) {
   });
 }
 async function node(args, cwd = desktop) { await run(process.execPath, args, cwd); }
-if (action === 'setup' || !existsSync(resolve(desktop, 'node_modules/@tauri-apps/cli/tauri.js'))) {
+
+async function ensureFrontendDependencies() {
+  if (!existsSync(resolve(desktop, 'node_modules/@tauri-apps/cli/tauri.js'))) {
+    if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
+    await node([npm, 'ci']);
+  }
+}
+
+if (action === 'setup') {
   if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
   await node([npm, 'ci']);
+  process.exit(0);
 }
-if (action === 'setup') process.exit(0);
+
 const tauri = resolve(desktop, 'node_modules/@tauri-apps/cli/tauri.js');
 if (['build', 'spike', 'package'].includes(action)) {
+  await ensureFrontendDependencies();
   await node([resolve(root, 'scripts/check-versions.mjs')]);
 }
 async function pruneTarget() {
@@ -107,32 +117,54 @@ async function pruneTarget() {
 const extraArgs = process.argv.slice(3);
 
 switch (action) {
-  case 'dev': await node([tauri, 'dev']); break;
-  case 'spike': await node([tauri, 'build', '--debug', '--no-bundle', '--', '--locked']); break;
-  case 'build': await node([tauri, 'build', '--no-bundle', '--', '--locked']); break;
+  case 'dev':
+    await ensureFrontendDependencies();
+    await node([tauri, 'dev']);
+    break;
+  case 'spike':
+    await ensureFrontendDependencies();
+    await node([tauri, 'build', '--debug', '--no-bundle', '--', '--locked']);
+    break;
+  case 'build':
+    await ensureFrontendDependencies();
+    await node([tauri, 'build', '--no-bundle', '--', '--locked']);
+    break;
   case 'package':
     if (process.platform !== 'win32') throw new Error('The initial installer target is Windows x64.');
+    await ensureFrontendDependencies();
     await node([tauri, 'build', '--target', 'x86_64-pc-windows-msvc', '--bundles', 'nsis', '--', '--locked']);
     break;
   case 'test':
+    await ensureFrontendDependencies();
     await node([npm, 'test', ...(extraArgs.length ? ['--', ...extraArgs] : [])]);
     break;
   case 'test:watch':
+    await ensureFrontendDependencies();
     await node([npm, 'run', 'test:watch', ...(extraArgs.length ? ['--', ...extraArgs] : [])]);
     break;
-  case 'native': await node(['scripts/native-smoke.mjs']); break;
+  case 'native':
+    await ensureFrontendDependencies();
+    await node(['scripts/native-smoke.mjs']);
+    break;
   case 'quick': {
     const pkg = extraArgs[0];
     const targetFlag = pkg ? ['-p', pkg] : ['--workspace'];
     await run('cargo', ['fmt', '--all', '--check']);
     await run('cargo', ['clippy', ...targetFlag, '--all-targets', '--locked', '--', '-D', 'warnings']);
     await run('cargo', ['test', ...targetFlag, '--lib', '--bins', '--locked']);
-    await node([npm, 'run', 'typecheck']);
+    if (!pkg) {
+      await ensureFrontendDependencies();
+      await node([npm, 'run', 'typecheck']);
+    }
     break;
   }
+  case 'plan':
+    await node([resolve(root, 'scripts/test-plan.mjs'), ...extraArgs]);
+    break;
   case 'prune': await pruneTarget(); break;
   case 'check':
-    await node(['--test', resolve(root, 'scripts/runner-identities.test.mjs'), resolve(root, 'scripts/collect-ci-timings.test.mjs'), resolve(root, 'scripts/native-artifact.test.mjs'), resolve(root, 'scripts/native-consumer.test.mjs'), resolve(root, 'scripts/owned-process.test.mjs'), resolve(root, 'scripts/check-versions.test.mjs'), resolve(root, 'scripts/prepare-package-retest.test.mjs')]);
+    await ensureFrontendDependencies();
+    await node(['--test', resolve(root, 'scripts/runner-identities.test.mjs'), resolve(root, 'scripts/collect-ci-timings.test.mjs'), resolve(root, 'scripts/native-artifact.test.mjs'), resolve(root, 'scripts/native-consumer.test.mjs'), resolve(root, 'scripts/owned-process.test.mjs'), resolve(root, 'scripts/check-versions.test.mjs'), resolve(root, 'scripts/prepare-package-retest.test.mjs'), resolve(root, 'scripts/native-retest.test.mjs'), resolve(root, 'scripts/test-plan.test.mjs')]);
     await run('cargo', ['fmt', '--all', '--check']);
     await run('cargo', ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings']);
     await run('cargo', ['test', '--workspace', '--locked']);

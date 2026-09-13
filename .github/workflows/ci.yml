@@ -114,7 +114,6 @@ jobs:
       - run: npm run desktop:spike -- -- ${{ env.CARGO_NETWORK_FLAG }} --timings
         working-directory: apps/desktop
       - name: Prepare exact native executable artifact
-        if: inputs.native_layout != 'serial'
         run: node scripts/native-artifact.mjs create .local/native-app
       - uses: actions/upload-artifact@v7.0.1
         if: inputs.native_layout != 'serial'
@@ -123,48 +122,12 @@ jobs:
           path: .local/native-app/
           include-hidden-files: true
           if-no-files-found: error
-      # Qualify the short Workshop path before the broader editor regressions
-      # so a Workshop failure does not wait for the full native editor flow.
-      - run: npm run test:native-workshop
+      - name: Execute serial native suites
         if: inputs.native_layout == 'serial'
-        env:
-          WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/workshop.events.jsonl
-        working-directory: apps/desktop
-      - run: npm run test:native-chat
+        run: node scripts/native-consumer.mjs serial .local/native-app
+      - name: Reconcile serial native evidence
         if: inputs.native_layout == 'serial'
-        env:
-          WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/chat.events.jsonl
-        working-directory: apps/desktop
-      - run: npm run test:native
-        if: inputs.native_layout == 'serial'
-        env:
-          WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/main.events.jsonl
-        working-directory: apps/desktop
-      - run: npm run test:native-http
-        if: inputs.native_layout == 'serial'
-        env:
-          WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/http.events.jsonl
-        working-directory: apps/desktop
-      - run: npm run test:native-close
-        if: inputs.native_layout == 'serial'
-        env:
-          WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/close.events.jsonl
-        working-directory: apps/desktop
-      - run: npm run test:native-interruption
-        if: inputs.native_layout == 'serial'
-        env:
-          WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/interruption.events.jsonl
-        working-directory: apps/desktop
-      - run: npm run test:native-recovery
-        if: inputs.native_layout == 'serial'
-        env:
-          WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/recovery.events.jsonl
-        working-directory: apps/desktop
-      - run: npm run test:native-memory-lookup
-        if: inputs.native_layout == 'serial'
-        env:
-          WNS_V3_NATIVE_TRACE: ${{ github.workspace }}/.local/native-results/memory.events.jsonl
-        working-directory: apps/desktop
+        run: node scripts/native-consumer.mjs aggregate .local/native-results .local/native-app serial
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
@@ -197,9 +160,9 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
+          cache-dependency-path: tests/native/package-lock.json
       - run: npm ci --prefer-offline --no-audit
-        working-directory: apps/desktop
+        working-directory: tests/native
       - uses: actions/download-artifact@v8.0.1
         with:
           name: native-app-${{ github.run_attempt }}

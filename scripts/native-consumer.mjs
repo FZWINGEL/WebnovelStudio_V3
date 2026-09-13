@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile, unlink } from 'node:fs/promises';
 import { hostname, release } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnOwned, stopOwned } from '../apps/desktop/scripts/owned-process.mjs';
 import { checkoutIdentity, verifyArtifact, sha256, runtimePins } from './native-artifact.mjs';
@@ -48,16 +48,26 @@ export function validateSuiteResult(result, expected, identity) {
     if (result.suite === 'close') assert.equal(closed.forced, false, 'Normal-close qualification required a forced stop');
   }
 }
-export function reconcileConsumers(consumers, identity) {
-  assert.equal(consumers.length, Object.keys(suiteManifest.consumers).length);
+export function getConsumerSuites(name) {
+  return suiteManifest.topologies?.parallel?.[name]
+    ?? suiteManifest.topologies?.serial?.[name]
+    ?? suiteManifest.consumers?.[name];
+}
+
+export function reconcileConsumers(consumers, identity, topology = 'parallel') {
+  const expectedPlan = suiteManifest.topologies?.[topology] ?? suiteManifest.consumers;
+  assert(expectedPlan, `Unknown topology: ${topology}`);
+  assert.equal(consumers.length, Object.keys(expectedPlan).length);
   for (const consumer of consumers) {
     assert.equal(typeof consumer.runner?.hostname, 'string', 'Missing consumer host identity');
     assert(consumer.runner.hostname.trim(), 'Empty consumer host identity');
     assert.equal(consumer.failure, undefined, 'Passed consumer retained a failure');
   }
   assert.equal(new Set(consumers.map(item => item.consumer)).size, consumers.length, 'Duplicate consumer');
-  assert.equal(new Set(consumers.map(item => item.runner.hostname)).size, consumers.length, 'Native consumers shared a desktop');
-  for (const [name, expected] of Object.entries(suiteManifest.consumers)) {
+  if (topology === 'parallel') {
+    assert.equal(new Set(consumers.map(item => item.runner.hostname)).size, consumers.length, 'Native consumers shared a desktop');
+  }
+  for (const [name, expected] of Object.entries(expectedPlan)) {
     const consumer = consumers.find(item => item.consumer === name);
     assert(consumer, `Missing consumer ${name}`);
     assert.equal(consumer.status, 'passed');
@@ -73,9 +83,10 @@ export function reconcileConsumers(consumers, identity) {
   }
 }
 async function runSuite(suite, executable, trace) {
+  const nodePaths = [resolve(root, 'tests/native/node_modules'), resolve(root, 'apps/desktop/node_modules'), process.env.NODE_PATH].filter(Boolean).join(delimiter);
   const child = spawnOwned(process.execPath, [resolve(root, 'apps/desktop/scripts', suite.script)], {
     cwd: resolve(root, 'apps/desktop'), windowsHide: true, stdio: 'inherit',
-    env: { ...process.env, WNS_V3_NATIVE_EXE: executable, WNS_V3_NATIVE_TRACE: trace },
+    env: { ...process.env, NODE_PATH: nodePaths, WNS_V3_NATIVE_EXE: executable, WNS_V3_NATIVE_TRACE: trace },
   });
   let timer;
   try {
@@ -86,7 +97,8 @@ async function runSuite(suite, executable, trace) {
   } finally { clearTimeout(timer); await stopOwned(child); }
 }
 async function consume(name, directory) {
-  assert(suiteManifest.consumers[name], 'Unknown native consumer');
+  const suites = getConsumerSuites(name);
+  assert(suites, `Unknown native consumer: ${name}`);
   const evidence = resolve(root, '.local/native-results');
   await mkdir(evidence, { recursive: true });
   const output = resolve(evidence, `consumer-${name}.json`);
@@ -96,7 +108,7 @@ async function consume(name, directory) {
     report.commit = checkoutIdentity(root);
     const manifest = await verifyArtifact(directory, report.commit);
     report.executableSha256 = manifest.files.find(file => file.path === manifest.executable).sha256;
-    for (const id of suiteManifest.consumers[name]) {
+    for (const id of suites) {
       const suite = suiteManifest.suites[id];
       const trace = resolve(evidence, `${id}.events.jsonl`);
       await writeFile(trace, '');
@@ -125,15 +137,17 @@ async function consume(name, directory) {
   finally { report.finishedAt = new Date().toISOString(); await writeFile(output, JSON.stringify(report, null, 2)); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [command, directory, artifactDirectory] = process.argv.slice(2);
+  const [command, directory, artifactDirectory, topologyArg] = process.argv.slice(2);
   assert(directory, 'Artifact/evidence directory required');
   if (command === 'aggregate') {
-    const consumers = await Promise.all(Object.keys(suiteManifest.consumers).map(name =>
+    const topology = topologyArg || 'parallel';
+    const plan = suiteManifest.topologies?.[topology] ?? suiteManifest.consumers;
+    const consumers = await Promise.all(Object.keys(plan).map(name =>
       readFile(resolve(directory, `consumer-${name}.json`), 'utf8').then(JSON.parse)));
     const commit = checkoutIdentity(root);
     assert(artifactDirectory, 'Producer artifact directory required');
     const artifact = await verifyArtifact(resolve(artifactDirectory), commit);
-    reconcileConsumers(consumers, { commit, executableSha256: artifact.files.find(file => file.path === artifact.executable).sha256 });
+    reconcileConsumers(consumers, { commit, executableSha256: artifact.files.find(file => file.path === artifact.executable).sha256 }, topology);
     console.log('Every scheduled native check and owned process closure was verified.');
   } else await consume(command, resolve(directory));
 }

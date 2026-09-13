@@ -58,3 +58,35 @@ test('registered native checkpoint ids exist in source exactly once', async () =
     }
   }
 });
+function serialFixture() {
+  const plan = suiteManifest.topologies.serial;
+  return Object.entries(plan).map(([consumer, suites], index) => ({
+    consumer, ...identity, status: 'passed', runner: { hostname: `vm-serial-${index}` },
+    manifestSha256: sha256(JSON.stringify(suiteManifest)),
+    suites: suites.map(suite => ({ suite, ...identity, status: 'passed', exitCode: 0, durationMs: 1,
+      events: [{ kind: 'process-start', pid: 123 }, { kind: 'process-close', pid: 123, spawnError: null, exitCode: 0, signalCode: null, forced: false },
+        { kind: 'identity', executableSha256: identity.executableSha256, runner: { node: 'v24.20.0', hostname: `vm-serial-${index}` } },
+        ...suiteManifest.suites[suite].checks.map(id => ({ kind: 'check', id, elapsedMs: 1 }))] })),
+  }));
+}
+test('reconciliation verifies serial topology with single desktop runner', () => {
+  reconcileConsumers(serialFixture(), identity, 'serial');
+  for (const alter of [
+    x => x.pop(),
+    x => x[0].status = 'skipped',
+    x => x[0].suites.pop(),
+    x => x[0].suites[0].exitCode = 1,
+    x => x[0].manifestSha256 = 'c'.repeat(64),
+  ]) {
+    const consumers = serialFixture(); alter(consumers);
+    assert.throws(() => reconcileConsumers(consumers, identity, 'serial'));
+  }
+});
+test('every registered suite in native-suites.json belongs to active consumer plan exactly once', () => {
+  const allSuites = Object.keys(suiteManifest.suites).sort();
+  for (const [topologyName, plan] of Object.entries(suiteManifest.topologies)) {
+    const assigned = Object.values(plan).flat().sort();
+    assert.deepEqual(assigned, allSuites, `Topology ${topologyName} does not match registered suites`);
+    assert.equal(new Set(assigned).size, allSuites.length, `Topology ${topologyName} contains duplicate suite assignments`);
+  }
+});

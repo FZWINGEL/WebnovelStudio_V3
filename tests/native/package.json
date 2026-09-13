@@ -1,0 +1,9 @@
+{
+  "name": "webnovel-studio-native-harness",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

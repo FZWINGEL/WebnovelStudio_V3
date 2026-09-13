@@ -50,6 +50,10 @@ cargo test -p webnovel-desktop discussion_commands::
 # Interactive frontend watch mode:
 .\scripts\desktop.cmd test:watch
 
+# Change-aware local test planning:
+.\scripts\desktop.cmd plan
+.\scripts\desktop.ps1 -Command plan
+
 # Direct npm invocation for a single test file:
 npm.cmd --prefix apps/desktop test -- src/providers/ModelSelector.test.tsx
 ```
