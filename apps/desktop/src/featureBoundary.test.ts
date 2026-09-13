@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { parseSync, Visitor } from 'rolldown/utils';
 import { describe, expect, it } from 'vitest';
 
@@ -69,6 +69,31 @@ function sourceEdges(path: string, text: string): Edge[] {
       rest: relative(join(SOURCE, to), resolved).replace(/\\/g, '/'),
     };
   });
+}
+
+export function isTestTarget(sourcePath: string, target: string): boolean {
+  if (!target.startsWith('.')) return false;
+  const resolved = resolve(dirname(sourcePath), target);
+  const base = basename(resolved);
+  if (/\.test(\.(tsx?|jsx?|mjs|cjs))?$/i.test(base)) return true;
+  for (const ext of ['.ts', '.tsx', '.js', '.jsx']) {
+    if (existsSync(resolved + ext) && /\.test$/i.test(base)) return true;
+  }
+  return false;
+}
+
+export function testImportViolations(fileList: string[] = sources(SOURCE)): string[] {
+  const violations: string[] = [];
+  for (const path of fileList) {
+    const text = readFileSync(path, 'utf8');
+    for (const { target } of sourceImports(path, text)) {
+      if (isTestTarget(path, target)) {
+        const fileRel = relative(SOURCE, path).replace(/\\/g, '/');
+        violations.push(`${fileRel} -> ${target}`);
+      }
+    }
+  }
+  return violations;
 }
 
 /** Each lifecycle owner consumes capabilities rather than another owner's state. */
@@ -190,6 +215,10 @@ describe('the feature boundary', () => {
       expect(() => readFileSync(join(SOURCE, feature, 'index.ts'), 'utf8'), feature).not.toThrow();
     }
     expect([...used].sort()).toEqual(['assistant', 'editor', 'providers', 'story']);
+  });
+
+  it('prohibits production source files from importing test files', () => {
+    expect(testImportViolations()).toEqual([]);
   });
 
   /**
@@ -329,3 +358,38 @@ describe('workspace ownership', () => {
     `)).toEqual([]);
   });
 });
+
+describe('production-to-test import prohibition', () => {
+  const probeFile = join(SOURCE, 'assistant', 'boundary-probe.tsx');
+
+  const testImportForms = [
+    ['named import', "import { probe } from './probe.test';"],
+    ['default import', "import probe from './probe.test';"],
+    ['namespace import', "import * as probe from './probe.test';"],
+    ['side-effect import', "import './probe.test';"],
+    ['explicit extension', "import './probe.test.tsx';"],
+    ['commented-specifier import', "import { probe } from /* explanation */ './probe.test';"],
+    ['dynamic import', "const load = () => import('./probe.test');"],
+    ['re-export named', "export { probe } from './probe.test';"],
+    ['re-export all', "export * from './probe.test';"],
+    ['type-only import', "import type { Probe } from './probe.test';"],
+    ['import equals', "import probe = require('./probe.test');"],
+  ];
+
+  it.each(testImportForms)('detects prohibited test import via %s', (_name, code) => {
+    const targets = sourceImports(probeFile, code).map(entry => entry.target);
+    expect(targets.some(target => isTestTarget(probeFile, target))).toBe(true);
+  });
+
+  it('ignores commented-out test imports, strings and JSX text', () => {
+    const code = `
+      // import './probe.test';
+      /* import { probe } from './probe.test'; */
+      const text = "import './probe.test';";
+      const jsx = <div>import './probe.test';</div>;
+    `;
+    const targets = sourceImports(probeFile, code).map(entry => entry.target);
+    expect(targets.some(target => isTestTarget(probeFile, target))).toBe(false);
+  });
+});
+

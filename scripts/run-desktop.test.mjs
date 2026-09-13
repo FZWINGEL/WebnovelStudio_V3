@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -64,3 +64,65 @@ test('recordTiming writes valid JSONL entry into .local/performance/desktop-timi
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('updateDepStatus preserves installed over subsequent reused checks', async () => {
+  const { dependencyStatus, updateDepStatus } = await import('./run-desktop.mjs');
+  
+  // Reset for test
+  dependencyStatus.frontend = 'skipped';
+  
+  updateDepStatus('frontend', 'installed');
+  assert.equal(dependencyStatus.frontend, 'installed');
+
+  // Second check reports reused: MUST RETAIN 'installed'
+  updateDepStatus('frontend', 'reused');
+  assert.equal(dependencyStatus.frontend, 'installed', 'installed status must not be overwritten by reused');
+
+  // Failed status test
+  dependencyStatus.native = 'skipped';
+  updateDepStatus('native', 'failed');
+  assert.equal(dependencyStatus.native, 'failed');
+  // reused does not clear failure
+  updateDepStatus('native', 'reused');
+  assert.equal(dependencyStatus.native, 'failed');
+});
+
+test('recordPhase links telemetry phases by invocationId', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'wns-phase-test-'));
+  const { setInvocationId, recordPhase } = await import('./run-desktop.mjs');
+  try {
+    setInvocationId('test-invocation-12345');
+
+    recordPhase({
+      type: 'dependency',
+      target: 'frontend',
+      status: 'installed',
+      durationMs: 123.4,
+    }, tempDir);
+
+    recordPhase({
+      type: 'command',
+      command: 'cargo fmt --all --check',
+      cwd: '.',
+      exitCode: 0,
+      durationMs: 45.6,
+      status: 'success',
+    }, tempDir);
+
+    const timingFile = resolve(tempDir, '.local/performance', 'desktop-timings.jsonl');
+    assert(existsSync(timingFile));
+
+    const lines = readFileSync(timingFile, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0].invocationId, 'test-invocation-12345');
+    assert.equal(lines[0].type, 'dependency');
+    assert.equal(lines[0].status, 'installed');
+    assert.equal(lines[1].invocationId, 'test-invocation-12345');
+    assert.equal(lines[1].type, 'command');
+    assert.equal(lines[1].durationMs, 45.6);
+  } finally {
+    setInvocationId(null);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+

@@ -1,8 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   classifyChanges,
   planFromClassification,
@@ -383,33 +380,6 @@ test('combined frontend production and test file change retains native obligatio
   assert.equal(plan.nativeObligation.required, true);
   assert.equal(plan.nativeObligation.status, 'scoped');
   assert(plan.nativeObligation.suites.includes('main'));
-});
-
-test('regression: no production source files import test files', () => {
-  const desktopSrc = resolve(fileURLToPath(new URL('../', import.meta.url)), 'apps/desktop/src');
-  function scan(dir) {
-    const entries = readdirSync(dir, { withFileTypes: true });
-    const results = [];
-    for (const entry of entries) {
-      const full = resolve(dir, entry.name);
-      if (entry.isDirectory()) {
-        results.push(...scan(full));
-      } else if (entry.isFile() && (full.endsWith('.ts') || full.endsWith('.tsx'))) {
-        if (!full.endsWith('.test.ts') && !full.endsWith('.test.tsx')) {
-          results.push(full);
-        }
-      }
-    }
-    return results;
-  }
-
-  const prodFiles = scan(desktopSrc);
-  assert(prodFiles.length > 0, 'Should find production source files');
-  for (const file of prodFiles) {
-    const content = readFileSync(file, 'utf8');
-    const hasTestImport = /from\s+['"][^'"]*\.test(\.[a-z]+)?['"]/.test(content);
-    assert(!hasTestImport, `Production file ${file} imports a test file!`);
-  }
 });
 
 

@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-import { basename, dirname, delimiter, resolve } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { basename, dirname, delimiter, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
@@ -15,6 +15,19 @@ const desktop = resolve(root, 'apps/desktop');
 const environment = { ...process.env, PATH: [dirname(process.execPath), resolve(homedir(), '.cargo/bin'), process.env.PATH].join(delimiter) };
 const action = process.argv[2] ?? 'dev';
 
+export function getGitCommit() {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
 export function findNpm() {
   if (process.env.npm_execpath && existsSync(process.env.npm_execpath)) {
     return process.env.npm_execpath;
@@ -23,17 +36,69 @@ export function findNpm() {
   if (existsSync(winCandidate)) return winCandidate;
   const nixCandidate = resolve(dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js');
   if (existsSync(nixCandidate)) return nixCandidate;
+  if (process.env.PATH) {
+    for (const dir of process.env.PATH.split(delimiter)) {
+      const candidate = resolve(dir, 'node_modules/npm/bin/npm-cli.js');
+      if (existsSync(candidate)) return candidate;
+    }
+  }
   return null;
 }
 
 const npm = findNpm();
 
+let currentInvocationId = null;
+
+export function setInvocationId(id) {
+  currentInvocationId = id;
+}
+
+export function getInvocationId() {
+  return currentInvocationId;
+}
+
+export function recordPhase(phaseData, baseDir = root) {
+  if (!currentInvocationId) return;
+  recordTiming({
+    invocationId: currentInvocationId,
+    timestamp: new Date().toISOString(),
+    ...phaseData,
+  }, baseDir);
+}
+
 export async function run(executable, args, cwd = root) {
-  await new Promise((accept, reject) => {
-    const child = spawn(executable, args, { cwd, env: environment, stdio: 'inherit', windowsHide: true });
-    child.once('error', reject);
-    child.once('exit', code => code === 0 ? accept() : reject(new Error(`${args.join(' ')} failed (${code}).`)));
-  });
+  const t0 = performance.now();
+  let exitCode = 0;
+  try {
+    await new Promise((accept, reject) => {
+      const child = spawn(executable, args, { cwd, env: environment, stdio: 'inherit', windowsHide: true });
+      child.once('error', reject);
+      child.once('exit', code => {
+        exitCode = code ?? 0;
+        if (code === 0) accept();
+        else reject(new Error(`${args.join(' ')} failed (${code}).`));
+      });
+    });
+    recordPhase({
+      type: 'command',
+      command: [executable, ...args].join(' '),
+      cwd: relative(root, cwd).replace(/\\/g, '/') || '.',
+      exitCode,
+      durationMs: Math.round((performance.now() - t0) * 10) / 10,
+      status: 'success',
+    });
+  } catch (err) {
+    recordPhase({
+      type: 'command',
+      command: [executable, ...args].join(' '),
+      cwd: relative(root, cwd).replace(/\\/g, '/') || '.',
+      exitCode: exitCode || 1,
+      durationMs: Math.round((performance.now() - t0) * 10) / 10,
+      status: 'failed',
+      error: err?.message || String(err),
+    });
+    throw err;
+  }
 }
 
 export async function node(args, cwd = desktop) { await run(process.execPath, args, cwd); }
@@ -81,30 +146,115 @@ export const dependencyStatus = {
   native: 'skipped',
 };
 
+export function updateDepStatus(target, newStatus) {
+  const current = dependencyStatus[target];
+  if (current === 'installed') {
+    // If dependencies were installed in this invocation, retain 'installed'
+    return;
+  }
+  if (newStatus === 'installed') {
+    dependencyStatus[target] = 'installed';
+  } else if (newStatus === 'failed') {
+    dependencyStatus[target] = 'failed';
+  } else if (newStatus === 'reused' && current !== 'failed') {
+    dependencyStatus[target] = 'reused';
+  }
+}
+
 export async function ensureFrontendDependencies(force = false) {
+  const t0 = performance.now();
   if (force || !isInstallValid(desktop, 'node_modules/@tauri-apps/cli/tauri.js')) {
     const npmBin = findNpm();
-    if (!npmBin) throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
-    await node([npmBin, 'ci']);
-    writeInstallSignature(desktop);
-    dependencyStatus.frontend = 'installed';
-    return 'installed';
+    if (!npmBin) {
+      updateDepStatus('frontend', 'failed');
+      recordPhase({
+        type: 'dependency',
+        target: 'frontend',
+        status: 'failed',
+        durationMs: Math.round((performance.now() - t0) * 10) / 10,
+        error: 'Could not locate npm runtime.',
+      });
+      throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
+    }
+    try {
+      await node([npmBin, 'ci']);
+      writeInstallSignature(desktop);
+      updateDepStatus('frontend', 'installed');
+      recordPhase({
+        type: 'dependency',
+        target: 'frontend',
+        status: 'installed',
+        durationMs: Math.round((performance.now() - t0) * 10) / 10,
+      });
+      return 'installed';
+    } catch (err) {
+      updateDepStatus('frontend', 'failed');
+      recordPhase({
+        type: 'dependency',
+        target: 'frontend',
+        status: 'failed',
+        durationMs: Math.round((performance.now() - t0) * 10) / 10,
+        error: err?.message || String(err),
+      });
+      throw err;
+    }
   }
-  dependencyStatus.frontend = 'reused';
+  updateDepStatus('frontend', 'reused');
+  recordPhase({
+    type: 'dependency',
+    target: 'frontend',
+    status: 'reused',
+    durationMs: Math.round((performance.now() - t0) * 10) / 10,
+  });
   return 'reused';
 }
 
 export async function ensureNativeDependencies(force = false) {
+  const t0 = performance.now();
   const nativeDir = resolve(root, 'tests/native');
   if (force || !isInstallValid(nativeDir, 'node_modules/playwright-core/package.json')) {
     const npmBin = findNpm();
-    if (!npmBin) throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
-    await node([npmBin, 'ci'], nativeDir);
-    writeInstallSignature(nativeDir);
-    dependencyStatus.native = 'installed';
-    return 'installed';
+    if (!npmBin) {
+      updateDepStatus('native', 'failed');
+      recordPhase({
+        type: 'dependency',
+        target: 'native',
+        status: 'failed',
+        durationMs: Math.round((performance.now() - t0) * 10) / 10,
+        error: 'Could not locate npm runtime.',
+      });
+      throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
+    }
+    try {
+      await node([npmBin, 'ci'], nativeDir);
+      writeInstallSignature(nativeDir);
+      updateDepStatus('native', 'installed');
+      recordPhase({
+        type: 'dependency',
+        target: 'native',
+        status: 'installed',
+        durationMs: Math.round((performance.now() - t0) * 10) / 10,
+      });
+      return 'installed';
+    } catch (err) {
+      updateDepStatus('native', 'failed');
+      recordPhase({
+        type: 'dependency',
+        target: 'native',
+        status: 'failed',
+        durationMs: Math.round((performance.now() - t0) * 10) / 10,
+        error: err?.message || String(err),
+      });
+      throw err;
+    }
   }
-  dependencyStatus.native = 'reused';
+  updateDepStatus('native', 'reused');
+  recordPhase({
+    type: 'dependency',
+    target: 'native',
+    status: 'reused',
+    durationMs: Math.round((performance.now() - t0) * 10) / 10,
+  });
   return 'reused';
 }
 
@@ -198,8 +348,26 @@ async function pruneTarget() {
 }
 
 if (isMain) {
-  const startTime = Date.now();
+  const startTime = performance.now();
   const extraArgs = process.argv.slice(3);
+  const invocationId = typeof randomUUID === 'function' ? randomUUID() : `inv-${Date.now()}`;
+  setInvocationId(invocationId);
+
+  recordTiming({
+    type: 'invocation',
+    invocationId,
+    timestamp: new Date().toISOString(),
+    source: getGitCommit(),
+    action,
+    args: extraArgs,
+    nodeVersion: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    workers: {
+      vitestMaxThreads: process.env.VITEST_MAX_THREADS || 'default',
+      cargoBuildJobs: process.env.CARGO_BUILD_JOBS || 'default',
+    },
+  });
 
   try {
     const tauri = resolve(desktop, 'node_modules/@tauri-apps/cli/tauri.js');
@@ -228,16 +396,13 @@ if (isMain) {
         await node([tauri, 'dev']);
         break;
       case 'spike':
-        await ensureFrontendDependencies();
         await node([tauri, 'build', '--debug', '--no-bundle', '--', '--locked']);
         break;
       case 'build':
-        await ensureFrontendDependencies();
         await node([tauri, 'build', '--no-bundle', '--', '--locked']);
         break;
       case 'package':
         if (process.platform !== 'win32') throw new Error('The initial installer target is Windows x64.');
-        await ensureFrontendDependencies();
         await node([tauri, 'build', '--target', 'x86_64-pc-windows-msvc', '--bundles', 'nsis', '--', '--locked']);
         break;
       case 'test':
@@ -290,22 +455,26 @@ if (isMain) {
     }
 
     recordTiming({
+      type: 'completion',
+      invocationId,
       timestamp: new Date().toISOString(),
       action,
       args: extraArgs,
       frontendDeps: dependencyStatus.frontend,
       nativeDeps: dependencyStatus.native,
-      durationMs: Date.now() - startTime,
+      durationMs: Math.round((performance.now() - startTime) * 10) / 10,
       status: 'success',
     });
   } catch (err) {
     recordTiming({
+      type: 'completion',
+      invocationId,
       timestamp: new Date().toISOString(),
       action,
       args: extraArgs,
       frontendDeps: dependencyStatus.frontend,
       nativeDeps: dependencyStatus.native,
-      durationMs: Date.now() - startTime,
+      durationMs: Math.round((performance.now() - startTime) * 10) / 10,
       status: 'failed',
       error: err?.message || String(err),
     });
