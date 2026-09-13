@@ -331,11 +331,37 @@ fn authenticated_launch_advertises_experimental_api_capability() {
 
 #[test]
 fn lost_turn_ack_is_uncertain_and_is_never_replayed() {
-    let connection =
-        AppServerConnection::start(invocation("lost-start"), ()).expect("start app-server fixture");
+    let record_path = std::env::temp_dir().join(format!(
+        "wns-app-server-lost-ack-{}-{}.log",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let connection = AppServerConnection::start(
+        invocation_with_record("lost-start", Some(record_path.clone())),
+        (),
+    )
+    .expect("start app-server fixture");
     let stop = StopSignal::new();
     let mut stream = start_request(&connection, stop);
-    std::thread::sleep(Duration::from_millis(100));
+
+    // Wait until fixture confirms turn/start was received before requesting stop
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if std::fs::read_to_string(&record_path)
+            .map(|content| content.lines().any(|line| line == "turn/start"))
+            .unwrap_or(false)
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        std::fs::read_to_string(&record_path)
+            .map(|content| content.lines().any(|line| line == "turn/start"))
+            .unwrap_or(false),
+        "fixture did not receive turn/start within 5-second deadline"
+    );
+
     stream.request_stop();
     let finished = collect(&mut stream);
     assert_eq!(finished.result.status, CodexRunStatus::CleanupUnresolved);
@@ -347,6 +373,61 @@ fn lost_turn_ack_is_uncertain_and_is_never_replayed() {
         AppServerConnectionSettlement::Closed
     );
     connection.shutdown().expect("shutdown settles fixture");
+    let _ = std::fs::remove_file(&record_path);
+}
+
+#[test]
+fn concurrent_distinct_connections_isolate_interruption_and_completion() {
+    let connection_a =
+        AppServerConnection::start(invocation("stop"), ()).expect("start connection A");
+    let connection_b =
+        AppServerConnection::start(invocation("complete"), ()).expect("start connection B");
+
+    let stop_a = StopSignal::new();
+    let mut stream_a = start_request(&connection_a, stop_a);
+    let mut stream_b = start_request(&connection_b, StopSignal::new());
+
+    loop {
+        if matches!(
+            stream_a.recv_timeout(Duration::from_secs(1)).expect("stream A"),
+            Some(AppServerStreamEvent::AssistantDelta(ref text)) if text == "Hello"
+        ) {
+            break;
+        }
+    }
+    stream_a.request_stop();
+
+    let finished_a = collect(&mut stream_a);
+    let finished_b = collect(&mut stream_b);
+
+    // Connection A stopped with partial output
+    assert_eq!(finished_a.result.status, CodexRunStatus::Stopped);
+    assert_eq!(finished_a.result.assistant_text, "Hello");
+    assert_eq!(
+        finished_a.delivery.terminal,
+        Some(AppServerTerminal::Interrupted)
+    );
+    assert_eq!(
+        finished_a.delivery.submission,
+        AppServerSubmission::Acknowledged
+    );
+    assert!(finished_a.delivery.request_settled);
+
+    // Connection B completed normally without interference
+    assert_eq!(finished_b.result.status, CodexRunStatus::Completed);
+    assert_eq!(finished_b.result.assistant_text, "Hello world");
+    assert!(finished_b.result.cleanup_settled);
+    assert_eq!(
+        finished_b.delivery.submission,
+        AppServerSubmission::Acknowledged
+    );
+    assert_eq!(
+        finished_b.delivery.terminal,
+        Some(AppServerTerminal::Completed)
+    );
+
+    connection_a.shutdown().expect("shutdown connection A");
+    connection_b.shutdown().expect("shutdown connection B");
 }
 
 #[test]

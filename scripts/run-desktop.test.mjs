@@ -128,11 +128,59 @@ test('recordPhase links telemetry phases by invocationId', async () => {
 
 test('resolveWorkerSettings computes effective Vitest and Rust worker telemetry', async () => {
   const { resolveWorkerSettings } = await import('./run-desktop.mjs');
-  const settings = resolveWorkerSettings();
-  assert.equal(settings.vitestPool, 'threads');
-  assert.equal(settings.vitestIsolate, true);
-  assert(typeof settings.vitestMaxWorkers === 'number' && settings.vitestMaxWorkers >= 2);
-  assert(typeof settings.rustTestThreads === 'string' && settings.rustTestThreads.length > 0);
-  assert(typeof settings.cargoBuildJobs === 'string' && settings.cargoBuildJobs.length > 0);
+  const originalMaxWorkers = process.env.VITEST_MAX_WORKERS;
+  const originalCi = process.env.CI;
+  const originalRustTestThreads = process.env.RUST_TEST_THREADS;
+  const originalCargoBuildJobs = process.env.CARGO_BUILD_JOBS;
+
+  try {
+    // 1. Default (unconstrained) environment
+    delete process.env.VITEST_MAX_WORKERS;
+    delete process.env.CI;
+    delete process.env.RUST_TEST_THREADS;
+    delete process.env.CARGO_BUILD_JOBS;
+
+    const defaultSettings = resolveWorkerSettings();
+    assert.equal(defaultSettings.vitestPool, 'threads');
+    assert.equal(defaultSettings.vitestIsolate, true);
+    assert(Number.isInteger(defaultSettings.vitestMaxWorkers) && defaultSettings.vitestMaxWorkers >= 1);
+    assert.equal(defaultSettings.rustTestThreads, '4 (default)');
+    assert.equal(defaultSettings.cargoBuildJobs, 'default');
+
+    // 2. Explicit single-worker configuration
+    process.env.VITEST_MAX_WORKERS = '1';
+    const singleWorkerSettings = resolveWorkerSettings();
+    assert.equal(singleWorkerSettings.vitestMaxWorkers, 1);
+
+    // 3. Explicit multi-worker configuration
+    process.env.VITEST_MAX_WORKERS = '8';
+    const multiWorkerSettings = resolveWorkerSettings();
+    assert.equal(multiWorkerSettings.vitestMaxWorkers, 8);
+
+    // 4. CI fallback (when VITEST_MAX_WORKERS is unset)
+    delete process.env.VITEST_MAX_WORKERS;
+    process.env.CI = 'true';
+    const ciSettings = resolveWorkerSettings();
+    assert.equal(ciSettings.vitestMaxWorkers, 2);
+
+    // 5. Explicit Rust test threads & Cargo build jobs overrides
+    process.env.RUST_TEST_THREADS = '8';
+    process.env.CARGO_BUILD_JOBS = '12';
+    const customRustSettings = resolveWorkerSettings();
+    assert.equal(customRustSettings.rustTestThreads, '8');
+    assert.equal(customRustSettings.cargoBuildJobs, '12');
+  } finally {
+    if (originalMaxWorkers !== undefined) process.env.VITEST_MAX_WORKERS = originalMaxWorkers;
+    else delete process.env.VITEST_MAX_WORKERS;
+
+    if (originalCi !== undefined) process.env.CI = originalCi;
+    else delete process.env.CI;
+
+    if (originalRustTestThreads !== undefined) process.env.RUST_TEST_THREADS = originalRustTestThreads;
+    else delete process.env.RUST_TEST_THREADS;
+
+    if (originalCargoBuildJobs !== undefined) process.env.CARGO_BUILD_JOBS = originalCargoBuildJobs;
+    else delete process.env.CARGO_BUILD_JOBS;
+  }
 });
 
