@@ -45,12 +45,19 @@ test('malformed closure and contradictory success evidence cannot pass', () => {
 test('registered native checkpoint ids exist in source exactly once', async () => {
   const ids = Object.values(suiteManifest.suites).flatMap(suite => suite.checks);
   assert.equal(new Set(ids).size, ids.length);
+  const cache = new Map();
+  async function getSource(module) {
+    if (!cache.has(module)) {
+      cache.set(module, await readFile(new URL(`../tests/native/${module}.mjs`, import.meta.url), 'utf8'));
+    }
+    return cache.get(module);
+  }
   for (const id of ids.filter(id => id.startsWith('native-'))) {
     const module = id.split(':')[0];
-    const source = await readFile(new URL(`../apps/desktop/scripts/${module}.mjs`, import.meta.url), 'utf8');
+    const source = await getSource(module);
     assert.equal(source.split(`'${id}'`).length - 1, 1, id);
   }
-  const scripts = new URL('../apps/desktop/scripts/', import.meta.url);
+  const scripts = new URL('../tests/native/', import.meta.url);
   for (const name of (await readdir(scripts)).filter(name => name.startsWith('native-') && name.endsWith('.mjs'))) {
     const source = await readFile(new URL(name, scripts), 'utf8');
     for (const match of source.matchAll(/recordCheck\([^,]+, '([^']+)'/g)) {

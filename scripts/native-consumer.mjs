@@ -3,7 +3,7 @@ import { readFile, mkdir, writeFile, unlink } from 'node:fs/promises';
 import { hostname, release } from 'node:os';
 import { resolve, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnOwned, stopOwned } from '../apps/desktop/scripts/owned-process.mjs';
+import { spawnOwned, stopOwned } from '../tests/native/owned-process.mjs';
 import { checkoutIdentity, verifyArtifact, sha256, runtimePins } from './native-artifact.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -84,8 +84,8 @@ export function reconcileConsumers(consumers, identity, topology = 'parallel') {
 }
 async function runSuite(suite, executable, trace) {
   const nodePaths = [resolve(root, 'tests/native/node_modules'), resolve(root, 'apps/desktop/node_modules'), process.env.NODE_PATH].filter(Boolean).join(delimiter);
-  const child = spawnOwned(process.execPath, [resolve(root, 'apps/desktop/scripts', suite.script)], {
-    cwd: resolve(root, 'apps/desktop'), windowsHide: true, stdio: 'inherit',
+  const child = spawnOwned(process.execPath, [resolve(root, 'tests/native', suite.script)], {
+    cwd: resolve(root, 'tests/native'), windowsHide: true, stdio: 'inherit',
     env: { ...process.env, NODE_PATH: nodePaths, WNS_V3_NATIVE_EXE: executable, WNS_V3_NATIVE_TRACE: trace },
   });
   let timer;
@@ -141,7 +141,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   assert(directory, 'Artifact/evidence directory required');
   if (command === 'aggregate') {
     const topology = topologyArg || 'parallel';
-    const plan = suiteManifest.topologies?.[topology] ?? suiteManifest.consumers;
+    const plan = suiteManifest.topologies?.[topology];
+    assert(plan, `Unknown topology: ${topology}`);
     const consumers = await Promise.all(Object.keys(plan).map(name =>
       readFile(resolve(directory, `consumer-${name}.json`), 'utf8').then(JSON.parse)));
     const commit = checkoutIdentity(root);

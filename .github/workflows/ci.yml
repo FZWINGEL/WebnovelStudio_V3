@@ -50,7 +50,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
       - name: Check product versions and release guard
-        run: node --test scripts/runner-identities.test.mjs scripts/collect-ci-timings.test.mjs scripts/native-artifact.test.mjs scripts/native-consumer.test.mjs scripts/owned-process.test.mjs scripts/check-versions.test.mjs scripts/prepare-package-retest.test.mjs
+        run: node scripts/run-tooling-tests.mjs
       - run: npm ci --prefer-offline --no-audit
         working-directory: apps/desktop
       - run: npm run build
@@ -97,7 +97,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
       - name: Check product versions and release guard
-        run: node --test scripts/runner-identities.test.mjs scripts/collect-ci-timings.test.mjs scripts/native-artifact.test.mjs scripts/native-consumer.test.mjs scripts/owned-process.test.mjs scripts/check-versions.test.mjs scripts/prepare-package-retest.test.mjs
+        run: node scripts/run-tooling-tests.mjs
       - run: rustup toolchain install 1.98.1 --profile minimal --component clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -118,10 +118,11 @@ jobs:
       - uses: actions/upload-artifact@v7.0.1
         if: inputs.native_layout != 'serial'
         with:
-          name: native-app-${{ github.run_attempt }}
+          name: native-app
           path: .local/native-app/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
       - name: Execute serial native suites
         if: inputs.native_layout == 'serial'
         run: node scripts/native-consumer.mjs serial .local/native-app
@@ -165,17 +166,18 @@ jobs:
         working-directory: tests/native
       - uses: actions/download-artifact@v8.0.1
         with:
-          name: native-app-${{ github.run_attempt }}
+          name: native-app
           path: .local/native-app
       - name: Verify artifact and execute expected suites
         run: node scripts/native-consumer.mjs ${{ matrix.consumer }} .local/native-app
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: native-evidence-${{ matrix.consumer }}-${{ github.run_attempt }}
+          name: native-evidence-${{ matrix.consumer }}
           path: .local/native-results/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
   native-gate:
     if: always() && inputs.native_layout != 'serial'
     needs: [windows-native, native-consumer]
@@ -192,12 +194,12 @@ jobs:
         run: test "$PRODUCER" = success && test "$CONSUMERS" = success
       - uses: actions/download-artifact@v8.0.1
         with:
-          pattern: native-evidence-*-${{ github.run_attempt }}
+          pattern: native-evidence-*
           path: .local/native-evidence
           merge-multiple: true
       - uses: actions/download-artifact@v8.0.1
         with:
-          name: native-app-${{ github.run_attempt }}
+          name: native-app
           path: .local/native-app
       - name: Reconcile exact native checks and cleanup
         run: node scripts/native-consumer.mjs aggregate .local/native-evidence .local/native-app

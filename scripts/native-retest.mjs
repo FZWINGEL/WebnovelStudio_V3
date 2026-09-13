@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -20,18 +21,20 @@ export const ALLOWED_DOCUMENTS = new Set([
   'GEMINI.md',
   'PRODUCT.md',
   'README.md',
-  '.github/workflows/ci.yml',
 ]);
 
 export const FORBIDDEN_PREFIXES = Object.freeze([
   'crates/',
   'apps/desktop/src/',
   'apps/desktop/src-tauri/',
+  '.github/',
 ]);
 
 export const FORBIDDEN_FILES = new Set([
   'Cargo.toml',
   'Cargo.lock',
+  'package.json',
+  'package-lock.json',
   'apps/desktop/package.json',
   'apps/desktop/package-lock.json',
   'apps/desktop/src-tauri/tauri.conf.json',
@@ -69,17 +72,17 @@ export function validateNativeRetestDiff(changedPaths) {
 
 export async function computeHarnessSha256(baseDir = root) {
   const hash = createHash('sha256');
-  const scriptsDir = resolve(baseDir, 'apps/desktop/scripts');
-  const scriptFiles = (await readdir(scriptsDir)).filter(f => f.startsWith('native-') || f.startsWith('owned-process')).sort();
-  for (const f of scriptFiles) {
-    const content = await readFile(resolve(scriptsDir, f));
-    hash.update(f).update(content);
-  }
-  const rootScriptsDir = resolve(baseDir, 'scripts');
-  const rootScriptFiles = (await readdir(rootScriptsDir)).filter(f => f.startsWith('native-')).sort();
-  for (const f of rootScriptFiles) {
-    const content = await readFile(resolve(rootScriptsDir, f));
-    hash.update(f).update(content);
+  for (const dirName of ['apps/desktop/scripts', 'tests/native', 'scripts']) {
+    const dir = resolve(baseDir, dirName);
+    try {
+      const files = (await readdir(dir)).filter(f => f.startsWith('native-') || f.startsWith('owned-process') || f.endsWith('.json') || f.endsWith('.test.mjs')).sort();
+      for (const f of files) {
+        const content = await readFile(resolve(dir, f));
+        hash.update(f).update(content);
+      }
+    } catch {
+      // directory might not exist in some environments
+    }
   }
   return hash.digest('hex');
 }
@@ -88,6 +91,7 @@ export async function validateNativeRetestContract({
   manifest,
   qualificationCommit,
   changedPaths,
+  artifactDirectory,
   baseDir = root,
 }) {
   if (!manifest || typeof manifest !== 'object') fail('Missing or malformed artifact manifest.');
@@ -98,9 +102,29 @@ export async function validateNativeRetestContract({
   if (!qualificationCommit || typeof qualificationCommit !== 'string' || qualificationCommit.length !== 40) {
     fail('Invalid qualificationCommit.');
   }
-  validateNativeRetestDiff(changedPaths);
+
+  let diffPaths = changedPaths;
+  if (!diffPaths) {
+    try {
+      const stdout = execFileSync('git', ['diff', '--name-only', `${buildCommit}..${qualificationCommit}`], { cwd: baseDir, encoding: 'utf8' });
+      diffPaths = stdout.split('\n').map(s => s.trim()).filter(Boolean);
+    } catch (err) {
+      fail(`Failed to compute git diff between ${buildCommit} and ${qualificationCommit}: ${err.message}`);
+    }
+  }
+
+  validateNativeRetestDiff(diffPaths);
   const executableFile = manifest.files?.find(f => f.path === manifest.executable);
   if (!executableFile?.sha256) fail('Missing executable entry in artifact manifest.');
+
+  if (artifactDirectory) {
+    const exePath = resolve(artifactDirectory, manifest.executable);
+    const bytes = await readFile(exePath);
+    const actualSha = createHash('sha256').update(bytes).digest('hex');
+    if (actualSha !== executableFile.sha256) {
+      fail(`Executable bytes on disk do not match artifact manifest sha256 (expected: ${executableFile.sha256}, actual: ${actualSha})`);
+    }
+  }
 
   const harnessSha256 = await computeHarnessSha256(baseDir);
 

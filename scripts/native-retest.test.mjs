@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   isAllowedNativeRetestPath,
   validateNativeRetestDiff,
@@ -26,7 +30,9 @@ test('native retest path filtering allows harness and docs only', () => {
   assert.equal(isAllowedNativeRetestPath('tests/native/package.json'), true);
   assert.equal(isAllowedNativeRetestPath('docs/TESTING.md'), true);
   assert.equal(isAllowedNativeRetestPath('AGENTS.md'), true);
-  assert.equal(isAllowedNativeRetestPath('.github/workflows/ci.yml'), true);
+
+  // .github/workflows/ci.yml must NOT be allowed
+  assert.equal(isAllowedNativeRetestPath('.github/workflows/ci.yml'), false);
 
   assert.equal(isAllowedNativeRetestPath('Cargo.toml'), false);
   assert.equal(isAllowedNativeRetestPath('Cargo.lock'), false);
@@ -55,13 +61,17 @@ test('validateNativeRetestDiff rejects any forbidden source changes', () => {
   assert.throws(() => validateNativeRetestDiff([
     'Cargo.lock',
   ]), /disallowed changes/);
+
+  assert.throws(() => validateNativeRetestDiff([
+    '.github/workflows/ci.yml',
+  ]), /disallowed changes/);
 });
 
 test('validateNativeRetestContract returns separate identities and verifies harness SHA', async () => {
   const contract = await validateNativeRetestContract({
     manifest: sampleManifest,
     qualificationCommit,
-    changedPaths: ['apps/desktop/scripts/native-smoke.mjs'],
+    changedPaths: ['tests/native/native-smoke.mjs'],
   });
 
   assert.equal(contract.buildCommit, buildCommit);
@@ -69,6 +79,49 @@ test('validateNativeRetestContract returns separate identities and verifies harn
   assert.equal(contract.executableSha256, exeSha);
   assert.equal(typeof contract.harnessSha256, 'string');
   assert.equal(contract.harnessSha256.length, 64);
+});
+
+test('validateNativeRetestContract verifies actual executable file bytes if directory provided', async () => {
+  const dir = await mkdtemp(resolve(tmpdir(), 'test-retest-art-'));
+  try {
+    const exeDir = resolve(dir, 'target/debug');
+    await mkdir(exeDir, { recursive: true });
+    const exePath = resolve(exeDir, 'webnovel-desktop.exe');
+    const content = Buffer.from('mock executable binary content');
+    const sha = createHash('sha256').update(content).digest('hex');
+    await writeFile(exePath, content);
+
+    const validManifest = {
+      schemaVersion: 1,
+      commit: buildCommit,
+      executable: 'target/debug/webnovel-desktop.exe',
+      files: [
+        { path: 'target/debug/webnovel-desktop.exe', sha256: sha, bytes: content.length }
+      ]
+    };
+
+    // Valid check
+    await assert.doesNotReject(() => validateNativeRetestContract({
+      manifest: validManifest,
+      qualificationCommit,
+      changedPaths: ['tests/native/native-smoke.mjs'],
+      artifactDirectory: dir,
+    }));
+
+    // Mismatched check
+    const mismatchedManifest = {
+      ...validManifest,
+      files: [{ path: 'target/debug/webnovel-desktop.exe', sha256: 'f'.repeat(64), bytes: content.length }]
+    };
+    await assert.rejects(() => validateNativeRetestContract({
+      manifest: mismatchedManifest,
+      qualificationCommit,
+      changedPaths: ['tests/native/native-smoke.mjs'],
+      artifactDirectory: dir,
+    }), /Executable bytes on disk do not match artifact manifest/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('validateNativeRetestContract fails closed on invalid manifest or commits', async () => {
