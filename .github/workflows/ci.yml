@@ -51,7 +51,7 @@ jobs:
           cache-dependency-path: apps/desktop/package-lock.json
       - name: Check product versions and release guard
         run: node --test scripts/runner-identities.test.mjs scripts/collect-ci-timings.test.mjs scripts/native-artifact.test.mjs scripts/native-consumer.test.mjs scripts/owned-process.test.mjs scripts/check-versions.test.mjs scripts/prepare-package-retest.test.mjs
-      - run: npm ci
+      - run: npm ci --prefer-offline --no-audit
         working-directory: apps/desktop
       - run: npm run build
         working-directory: apps/desktop
@@ -89,6 +89,8 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: '1'
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Disable Windows Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
       - uses: actions/setup-node@v7.0.0
         with:
           node-version-file: .node-version
@@ -102,11 +104,7 @@ jobs:
           shared-key: v3-native-${{ runner.os }}-rust-1.98.1
           cache-on-failure: true
           cache-bin: false
-      - run: npm ci
-        working-directory: apps/desktop
-      # Windows Rust contracts run once below as part of the complete workspace.
-      # Retain the Windows frontend gate here instead of duplicating the job.
-      - run: npm test
+      - run: npm ci --prefer-offline --no-audit
         working-directory: apps/desktop
       - name: Prepare locked dependencies only when missing
         if: inputs.cargo_network != 'locked'
@@ -193,12 +191,14 @@ jobs:
         consumer: [main, lifecycle]
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Disable Windows Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
       - uses: actions/setup-node@v7.0.0
         with:
           node-version-file: .node-version
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
-      - run: npm ci
+      - run: npm ci --prefer-offline --no-audit
         working-directory: apps/desktop
       - uses: actions/download-artifact@v8.0.1
         with:

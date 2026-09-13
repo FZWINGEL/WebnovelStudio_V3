@@ -5,6 +5,7 @@ const defaultWorkers = Math.min(12, Math.max(2, Math.floor((cpus()?.length || 4)
 
 export default defineConfig({
   test: {
+    pool: 'threads',
     fsModuleCache: true,
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
