@@ -4,7 +4,7 @@ use std::{
     ffi::OsString,
     path::PathBuf,
     sync::{
-        Arc, Mutex, MutexGuard, OnceLock,
+        Arc,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
@@ -25,14 +25,6 @@ use webnovel_core::providers::codex_app_server::{
 };
 use webnovel_core::providers::codex_runner::CodexRunStatus;
 
-static FIXTURE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn fixture_guard() -> MutexGuard<'static, ()> {
-    FIXTURE_TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
 
 fn invocation(mode: &str) -> CliInvocation {
     invocation_with_record(mode, None)
@@ -125,7 +117,6 @@ fn collect(stream: &mut AppServerStream) -> AppServerFinished {
 
 #[test]
 fn owned_fixture_completes_and_shutdown_verifies_cleanup() {
-    let _fixture_guard = fixture_guard();
     let connection =
         AppServerConnection::start(invocation("complete"), ()).expect("start app-server fixture");
     assert_eq!(connection.health(), AppServerHealth::Ready);
@@ -153,7 +144,6 @@ fn owned_fixture_completes_and_shutdown_verifies_cleanup() {
 
 #[test]
 fn concurrent_requests_route_interleaved_notifications_by_thread() {
-    let _fixture_guard = fixture_guard();
     let connection = AppServerConnection::start(invocation("interleaved"), ())
         .expect("start app-server fixture");
     let mut first = start_request(&connection, StopSignal::new());
@@ -168,7 +158,6 @@ fn concurrent_requests_route_interleaved_notifications_by_thread() {
 
 #[test]
 fn stop_waits_for_turn_terminal_and_keeps_partial_output() {
-    let _fixture_guard = fixture_guard();
     let connection =
         AppServerConnection::start(invocation("stop"), ()).expect("start app-server fixture");
     let stop = StopSignal::new();
@@ -199,7 +188,6 @@ fn stop_waits_for_turn_terminal_and_keeps_partial_output() {
 
 #[test]
 fn direct_stop_signal_interrupts_one_request_while_another_completes() {
-    let _fixture_guard = fixture_guard();
     let connection =
         AppServerConnection::start(invocation("stop-first"), ()).expect("start app-server fixture");
     let stop_a = StopSignal::new();
@@ -236,7 +224,6 @@ fn direct_stop_signal_interrupts_one_request_while_another_completes() {
 
 #[test]
 fn stop_before_pre_turn_claim_does_not_kill_connection_or_retain_dispatch() {
-    let _fixture_guard = fixture_guard();
     let connection = AppServerConnection::start(invocation("delay-thread"), ())
         .expect("start delayed app-server fixture");
     let stop = StopSignal::new();
@@ -275,7 +262,6 @@ fn stop_before_pre_turn_claim_does_not_kill_connection_or_retain_dispatch() {
 
 #[test]
 fn missing_interrupt_terminal_is_bounded_and_unresolved() {
-    let _fixture_guard = fixture_guard();
     let connection = AppServerConnection::start(invocation("ignore-interrupt"), ())
         .expect("start interrupt fixture");
     let mut stream = start_request(&connection, StopSignal::new());
@@ -308,7 +294,6 @@ fn missing_interrupt_terminal_is_bounded_and_unresolved() {
 
 #[test]
 fn lost_turn_ack_with_authoritative_events_settles_without_replay() {
-    let _fixture_guard = fixture_guard();
     let connection = AppServerConnection::start(invocation("lost-start-complete"), ())
         .expect("start lost-ack fixture");
     let mut stream = start_request(&connection, StopSignal::new());
@@ -332,7 +317,6 @@ fn lost_turn_ack_with_authoritative_events_settles_without_replay() {
 
 #[test]
 fn authenticated_launch_advertises_experimental_api_capability() {
-    let _fixture_guard = fixture_guard();
     let auth = AppServerAuth {
         method: "account/login/start".into(),
         params: serde_json::json!({"type":"chatgptAuthTokens","accessToken":"fixture"}),
@@ -347,7 +331,6 @@ fn authenticated_launch_advertises_experimental_api_capability() {
 
 #[test]
 fn lost_turn_ack_is_uncertain_and_is_never_replayed() {
-    let _fixture_guard = fixture_guard();
     let connection =
         AppServerConnection::start(invocation("lost-start"), ()).expect("start app-server fixture");
     let stop = StopSignal::new();
@@ -368,7 +351,6 @@ fn lost_turn_ack_is_uncertain_and_is_never_replayed() {
 
 #[test]
 fn malformed_frame_poison_does_not_report_success() {
-    let _fixture_guard = fixture_guard();
     let connection =
         AppServerConnection::start(invocation("malformed"), ()).expect("start app-server fixture");
     let mut stream = start_request(&connection, StopSignal::new());
@@ -385,7 +367,6 @@ fn malformed_frame_poison_does_not_report_success() {
 
 #[test]
 fn acknowledged_turn_crash_preserves_turn_identity_and_validates_receipt() {
-    let _fixture_guard = fixture_guard();
     let connection =
         AppServerConnection::start(invocation("crash"), ()).expect("start app-server fixture");
     let mut stream = start_request(&connection, StopSignal::new());
@@ -412,7 +393,6 @@ fn acknowledged_turn_crash_preserves_turn_identity_and_validates_receipt() {
 
 #[test]
 fn completed_thread_threshold_recycles_idle_connection() {
-    let _fixture_guard = fixture_guard();
     let connection = AppServerConnection::start_with_thread_threshold(
         invocation("complete"),
         (),
@@ -446,7 +426,6 @@ fn completed_thread_threshold_recycles_idle_connection() {
 
 #[test]
 fn before_turn_rejection_is_not_sent_and_leaves_a_valid_not_sent_receipt() {
-    let _fixture_guard = fixture_guard();
     let record_path = std::env::temp_dir().join(format!(
         "wns-app-server-reject-{}-{}.log",
         std::process::id(),
@@ -496,7 +475,6 @@ fn before_turn_rejection_is_not_sent_and_leaves_a_valid_not_sent_receipt() {
 
 #[test]
 fn delayed_turn_persistence_fences_terminal_and_preserves_known_failure_receipt() {
-    let _fixture_guard = fixture_guard();
 
     let connection = AppServerConnection::start(invocation("complete"), ())
         .expect("start delayed persistence fixture");

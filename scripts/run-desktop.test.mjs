@@ -126,3 +126,13 @@ test('recordPhase links telemetry phases by invocationId', async () => {
   }
 });
 
+test('resolveWorkerSettings computes effective Vitest and Rust worker telemetry', async () => {
+  const { resolveWorkerSettings } = await import('./run-desktop.mjs');
+  const settings = resolveWorkerSettings();
+  assert.equal(settings.vitestPool, 'threads');
+  assert.equal(settings.vitestIsolate, true);
+  assert(typeof settings.vitestMaxWorkers === 'number' && settings.vitestMaxWorkers >= 2);
+  assert(typeof settings.rustTestThreads === 'string' && settings.rustTestThreads.length > 0);
+  assert(typeof settings.cargoBuildJobs === 'string' && settings.cargoBuildJobs.length > 0);
+});
+

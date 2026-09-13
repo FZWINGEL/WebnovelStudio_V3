@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } fr
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, delimiter, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
+import { homedir, cpus } from 'node:os';
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain && process.version !== 'v24.20.0') {
@@ -347,6 +347,23 @@ async function pruneTarget() {
   console.log(`Pruned ${prunedCount} orphaned build artifacts (${mb} MB freed).`);
 }
 
+export function resolveWorkerSettings() {
+  const defaultVitestWorkers = Math.min(12, Math.max(2, Math.floor((cpus()?.length || 4) / 2)));
+  const rawVitestWorkers = process.env.VITEST_MAX_WORKERS;
+  const requestedVitestWorkers = rawVitestWorkers === undefined ? undefined : Number(rawVitestWorkers);
+  const vitestMaxWorkers = Number.isInteger(requestedVitestWorkers) && requestedVitestWorkers > 0
+    ? requestedVitestWorkers
+    : (process.env.CI ? 2 : defaultVitestWorkers);
+
+  return {
+    vitestPool: 'threads',
+    vitestIsolate: true,
+    vitestMaxWorkers,
+    rustTestThreads: process.env.RUST_TEST_THREADS || '4 (default)',
+    cargoBuildJobs: process.env.CARGO_BUILD_JOBS || 'default',
+  };
+}
+
 if (isMain) {
   const startTime = performance.now();
   const extraArgs = process.argv.slice(3);
@@ -363,10 +380,7 @@ if (isMain) {
     nodeVersion: process.version,
     platform: process.platform,
     arch: process.arch,
-    workers: {
-      vitestMaxThreads: process.env.VITEST_MAX_THREADS || 'default',
-      cargoBuildJobs: process.env.CARGO_BUILD_JOBS || 'default',
-    },
+    workers: resolveWorkerSettings(),
   });
 
   try {
