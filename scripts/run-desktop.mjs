@@ -1,27 +1,44 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { basename, dirname, delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
-if (process.version !== 'v24.20.0') throw new Error('Run scripts/desktop.ps1 to select Node 24.20.0.');
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain && process.version !== 'v24.20.0') {
+  throw new Error('Run scripts/desktop.ps1 to select Node 24.20.0.');
+}
+
 const root = fileURLToPath(new URL('../', import.meta.url));
 const desktop = resolve(root, 'apps/desktop');
 const environment = { ...process.env, PATH: [dirname(process.execPath), resolve(homedir(), '.cargo/bin'), process.env.PATH].join(delimiter) };
 const action = process.argv[2] ?? 'dev';
-const npm = process.env.npm_execpath;
 
-async function run(executable, args, cwd = root) {
+export function findNpm() {
+  if (process.env.npm_execpath && existsSync(process.env.npm_execpath)) {
+    return process.env.npm_execpath;
+  }
+  const winCandidate = resolve(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
+  if (existsSync(winCandidate)) return winCandidate;
+  const nixCandidate = resolve(dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js');
+  if (existsSync(nixCandidate)) return nixCandidate;
+  return null;
+}
+
+const npm = findNpm();
+
+export async function run(executable, args, cwd = root) {
   await new Promise((accept, reject) => {
     const child = spawn(executable, args, { cwd, env: environment, stdio: 'inherit', windowsHide: true });
     child.once('error', reject);
     child.once('exit', code => code === 0 ? accept() : reject(new Error(`${args.join(' ')} failed (${code}).`)));
   });
 }
-async function node(args, cwd = desktop) { await run(process.execPath, args, cwd); }
 
-function computeInstallSignature(dir) {
+export async function node(args, cwd = desktop) { await run(process.execPath, args, cwd); }
+
+export function computeInstallSignature(dir) {
   const pkgPath = resolve(dir, 'package.json');
   const lockPath = resolve(dir, 'package-lock.json');
   if (!existsSync(pkgPath) || !existsSync(lockPath)) return null;
@@ -34,7 +51,7 @@ function computeInstallSignature(dir) {
     .digest('hex');
 }
 
-function isInstallValid(dir, keyFile) {
+export function isInstallValid(dir, keyFile) {
   if (!existsSync(resolve(dir, keyFile))) return false;
   const sigFile = resolve(dir, 'node_modules/.install-signature');
   if (!existsSync(sigFile)) return false;
@@ -48,7 +65,7 @@ function isInstallValid(dir, keyFile) {
   }
 }
 
-function writeInstallSignature(dir) {
+export function writeInstallSignature(dir) {
   const sig = computeInstallSignature(dir);
   if (sig) {
     try {
@@ -59,37 +76,51 @@ function writeInstallSignature(dir) {
   }
 }
 
-async function ensureFrontendDependencies() {
-  if (!isInstallValid(desktop, 'node_modules/@tauri-apps/cli/tauri.js')) {
-    if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
-    await node([npm, 'ci']);
+export const dependencyStatus = {
+  frontend: 'skipped',
+  native: 'skipped',
+};
+
+export async function ensureFrontendDependencies(force = false) {
+  if (force || !isInstallValid(desktop, 'node_modules/@tauri-apps/cli/tauri.js')) {
+    const npmBin = findNpm();
+    if (!npmBin) throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
+    await node([npmBin, 'ci']);
     writeInstallSignature(desktop);
+    dependencyStatus.frontend = 'installed';
+    return 'installed';
   }
+  dependencyStatus.frontend = 'reused';
+  return 'reused';
 }
 
-async function ensureNativeDependencies() {
+export async function ensureNativeDependencies(force = false) {
   const nativeDir = resolve(root, 'tests/native');
-  if (!isInstallValid(nativeDir, 'node_modules/playwright-core/package.json')) {
-    if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
-    await node([npm, 'ci'], nativeDir);
+  if (force || !isInstallValid(nativeDir, 'node_modules/playwright-core/package.json')) {
+    const npmBin = findNpm();
+    if (!npmBin) throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
+    await node([npmBin, 'ci'], nativeDir);
     writeInstallSignature(nativeDir);
+    dependencyStatus.native = 'installed';
+    return 'installed';
+  }
+  dependencyStatus.native = 'reused';
+  return 'reused';
+}
+
+export function recordTiming(entry, baseDir = root) {
+  try {
+    const dir = resolve(baseDir, '.local/performance');
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const logPath = resolve(dir, 'desktop-timings.jsonl');
+    appendFileSync(logPath, JSON.stringify(entry) + '\n', 'utf8');
+  } catch {
+    // Best effort logging
   }
 }
 
-if (action === 'setup') {
-  if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
-  await node([npm, 'ci']);
-  writeInstallSignature(desktop);
-  await node([npm, 'ci'], resolve(root, 'tests/native'));
-  writeInstallSignature(resolve(root, 'tests/native'));
-  process.exit(0);
-}
-
-const tauri = resolve(desktop, 'node_modules/@tauri-apps/cli/tauri.js');
-if (['build', 'spike', 'package'].includes(action)) {
-  await ensureFrontendDependencies();
-  await node([resolve(root, 'scripts/check-versions.mjs')]);
-}
 async function pruneTarget() {
   const depsDir = resolve(root, 'target/debug/deps');
   if (!existsSync(depsDir)) {
@@ -166,64 +197,118 @@ async function pruneTarget() {
   console.log(`Pruned ${prunedCount} orphaned build artifacts (${mb} MB freed).`);
 }
 
-const extraArgs = process.argv.slice(3);
+if (isMain) {
+  const startTime = Date.now();
+  const extraArgs = process.argv.slice(3);
 
-switch (action) {
-  case 'dev':
-    await ensureFrontendDependencies();
-    await node([tauri, 'dev']);
-    break;
-  case 'spike':
-    await ensureFrontendDependencies();
-    await node([tauri, 'build', '--debug', '--no-bundle', '--', '--locked']);
-    break;
-  case 'build':
-    await ensureFrontendDependencies();
-    await node([tauri, 'build', '--no-bundle', '--', '--locked']);
-    break;
-  case 'package':
-    if (process.platform !== 'win32') throw new Error('The initial installer target is Windows x64.');
-    await ensureFrontendDependencies();
-    await node([tauri, 'build', '--target', 'x86_64-pc-windows-msvc', '--bundles', 'nsis', '--', '--locked']);
-    break;
-  case 'test':
-    await ensureFrontendDependencies();
-    await node([npm, 'test', ...(extraArgs.length ? ['--', ...extraArgs] : [])]);
-    break;
-  case 'test:watch':
-    await ensureFrontendDependencies();
-    await node([npm, 'run', 'test:watch', ...(extraArgs.length ? ['--', ...extraArgs] : [])]);
-    break;
-  case 'native':
-    await ensureNativeDependencies();
-    await node(['native-smoke.mjs'], resolve(root, 'tests/native'));
-    break;
-  case 'quick': {
-    const pkg = extraArgs[0];
-    const targetFlag = pkg ? ['-p', pkg] : ['--workspace'];
-    await run('cargo', ['fmt', '--all', '--check']);
-    await run('cargo', ['clippy', ...targetFlag, '--all-targets', '--locked', '--', '-D', 'warnings']);
-    await run('cargo', ['test', ...targetFlag, '--lib', '--bins', '--locked']);
-    if (!pkg) {
+  try {
+    const tauri = resolve(desktop, 'node_modules/@tauri-apps/cli/tauri.js');
+    if (['build', 'spike', 'package'].includes(action)) {
       await ensureFrontendDependencies();
-      await node([npm, 'run', 'typecheck']);
+      await node([resolve(root, 'scripts/check-versions.mjs')]);
     }
-    break;
+
+    switch (action) {
+      case 'ensure-frontend':
+        await ensureFrontendDependencies();
+        break;
+      case 'ensure-native':
+        await ensureNativeDependencies();
+        break;
+      case 'ensure-deps':
+        await ensureFrontendDependencies();
+        await ensureNativeDependencies();
+        break;
+      case 'setup':
+        await ensureFrontendDependencies(true);
+        await ensureNativeDependencies(true);
+        break;
+      case 'dev':
+        await ensureFrontendDependencies();
+        await node([tauri, 'dev']);
+        break;
+      case 'spike':
+        await ensureFrontendDependencies();
+        await node([tauri, 'build', '--debug', '--no-bundle', '--', '--locked']);
+        break;
+      case 'build':
+        await ensureFrontendDependencies();
+        await node([tauri, 'build', '--no-bundle', '--', '--locked']);
+        break;
+      case 'package':
+        if (process.platform !== 'win32') throw new Error('The initial installer target is Windows x64.');
+        await ensureFrontendDependencies();
+        await node([tauri, 'build', '--target', 'x86_64-pc-windows-msvc', '--bundles', 'nsis', '--', '--locked']);
+        break;
+      case 'test':
+        await ensureFrontendDependencies();
+        if (!npm) throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
+        await node([npm, 'test', ...(extraArgs.length ? ['--', ...extraArgs] : [])]);
+        break;
+      case 'test:watch':
+        await ensureFrontendDependencies();
+        if (!npm) throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
+        await node([npm, 'run', 'test:watch', ...(extraArgs.length ? ['--', ...extraArgs] : [])]);
+        break;
+      case 'native':
+        await ensureNativeDependencies();
+        await node(['native-smoke.mjs'], resolve(root, 'tests/native'));
+        break;
+      case 'quick': {
+        const pkg = extraArgs[0];
+        const targetFlag = pkg ? ['-p', pkg] : ['--workspace'];
+        await run('cargo', ['fmt', '--all', '--check']);
+        await run('cargo', ['clippy', ...targetFlag, '--all-targets', '--locked', '--', '-D', 'warnings']);
+        await run('cargo', ['test', ...targetFlag, '--lib', '--bins', '--locked']);
+        if (!pkg) {
+          await ensureFrontendDependencies();
+          if (!npm) throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
+          await node([npm, 'run', 'typecheck']);
+        }
+        break;
+      }
+      case 'plan':
+        await node([resolve(root, 'scripts/test-plan.mjs'), ...extraArgs]);
+        break;
+      case 'prune':
+        await pruneTarget();
+        break;
+      case 'check':
+        await node([resolve(root, 'scripts/run-tooling-tests.mjs'), '--profile=core']);
+        await run('cargo', ['fmt', '--all', '--check']);
+        await run('cargo', ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings']);
+        await run('cargo', ['test', '--workspace', '--locked']);
+        await ensureFrontendDependencies();
+        await node(['scripts/build.mjs']);
+        if (!npm) throw new Error('Could not locate npm runtime. Run scripts/desktop.ps1.');
+        await node([npm, 'test']);
+        await ensureNativeDependencies();
+        await node([resolve(root, 'scripts/run-tooling-tests.mjs'), '--profile=native-preflight']);
+        break;
+      default:
+        throw new Error(`Unknown desktop command: ${action}`);
+    }
+
+    recordTiming({
+      timestamp: new Date().toISOString(),
+      action,
+      args: extraArgs,
+      frontendDeps: dependencyStatus.frontend,
+      nativeDeps: dependencyStatus.native,
+      durationMs: Date.now() - startTime,
+      status: 'success',
+    });
+  } catch (err) {
+    recordTiming({
+      timestamp: new Date().toISOString(),
+      action,
+      args: extraArgs,
+      frontendDeps: dependencyStatus.frontend,
+      nativeDeps: dependencyStatus.native,
+      durationMs: Date.now() - startTime,
+      status: 'failed',
+      error: err?.message || String(err),
+    });
+    throw err;
   }
-  case 'plan':
-    await node([resolve(root, 'scripts/test-plan.mjs'), ...extraArgs]);
-    break;
-  case 'prune': await pruneTarget(); break;
-  case 'check':
-    await node([resolve(root, 'scripts/run-tooling-tests.mjs'), '--profile=core']);
-    await run('cargo', ['fmt', '--all', '--check']);
-    await run('cargo', ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings']);
-    await run('cargo', ['test', '--workspace', '--locked']);
-    await ensureFrontendDependencies();
-    await node(['scripts/build.mjs']);
-    await node([npm, 'test']);
-    await ensureNativeDependencies();
-    await node([resolve(root, 'scripts/run-tooling-tests.mjs'), '--profile=native-preflight']);
-    break;
-  default: throw new Error(`Unknown desktop command: ${action}`);
 }

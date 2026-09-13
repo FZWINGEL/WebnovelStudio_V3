@@ -230,6 +230,15 @@ export function classifyPath(f) {
     f.startsWith('scripts/owned-process') ||
     f.startsWith('tests/native/')
   ) {
+    if (f.endsWith('.test.mjs')) {
+      if (f.startsWith('tests/native/')) {
+        req.toolingProfiles.add('native-preflight');
+      } else {
+        req.toolingProfiles.add('core');
+      }
+      return req;
+    }
+
     req.toolingProfiles.add('core');
     req.toolingProfiles.add('native-preflight');
     req.nativeOutstanding = true;
@@ -303,6 +312,18 @@ export function classifyPath(f) {
 
   if (f.startsWith('apps/desktop/src/') || f.startsWith('apps/desktop/public/')) {
     req.frontendTypecheck = true;
+
+    const isTestFile = f.startsWith('apps/desktop/src/') && (
+      f.endsWith('.test.ts') || f.endsWith('.test.tsx') || f.endsWith('.test.js') || f.endsWith('.test.jsx')
+    );
+
+    if (isTestFile) {
+      const rel = f.replace('apps/desktop/', '');
+      req.frontendFiles.add(rel);
+      req.frontendFiles.add('src/featureBoundary.test.ts');
+      return req;
+    }
+
     req.nativeOutstanding = true;
     if (f.startsWith('apps/desktop/public/') || f === 'apps/desktop/src/index.html' || f.match(/^apps\/desktop\/src\/[^/]+$/)) {
       req.frontendFullVitest = true;
@@ -440,7 +461,7 @@ export function planFromClassification(classification, baseDir = root, options =
       required: false,
       status: 'none',
       suites: [],
-      reason: 'Documentation or tooling-only change: native qualification not required.',
+      reason: 'Documentation, tooling, or test-only change: native qualification not required.',
     };
   }
 

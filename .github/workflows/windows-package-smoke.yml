@@ -60,8 +60,7 @@ jobs:
 
       - name: Install locked frontend dependencies
         if: inputs.installer_run_id == ''
-        working-directory: apps/desktop
-        run: npm ci
+        run: node scripts/run-desktop.mjs ensure-frontend
 
       - name: Build the locked release NSIS installer
         if: inputs.installer_run_id == ''

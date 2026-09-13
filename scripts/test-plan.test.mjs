@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   classifyChanges,
   planFromClassification,
@@ -310,4 +313,103 @@ test('validateCommand throws on invalid npm scripts or unknown cargo packages', 
     () => validateCommand({ executable: 'cargo', args: ['test', '-p', 'wns-documents'] })
   );
 });
+
+test('frontend test-only change skips native qualification and runs targeted tests', () => {
+  const c = classifyChanges(['apps/desktop/src/shell/AppCloseDialog.test.tsx']);
+  assert.equal(c.frontendTypecheck, true);
+  assert.equal(c.frontendFiles.has('src/shell/AppCloseDialog.test.tsx'), true);
+  assert.equal(c.frontendFiles.has('src/featureBoundary.test.ts'), true);
+  assert.equal(c.frontendDirs.size, 0);
+  assert.equal(c.nativeOutstanding, false);
+  assert.equal(c.nativeSuites.size, 0);
+
+  const plan = planFromClassification(c);
+  assert.equal(plan.category, 'frontend');
+  assert.equal(plan.outstandingNative, false);
+  assert.equal(plan.nativeObligation.required, false);
+  assert.equal(plan.nativeObligation.status, 'none');
+
+  const vitestCmd = plan.commands.find(cmd => cmd.executable === 'npm' && cmd.args[0] === 'test');
+  assert(vitestCmd, 'Should emit targeted npm test command');
+  assert(vitestCmd.args.includes('src/shell/AppCloseDialog.test.tsx'));
+  assert(vitestCmd.args.includes('src/featureBoundary.test.ts'));
+});
+
+test('tooling unit test in tests/native skips native qualification', () => {
+  const c = classifyChanges(['tests/native/dependency-resolution.test.mjs']);
+  assert.equal(c.toolingProfiles.has('native-preflight'), true);
+  assert.equal(c.nativeOutstanding, false);
+  assert.equal(c.nativeSuites.size, 0);
+
+  const plan = planFromClassification(c);
+  assert.equal(plan.category, 'tooling');
+  assert.equal(plan.outstandingNative, false);
+  assert.equal(plan.nativeObligation.required, false);
+  assert.equal(plan.nativeObligation.status, 'none');
+  assert.deepEqual(plan.commands, [
+    { executable: 'node', args: ['scripts/run-tooling-tests.mjs', '--profile=native-preflight'] },
+  ]);
+});
+
+test('tooling unit test in scripts skips native qualification', () => {
+  const c = classifyChanges(['scripts/native-artifact.test.mjs']);
+  assert.equal(c.toolingProfiles.has('core'), true);
+  assert.equal(c.nativeOutstanding, false);
+  assert.equal(c.nativeSuites.size, 0);
+
+  const plan = planFromClassification(c);
+  assert.equal(plan.category, 'tooling');
+  assert.equal(plan.outstandingNative, false);
+  assert.equal(plan.nativeObligation.required, false);
+  assert.equal(plan.nativeObligation.status, 'none');
+  assert.deepEqual(plan.commands, [
+    { executable: 'node', args: ['scripts/run-tooling-tests.mjs', '--profile=core'] },
+  ]);
+});
+
+test('combined frontend production and test file change retains native obligation', () => {
+  const c = classifyChanges([
+    'apps/desktop/src/shell/AppCloseDialog.tsx',
+    'apps/desktop/src/shell/AppCloseDialog.test.tsx',
+  ]);
+  assert.equal(c.frontendTypecheck, true);
+  assert.equal(c.frontendDirs.has('shell'), true);
+  assert.equal(c.nativeOutstanding, true);
+  assert.equal(c.nativeSuites.has('main'), true);
+
+  const plan = planFromClassification(c);
+  assert.equal(plan.category, 'frontend');
+  assert.equal(plan.outstandingNative, true);
+  assert.equal(plan.nativeObligation.required, true);
+  assert.equal(plan.nativeObligation.status, 'scoped');
+  assert(plan.nativeObligation.suites.includes('main'));
+});
+
+test('regression: no production source files import test files', () => {
+  const desktopSrc = resolve(fileURLToPath(new URL('../', import.meta.url)), 'apps/desktop/src');
+  function scan(dir) {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    const results = [];
+    for (const entry of entries) {
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...scan(full));
+      } else if (entry.isFile() && (full.endsWith('.ts') || full.endsWith('.tsx'))) {
+        if (!full.endsWith('.test.ts') && !full.endsWith('.test.tsx')) {
+          results.push(full);
+        }
+      }
+    }
+    return results;
+  }
+
+  const prodFiles = scan(desktopSrc);
+  assert(prodFiles.length > 0, 'Should find production source files');
+  for (const file of prodFiles) {
+    const content = readFileSync(file, 'utf8');
+    const hasTestImport = /from\s+['"][^'"]*\.test(\.[a-z]+)?['"]/.test(content);
+    assert(!hasTestImport, `Production file ${file} imports a test file!`);
+  }
+});
+
 
