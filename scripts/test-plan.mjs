@@ -56,21 +56,37 @@ export const CRATE_MAPPINGS = {
   },
 };
 
-let cachedWorkspacePackages = null;
+export const KNOWN_WORKSPACE_PACKAGES = Object.freeze(new Set([
+  'wns-kernel', 'wns-storage', 'wns-providers', 'wns-documents',
+  'wns-context', 'wns-story', 'wns-conversation', 'wns-workshop',
+  'wns-transfer', 'wns-library', 'wns-architecture', 'contracts',
+  'wns-bindings', 'webnovel-core', 'webnovel-desktop',
+]));
+
+const workspacePackagesCache = new Map();
+let defaultWorkspacePackages = null;
+
+export function setDefaultWorkspacePackages(pkgs) {
+  defaultWorkspacePackages = pkgs;
+}
+
 export function getWorkspacePackages(baseDir = root) {
-  if (cachedWorkspacePackages) return cachedWorkspacePackages;
+  if (defaultWorkspacePackages) return defaultWorkspacePackages;
+  if (workspacePackagesCache.has(baseDir)) {
+    const cached = workspacePackagesCache.get(baseDir);
+    if (cached instanceof Error) throw cached;
+    return cached;
+  }
   try {
-    const stdout = execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: baseDir, encoding: 'utf8' });
+    const stdout = execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: baseDir, encoding: 'utf8', windowsHide: true });
     const meta = JSON.parse(stdout);
-    cachedWorkspacePackages = new Set(meta.packages.map(p => p.name));
-    return cachedWorkspacePackages;
-  } catch {
-    return new Set([
-      'wns-kernel', 'wns-storage', 'wns-providers', 'wns-documents',
-      'wns-context', 'wns-story', 'wns-conversation', 'wns-workshop',
-      'wns-transfer', 'wns-library', 'wns-architecture', 'contracts',
-      'wns-bindings', 'webnovel-core', 'webnovel-desktop',
-    ]);
+    const pkgs = new Set(meta.packages.map(p => p.name));
+    workspacePackagesCache.set(baseDir, pkgs);
+    return pkgs;
+  } catch (err) {
+    const error = new Error(`Failed to acquire Cargo workspace packages from ${baseDir}: ${err.message}`);
+    workspacePackagesCache.set(baseDir, error);
+    throw error;
   }
 }
 
@@ -110,17 +126,23 @@ export function getChangedFiles(options = {}) {
   const baseDir = options.baseDir || root;
   const base = options.base;
   const head = options.head;
+  if (head && !base) {
+    throw new Error('Cannot specify head commit without base commit.');
+  }
   try {
-    if (base && head) {
-      const stdout = execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', `${base}..${head}`], { cwd: baseDir, encoding: 'utf8' });
+    if (base) {
+      const targetHead = head || 'HEAD';
+      const stdout = execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', `${base}..${targetHead}`], { cwd: baseDir, encoding: 'utf8', windowsHide: true });
       return stdout.split('\0').filter(Boolean).map(s => s.replaceAll('\\', '/'));
     }
-    const stdout = execFileSync('git', ['status', '--porcelain', '-z', '-uall'], { cwd: baseDir, encoding: 'utf8' });
+    const stdout = execFileSync('git', ['status', '--porcelain', '-z', '-uall'], { cwd: baseDir, encoding: 'utf8', windowsHide: true });
     return parseGitStatusPorcelainZ(stdout);
   } catch (err) {
     return { error: err?.message || String(err) };
   }
 }
+
+
 
 export function isBroadPath(f) {
   return (
@@ -200,17 +222,21 @@ export function classifyPath(f) {
     return req;
   }
 
-  if (f.startsWith('scripts/')) {
-    req.toolingProfiles.add('core');
-    return req;
-  }
-
-  if (f.startsWith('tests/native/')) {
+  // Native runner & harness paths check BEFORE generic scripts/
+  if (
+    f.startsWith('apps/desktop/scripts/native-') ||
+    f.startsWith('apps/desktop/scripts/owned-process') ||
+    f.startsWith('scripts/native-') ||
+    f.startsWith('scripts/owned-process') ||
+    f.startsWith('tests/native/')
+  ) {
     req.toolingProfiles.add('core');
     req.toolingProfiles.add('native-preflight');
     req.nativeOutstanding = true;
 
-    if (f.includes('native-smoke.mjs') || f.includes('native-save-dialog.ps1')) {
+    if (f === 'scripts/native-consumer.mjs' || f === 'scripts/native-artifact.mjs') {
+      req.nativeSuites.add('all');
+    } else if (f.includes('native-smoke.mjs') || f.includes('native-save-dialog.ps1')) {
       req.nativeSuites.add('main');
     } else if (f.includes('native-chat-smoke.mjs') || f.includes('native-chat-failures.mjs') || f.includes('native-chat-live.mjs') || f.includes('native-chat-window.ps1')) {
       req.nativeSuites.add('chat');
@@ -234,6 +260,11 @@ export function classifyPath(f) {
     return req;
   }
 
+  if (f.startsWith('scripts/')) {
+    req.toolingProfiles.add('core');
+    return req;
+  }
+
   if (f.startsWith('contracts/') || f.startsWith('crates/bindings/')) {
     req.rustFmt = true;
     req.rustPackages.add('wns-bindings');
@@ -242,6 +273,9 @@ export function classifyPath(f) {
     req.frontendTypecheck = true;
     req.frontendDirs.add('kernel');
     req.frontendFiles.add('src/featureBoundary.test.ts');
+    req.nativeOutstanding = true;
+    req.nativeSuites.add('main');
+    req.nativeSuites.add('app-server-transport');
     return req;
   }
 
@@ -250,21 +284,57 @@ export function classifyPath(f) {
       req.rustFmt = true;
       req.rustPackages.add(config.crate);
       config.integrationPrefixes.forEach(p => req.rustIntegrationFilters.add(p));
+      req.nativeOutstanding = true;
+      if (config.crate === 'wns-workshop') {
+        req.nativeSuites.add('workshop');
+      } else if (config.crate === 'wns-conversation' || config.crate === 'wns-providers') {
+        req.nativeSuites.add('chat');
+        req.nativeSuites.add('app-server-transport');
+      } else if (config.crate === 'wns-context') {
+        req.nativeSuites.add('memory');
+        req.nativeSuites.add('chat');
+      } else {
+        req.nativeSuites.add('main');
+        req.nativeSuites.add('recovery');
+      }
       return req;
     }
   }
 
   if (f.startsWith('apps/desktop/src/') || f.startsWith('apps/desktop/public/')) {
     req.frontendTypecheck = true;
+    req.nativeOutstanding = true;
     if (f.startsWith('apps/desktop/public/') || f === 'apps/desktop/src/index.html' || f.match(/^apps\/desktop\/src\/[^/]+$/)) {
       req.frontendFullVitest = true;
+      req.nativeSuites.add('main');
     } else {
       const rel = f.replace('apps/desktop/src/', '');
       const dir = rel.split('/')[0];
       if (dir && !dir.includes('.')) {
         req.frontendDirs.add(dir);
+        if (dir === 'chat' || dir === 'assistant') {
+          req.nativeSuites.add('chat');
+          req.nativeSuites.add('memory');
+        } else if (dir === 'workshop') {
+          req.nativeSuites.add('workshop');
+        } else if (dir === 'editor' || dir === 'kernel') {
+          req.nativeSuites.add('main');
+          req.nativeSuites.add('recovery');
+          req.nativeSuites.add('close');
+        } else if (dir === 'shell') {
+          req.nativeSuites.add('main');
+          req.nativeSuites.add('workshop');
+          req.nativeSuites.add('chat');
+        } else if (dir === 'ipc') {
+          req.nativeSuites.add('main');
+          req.nativeSuites.add('app-server-transport');
+          req.nativeSuites.add('http');
+        } else {
+          req.nativeSuites.add('main');
+        }
       } else {
         req.frontendFullVitest = true;
+        req.nativeSuites.add('main');
       }
       req.frontendFiles.add('src/featureBoundary.test.ts');
     }
@@ -298,7 +368,7 @@ export function classifyChanges(files) {
   return req;
 }
 
-export function validateCommand(cmd, baseDir = root) {
+export function validateCommand(cmd, baseDir = root, options = {}) {
   if (cmd.executable === 'npm' && cmd.cwd === 'apps/desktop') {
     if (cmd.args[0] === 'run') {
       const scriptName = cmd.args[1];
@@ -309,7 +379,7 @@ export function validateCommand(cmd, baseDir = root) {
       }
     }
   } else if (cmd.executable === 'cargo') {
-    const known = getWorkspacePackages(baseDir);
+    const known = options.workspacePackages || (defaultWorkspacePackages || getWorkspacePackages(baseDir));
     for (let i = 0; i < cmd.args.length; i++) {
       if (cmd.args[i] === '-p' && i + 1 < cmd.args.length) {
         const pkg = cmd.args[i + 1];
@@ -321,7 +391,7 @@ export function validateCommand(cmd, baseDir = root) {
   }
 }
 
-export function planFromClassification(classification, baseDir = root) {
+export function planFromClassification(classification, baseDir = root, options = {}) {
   // Support either PlanRequirements instance or object
   const req = classification instanceof PlanRequirements
     ? classification
@@ -342,6 +412,38 @@ export function planFromClassification(classification, baseDir = root) {
         return r;
       })();
 
+  let nativeObligation;
+  if (req.isClean) {
+    nativeObligation = {
+      required: false,
+      status: 'none',
+      suites: [],
+      reason: 'Working tree is clean.',
+    };
+  } else if (req.broadFallback) {
+    nativeObligation = {
+      required: true,
+      status: 'all',
+      suites: ['all'],
+      reason: req.broadFallback,
+    };
+  } else if (req.nativeOutstanding || req.nativeSuites.size > 0) {
+    const suites = Array.from(req.nativeSuites).sort();
+    nativeObligation = {
+      required: true,
+      status: suites.includes('all') ? 'all' : 'scoped',
+      suites: suites.includes('all') ? ['all'] : suites,
+      reason: 'Application source or native orchestration changed: native qualification required before acceptance.',
+    };
+  } else {
+    nativeObligation = {
+      required: false,
+      status: 'none',
+      suites: [],
+      reason: 'Documentation or tooling-only change: native qualification not required.',
+    };
+  }
+
   if (req.isClean) {
     return {
       category: 'clean',
@@ -351,6 +453,7 @@ export function planFromClassification(classification, baseDir = root) {
         { executable: 'node', args: ['scripts/run-tooling-tests.mjs', '--profile=core'] },
       ],
       exclusions: ['Skipped full workspace compilation and frontend tests'],
+      nativeObligation,
       outstandingNative: false,
       requiredNativeSuites: [],
     };
@@ -364,6 +467,7 @@ export function planFromClassification(classification, baseDir = root) {
         { executable: 'desktop', args: ['check'] },
       ],
       exclusions: ['No exclusions (fails closed to full check)'],
+      nativeObligation,
       outstandingNative: true,
       requiredNativeSuites: ['all'],
     };
@@ -421,13 +525,17 @@ export function planFromClassification(classification, baseDir = root) {
   else if (req.nativeSuites.size > 0) category = 'native-harness';
   else if (req.toolingProfiles.size > 0) category = req.files.every(isDocPath) ? 'docs' : 'tooling';
 
-  const outstandingNative = Boolean(req.nativeOutstanding || req.nativeSuites.size > 0);
+  const outstandingNative = nativeObligation.required;
+  const requiredNativeSuites = nativeObligation.suites;
   if (!outstandingNative) {
     exclusions.push('Skipped native WebView2 suite');
+  } else {
+    exclusions.push('Skipped native WebView2 suite (omitted from fast local iteration; required before merge)');
   }
 
+  const workspacePackages = options.workspacePackages || defaultWorkspacePackages;
   for (const cmd of commands) {
-    validateCommand(cmd, baseDir);
+    validateCommand(cmd, baseDir, { workspacePackages });
   }
 
   return {
@@ -435,8 +543,9 @@ export function planFromClassification(classification, baseDir = root) {
     description: `Targeted plan based on accumulated requirements for ${req.files.length} changed file(s).`,
     commands,
     exclusions,
+    nativeObligation,
     outstandingNative,
-    requiredNativeSuites: Array.from(req.nativeSuites).sort(),
+    requiredNativeSuites,
   };
 }
 
@@ -453,17 +562,58 @@ export function formatPlan(plan) {
     output += `  - ${exc}\n`;
   });
   output += `\nNative Qualification:\n`;
-  output += `  - ${plan.outstandingNative ? `Outstanding: native qualification required (${plan.requiredNativeSuites.join(', ') || 'all'}).` : 'Not required for scoped changes.'}\n`;
+  if (!plan.nativeObligation?.required) {
+    output += `  - Required:  No\n`;
+    output += `  - Status:    NONE\n`;
+    output += `  - Reason:    ${plan.nativeObligation?.reason || 'Not required for scoped changes.'}\n`;
+  } else {
+    output += `  - Required:  Yes\n`;
+    output += `  - Status:    ${plan.nativeObligation.status.toUpperCase()} (${plan.nativeObligation.suites.join(', ')})\n`;
+    output += `  - Reason:    ${plan.nativeObligation.reason}\n`;
+  }
   return output;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
-  const jsonMode = process.argv.includes('--json');
   let base = null;
   let head = null;
+  let jsonMode = false;
+  let porcelainMode = false;
+
   for (let i = 2; i < process.argv.length; i++) {
-    if (process.argv[i] === '--base' && i + 1 < process.argv.length) base = process.argv[++i];
-    else if (process.argv[i] === '--head' && i + 1 < process.argv.length) head = process.argv[++i];
+    const arg = process.argv[i];
+    if (arg === '--json') {
+      jsonMode = true;
+    } else if (arg === '--porcelain') {
+      porcelainMode = true;
+    } else if (arg === '--base') {
+      if (i + 1 >= process.argv.length || process.argv[i + 1].startsWith('--')) {
+        throw new Error('Missing argument value for --base.');
+      }
+      base = process.argv[++i];
+    } else if (arg === '--head') {
+      if (i + 1 >= process.argv.length || process.argv[i + 1].startsWith('--')) {
+        throw new Error('Missing argument value for --head.');
+      }
+      head = process.argv[++i];
+    } else {
+      throw new Error(`Unsupported option: ${arg}`);
+    }
+  }
+
+  if (head && !base) {
+    throw new Error('Cannot specify --head without --base.');
+  }
+
+  let scope;
+  if (base) {
+    const targetHead = head || 'HEAD';
+    const resolvedBase = execFileSync('git', ['rev-parse', `${base}^{commit}`], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
+    const resolvedHead = execFileSync('git', ['rev-parse', `${targetHead}^{commit}`], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
+    scope = { type: 'revision-range', base: resolvedBase, head: resolvedHead };
+  } else {
+    const headCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
+    scope = { type: 'worktree', head: headCommit };
   }
 
   const files = getChangedFiles({ base, head });
@@ -471,7 +621,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
   const plan = planFromClassification(classification);
   if (jsonMode) {
     console.log(JSON.stringify({
-      scope: base && head ? { type: 'revision-range', base, head } : { type: 'worktree' },
+      scope,
       snapshot: {
         timestamp: new Date().toISOString(),
         changedFiles: Array.isArray(files) ? files : [],
@@ -482,3 +632,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
     console.log(formatPlan(plan));
   }
 }
+

@@ -97,86 +97,183 @@ test('automatic git diff with --no-renames detects removed rust file on rename t
   }
 });
 
-test('computeHarnessSha256 recursively hashes tests/native and catches nested helper changes', async () => {
-  const hash1 = await computeHarnessSha256();
-  assert.equal(typeof hash1, 'string');
-  assert.equal(hash1.length, 64);
+import { runtimePins } from './native-artifact.mjs';
 
-  // Missing directory fails explicitly
-  await assert.rejects(
-    () => computeHarnessSha256('nonexistent-dir-12345'),
-    /does not exist/
-  );
-});
-
-test('validateNativeRetestContract mandates artifactDirectory and verifies executable bytes', async () => {
-  const dir = await mkdtemp(resolve(tmpdir(), 'test-retest-art-'));
+test('computeHarnessSha256 produces identical hash regardless of parent directory name', async () => {
+  const tempRoot = await mkdtemp(resolve(tmpdir(), 'test-harness-parent-'));
   try {
-    const exeDir = resolve(dir, 'target/debug');
-    await mkdir(exeDir, { recursive: true });
-    const exePath = resolve(exeDir, 'webnovel-desktop.exe');
-    const content = Buffer.from('mock executable binary content');
-    const sha = createHash('sha256').update(content).digest('hex');
-    await writeFile(exePath, content);
+    const dirNormal = resolve(tempRoot, 'normal-checkout');
+    const dirLocal = resolve(tempRoot, '.local/nested-checkout');
 
-    const validManifest = {
-      schemaVersion: 1,
-      commit: buildCommit,
-      executable: 'target/debug/webnovel-desktop.exe',
-      files: [
-        { path: 'target/debug/webnovel-desktop.exe', sha256: sha, bytes: content.length }
-      ]
-    };
+    for (const d of [dirNormal, dirLocal]) {
+      await mkdir(resolve(d, 'tests/native/fixtures'), { recursive: true });
+      await mkdir(resolve(d, 'apps/desktop/scripts'), { recursive: true });
+      await mkdir(resolve(d, 'scripts'), { recursive: true });
 
-    // Valid check with artifactDirectory
-    const result = await validateNativeRetestContract({
-      manifest: validManifest,
-      buildCommit,
-      qualificationCommit,
-      changedPaths: ['tests/native/native-smoke.mjs'],
-      artifactDirectory: dir,
-    });
-    assert.equal(result.buildCommit, buildCommit);
-    assert.equal(result.qualificationCommit, qualificationCommit);
-    assert.equal(result.executableSha256, sha);
+      await writeFile(resolve(d, 'tests/native/native-smoke.mjs'), 'console.log("smoke");');
+      await writeFile(resolve(d, 'tests/native/fixtures/fixture.txt'), 'plain text fixture content');
+      await writeFile(resolve(d, 'apps/desktop/scripts/native-smoke.mjs'), 'export const stub = true;');
+      await writeFile(resolve(d, 'scripts/native-consumer.mjs'), 'export const consumer = true;');
+    }
 
-    // Missing artifactDirectory fails explicitly
-    await assert.rejects(() => validateNativeRetestContract({
-      manifest: validManifest,
-      buildCommit,
-      qualificationCommit,
-      changedPaths: ['tests/native/native-smoke.mjs'],
-    }), /Artifact directory is required/);
+    const shaNormal = await computeHarnessSha256(dirNormal);
+    const shaLocal = await computeHarnessSha256(dirLocal);
 
-    // Mismatched executable bytes fails explicitly
-    const mismatchedManifest = {
-      ...validManifest,
-      files: [{ path: 'target/debug/webnovel-desktop.exe', sha256: 'f'.repeat(64), bytes: content.length }]
-    };
-    await assert.rejects(() => validateNativeRetestContract({
-      manifest: mismatchedManifest,
-      buildCommit,
-      qualificationCommit,
-      changedPaths: ['tests/native/native-smoke.mjs'],
-      artifactDirectory: dir,
-    }), /Executable bytes on disk do not match/);
+    assert.equal(typeof shaNormal, 'string');
+    assert.equal(shaNormal.length, 64);
+    assert.equal(shaNormal, shaLocal, 'Harness hash must be identical even when parent directory contains .local');
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
-test('validateNativeRetestContract fails closed on invalid commits', async () => {
-  await assert.rejects(() => validateNativeRetestContract({
-    buildCommit: 'short',
-    qualificationCommit,
-    artifactDirectory: 'some-dir',
-  }), /Invalid buildCommit/);
+test('computeHarnessSha256 changes on nested helper or non-code fixture mutation', async () => {
+  const tempRoot = await mkdtemp(resolve(tmpdir(), 'test-harness-mutation-'));
+  try {
+    const dir = resolve(tempRoot, 'checkout');
+    await mkdir(resolve(dir, 'tests/native/fixtures'), { recursive: true });
+    await mkdir(resolve(dir, 'tests/native/helpers'), { recursive: true });
+    await mkdir(resolve(dir, 'apps/desktop/scripts'), { recursive: true });
+    await mkdir(resolve(dir, 'scripts'), { recursive: true });
 
-  await assert.rejects(() => validateNativeRetestContract({
-    buildCommit,
-    qualificationCommit: 'not-hex-commit-hash-value-12345678901234',
-    artifactDirectory: 'some-dir',
-  }), /Invalid qualificationCommit/);
+    await writeFile(resolve(dir, 'tests/native/native-smoke.mjs'), 'console.log("smoke");');
+    await writeFile(resolve(dir, 'tests/native/fixtures/fixture.txt'), 'initial fixture content');
+    await writeFile(resolve(dir, 'tests/native/helpers/util.mjs'), 'export const helper = 1;');
+    await writeFile(resolve(dir, 'apps/desktop/scripts/native-smoke.mjs'), 'export const stub = true;');
+    await writeFile(resolve(dir, 'scripts/native-consumer.mjs'), 'export const consumer = true;');
+
+    const baseSha = await computeHarnessSha256(dir);
+
+    // 1. Mutate non-code fixture (.txt)
+    await writeFile(resolve(dir, 'tests/native/fixtures/fixture.txt'), 'modified fixture content');
+    const mutatedTxtSha = await computeHarnessSha256(dir);
+    assert.notEqual(baseSha, mutatedTxtSha, 'Mutating non-code fixture .txt must change harness SHA-256');
+
+    // 2. Mutate nested script helper
+    await writeFile(resolve(dir, 'tests/native/helpers/util.mjs'), 'export const helper = 2;');
+    const mutatedScriptSha = await computeHarnessSha256(dir);
+    assert.notEqual(mutatedTxtSha, mutatedScriptSha, 'Mutating nested script must change harness SHA-256');
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('operational verifyNativeRetest requires real commits, real on-disk manifest, and rejects prohibited changes', async () => {
+  const tempRepo = await mkdtemp(resolve(tmpdir(), 'test-operational-retest-'));
+  const tempArtifact = await mkdtemp(resolve(tmpdir(), 'test-operational-art-'));
+
+  try {
+    execFileSync('git', ['init'], { cwd: tempRepo });
+    execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tempRepo });
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tempRepo });
+
+    // Create required harness directories
+    await mkdir(resolve(tempRepo, 'tests/native'), { recursive: true });
+    await mkdir(resolve(tempRepo, 'apps/desktop/scripts'), { recursive: true });
+    await mkdir(resolve(tempRepo, 'scripts'), { recursive: true });
+    await mkdir(resolve(tempRepo, 'docs'), { recursive: true });
+
+    await writeFile(resolve(tempRepo, 'tests/native/native-smoke.mjs'), '// smoke');
+    await writeFile(resolve(tempRepo, 'apps/desktop/scripts/native-smoke.mjs'), '// smoke');
+    await writeFile(resolve(tempRepo, 'scripts/native-consumer.mjs'), '// consumer');
+    await writeFile(resolve(tempRepo, 'docs/README.md'), '# Initial');
+
+    execFileSync('git', ['add', '.'], { cwd: tempRepo });
+    execFileSync('git', ['commit', '-m', 'commit-1'], { cwd: tempRepo });
+    const c1 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tempRepo, encoding: 'utf8' }).trim();
+
+    // Create real on-disk executable and manifest in artifact directory
+    const exeName = 'webnovel-desktop.exe';
+    const exeContent = Buffer.from('test binary content for executable');
+    const exeSha = createHash('sha256').update(exeContent).digest('hex');
+    await writeFile(resolve(tempArtifact, exeName), exeContent);
+
+    const validManifest = {
+      schemaVersion: 1,
+      commit: c1,
+      buildMode: 'debug',
+      platform: 'win32',
+      architecture: 'x64',
+      node: runtimePins.node,
+      rustc: `rustc ${runtimePins.rustc} (mock)`,
+      runtime: 'system-webview2',
+      assets: 'embedded',
+      executable: exeName,
+      files: [
+        { path: exeName, sha256: exeSha, bytes: exeContent.length }
+      ]
+    };
+    await writeFile(resolve(tempArtifact, 'manifest.json'), JSON.stringify(validManifest));
+
+    // Commit 2: Valid allowed doc change
+    await writeFile(resolve(tempRepo, 'docs/README.md'), '# Updated Docs');
+    execFileSync('git', ['add', '.'], { cwd: tempRepo });
+    execFileSync('git', ['commit', '-m', 'commit-2 docs update'], { cwd: tempRepo });
+    const c2 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tempRepo, encoding: 'utf8' }).trim();
+
+    // Operational verification succeeds with real git commits and on-disk manifest
+    const res = await validateNativeRetestContract({
+      baseDir: tempRepo,
+      artifactDirectory: tempArtifact,
+      buildCommit: c1,
+      qualificationCommit: c2,
+    });
+    assert.equal(res.buildCommit, c1);
+    assert.equal(res.qualificationCommit, c2);
+    assert.equal(res.executableSha256, exeSha);
+
+    // Commit 3: Disallowed change to rust source
+    await mkdir(resolve(tempRepo, 'crates/kernel/src'), { recursive: true });
+    await writeFile(resolve(tempRepo, 'crates/kernel/src/lib.rs'), 'fn disallowed() {}');
+    execFileSync('git', ['add', '.'], { cwd: tempRepo });
+    execFileSync('git', ['commit', '-m', 'commit-3 prohibited change'], { cwd: tempRepo });
+    const c3 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tempRepo, encoding: 'utf8' }).trim();
+
+    // Operational verification MUST reject prohibited change - cannot be bypassed by caller
+    await assert.rejects(
+      () => validateNativeRetestContract({
+        baseDir: tempRepo,
+        artifactDirectory: tempArtifact,
+        buildCommit: c1,
+        qualificationCommit: c3,
+        // Even if an adversarial caller passes changedPaths: [] or custom manifest, it is ignored
+        changedPaths: [],
+      }),
+      /disallowed changes: crates\/kernel\/src\/lib\.rs/
+    );
+
+    // Non-existent commit fails explicitly
+    await assert.rejects(
+      () => validateNativeRetestContract({
+        baseDir: tempRepo,
+        artifactDirectory: tempArtifact,
+        buildCommit: 'f'.repeat(40),
+        qualificationCommit: c2,
+      }),
+      /buildCommit does not exist in repository/
+    );
+
+    // Missing manifest.json in artifact directory fails explicitly
+    execFileSync('git', ['checkout', c2], { cwd: tempRepo });
+    const emptyArtDir = await mkdtemp(resolve(tmpdir(), 'test-empty-art-'));
+    try {
+      await assert.rejects(
+        () => validateNativeRetestContract({
+          baseDir: tempRepo,
+          artifactDirectory: emptyArtDir,
+          buildCommit: c1,
+          qualificationCommit: c2,
+        }),
+        /ENOENT/
+      );
+    } finally {
+      await rm(emptyArtDir, { recursive: true, force: true });
+    }
+
+  } finally {
+    await rm(tempRepo, { recursive: true, force: true });
+    await rm(tempArtifact, { recursive: true, force: true });
+  }
 });
 
 test('parseRunId verifies positive integer run IDs', () => {
@@ -185,3 +282,4 @@ test('parseRunId verifies positive integer run IDs', () => {
   assert.throws(() => parseRunId('abc'), /positive integer/);
   assert.throws(() => parseRunId('-5'), /positive integer/);
 });
+

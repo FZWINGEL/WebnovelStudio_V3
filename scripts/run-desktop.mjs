@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { basename, dirname, delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -20,25 +21,67 @@ async function run(executable, args, cwd = root) {
 }
 async function node(args, cwd = desktop) { await run(process.execPath, args, cwd); }
 
+function computeInstallSignature(dir) {
+  const pkgPath = resolve(dir, 'package.json');
+  const lockPath = resolve(dir, 'package-lock.json');
+  if (!existsSync(pkgPath) || !existsSync(lockPath)) return null;
+  const pkgContent = readFileSync(pkgPath);
+  const lockContent = readFileSync(lockPath);
+  return createHash('sha256')
+    .update(pkgContent)
+    .update(lockContent)
+    .update(`${process.version}:${process.platform}:${process.arch}`)
+    .digest('hex');
+}
+
+function isInstallValid(dir, keyFile) {
+  if (!existsSync(resolve(dir, keyFile))) return false;
+  const sigFile = resolve(dir, 'node_modules/.install-signature');
+  if (!existsSync(sigFile)) return false;
+  const expectedSig = computeInstallSignature(dir);
+  if (!expectedSig) return false;
+  try {
+    const actualSig = readFileSync(sigFile, 'utf8').trim();
+    return actualSig === expectedSig;
+  } catch {
+    return false;
+  }
+}
+
+function writeInstallSignature(dir) {
+  const sig = computeInstallSignature(dir);
+  if (sig) {
+    try {
+      writeFileSync(resolve(dir, 'node_modules/.install-signature'), sig, 'utf8');
+    } catch {
+      // Best effort
+    }
+  }
+}
+
 async function ensureFrontendDependencies() {
-  if (!existsSync(resolve(desktop, 'node_modules/@tauri-apps/cli/tauri.js'))) {
+  if (!isInstallValid(desktop, 'node_modules/@tauri-apps/cli/tauri.js')) {
     if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
     await node([npm, 'ci']);
+    writeInstallSignature(desktop);
   }
 }
 
 async function ensureNativeDependencies() {
   const nativeDir = resolve(root, 'tests/native');
-  if (!existsSync(resolve(nativeDir, 'node_modules/playwright-core/package.json'))) {
+  if (!isInstallValid(nativeDir, 'node_modules/playwright-core/package.json')) {
     if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
     await node([npm, 'ci'], nativeDir);
+    writeInstallSignature(nativeDir);
   }
 }
 
 if (action === 'setup') {
   if (!npm) throw new Error('Run scripts/desktop.ps1 so the npm runtime is available.');
   await node([npm, 'ci']);
+  writeInstallSignature(desktop);
   await node([npm, 'ci'], resolve(root, 'tests/native'));
+  writeInstallSignature(resolve(root, 'tests/native'));
   process.exit(0);
 }
 

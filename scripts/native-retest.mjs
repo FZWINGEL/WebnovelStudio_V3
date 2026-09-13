@@ -73,90 +73,109 @@ export function validateNativeRetestDiff(changedPaths) {
   return normalized;
 }
 
-async function collectFilesRecursively(dir, filterFn, ignoreFn) {
-  const results = [];
-  async function walk(currentDir) {
-    const entries = await readdir(currentDir, { withFileTypes: true });
+async function collectHarnessFiles(baseDir) {
+  const records = [];
+
+  async function walk(dir) {
+    const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
-      const fullPath = resolve(currentDir, entry.name);
-      if (ignoreFn && ignoreFn(fullPath, entry)) continue;
+      const fullPath = resolve(dir, entry.name);
+      const relPath = relative(baseDir, fullPath).replaceAll('\\', '/');
+      const segments = relPath.split('/');
+
+      if (entry.isSymbolicLink()) {
+        fail(`Symbolic links are not allowed in native harness: ${relPath}`);
+      }
+
+      if (segments.includes('node_modules') || segments.includes('.git')) {
+        continue;
+      }
+
       if (entry.isDirectory()) {
         await walk(fullPath);
       } else if (entry.isFile()) {
-        if (!filterFn || filterFn(fullPath, entry)) {
-          results.push(fullPath);
-        }
+        const content = await readFile(fullPath);
+        const sha = createHash('sha256').update(content).digest('hex');
+        records.push({ path: relPath, type: 'file', sha256: sha });
       }
     }
   }
-  await walk(dir);
-  return results;
+
+  const testsNativeDir = resolve(baseDir, 'tests/native');
+  if (existsSync(testsNativeDir)) {
+    await walk(testsNativeDir);
+  } else {
+    fail(`tests/native directory does not exist: ${testsNativeDir}`);
+  }
+
+  const desktopScriptsDir = resolve(baseDir, 'apps/desktop/scripts');
+  if (existsSync(desktopScriptsDir)) {
+    const entries = await readdir(desktopScriptsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = resolve(desktopScriptsDir, entry.name);
+      const relPath = relative(baseDir, fullPath).replaceAll('\\', '/');
+      if (entry.isSymbolicLink()) {
+        fail(`Symbolic links are not allowed in harness: ${relPath}`);
+      }
+      if (entry.isFile() && (entry.name.startsWith('native-') || entry.name.startsWith('owned-process') || entry.name.endsWith('.mjs') || entry.name.endsWith('.ps1'))) {
+        const content = await readFile(fullPath);
+        const sha = createHash('sha256').update(content).digest('hex');
+        records.push({ path: relPath, type: 'file', sha256: sha });
+      }
+    }
+  } else {
+    fail(`apps/desktop/scripts directory does not exist: ${desktopScriptsDir}`);
+  }
+
+  const rootScriptsDir = resolve(baseDir, 'scripts');
+  if (existsSync(rootScriptsDir)) {
+    const entries = await readdir(rootScriptsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = resolve(rootScriptsDir, entry.name);
+      const relPath = relative(baseDir, fullPath).replaceAll('\\', '/');
+      if (entry.isSymbolicLink()) {
+        fail(`Symbolic links are not allowed in harness: ${relPath}`);
+      }
+      if (entry.isFile() && (entry.name.startsWith('native-') || entry.name.startsWith('owned-process') || entry.name.startsWith('run-tooling'))) {
+        const content = await readFile(fullPath);
+        const sha = createHash('sha256').update(content).digest('hex');
+        records.push({ path: relPath, type: 'file', sha256: sha });
+      }
+    }
+  } else {
+    fail(`scripts directory does not exist: ${rootScriptsDir}`);
+  }
+
+  return records;
 }
 
 export async function computeHarnessSha256(baseDir = root) {
-  if (!existsSync(baseDir)) {
+  if (!baseDir || !existsSync(baseDir)) {
     fail(`Base directory does not exist: ${baseDir}`);
   }
 
-  const testsNativeDir = resolve(baseDir, 'tests/native');
-  const desktopScriptsDir = resolve(baseDir, 'apps/desktop/scripts');
-  const rootScriptsDir = resolve(baseDir, 'scripts');
+  const records = await collectHarnessFiles(baseDir);
+  records.sort((a, b) => a.path.localeCompare(b.path));
 
-  if (!existsSync(testsNativeDir) || !existsSync(desktopScriptsDir) || !existsSync(rootScriptsDir)) {
-    fail('One or more required harness directories do not exist for computing harness SHA-256.');
-  }
-
-  const filePaths = [];
-
-  // Recurse tests/native (ignore node_modules, .local)
-  const nativeFiles = await collectFilesRecursively(
-    testsNativeDir,
-    p => /\.(mjs|js|json|ps1|ts|md)$/.test(p),
-    p => p.includes('node_modules') || p.includes('.local')
-  );
-  filePaths.push(...nativeFiles);
-
-  // apps/desktop/scripts
-  const desktopFiles = await collectFilesRecursively(
-    desktopScriptsDir,
-    p => /\.(mjs|ps1)$/.test(p),
-    p => p.includes('.local')
-  );
-  filePaths.push(...desktopFiles);
-
-  // scripts
-  const rootScriptEntries = await readdir(rootScriptsDir, { withFileTypes: true });
-  for (const entry of rootScriptEntries) {
-    if (entry.isFile() && (entry.name.startsWith('native-') || entry.name.startsWith('owned-process') || entry.name.startsWith('run-tooling'))) {
-      filePaths.push(resolve(rootScriptsDir, entry.name));
-    }
-  }
-
-  const canonical = filePaths.map(p => relative(baseDir, p).replaceAll('\\', '/')).sort();
   const hash = createHash('sha256');
-  for (const relPath of canonical) {
-    const content = await readFile(resolve(baseDir, relPath));
-    hash.update(relPath).update(content);
+  for (const r of records) {
+    hash.update(`${r.path}\0${r.type}\0${r.sha256}\n`);
   }
-
   return hash.digest('hex');
 }
 
-export async function validateNativeRetestContract({
-  manifest,
+export async function verifyNativeRetest({
   buildCommit,
   qualificationCommit,
   artifactDirectory,
-  changedPaths,
   baseDir = root,
 }) {
   if (!baseDir || !existsSync(baseDir)) {
     fail(`Base directory does not exist: ${baseDir}`);
   }
 
-  const bCommit = buildCommit || manifest?.commit;
-  if (!bCommit || typeof bCommit !== 'string' || !/^[0-9a-f]{40}$/i.test(bCommit)) {
-    fail(`Invalid buildCommit: '${bCommit}'. Must be a 40-character commit hash.`);
+  if (!buildCommit || typeof buildCommit !== 'string' || !/^[0-9a-f]{40}$/i.test(buildCommit)) {
+    fail(`Invalid buildCommit: '${buildCommit}'. Must be a 40-character commit hash.`);
   }
 
   if (!qualificationCommit || typeof qualificationCommit !== 'string' || !/^[0-9a-f]{40}$/i.test(qualificationCommit)) {
@@ -167,40 +186,52 @@ export async function validateNativeRetestContract({
     fail('Artifact directory is required and must exist on disk.');
   }
 
-  let diffPaths = changedPaths;
-  if (!diffPaths) {
-    try {
-      const stdout = execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', bCommit, qualificationCommit], { cwd: baseDir, encoding: 'utf8' });
-      diffPaths = stdout.split('\0').filter(Boolean);
-    } catch (err) {
-      fail(`Failed to compute git diff between ${bCommit} and ${qualificationCommit}: ${err.message}`);
-    }
+  try {
+    execFileSync('git', ['cat-file', '-e', `${buildCommit}^{commit}`], { cwd: baseDir, stdio: 'ignore', windowsHide: true });
+  } catch {
+    fail(`buildCommit does not exist in repository: ${buildCommit}`);
+  }
+  try {
+    execFileSync('git', ['cat-file', '-e', `${qualificationCommit}^{commit}`], { cwd: baseDir, stdio: 'ignore', windowsHide: true });
+  } catch {
+    fail(`qualificationCommit does not exist in repository: ${qualificationCommit}`);
+  }
+
+  const headCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: baseDir, encoding: 'utf8', windowsHide: true }).trim();
+  if (headCommit !== qualificationCommit) {
+    fail(`Working tree HEAD (${headCommit}) does not match qualificationCommit (${qualificationCommit}).`);
+  }
+  const status = execFileSync('git', ['status', '--porcelain', '-uall'], { cwd: baseDir, encoding: 'utf8', windowsHide: true }).trim();
+  if (status !== '') {
+    fail('Working tree must be clean to qualify native retest.');
+  }
+
+  let diffPaths;
+  try {
+    const stdout = execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', buildCommit, qualificationCommit], { cwd: baseDir, encoding: 'utf8', windowsHide: true });
+    diffPaths = stdout.split('\0').filter(Boolean);
+  } catch (err) {
+    fail(`Failed to compute git diff between ${buildCommit} and ${qualificationCommit}: ${err.message}`);
   }
 
   validateNativeRetestDiff(diffPaths);
 
-  const verifiedManifest = manifest && manifest.files && manifest.executable
-    ? manifest
-    : await verifyArtifact(artifactDirectory, bCommit);
+  const verifiedManifest = await verifyArtifact(artifactDirectory, buildCommit);
 
   const executableFile = verifiedManifest.files?.find(f => f.path === verifiedManifest.executable);
   if (!executableFile?.sha256) {
     fail('Missing executable entry in artifact manifest.');
   }
 
-  const exePath = resolve(artifactDirectory, verifiedManifest.executable);
-  const bytes = await readFile(exePath);
-  const actualSha = createHash('sha256').update(bytes).digest('hex');
-  if (actualSha !== executableFile.sha256) {
-    fail(`Executable bytes on disk do not match artifact manifest sha256 (expected: ${executableFile.sha256}, actual: ${actualSha})`);
-  }
-
   const harnessSha256 = await computeHarnessSha256(baseDir);
 
   return {
-    buildCommit: bCommit,
+    buildCommit,
     qualificationCommit,
     executableSha256: executableFile.sha256,
     harnessSha256,
   };
 }
+
+export const validateNativeRetestContract = verifyNativeRetest;
+

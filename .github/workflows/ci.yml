@@ -177,10 +177,18 @@ jobs:
         if: always()
         with:
           name: native-evidence-${{ matrix.consumer }}
-          path: .local/native-results/
+          path: .local/native-results/consumer-${{ matrix.consumer }}.json
           include-hidden-files: true
           if-no-files-found: error
           overwrite: true
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: native-diagnostics-${{ matrix.consumer }}-${{ github.run_attempt }}
+          path: .local/native-results/
+          include-hidden-files: true
+          if-no-files-found: warn
+
   native-gate:
     if: always() && inputs.native_layout != 'serial'
     needs: [windows-native, native-consumer]

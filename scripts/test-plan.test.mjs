@@ -7,7 +7,13 @@ import {
   parseGitStatusPorcelainZ,
   validateCommand,
   PlanRequirements,
+  KNOWN_WORKSPACE_PACKAGES,
+  setDefaultWorkspacePackages,
+  getChangedFiles,
 } from './test-plan.mjs';
+
+// Ensure unit tests run instantaneously without spawning real Cargo subprocesses
+setDefaultWorkspacePackages(KNOWN_WORKSPACE_PACKAGES);
 
 test('classifies clean working tree', () => {
   const c = classifyChanges([]);
@@ -15,6 +21,7 @@ test('classifies clean working tree', () => {
   const plan = planFromClassification(c);
   assert.equal(plan.category, 'clean');
   assert.equal(plan.outstandingNative, false);
+  assert.equal(plan.nativeObligation.required, false);
 });
 
 test('classifies documentation changes', () => {
@@ -29,10 +36,11 @@ test('classifies documentation changes', () => {
   assert.equal(plan.commands[0].executable, 'node');
   assert(plan.commands[0].args.includes('--profile=core'));
   assert.equal(plan.outstandingNative, false);
+  assert.equal(plan.nativeObligation.required, false);
 });
 
 test('tooling-only change emits only tooling without frontend or rust work', () => {
-  const c = classifyChanges(['scripts/native-retest.mjs']);
+  const c = classifyChanges(['scripts/check-versions.mjs']);
   assert.equal(c.toolingProfiles.has('core'), true);
   assert.equal(c.rustPackages.size, 0);
   assert.equal(c.frontendTypecheck, false);
@@ -46,10 +54,11 @@ test('tooling-only change emits only tooling without frontend or rust work', () 
   assert(!plan.commands.some(cmd => cmd.executable === 'npm'));
   assert(!plan.commands.some(cmd => cmd.executable === 'cargo'));
   assert.equal(plan.outstandingNative, false);
+  assert.equal(plan.nativeObligation.required, false);
 });
 
 test('contracts + tooling preserves both contract and tooling checks', () => {
-  const c = classifyChanges(['contracts/src/lib.rs', 'scripts/native-retest.mjs']);
+  const c = classifyChanges(['contracts/src/lib.rs', 'scripts/check-versions.mjs']);
   assert.equal(c.toolingProfiles.has('core'), true);
   assert.equal(c.rustPackages.has('wns-bindings'), true);
   assert.equal(c.rustPackages.has('contracts'), true);
@@ -60,7 +69,10 @@ test('contracts + tooling preserves both contract and tooling checks', () => {
   assert(plan.commands.some(cmd => cmd.executable === 'node' && cmd.args.includes('--profile=core')), 'Tooling runner must be retained when contracts are added');
   assert(plan.commands.some(cmd => cmd.args.includes('typecheck')));
   assert(plan.commands.some(cmd => cmd.args.includes('structured_contract_golden')));
+  assert.equal(plan.outstandingNative, true);
+  assert(plan.requiredNativeSuites.includes('main'));
 });
+
 
 test('native harness edits require native qualification and affected suites', () => {
   const c = classifyChanges(['tests/native/native-smoke.mjs']);
@@ -122,7 +134,75 @@ test('classifies frontend component changes with valid scripts', () => {
   assert(plan.commands.some(cmd => cmd.args.includes('typecheck')));
   assert(plan.commands.some(cmd => cmd.args.includes('src/kernel/')));
   assert(plan.commands.some(cmd => cmd.args.includes('src/featureBoundary.test.ts')));
-  assert.equal(plan.outstandingNative, false);
+  assert.equal(plan.outstandingNative, true);
+  assert.equal(plan.nativeObligation.required, true);
+  assert(plan.nativeObligation.suites.includes('main'));
+  assert(plan.nativeObligation.suites.includes('recovery'));
+  assert(plan.nativeObligation.suites.includes('close'));
+});
+
+test('local scope and final native obligations remain distinguishable', () => {
+  // 1. Application source edit: local iteration is fast, native qualification required before merge
+  const appChange = classifyChanges(['apps/desktop/src/shell/documentWorkspace.ts']);
+  const appPlan = planFromClassification(appChange);
+  assert(appPlan.commands.some(cmd => cmd.args.includes('typecheck')));
+  assert(appPlan.commands.some(cmd => cmd.args.includes('src/shell/')));
+  // Fast local commands do NOT schedule the heavy native suite
+  assert(!appPlan.commands.some(cmd => cmd.executable === 'desktop' && cmd.args.includes('check')));
+  assert(appPlan.exclusions.some(e => e.includes('omitted from fast local iteration')));
+  // But native qualification is strictly marked as required for final acceptance!
+  assert.equal(appPlan.nativeObligation.required, true);
+  assert.equal(appPlan.nativeObligation.status, 'scoped');
+  assert.deepEqual(appPlan.nativeObligation.suites, ['chat', 'main', 'workshop']);
+
+  // 2. Native consumer orchestration edit: requires full native qualification
+  const runnerChange = classifyChanges(['scripts/native-consumer.mjs']);
+  const runnerPlan = planFromClassification(runnerChange);
+  assert(runnerPlan.commands.some(cmd => cmd.args.includes('--profile=all')));
+  assert.equal(runnerPlan.nativeObligation.required, true);
+  assert.deepEqual(runnerPlan.nativeObligation.suites, ['all']);
+
+  // 3. Documentation edit: zero native qualification needed
+  const docChange = classifyChanges(['docs/TESTING.md']);
+  const docPlan = planFromClassification(docChange);
+  assert.equal(docPlan.nativeObligation.required, false);
+  assert.equal(docPlan.nativeObligation.status, 'none');
+});
+
+test('missing or invalid revision arguments cannot produce an unintended clean-worktree plan', () => {
+  // Specifying --head without --base throws explicitly
+  assert.throws(
+    () => getChangedFiles({ head: 'HEAD' }),
+    /Cannot specify head commit without base commit/
+  );
+
+  // Invalid base commit returns error object that fails closed to broad plan
+  const badBase = getChangedFiles({ base: 'invalid-commit-hash-0123456789' });
+  assert(badBase.error);
+  const badBasePlan = planFromClassification(classifyChanges(badBase));
+  assert.equal(badBasePlan.category, 'broad');
+  assert.equal(badBasePlan.outstandingNative, true);
+});
+
+test('planner unit tests complete without invoking real Cargo', () => {
+  // Passing custom fixture packages validates packages purely in memory
+  const customPackages = new Set(['my-custom-pkg']);
+  assert.doesNotThrow(() => {
+    validateCommand(
+      { executable: 'cargo', args: ['clippy', '-p', 'my-custom-pkg'] },
+      undefined,
+      { workspacePackages: customPackages }
+    );
+  });
+
+  assert.throws(
+    () => validateCommand(
+      { executable: 'cargo', args: ['clippy', '-p', 'other-pkg'] },
+      undefined,
+      { workspacePackages: customPackages }
+    ),
+    /Package not in workspace Cargo.toml/
+  );
 });
 
 test('public asset changes in frontend trigger full frontend test', () => {
@@ -230,3 +310,4 @@ test('validateCommand throws on invalid npm scripts or unknown cargo packages', 
     () => validateCommand({ executable: 'cargo', args: ['test', '-p', 'wns-documents'] })
   );
 });
+
