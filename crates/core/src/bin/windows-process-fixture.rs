@@ -322,7 +322,14 @@ fn persistent() {
 /// while still exercising the real owned-process boundary.
 fn codex_app_server() {
     let mode = std::env::args().nth(2).unwrap_or_default();
-    let record_path = std::env::args().nth(3).map(PathBuf::from);
+    let record_path = std::env::args()
+        .nth(3)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from);
+    let release_path = std::env::args()
+        .nth(4)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from);
     let stdin = io::stdin();
     let mut thread_number = 0_u64;
     let mut turn_number = 0_u64;
@@ -463,6 +470,16 @@ fn codex_app_server() {
                 }
                 if mode == "crash" {
                     std::process::exit(24);
+                }
+                if let ("gated", Some(release)) = (mode.as_str(), &release_path) {
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while !release.exists() {
+                        assert!(
+                            Instant::now() < deadline,
+                            "gated app-server fixture was not released within deadline"
+                        );
+                        thread::sleep(Duration::from_millis(5));
+                    }
                 }
                 emit(serde_json::json!({
                     "jsonrpc":"2.0", "method":"turn/completed",
