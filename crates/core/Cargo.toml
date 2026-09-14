@@ -45,6 +45,8 @@ windows-sys = { version = "=0.61.2", features = [
 [[bin]]
 name = "windows-process-fixture"
 path = "src/bin/windows-process-fixture.rs"
+test = false
+bench = false
 
 [[test]]
 name = "integration"
