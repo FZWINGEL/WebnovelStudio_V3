@@ -2,6 +2,8 @@
 
 For current package boundaries, database/query ownership, frontend state owners
 and enforced invariants, start with the [current architecture map](ARCHITECTURE.md).
+For running local checks, full qualification, and test writing rules, start with
+the [Testing Handbook](TESTING.md).
 The latest [material capability and Tauri parity evidence](ARCHITECTURE_CAPABILITIES_AND_IPC.md)
 records the scoped write API and registered-command checks.
 The [modular-decomposition proposal](V3_ARCHITECTURE_MODULAR.md) retains historical
@@ -27,7 +29,7 @@ conversation, library navigation and draft-review presentation.
 | --- | --- | --- |
 | 0 | [Release preparation](RELEASE_3_0_0.md) | Candidate identity, verification, and remaining package/native gates |
 | 0a | [Changelog](../CHANGELOG.md) | User-facing changes for the current unreleased candidate |
-| 0b | [Testing and CI audit](V3_TESTING_CI_PERFORMANCE_AUDIT.md) | Historical audit of `c83a127`; [implementation ledger](V3_TESTING_CI_PERFORMANCE_IMPLEMENTATION.md) tracks optimizations, experiments and remaining qualification |
+| 0b | [Testing handbook](TESTING.md) · [Qualification](testing/QUALIFICATION.md) · [Writing tests](testing/WRITING_TESTS.md) · [Performance](testing/PERFORMANCE.md) | Everyday commands, qualification boundaries, test writing standards, and benchmark decisions; [Testing and CI audit](V3_TESTING_CI_PERFORMANCE_AUDIT.md) and [implementation ledger](V3_TESTING_CI_PERFORMANCE_IMPLEMENTATION.md) preserve historical audit evidence |
 | 1 | [Product requirements](../PRODUCT.md) | Author experience and explicit product boundaries |
 | 2 | [Design surface](../DESIGN.md) | Current AI writing workspace, project tabs, assistant, and historical editor trial |
 | 2a | [Story Workshop specification](V3_STORY_WORKSHOP_UX_SPEC.md) · [completion record](V3_STORY_WORKSHOP_COMPLETION.md) · [implementation ledger](V3_STORY_WORKSHOP_IMPLEMENTATION.md) · [author study](STORY_WORKSHOP_AUTHOR_STUDY.md) | Develop/Write, contrasting candidates, scoped preferences, decisions and relationships; implementation and qualification tracked separately |
@@ -82,4 +84,4 @@ conversation, library navigation and draft-review presentation.
 
 V3 targets English authoring, UI, and export, with optional translated-webnovel, wuxia, and xianxia styles. V2 remains separate and read-only. Context documentation distinguishes retained evidence, permitted available sources, the packet actually delivered, and model understanding that still requires evaluation. It does not authorize paid autosave analysis or automatic canon.
 
-Use [development checks](TESTING.md) for focused commands, full verification, and integration-suite registration.
+Use the [Testing Handbook](TESTING.md) for everyday commands, qualification boundaries, test authoring rules, and benchmark records.

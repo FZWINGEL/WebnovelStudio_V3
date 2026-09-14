@@ -1,7 +1,16 @@
 # Testing and CI performance implementation ledger
 
+> [!NOTE]
+> **Historical Implementation and Experiment Ledger**: This document is a historical record of the September 2026 testing and CI optimization campaign. For current contributor commands, qualification requirements, and benchmarking procedures, see the maintained handbook:
+> - [Development Checks Entry Point](TESTING.md)
+> - [Qualification Boundaries and CI Architecture](testing/QUALIFICATION.md)
+> - [Writing and Maintaining Tests](testing/WRITING_TESTS.md)
+> - [Performance Benchmarking and Optimization Decisions](testing/PERFORMANCE.md)
+> - [Native Execution Runbook](../tests/native/README.md)
+
 The original audit is the scope. Implementation and qualification are separate;
 no hosted saving or full completion is claimed without comparable executed runs.
+
 
 | Audit requirement | Implementation | Required verification |
 |---|---|---|

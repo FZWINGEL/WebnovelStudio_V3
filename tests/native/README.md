@@ -1,187 +1,118 @@
-# Native development smoke
+# Windows Native Execution Runbook
 
-These checks drive the built Windows Tauri application through its development-only WebView2 remote debugging endpoint. They do not launch a standalone Chromium browser. The smoke flow is implemented by `apps/desktop/scripts/native-smoke.mjs` and writes ignored output under `.local/native-results/`. The separate local diagnostic subset intentionally omits the currently blocked OS clipboard step and labels that omission; it cannot establish a strict pass.
+This directory (`tests/native/`) is the implementation home for WebnovelStudio V3 native automated test suites. 
 
-The existing Writer/native harness includes **52 checks**. Two character-knowledge groups cover exact selected evidence, reader/private observations, identity reuse, author-room history/source inspection and restricted continuation filtering. Two accepted-summary groups exercise explicit generated-memory seeding, saved-stage resumption, acceptance without a model call, context inspection, and clearing after a prose change. Current executed results are in [implementation status](../../docs/IMPLEMENTATION_STATUS.md). Its new recovery-copy group injects
-a SQLite save failure in an owned temporary project, uses the actual Markdown
-Save/Cancel dialogs, verifies unchanged durable text and retained unsaved editor
-content, then removes the fault and retries. The focused native run passes;
-the full current suite's status is recorded in
-[implementation status](../../docs/IMPLEMENTATION_STATUS.md). Historical counts
-below describe their named checkpoints.
+These suites drive the compiled Windows Tauri desktop application through its development-only WebView2 remote debugging endpoint (CDP). They validate real native OS integration: window lifecycle, IPC serialization, SQLite autosave, UI Automation, dialog handling, and crash recovery.
 
-## Current chat-first slice — 9 September 2026
+> [!NOTE]
+> `apps/desktop/scripts/native-*.mjs` are forwarding stubs retained for compatibility with legacy `npm run test:native-*` scripts. All suite logic, fixtures, and helpers reside here in `tests/native/`.
 
-The project conversation is integrated as an **opt-in** native development
-surface. One conversation can handle project questions and chapter feedback;
-assistant output stays in isolated task drafts until explicit review and
-adoption. Direct source attachment, explicit chapter handoff, original-request
-and deterministic-diff review, and the project-scoped resizer are included.
-The current project reader floor is schema 40. The authoritative
-[chat-first implementation status](../../docs/V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md)
-records current test counts, native/live evidence, and build identities.
+---
 
-A local native 200% zoom geometry check is verified. Human formative evaluation,
-installed-package behavior, screen-reader behavior, and broader provider and
-narrative qualification remain open; chat remains opt-in. English-only
-authoring means IME qualification is not a product requirement.
+## 1. Prerequisites
 
-Run the rebuilt chat smoke after `.\scripts\desktop.ps1 -Command spike`:
+- **Operating System**: Windows 10 or 11 (64-bit).
+- **WebView2 Runtime**: Microsoft Edge WebView2 Evergreen Runtime installed.
+- **Node.js**: `v24.20.0` (managed and pinned via `scripts/desktop.ps1`).
+- **Dependencies**: Native harness packages installed in `tests/native`:
+  ```powershell
+  # From repository root:
+  .\scripts\desktop.cmd ensure-native
+  # Or directly:
+  npm.cmd --prefix tests/native ci --prefer-offline --no-audit
+  ```
 
+---
+
+## 2. Execution Workflow
+
+### Step 1: Build the Native Debug Executable
+Before running native tests, compile the application binary with the remote debugging endpoint enabled:
 ```powershell
-npm.cmd exec --yes --package=node@24.20.0 -- node apps/desktop/scripts/native-chat-smoke.mjs
+.\scripts\desktop.cmd spike
+```
+This builds `target/debug/webnovel-desktop.exe` with development capabilities.
+
+### Step 2: Run Native Suites
+
+#### A. Main Native Smoke Suite
+To run the primary editor smoke flow:
+```powershell
+.\scripts\desktop.cmd native
+# Or directly:
+node tests/native/native-smoke.mjs
 ```
 
-To deliberately run the two-request live Codex Exec trial, set the opt-in
-variable for that process only:
-
+#### B. Individual Specialized Suites
+Specialized suites test distinct subsystem lifecycles:
 ```powershell
-$previous = $env:WNS_V3_ALLOW_LIVE_CHAT
-try {
-    $env:WNS_V3_ALLOW_LIVE_CHAT = '1'
-    npm.cmd exec --yes --package=node@24.20.0 -- node apps/desktop/scripts/native-chat-live.mjs
-} finally {
-    $env:WNS_V3_ALLOW_LIVE_CHAT = $previous
-}
+# Project Conversation (Chat-first) UI smoke:
+node tests/native/native-chat-smoke.mjs
+
+# Clean close, dirty buffer prompts, and WM_CLOSE handling:
+node tests/native/native-app-close.mjs
+
+# Renderer reload, process crash, and lost-acknowledgment recovery:
+node tests/native/native-interruption.mjs
+
+# Backup restoration and project recovery dialogs:
+node tests/native/native-recovery.mjs
+
+# Story Workshop multi-candidate authoring:
+node tests/native/native-workshop.mjs
+
+# Offline reviewed-memory lookup loop:
+node tests/native/native-memory-lookup.mjs
 ```
 
-The live trial is separately opt-in and submits exactly two requests. Do not
-use it as a default or release check. See [the chat-first implementation
-status](../../docs/V3_CHAT_FIRST_UX_IMPLEMENTATION_STATUS.md) and [ADR
-0034](../../docs/ADR_0034_PROJECT_CONVERSATION.md) for current qualification
-boundaries, including the verified local 200% zoom geometry check and the open
-human, screen-reader, installed-package, and broader provider gates.
-
-The separate `apps/desktop/scripts/native-app-close.mjs` qualification drives
-real PID-verified WM_CLOSE requests. Its two groups check a verified dirty
-buffer followed by a fresh reopen, and held anonymous loopback HTTP discussion
-and story-memory requests in two projects. Stay open preserves the editor;
-Stop and close retains terminal outcomes without replay. It writes
-`.local/native-results/app-close/qualification.json` and uses no live models.
-Run `npm run test:native-close` from `apps/desktop` after the native build, or
-set `WNS_V3_NATIVE_EXE` to an owned development executable. CI runs this
-separately from the 52-check main flow and existing HTTP fixture.
-
-`npm run test:native-workshop` drives the separate Story Workshop through real
-Tauri IPC with the local mock and synthetic data. It covers world-first project
-creation, no-generation navigation, three directions, selection and manual
-editing, adoption preview, directional relationships, history, and library
-reopen. The extended fixture also checks existing/new linked adoption, Unicode
-character retention, changed-endpoint review provenance, and explicitly requested
-voice guidance without automatic adoption. Its report and failure captures are under
-`.local/native-results/workshop/`. CI runs this shorter flow before the broad
-editor smoke so Workshop failures surface earlier. Current executed boundaries
-are recorded in the [Workshop ledger](../../docs/V3_STORY_WORKSHOP_IMPLEMENTATION.md).
-This fixture does not qualify live providers or narrative quality.
-
-`npm run test:native-interruption` runs the separate interruption fixture. It
-holds real Save/Apply acknowledgments after Rust commits, replaces the renderer
-or terminates only the owned native process, and checks exact reopened prose,
-receipts, immutable revisions, source snapshots and packets. Its loopback HTTP
-reply survives renderer replacement and becomes interrupted after process loss
-without automatic dispatch. Its refresh group holds saving before Rust dispatch, verifies the native WebView input path, and sends six OS refresh shortcuts to the owned window. Run keyboard qualification on an otherwise idle test desktop; other keyboard input must not be treated as a pass. The report is
-`.local/native-results/interruption/qualification.json`. These are boundary
-tests after confirmed commits; statement-level rollback uses the core fixtures.
-
-`npm run test:native-menus` is a separate experimental qualification for the
-native browser/edit menus and selected-text feedback. It uses PID-targeted
-mouse messages and scoped UI Automation; it sends no global input. The current
-local run cannot expose the native popup and therefore fails its strict
-assertion. This command is not part of CI until that native inspection route is
-qualified; source/unit coverage does not establish native popup behavior.
-It writes `.local/native-results/context-menu/qualification.json`.
-
-`npm run test:native-memory-lookup` exercises the bounded reviewed-memory
-discussion using only the offline test model. It creates synthetic character
-knowledge, promise and possession evidence, then checks all four memory lookup
-operations across three invocations, exact-source inspection, unchanged prose,
-and reopening without another invocation. The report is
-`.local/native-results/memory-lookup-mock/qualification.json`. CI runs this
-separately from the main native flow. The explicit command
-`npm run test:native-memory-lookup -- --live` instead sends at most three
-authorized Codex requests with Luna/xhigh/Fast and writes a separate
-`memory-lookup-live` report. Live qualification is never part of CI or the
-default command; it demonstrates the protocol on a synthetic fixture, not
-long-story retrieval accuracy or narrative quality.
-
-`npm run test:native-recovery` backs up synthetic project A and recovers it
-through the actual PID-owned native dialogs while B has an active loopback
-reply. It checks independent recovered identity, exact prose/history, B's
-unchanged source/packet ownership, and explicit Stop without replay. The report
-is `.local/native-results/project-recovery/qualification.json`. Both commands
-use `target/debug/webnovel-desktop.exe` by default and accept `WNS_V3_NATIVE_EXE`
-for a chosen development build. CI runs them separately; installed-release,
-physical renderer crash, actual disk-full/ACL faults, and author trials remain
-separate qualifications.
-
-From the repository root, use the wrapper:
-
+#### C. Partitioned CI Execution
+To execute suites using the CI consumer partitions:
 ```powershell
-.\scripts\desktop.ps1 -Command spike
-.\scripts\desktop.ps1 -Command native
+# Create test artifact package:
+node scripts/native-artifact.mjs create .local/native-app
+
+# Execute 'main' partition:
+node scripts/native-consumer.mjs main .local/native-app
+
+# Execute 'lifecycle' partition:
+node scripts/native-consumer.mjs lifecycle .local/native-app
+
+# Reconcile all emitted evidence against scripts/native-suites.json:
+node scripts/native-consumer.mjs aggregate .local/native-results .local/native-app
 ```
 
-The wrapper prepares the pinned Node `24.20.0` and user Cargo paths. The native flow launches `target/debug/webnovel-desktop.exe`, connects through WebView2's local debugging endpoint, waits for the persistent Library/Workspace UI, and invokes the real Tauri commands. The explicit W0 sample editor remains a separate session-only trial.
+---
 
-The current development flow checks:
+## 3. Evidence and Output
 
-- Tauri/WebView2 startup and the runtime report, including `persistence: true`;
-- persistent blank-project Library/Workspace startup and optional document creation;
-- Rust SQLite autosave and flush-before-switch behavior;
-- project/document rename, duplicate, archive/unarchive, and native folder/backup/recovery/draft-TXT dialog wiring;
-- editor/Rust canonical JSON and SHA-256 agreement over real IPC;
-- selection quotation, feedback composer focus, and editor identity across feedback updates;
-- replacement preview and Reject without mutation;
-- strict local replacement, surrounding-content preservation, Undo, and Redo;
-- internal Unicode edge cases including accents, emoji, combining marks, ZWJ text, and names;
-- `Ctrl+Shift+F` selection capture and focus transfer;
-- refusal to apply a captured replacement after an intervening manuscript edit;
-- a visible manuscript keyboard-focus indicator;
-- actual WebView2 `Ctrl+C`/`Ctrl+V` clipboard copy/paste of formatted Unicode paragraphs with emoji and unique block IDs; and
-- right-click selection feedback;
-- persistent author-room discussion with exact selected quotations and a deterministic mock response;
-- persistent discussion Stop/retry recovery, retained partial output, and visible local retry after a failed response save;
-- prepared/delivered context receipt inspection over native IPC;
-- persistent document/project discussion sources, explicit inspector confirmation, required-source labels, and retention after navigation/reload;
-- optional writing-brief adaptation and explicit approval, draft reload, exact supplied wording, exclusion of original private planning, and receipt inspection before Apply;
-- draft and discussion-history retention across project switching and renderer reload;
-- W5 selected-passage `ProposeEdits` review cards, edited preview retention across navigation/reload, exact Apply with protected ending, stale pending alternatives, Reject without change, and undo/redo body and decision retention after reload in the diagnostic subset; and
-- W6 saved-version History comparison, explicit document restore, lost-acknowledgment recovery, and undo/redo/reopen behavior;
-- keyboard Undo/Redo while a real background reading-position acknowledgment is delayed, with the manuscript remaining focused and editable;
-- W7 exact Markdown/TXT preview, real native Save-dialog cancellation, a real file whose bytes match the preview, unchanged editor state, and focus restoration; and
-- author-only chapter review with exact staged prose, saved-stage resumption, explicit acceptance, lost acknowledgment, exact earlier-source inspection, and preservation of later prose after an earlier change; and
-- reviewed continuation preparation over real IPC: exact earlier reviewed chapters, a separate working target, future/private exclusion, frozen packet inspection, stale-basis refusal, and policy revocation;
-- the new author-reviewed chapter export journey: first-chapter review, exact Markdown/TXT bytes and hashes with bound records and no reviewed checkpoint, copied-authority refusal, installed-file/record-fault preservation, stale refusal after a real Save dialog and background IPC save, and historical-record reopen; and
-- C4-A Story Memory: explicit Refresh with a local producer, exact full-chapter source inspection, job/result/view persistence, lost start acknowledgment, unchanged editor state, stale and policy-revocation handling, and failed terminal-save retry after navigation/reload; and
-- schema-21 reviewed story evidence: author review with passage-backed records, lost acknowledgment and discussion inspection, reader-only filtering of mixed private/reader records, record-only re-review fencing, explicit clear/reopen, and copied-history retention; and
-- C5-A evidence history: one-pass current review freeze, explicit cross-chapter object reuse, authenticated history with source opening, unknown-holder display, and no additional model request; and
-- structured suggestions: explicit paragraph and whole-chapter scope, rich preview editing, exact lost-preparation retry, protected surrounding content, Apply, undo/redo, and reopen; and
-- strict full-flow clipboard copy/paste coverage, which remains part of the 43-check smoke and is not omitted from CI.
+- All native suites write JSON reports, failure screenshots, and diagnostic logs to `.local/native-results/`.
+- The suite manifest at [`scripts/native-suites.json`](../../scripts/native-suites.json) defines the required checkpoint IDs for every suite.
+- An execution passes only when the reconciliation step confirms that every checkpoint declared in `scripts/native-suites.json` was emitted with passing status.
 
-The source-level checks cover the same restricted document and identity contract with shared golden fixtures. Schema 20 reviewed export is implemented and CI-qualified as a development slice: the nullable review-bundle record preserves legacy working exports while adding author-reviewed snapshot metadata. Schema 21 adds nullable reviewed-evidence records and audience-filtered packet projections; the prior schema-21 native diagnostic passed 39 of 40 checks with zero errors, omitting only the known local OS clipboard case. [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) remains that prior schema-21 checkpoint with all 40 strict checks. C5-A is implemented as a development slice; its prior native qualification is recorded below and [CI 34014694823](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34014694823) passes all 41 strict native checks. Earlier schema-17/18 reader floors and migration evidence remain historical below. The reviewed-context check prepares a packet without a model call; the C4-B ordinary-discussion flow supplies existing memory for a synthetic story exceeding the input allowance, opens its original evidence, preserves the historical packet after source changes, and verifies no additional project memory jobs. Native Windows UI Automation exposes the manuscript textbox, feedback labels, discussion controls, guidance form/actions, context inspector, proposal cards, the reviewed-export basis/save flow, and the reviewed-evidence flow. Unicode input is internal robustness evidence for English authoring, not a separate language feature. Latest results and exact executable evidence are maintained in [implementation status](../../docs/IMPLEMENTATION_STATUS.md); the chronology below is historical.
+---
 
-The tracked native harness now contains **43 checks**. The current structured-suggestion diagnostic passed **42/43** with zero errors, omitting only the known local OS clipboard check. Report `.local/native-other-results/report.json` is dated `2026-09-06T06:41:38.978Z` on WebView2 `152.0.4191.62`; the executable SHA-256 is `ca114dc73db5470332fd7b797c56380eb5244e303fa3595ca78c782eac685b15`, with 30,628,864 bytes, built `2026-09-06T06:40:00.255Z`. Evidence is `.local/structured-native.log`. The focused native helper separately passed both new journeys. [CI 34017484597](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34017484597) passes both contract jobs and all 43 strict native checks, including clipboard, with zero errors. The retained hosted report is `.local/ci-34017484597/report.json`, dated `2026-09-06T07:01:18.297Z` on WebView2 `151.0.4129.101`, for source `c92df7708a4a48b83c11f25866c1f0a39d4a94b7`. A separate bounded live structured request passed; it is recorded in [Codex qualification](../../docs/CODEX_QUALIFICATION.md), and does not turn the local mock flow into live-provider evidence.
+## 4. Native Troubleshooting
 
-The prior C5-A local diagnostic passed 40/41 with zero errors, omitting only the known local OS clipboard check. The historical report was dated `2026-09-06T05:40:09.731Z` on WebView2 `152.0.4191.62`; the executable SHA-256 is `7d59f072b578b2574734ddcc51eae4f28d037215c5439cf7a3c713dd9d8e662c`, with 30,142,976 bytes, built `2026-09-06T05:38:17.9965544Z`. Evidence is `.local/evidence-history-native.log`. [CI 34014694823](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34014694823) passes both contract jobs and all 41 strict native checks with zero errors. Its report is `.local/ci-34014694823/report.json`, dated `2026-09-06T05:56:35.15Z`, WebView2 `151.0.4129.101`, for source `284625b6576540939f3dabb065f1e9320d0bb01e`. The earlier [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796) remains the schema-21 40-check checkpoint; the earlier [CI 34010306332](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34010306332) remains the schema-20 reviewed-export checkpoint. Broader provider, author-trial, installed-package, and narrative-quality gates remain separate.
+### Orphaned Desktop Processes
+If an earlier test run crashed or terminated uncleanly, a dangling `webnovel-desktop.exe` process may hold SQLite locks or occupy the debugging port:
+```powershell
+Get-Process webnovel-desktop -ErrorAction SilentlyContinue | Stop-Process -Force
+```
 
-The structured-suggestion source `c92df7708a4a48b83c11f25866c1f0a39d4a94b7` also passed [package run 34017567399](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34017567399): install, synthetic writing/reopen, normal close, in-place uninstall, and same-version reinstall with retained project/document/text, with no errors or forced stop. Exact artifact/environment evidence is in [Windows package qualification](../../docs/WINDOWS_PACKAGE_QUALIFICATION.md). This does not exercise installed structured edits or live assistance.
+### Remote Debugging Port Collisions
+The native harness configures WebView2 to listen on an ephemeral localhost debugging port. Ensure your local firewall allows localhost loopback connections on high-range TCP ports.
 
-The reviewed-export negative test verifies that the owned Save dialog is open before a real background IPC save. Its explicit `ExpectNoFile` helper option skips the positive file-created assertion only for that test; the harness waits for the actual UI refusal and asserts that the destination does not exist. Positive Save cases still require exact file creation.
+### OS Clipboard Interaction
+Certain environments (such as remote desktop sessions without active focus) may restrict Windows clipboard access (`OpenClipboard(NULL)` returning access denied). CI runs in dedicated runner sessions with active desktop focus.
 
-The W7 dialog helper is bounded to the spawned test application's PID and a new output inside its synthetic temporary directory. It uses Windows UI Automation for the actual dialog. Its process-scoped PowerShell execution policy does not change machine policy. No fake export IPC response or author filesystem path is used. The lost-acknowledgment and delayed-view injections live in the external development harness; they are not compiled into application code. The earlier UIA focus route failed; the current owned-dialog helper uses `WM_NEXTDLGCTL`, `EM_SETSEL`, and `EM_REPLACESEL`, verifies exact readback, sends no global keystrokes, and closes ExportDialog before restoring parent-window focus.
+---
 
-Historical W4/C3/retry development flows passed 16–19 checks; the W5 diagnostic subset passed 20 and W6 passed 21. A fresh diagnostic built from pushed commit `78367cd5d359b573daa32be1a32a8d6038520508` passed 23 checks on actual Tauri/WebView2 `152.0.4191.62`, omitting only local clipboard coverage. It is development evidence, not a strict/full-native pass. The added C3 source-choice flow passed 24 local diagnostic checks on the same WebView2 version, again omitting only clipboard. Current native runs must use an executable rebuilt from the current frontend and Rust source.
+## 5. Historical Qualification Checkpoints
 
-An earlier local development build passed **26 of 27 diagnostic checks** on WebView2 `152.0.4191.62` at `2026-09-05T21:29:29.901Z`; only the known local clipboard check was omitted. The flow included a real SQLite fault, renderer reload, local retry saving the response without creating another discussion run, and the visible recovery notice with its retry action. The writing-brief checkpoint `508aee1` passed all **26 strict checks** at `2026-09-05T21:00:03.056Z` in [CI run 33991463598](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33991463598) on WebView2 `151.0.4129.101`. The previous source-choice checkpoint `16bf8bc` passed all **25 strict checks**, including clipboard, in [CI run 33990073110](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33990073110) on WebView2 `151.0.4129.101`; it does not qualify the newer brief flow.
+The following counts and checkpoint IDs represent historical qualification milestones recorded during development. Current requirements are governed exclusively by `scripts/native-suites.json`.
 
-The historical model selector and Settings checkpoint had local evidence from seven Rust core tests, five selector/Settings tests, two FeedbackPanel binding tests, and one desktop model-binding test. At that checkpoint only the local Mock model was ready; an unavailable Codex selection blocked generation without CLI probes, credential reads, or new live requests. Its native diagnostic passed 27 of 28 checks on WebView2 `152.0.4191.62` at `2026-09-05T21:52:10.597Z`, omitting only local clipboard coverage. That diagnostic covered model choice, favorites, High/Fast trait persistence across reload, exact Rust IPC state, and blocked Codex dispatch without substitution. The later bounded live connection is qualified separately; the strict native smoke still uses only the local test model.
-
-The strict local flow still stops at Ctrl+V: copy serializes correctly, but WebView2 receives empty clipboard data. The same issue occurred with an older binary. A separate Win32 probe received access denied from `OpenClipboard(NULL)` in all 20 attempts and found no owner window. The cause is unresolved; no clipboard service was restarted and no clipboard contents were inspected. The diagnostic subset omits only this step and writes a separate report. Hosted Windows CI still runs the unchanged strict clipboard check.
-
-Earlier standard run [33992126659](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33992126659) failed an Ubuntu brief assertion, and package run [33992126374](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33992126374) failed because its UI Automation lookup timed out even though Chapter was already selected. Those are historical failures. Standard run [33993367813](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33993367813) for `cd7fb77` passed Windows/Ubuntu contracts but its Windows-native job failed the descendant process-cleanup regression before the UI flow; the focused process suite now passes 20/20 locally after the bounded fix. Package run [33993370498](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33993370498) for `cd7fb77` passed the narrow installed lifecycle: create, write, reopen, normal close, in-place uninstall, reinstall at the same version, and text retention. It used source SHA `cd7fb77f0bac8bc2ce1756f28044d406c356ff20`, installer SHA `9dcd7fc46dc8f259733d8487e11992b5c5b07d99dddd4a14f71c21baba8fd8ae`, and WebView2 `151.0.4129.101`.
-
-The pushed W5 checkpoint [`a2a0163`](https://github.com/FZWINGEL/WebnovelStudio_V3/commit/a2a01632890a44efbe84bc526674fc9bf06d3d94) is covered by [CI run 33981203728](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33981203728), whose Windows-native strict21 job is green. The export-dialog/native-save correction is now pushed as [`78367cd`](https://github.com/FZWINGEL/WebnovelStudio_V3/commit/78367cd5d359b573daa32be1a32a8d6038520508); [CI run 33988660050](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/33988660050) for `78367cd` passed Windows/Ubuntu contracts and the strict 24-check native flow on WebView2 `151.0.4129.101`, including clipboard, history recovery, exact chosen-path export, and focus restoration. The earlier package-source native attempt [`4a59a19`](https://github.com/FZWINGEL/WebnovelStudio_V3/commit/4a59a19) failed at `UIASetFocus`. Current results and fresh CI are maintained in [implementation status](../../docs/IMPLEMENTATION_STATUS.md). This flow remains mock-only; bounded live experiments are recorded separately in [Codex qualification](../../docs/CODEX_QUALIFICATION.md).
-
-The English native author trial, physical minimum-window/DPI behavior, external Word paste, screen-reader use, and broad installed-release qualification remain open. The separate synthetic backup/recovery fixture above now covers its named dialog journey. The narrow package lifecycle above does not qualify offline installation, upgrades, or the wider W7 matrix. The local export diagnostic covered exact Markdown/TXT preview, native Save cancellation, chosen-path byte equality, unchanged editor state, and focus restoration; it omitted only local clipboard coverage and does not establish strict/full-native qualification. An 800×600 CSS viewport capture is useful layout evidence but does not establish native resizing or multi-DPI behavior. See [Windows package qualification](../../docs/WINDOWS_PACKAGE_QUALIFICATION.md) for the separate release path.
-
-The W0 sample trial has no disk-backed manuscript, provider, durable Apply, or author-data path; its sample text is cleared when the window closes. The default Library/Workspace has disk-backed project persistence, but this development flow is not an installed-release or native-qualification claim. Do not use a real manuscript for the W0 sample trial. The [W0 qualification record](../../docs/W0_QUALIFICATION.md) records the spike verdict and evidence without turning these checks into a release claim.
+- **52-Check Checkpoint (Schema 40 / Chat-first & Recovery)**: Main smoke covering character knowledge, accepted summaries, and recovery copy.
+- **43-Check Checkpoint (Schema 23 / Structured Suggestions)**: Added block-range and whole-chapter suggestions, covered in [CI 34017484597](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34017484597).
+- **41-Check Checkpoint (Schema 22 / C5-A Evidence History)**: Added cross-chapter entity reuse, covered in [CI 34014694823](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34014694823).
+- **40-Check Checkpoint (Schema 21 / Reviewed Story Evidence)**: Added passage-backed review records, covered in [CI 34012813796](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34012813796).
+- **38-Check Checkpoint (Schema 20 / Reviewed Chapter Export)**: Added author-reviewed chapter export, covered in [CI 34010306332](https://github.com/FZWINGEL/WebnovelStudio_V3/actions/runs/34010306332).
