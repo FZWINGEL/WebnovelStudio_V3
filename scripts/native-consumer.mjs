@@ -65,7 +65,10 @@ export function reconcileConsumers(consumers, identity, topology = 'parallel') {
   }
   assert.equal(new Set(consumers.map(item => item.consumer)).size, consumers.length, 'Duplicate consumer');
   if (topology === 'parallel') {
-    assert.equal(new Set(consumers.map(item => item.runner.hostname)).size, consumers.length, 'Native consumers shared a desktop');
+    // Runner VMs reuse os.hostname() values (e.g. runnervmXXXX pools), so the
+    // desktop identity prefers the Actions runner lease name when present.
+    const desktop = item => item.runner.name || item.runner.hostname;
+    assert.equal(new Set(consumers.map(desktop)).size, consumers.length, 'Native consumers shared a desktop');
   }
   for (const [name, expected] of Object.entries(expectedPlan)) {
     const consumer = consumers.find(item => item.consumer === name);
@@ -102,7 +105,7 @@ async function consume(name, directory) {
   const evidence = resolve(root, '.local/native-results');
   await mkdir(evidence, { recursive: true });
   const output = resolve(evidence, `consumer-${name}.json`);
-  const report = { consumer: name, status: 'failed', suites: [], runner: { hostname: hostname(), os: release(), node: process.version },
+  const report = { consumer: name, status: 'failed', suites: [], runner: { hostname: hostname(), name: process.env.RUNNER_NAME ?? null, os: release(), node: process.version },
     manifestSha256: sha256(JSON.stringify(suiteManifest)), startedAt: new Date().toISOString() };
   try {
     report.commit = checkoutIdentity(root);
