@@ -87,3 +87,5 @@ export const renameProject = (access: ProjectAccess, expectedMetadataVersion: st
 export const renameDocument = (access: ProjectAccess, documentId: string, expectedMetadataVersion: string, title: string): Promise<DocumentRecord> => invoke('rename_document', { access, documentId, expectedMetadataVersion, title });
 export const readViewState = (access: ProjectAccess): Promise<ViewState | null> => invoke('read_view_state', { access });
 export const saveViewState = (access: ProjectAccess, head: Head, anchor: Endpoint, focus: Endpoint): Promise<ViewState> => invoke('save_view_state', { access, head, anchor, focus });
+
+// CI baseline probe — no functional change.
