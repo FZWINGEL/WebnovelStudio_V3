@@ -979,6 +979,9 @@ try {
   recordCheck(checks, 'native-workshop-smoke:28', 'A conflicting local Want is visibly refused without changing a hard project exclusion or generating');
 
   const firstProjectState = workshopState().state;
+  const reopenedContextClose = page.getByRole('button', { name: 'Close working story', exact: true });
+  if (await reopenedContextClose.isVisible()) await reopenedContextClose.click();
+  else await page.getByRole('button', { name: 'Hide working story', exact: true }).click();
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await page.getByRole('button', { name: 'New project', exact: true }).click();
