@@ -37,15 +37,15 @@ pub mod workshop_generation;
 // them could move until they were separated.
 mod context_api;
 mod document_api;
+mod install;
+mod owned;
 mod project_api;
 mod records;
 mod session;
-mod work_api;
-mod workshop_api;
-mod install;
-mod owned;
 #[cfg(test)]
 mod tests;
+mod work_api;
+mod workshop_api;
 pub(crate) use install::*;
 pub(crate) use owned::*;
 
@@ -97,7 +97,6 @@ pub(crate) use wns_storage::{
 // resolving.
 pub use wns_context::story_records;
 
-
 #[cfg(test)]
 fn hold_context_after_commit_before_ack(operation_id: &str) {
     tests::hold_after_commit_before_ack(operation_id);
@@ -107,4 +106,3 @@ fn hold_context_after_commit_before_ack(operation_id: &str) {
 // `transfer` validates a stored view state before accepting a backup, and
 // cannot reach it through the crate being decomposed.
 pub(crate) use wns_documents::{read_view_state, validate_endpoint};
-

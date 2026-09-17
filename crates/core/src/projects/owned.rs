@@ -562,7 +562,10 @@ impl OwnedProject {
         )?;
         Ok(SourceEpoch::new(parse_stored_version(epoch)?))
     }
-    pub(crate) fn create_document(&mut self, request: CreateDocument) -> CoreResult<DocumentRecord> {
+    pub(crate) fn create_document(
+        &mut self,
+        request: CreateDocument,
+    ) -> CoreResult<DocumentRecord> {
         self.check_access(&request.access)?;
         check_id(&request.document_id)?;
         check_id(&request.operation_id)?;
@@ -735,7 +738,11 @@ impl OwnedProject {
         tx.commit().map_err(CoreError::uncertain)?;
         Ok(revision)
     }
-    pub(crate) fn history(&self, access: ProjectAccess, document_id: &str) -> CoreResult<Vec<Revision>> {
+    pub(crate) fn history(
+        &self,
+        access: ProjectAccess,
+        document_id: &str,
+    ) -> CoreResult<Vec<Revision>> {
         self.check_access(&access)?;
         read_document(self.db()?, document_id)?;
         let mut statement = self.db()?.prepare(
@@ -746,7 +753,10 @@ impl OwnedProject {
             .collect::<Result<Vec<_>, _>>()?;
         ids.iter().map(|id| read_revision(self.db()?, id)).collect()
     }
-    pub(crate) fn reconcile(&mut self, request: ReconcileRequest) -> CoreResult<ReconciledDocument> {
+    pub(crate) fn reconcile(
+        &mut self,
+        request: ReconcileRequest,
+    ) -> CoreResult<ReconciledDocument> {
         if request.project_id != self.info.project_id
             || request.operation_namespace != self.info.operation_namespace
         {
@@ -813,7 +823,6 @@ impl OwnedProject {
         })
     }
 }
-
 
 #[test]
 fn save_receipt_matches_shared_literal_fixture() {
