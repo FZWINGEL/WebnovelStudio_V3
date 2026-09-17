@@ -928,6 +928,9 @@ try {
   assert.equal(adoptedPreferences.length, preferencesBefore.length + 1);
   assert(adoptedPreferences.some(item => item.scope === 'project' && item.confirmed && item.polarity === 'avoid' && item.strength === 'hard' && item.label === preset.preferences[0].label));
 
+  const preferenceContextClose = page.getByRole('button', { name: 'Close working story', exact: true });
+  if (await preferenceContextClose.isVisible()) await preferenceContextClose.click();
+  else await page.getByRole('button', { name: 'Hide working story', exact: true }).click();
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();

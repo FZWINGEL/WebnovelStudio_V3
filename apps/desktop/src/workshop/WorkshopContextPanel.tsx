@@ -34,7 +34,6 @@ export function WorkshopContextPanel({ children, onClose }: { children: ReactNod
   </>;
   return drawer
     ? <dialog ref={dialog} className="workshop-context workshop-context-drawer" aria-label="Working story and exploration context"
-      onClick={event => { if (event.target === event.currentTarget) onClose(); }}
       onKeyDown={keepTabWithinDrawer} onCancel={event => { event.preventDefault(); onClose(); }}>{content}</dialog>
     : <aside className="workshop-context" aria-label="Working story and exploration context">{content}</aside>;
 }
