@@ -402,16 +402,10 @@ pub(super) fn run_live(
     dispatch: DiscussionDispatch,
     stop: webnovel_core::providers::cli::windows_process::StopSignal,
 ) {
-    struct Registration(
-        crate::provider_runtime::DesktopProviders,
-        webnovel_core::projects::discussions::RunOwner,
+    let _registration = crate::provider_runtime::WorkerRegistration::discussion(
+        runtime,
+        dispatch.run.owner.clone(),
     );
-    impl Drop for Registration {
-        fn drop(&mut self) {
-            self.0.release(&self.1);
-        }
-    }
-    let _registration = Registration(runtime, dispatch.run.owner.clone());
     run_loop(project, recovery, dispatch, |grant, input| {
         let matched = connection.as_ref().filter(|connection| {
             grant

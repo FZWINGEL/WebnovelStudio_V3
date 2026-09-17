@@ -167,10 +167,10 @@ fn dispatch_accepted(
     }
     if let Some(adapter) = adapter {
         tauri::async_runtime::spawn(async move {
-            let _registration = Registration {
+            let _registration = crate::provider_runtime::WorkerRegistration::http_memory(
                 runtime,
-                owner: dispatch.job.owner.clone(),
-            };
+                dispatch.job.owner.clone(),
+            );
             run_response(&project, &recovery, adapter, dispatch, &stop).await;
         });
         Ok(started)
@@ -186,16 +186,6 @@ fn dispatch_accepted(
         );
         runtime.release_http_memory(&started.owner);
         project.read_memory_job(started.owner)
-    }
-}
-
-struct Registration {
-    runtime: DesktopProviders,
-    owner: MemoryOwner,
-}
-impl Drop for Registration {
-    fn drop(&mut self) {
-        self.runtime.release_http_memory(&self.owner);
     }
 }
 
@@ -324,7 +314,7 @@ async fn run_response(
                         output_limited = true;
                         stop.cancel();
                     }
-                    observed.push_str(prefix(&chunk, remaining));
+                    observed.push_str(crate::provider_runtime::prefix(&chunk, remaining));
                 }
             },
             &mut |stage| {
@@ -366,7 +356,7 @@ async fn run_response(
         error = Some("The API response did not agree with its validated partial text.".into());
     }
     if output_limited || text.len() > OUTPUT_LIMIT {
-        text = prefix(&text, OUTPUT_LIMIT).into();
+        text = crate::provider_runtime::prefix(&text, OUTPUT_LIMIT).into();
         outcome = ProviderOutcomeStatus::OutputLimit;
         error = Some("The memory refresh reached the app's retained response limit.".into());
     }
@@ -375,14 +365,6 @@ async fn run_response(
     } else {
         recovery.worker_not_registered(project, &dispatch.job);
     }
-}
-
-fn prefix(text: &str, limit: usize) -> &str {
-    let mut end = limit.min(text.len());
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
 }
 
 #[cfg(test)]

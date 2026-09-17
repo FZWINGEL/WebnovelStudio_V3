@@ -23,10 +23,8 @@ pub fn run_live(
     stop: StopSignal,
 ) {
     let owner = dispatch.run.owner.clone();
-    let _registration = Registration {
-        runtime,
-        owner: owner.clone(),
-    };
+    let _registration =
+        crate::provider_runtime::WorkerRegistration::discussion(runtime, owner.clone());
     let mut run = dispatch.run;
 
     // The command boundary rejects this combination before dispatch. Keep a
@@ -174,7 +172,7 @@ pub fn run_live(
                     stop.request_stop();
                 }
                 let remaining = output_limit.saturating_sub(observed.len());
-                let chunk = prefix(&delta, remaining);
+                let chunk = crate::provider_runtime::prefix(&delta, remaining);
                 observed.push_str(chunk);
                 if chunk.is_empty() || local_write_failed || stop.is_requested() {
                     continue;
@@ -201,7 +199,9 @@ pub fn run_live(
                 }
                 if output_limited || result.assistant_text.len() > output_limit {
                     result.status = ClaudeRunStatus::OutputLimit;
-                    result.assistant_text = prefix(&result.assistant_text, output_limit).into();
+                    result.assistant_text =
+                        crate::provider_runtime::prefix(&result.assistant_text, output_limit)
+                            .into();
                 }
                 // A local append error may have committed its exact chunk. The
                 // terminal provider report remains available for explicit local
@@ -232,14 +232,6 @@ pub fn run_live(
             }
         }
     }
-}
-
-fn prefix(text: &str, limit: usize) -> &str {
-    let mut end = text.len().min(limit);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
 }
 
 fn failed(requested_model: Option<String>) -> ClaudeRunResult {
@@ -360,25 +352,7 @@ fn save(
     run: DiscussionRun,
     result: ClaudeRunResult,
 ) {
-    save_report(project, recovery, run.clone(), report(&run, result));
-}
-
-fn save_report(
-    project: &ProjectSession,
-    recovery: &DiscussionRecovery,
-    run: DiscussionRun,
-    report: ProviderTerminalReport,
-) {
-    let mut pending = PendingSave {
-        outcome: SaveOutcome::Provider(Box::new(report)),
-        run,
-    };
-    if let Ok(current) = project.read_discussion_run(pending.run.owner.clone()) {
-        pending.run = current;
-    }
-    if pending.attempt(project, &pending.run).is_err() {
-        recovery.retain(pending);
-    }
+    crate::discussion_recovery::save_report(project, recovery, run.clone(), report(&run, result));
 }
 
 fn save_local_failure(
@@ -423,17 +397,6 @@ pub fn worker_unavailable(
         run,
         "The Claude response worker could not start. No model request was sent.",
     );
-}
-
-struct Registration {
-    runtime: DesktopProviders,
-    owner: RunOwner,
-}
-
-impl Drop for Registration {
-    fn drop(&mut self) {
-        self.runtime.release(&self.owner);
-    }
 }
 
 #[cfg(test)]
@@ -597,9 +560,9 @@ mod tests {
 
     #[test]
     fn output_scope_never_splits_unicode_or_exceeds_the_cap() {
-        assert_eq!(prefix("Aé🌙", 2), "A");
-        assert_eq!(prefix("Aé🌙", 6), "Aé");
-        let text = prefix("Aé🌙", 7);
+        assert_eq!(crate::provider_runtime::prefix("Aé🌙", 2), "A");
+        assert_eq!(crate::provider_runtime::prefix("Aé🌙", 6), "Aé");
+        let text = crate::provider_runtime::prefix("Aé🌙", 7);
         assert!(text.len() <= 7);
         assert!(text.is_char_boundary(text.len()));
     }

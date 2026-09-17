@@ -22,10 +22,7 @@ pub fn run_live(
 ) {
     let owner = dispatch.job.owner.clone();
     let document_id = dispatch.job.target.document_id.clone();
-    let _registration = Registration {
-        runtime,
-        owner: owner.clone(),
-    };
+    let _registration = crate::provider_runtime::WorkerRegistration::memory(runtime, owner.clone());
 
     let binding = match dispatch.packet.options.provider_binding.clone() {
         Some(binding)
@@ -145,7 +142,7 @@ pub fn run_live(
                     stop.request_stop();
                 }
                 let remaining = output_limit.saturating_sub(observed.len());
-                observed.push_str(prefix(&delta, remaining));
+                observed.push_str(crate::provider_runtime::prefix(&delta, remaining));
             }
             Ok(Some(CodexStreamEvent::Finished(mut result))) => {
                 if !result.assistant_text.starts_with(&observed) {
@@ -156,7 +153,9 @@ pub fn run_live(
                 }
                 if output_limited || result.assistant_text.len() > output_limit {
                     result.status = CodexRunStatus::OutputLimit;
-                    result.assistant_text = prefix(&result.assistant_text, output_limit).into();
+                    result.assistant_text =
+                        crate::provider_runtime::prefix(&result.assistant_text, output_limit)
+                            .into();
                 }
                 save_result(&project, &recovery, report(&owner, result), document_id);
                 return;
@@ -301,23 +300,4 @@ fn stopped(owner: &webnovel_core::projects::memory::MemoryOwner, bytes: usize) -
         },
         "",
     )
-}
-
-fn prefix(text: &str, limit: usize) -> &str {
-    let mut end = text.len().min(limit);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
-}
-
-struct Registration {
-    runtime: DesktopProviders,
-    owner: webnovel_core::projects::memory::MemoryOwner,
-}
-
-impl Drop for Registration {
-    fn drop(&mut self) {
-        self.runtime.release_memory(&self.owner);
-    }
 }

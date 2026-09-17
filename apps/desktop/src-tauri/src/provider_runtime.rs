@@ -1474,3 +1474,55 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+/// Byte-prefix at a limit, never splitting a UTF-8 boundary.
+pub(crate) fn prefix(text: &str, limit: usize) -> &str {
+    let mut end = text.len().min(limit);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// Registered worker slot released when the worker ends or unwinds.
+pub(crate) struct WorkerRegistration {
+    runtime: DesktopProviders,
+    owner: WorkerOwner,
+}
+
+enum WorkerOwner {
+    Discussion(RunOwner),
+    Memory(MemoryOwner),
+    HttpMemory(MemoryOwner),
+}
+
+impl WorkerRegistration {
+    pub(crate) fn discussion(runtime: DesktopProviders, owner: RunOwner) -> Self {
+        Self {
+            runtime,
+            owner: WorkerOwner::Discussion(owner),
+        }
+    }
+    pub(crate) fn memory(runtime: DesktopProviders, owner: MemoryOwner) -> Self {
+        Self {
+            runtime,
+            owner: WorkerOwner::Memory(owner),
+        }
+    }
+    pub(crate) fn http_memory(runtime: DesktopProviders, owner: MemoryOwner) -> Self {
+        Self {
+            runtime,
+            owner: WorkerOwner::HttpMemory(owner),
+        }
+    }
+}
+
+impl Drop for WorkerRegistration {
+    fn drop(&mut self) {
+        match &self.owner {
+            WorkerOwner::Discussion(owner) => self.runtime.release(owner),
+            WorkerOwner::Memory(owner) => self.runtime.release_memory(owner),
+            WorkerOwner::HttpMemory(owner) => self.runtime.release_http_memory(owner),
+        }
+    }
+}

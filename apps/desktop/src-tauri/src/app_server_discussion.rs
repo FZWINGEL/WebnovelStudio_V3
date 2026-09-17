@@ -47,10 +47,8 @@ pub fn run_live(
     stop: StopSignal,
 ) {
     let owner = dispatch.run.owner.clone();
-    let _registration = Registration {
-        runtime,
-        owner: owner.clone(),
-    };
+    let _registration =
+        crate::provider_runtime::WorkerRegistration::discussion(runtime, owner.clone());
 
     if dispatch.run.lookup.is_some() {
         save_failure(
@@ -228,7 +226,7 @@ pub fn run_live(
                     stop.request_stop();
                 }
                 let remaining = output_limit.saturating_sub(observed.len());
-                let chunk = prefix(&delta, remaining);
+                let chunk = crate::provider_runtime::prefix(&delta, remaining);
                 observed.push_str(chunk);
                 pending.push_str(chunk);
                 if !pending.is_empty()
@@ -257,7 +255,9 @@ pub fn run_live(
                 }
                 if output_limited || result.assistant_text.len() > output_limit {
                     result.status = CodexRunStatus::OutputLimit;
-                    result.assistant_text = prefix(&result.assistant_text, output_limit).into();
+                    result.assistant_text =
+                        crate::provider_runtime::prefix(&result.assistant_text, output_limit)
+                            .into();
                 }
                 if !local_write_failed
                     && !stop.is_requested()
@@ -414,7 +414,7 @@ fn save_report(
     delivery: AppServerDelivery,
     diagnostics: AppServerDiagnostics,
 ) {
-    crate::live_discussion::save_report(
+    crate::discussion_recovery::save_report(
         project,
         recovery,
         run.clone(),
@@ -444,7 +444,7 @@ fn save_failure(
         AppServerDiagnostics::default(),
     );
     report.error = Some(detail.into());
-    crate::live_discussion::save_report(project, recovery, run, report);
+    crate::discussion_recovery::save_report(project, recovery, run, report);
 }
 
 pub fn worker_unavailable(
@@ -512,14 +512,6 @@ fn failed(status: CodexRunStatus) -> CodexRunResult {
     }
 }
 
-fn prefix(text: &str, limit: usize) -> &str {
-    let mut end = text.len().min(limit);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
-}
-
 #[derive(Default)]
 struct CallbackState {
     dispatch: Option<AppServerDispatch>,
@@ -544,17 +536,6 @@ fn uncertain_delivery(state: &Arc<Mutex<CallbackState>>) -> AppServerDelivery {
         terminal: None,
         request_settled: false,
         connection: codex_app_server::AppServerConnectionSettlement::Unresolved,
-    }
-}
-
-struct Registration {
-    runtime: DesktopProviders,
-    owner: RunOwner,
-}
-
-impl Drop for Registration {
-    fn drop(&mut self) {
-        self.runtime.release(&self.owner);
     }
 }
 

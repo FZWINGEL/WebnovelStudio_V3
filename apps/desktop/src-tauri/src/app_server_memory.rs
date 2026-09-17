@@ -36,10 +36,7 @@ pub fn run_live(
 ) {
     let owner = dispatch.job.owner.clone();
     let document_id = dispatch.job.target.document_id.clone();
-    let _registration = Registration {
-        runtime,
-        owner: owner.clone(),
-    };
+    let _registration = crate::provider_runtime::WorkerRegistration::memory(runtime, owner.clone());
 
     // Core deliberately returns a running dispatch for recovery reads.  That
     // result is never permission to send the frozen packet again.
@@ -201,7 +198,7 @@ pub fn run_live(
                     stop.request_stop();
                 }
                 let remaining = output_limit.saturating_sub(observed.len());
-                observed.push_str(prefix(&delta, remaining));
+                observed.push_str(crate::provider_runtime::prefix(&delta, remaining));
             }
             Ok(Some(AppServerStreamEvent::Finished(finished))) => {
                 let mut result = finished.result;
@@ -213,7 +210,9 @@ pub fn run_live(
                 }
                 if output_limited || result.assistant_text.len() > output_limit {
                     result.status = CodexRunStatus::OutputLimit;
-                    result.assistant_text = prefix(&result.assistant_text, output_limit).into();
+                    result.assistant_text =
+                        crate::provider_runtime::prefix(&result.assistant_text, output_limit)
+                            .into();
                 }
                 save_completion(
                     &project,
@@ -327,14 +326,6 @@ fn stopped() -> CodexRunResult {
     failed(CodexRunStatus::Stopped)
 }
 
-fn prefix(text: &str, limit: usize) -> &str {
-    let mut end = text.len().min(limit);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
-}
-
 #[derive(Default)]
 struct CallbackState {
     dispatch: Option<AppServerDispatch>,
@@ -359,17 +350,6 @@ fn uncertain_delivery(state: &Arc<Mutex<CallbackState>>) -> AppServerDelivery {
         terminal: None,
         request_settled: false,
         connection: codex_app_server::AppServerConnectionSettlement::Unresolved,
-    }
-}
-
-struct Registration {
-    runtime: DesktopProviders,
-    owner: webnovel_core::projects::memory::MemoryOwner,
-}
-
-impl Drop for Registration {
-    fn drop(&mut self) {
-        self.runtime.release_memory(&self.owner);
     }
 }
 

@@ -24,10 +24,8 @@ pub fn run_live(
         return;
     }
     let owner = dispatch.run.owner.clone();
-    let _registration = Registration {
-        runtime,
-        owner: owner.clone(),
-    };
+    let _registration =
+        crate::provider_runtime::WorkerRegistration::discussion(runtime, owner.clone());
     let mut run = dispatch.run;
     let binding = match dispatch.packet.options.provider_binding.clone() {
         Some(binding)
@@ -132,7 +130,7 @@ pub fn run_live(
                     stop.request_stop();
                 }
                 let remaining = output_limit.saturating_sub(observed.len());
-                let chunk = prefix(&delta, remaining);
+                let chunk = crate::provider_runtime::prefix(&delta, remaining);
                 observed.push_str(chunk);
                 if chunk.is_empty() || local_write_failed || stop.is_requested() {
                     continue;
@@ -159,7 +157,9 @@ pub fn run_live(
                 }
                 if output_limited || result.assistant_text.len() > output_limit {
                     result.status = CodexRunStatus::OutputLimit;
-                    result.assistant_text = prefix(&result.assistant_text, output_limit).into();
+                    result.assistant_text =
+                        crate::provider_runtime::prefix(&result.assistant_text, output_limit)
+                            .into();
                 }
                 // A local append error causes Stop, but may have committed its
                 // exact chunk. The terminal transaction checks the saved prefix.
@@ -193,13 +193,6 @@ pub fn run_live(
     }
 }
 
-fn prefix(text: &str, limit: usize) -> &str {
-    let mut end = text.len().min(limit);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
-}
 fn failed() -> CodexRunResult {
     CodexRunResult {
         status: CodexRunStatus::ProcessUnavailable,
@@ -275,25 +268,7 @@ fn save(
     run: DiscussionRun,
     result: CodexRunResult,
 ) {
-    save_report(project, recovery, run.clone(), report(&run, result));
-}
-pub(super) fn save_report(
-    project: &ProjectSession,
-    recovery: &DiscussionRecovery,
-    run: DiscussionRun,
-    report: ProviderTerminalReport,
-) {
-    let mut pending = PendingSave {
-        outcome: SaveOutcome::Provider(Box::new(report)),
-        run,
-    };
-    // Reading this owner cannot redirect a late result after project switching.
-    if let Ok(current) = project.read_discussion_run(pending.run.owner.clone()) {
-        pending.run = current;
-    }
-    if pending.attempt(project, &pending.run).is_err() {
-        recovery.retain(pending);
-    }
+    crate::discussion_recovery::save_report(project, recovery, run.clone(), report(&run, result));
 }
 fn save_failure(
     project: &ProjectSession,
@@ -303,7 +278,7 @@ fn save_failure(
 ) {
     let mut report = report(&run, failed());
     report.error = Some(detail.into());
-    save_report(project, recovery, run, report);
+    crate::discussion_recovery::save_report(project, recovery, run, report);
 }
 pub fn worker_unavailable(
     project: &ProjectSession,
@@ -317,16 +292,6 @@ pub fn worker_unavailable(
         "The response worker could not start. No model request was sent.",
     );
 }
-struct Registration {
-    runtime: DesktopProviders,
-    owner: RunOwner,
-}
-impl Drop for Registration {
-    fn drop(&mut self) {
-        self.runtime.release(&self.owner);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
