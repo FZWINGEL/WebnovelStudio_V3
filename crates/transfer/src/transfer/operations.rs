@@ -1,7 +1,6 @@
 use super::*;
 
 /// Create a consistent stored ZIP backup without pausing the project actor.
-
 pub fn create_backup(project: &impl TransferSource, target: &Path) -> CoreResult<BackupManifest> {
     let metadata = project.metadata()?;
     assert_marker_identity(project.project_path(), &metadata.project)?;
