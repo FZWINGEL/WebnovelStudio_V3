@@ -112,7 +112,7 @@ function workspaceOwnershipViolations(file: string, text: string): string[] {
     } else if (file === 'libraryModel.ts') {
       allowed = ['react', '../ipc/library', 'workspaceContracts'].includes(normalized);
     } else if (file === 'documentWorkspace.ts') {
-      allowed = ['react', '../editor', '../kernel', 'workspaceContracts', 'projectTabs', 'workspaceModes'].includes(normalized)
+      allowed = ['react', '../editor', '../kernel', 'workspaceContracts', 'projectTabs', 'workspaceModes', 'chatFlows'].includes(normalized)
         || normalized.startsWith('../ipc/');
     } else if (file === 'workspaceModel.ts') {
       allowed = ['react', '@tauri-apps/api/core', '../ipc/native', '../ipc/projectActivity',

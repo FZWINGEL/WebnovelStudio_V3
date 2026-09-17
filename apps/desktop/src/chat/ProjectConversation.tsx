@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ComponentProps, type ReactNode, type UIEvent } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { useSyncExternalStore } from 'react';
 import { useProviders } from '../providers';
 import type { MockContextBudget } from '../ipc/context';
@@ -7,16 +7,14 @@ import type { AssistantDraft, ChatDispositionOptions, ChatDispositionScope, Chat
 import { readChatAdoptionPreview } from '../ipc/projectChat';
 import type { DiscussionRun, SafeBriefInput } from '../ipc/discussions';
 import { SafeBriefEditor } from '../assistant';
-import { ContextInspector } from '../assistant';
 import { approveChapterBrief } from './brief';
-import { conversationItems, draftRefs, ProjectConversationStore } from './conversationStore';
+import { draftRefs, ProjectConversationStore } from './conversationStore';
 import { DraftReviewPanel, type DraftReviewPanelHandle } from './DraftReviewPanel';
 import { ProjectDocumentsPanel } from './ProjectDocumentsPanel';
-import { DocumentSaveRecap } from './DocumentSaveRecap';
 import { Writer } from './Writer';
 import { RequestStatus } from './RequestStatus';
 import { useStoryFreshness } from './useStoryFreshness';
-import { ChapterHandoff, parseChapterHandoff, type ChapterHandoffProposal } from './ChapterHandoff';
+import { type ChapterHandoffProposal } from './ChapterHandoff';
 import { useDraftReviewContext } from './useDraftReviewContext';
 import { readStalePreviewComparison } from './stalePreviewComparison';
 import type { StalePreviewComparison } from './DraftReviewPanel';
@@ -24,7 +22,8 @@ import { chatViewPreferenceKey, readChatViewPreferences, writeChatViewPreference
 import './chat.css';
 import './CoauthorConversation.css';
 import { ChatSplitPane } from './ChatSplitPane';
-import { NewReplyAffordance, useTranscriptScroll } from './TranscriptScroll';
+import { Transcript } from './conversationPanels';
+import { dispositionVersion, frozenRequestContext, isStaleAdoptionError, reasonMessage, requestItemForRun } from './conversationHelpers';
 
 export interface ProjectConversationHandle { flush(): Promise<void>; refresh?(): Promise<void>; stageChapter(chapter: ProjectChapterComposer): Promise<void>; attachSource(head: Head): Promise<void> }
 export interface ProjectConversationProps {
@@ -53,309 +52,6 @@ export interface ProjectConversationProps {
 }
 
 const defaultBudget: MockContextBudget = { modelId: 'mock-story-context', contextWindowTokens: '32768', reservedOutputTokens: '4096', reservedProtocolTokens: '1024' };
-interface AssistantOutput { schemaVersion: string; answer: string; questions: Array<{ key: string; text: string }>; assumptions: Array<{ key: string; text: string }>; chapterHandoff: ChapterHandoffProposal | null }
-function runPayload(payload: Record<string, unknown>): Record<string, unknown> | null {
-  return payload.run && typeof payload.run === 'object' ? payload.run as Record<string, unknown> : null;
-}
-function outputOf(run: Record<string, unknown>): AssistantOutput | null {
-  if (typeof run.outputText !== 'string' || !run.outputText.trim()) return null;
-  try {
-    const parsed: unknown = JSON.parse(run.outputText);
-    if (!parsed || typeof parsed !== 'object') return null;
-    const value = parsed as Record<string, unknown>;
-    if (value.schemaVersion !== 'project-assistant-output.v1' || typeof value.answer !== 'string' || !Array.isArray(value.questions) || !Array.isArray(value.assumptions)) return null;
-    return {
-      schemaVersion: value.schemaVersion,
-      answer: value.answer,
-      chapterHandoff: parseChapterHandoff(value.chapterHandoff),
-      questions: value.questions.filter((entry): entry is { key: string; text: string } => !!entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).key === 'string' && typeof (entry as Record<string, unknown>).text === 'string'),
-      assumptions: value.assumptions.filter((entry): entry is { key: string; text: string } => !!entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).key === 'string' && typeof (entry as Record<string, unknown>).text === 'string'),
-    };
-  } catch { return null; }
-}
-function chapterOutputOf(run: Record<string, unknown>): string | null {
-  if (typeof run.outputText !== 'string' || !run.outputText.trim()) return null;
-  const raw = run.outputText.trim();
-  if (!raw.startsWith('{') && !raw.startsWith('[')) return raw;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      const value = parsed as Record<string, unknown>;
-      if (typeof value.answer === 'string') return value.answer;
-      if (typeof value.text === 'string') return value.text;
-      if (typeof value.replacementText === 'string') return value.replacementText;
-      if (Array.isArray(value.paragraphs)) {
-        const paragraphs = value.paragraphs.filter((item): item is string => typeof item === 'string');
-        if (paragraphs.length) return paragraphs.join('\n\n');
-      }
-      const candidate = value.candidate;
-      if (candidate && typeof candidate === 'object' && typeof (candidate as Record<string, unknown>).replacementText === 'string') return (candidate as Record<string, string>).replacementText;
-    }
-  } catch { return null; }
-  return null;
-}
-function dispositionVersion(items: ReturnType<typeof conversationItems>, referenceId: string): string {
-  return latestDisposition(items, referenceId)?.version ?? '0';
-}
-
-interface SavedDisposition {
-  version: string;
-  disposition: string;
-  scope?: ChatDispositionScope;
-  unknownTo?: ChatUnknownTo;
-  rationale?: string;
-}
-
-function dispositionScope(value: unknown): ChatDispositionScope | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const scope = value as Record<string, unknown>;
-  if (scope.kind !== 'project' && scope.kind !== 'task' && scope.kind !== 'chapter' && scope.kind !== 'document') return undefined;
-  if (scope.kind !== 'project' && typeof scope.referenceId !== 'string') return undefined;
-  return scope.kind === 'project' ? { kind: 'project' } : { kind: scope.kind, referenceId: scope.referenceId as string };
-}
-
-function dispositionUnknownTo(value: unknown): ChatUnknownTo | undefined {
-  return value === 'author' || value === 'reader' || value === 'both' ? value : undefined;
-}
-
-function latestDisposition(items: ReturnType<typeof conversationItems>, referenceId: string): SavedDisposition | null {
-  const latest = items.filter(item => item.kind === 'chatDisposition' && (item.referenceId === referenceId || item.payload.referenceId === referenceId)).at(-1);
-  return latest ? dispositionOf(latest) : null;
-}
-
-function dispositionOf(item: ConversationItem): SavedDisposition {
-  return {
-    version: typeof item.payload.version === 'string' ? item.payload.version : '0',
-    disposition: typeof item.payload.disposition === 'string' ? item.payload.disposition : 'updated',
-    scope: dispositionScope(item.payload.scope),
-    unknownTo: dispositionUnknownTo(item.payload.unknownTo),
-    rationale: typeof item.payload.rationale === 'string' ? item.payload.rationale : undefined,
-  };
-}
-
-function isLatestDisposition(items: ReturnType<typeof conversationItems>, item: ConversationItem, referenceId: string): boolean {
-  const latest = items.filter(candidate => candidate.kind === 'chatDisposition' && (candidate.referenceId === referenceId || candidate.payload.referenceId === referenceId)).at(-1);
-  return latest?.id === item.id;
-}
-
-function dispositionScopeLabel(scope: ChatDispositionScope | undefined): string {
-  if (!scope) return 'Not recorded';
-  if (scope.kind === 'project') return 'Project';
-  if (scope.kind === 'task') return `This request · ${scope.referenceId}`;
-  if (scope.kind === 'chapter') return `Chapter · ${scope.referenceId}`;
-  return `Document · ${scope.referenceId}`;
-}
-
-function dispositionUnknownToLabel(value: ChatUnknownTo | undefined): string | null {
-  if (value === 'author') return 'Author';
-  if (value === 'reader') return 'Reader';
-  if (value === 'both') return 'Author and reader';
-  return null;
-}
-
-function dispositionLabel(value: string, draft: AssistantDraft | null | undefined): string {
-  if (draft) {
-    if (value === 'reconsider') return 'Draft marked for a fresh review.';
-    if (value === 'rejected') return 'Draft rejected.';
-    return `Draft decision saved: ${value}.`;
-  }
-  if (value === 'notNow') return 'Response deferred for this scope.';
-  if (value === 'notRelevant') return 'Response marked not relevant for this scope.';
-  if (value === 'keepMysterious') return 'Response kept mysterious.';
-  if (value === 'assumptionReject') return 'Assumption rejected for this request.';
-  if (value === 'reconsider') return 'Response reopened for a fresh answer.';
-  return `Response decision saved: ${value}.`;
-}
-
-function requestItemForRun(items: ConversationItem[], run: DiscussionRun | null): ConversationItem | null {
-  if (!run) return null;
-  return items.find(item => (item.kind === 'request' || item.kind === 'chapterRequest') && (item.referenceId === run.id || runPayload(item.payload)?.id === run.id)) ?? null;
-}
-
-function materializedDraftIds(item: ConversationItem): string[] {
-  if (item.kind !== 'materializeChatResult' || !Array.isArray(item.payload.draftRefs)) return [];
-  return item.payload.draftRefs.flatMap(value => {
-    if (!value || typeof value !== 'object') return [];
-    const documentId = (value as Record<string, unknown>).documentId;
-    return typeof documentId === 'string' && documentId.trim() ? [documentId] : [];
-  });
-}
-
-function frozenRequestContext(item: ConversationItem | null, documents: DocumentRecord[]): { surface: 'authorRoom' | 'chapterWriting'; targetLabel: string; scopeLabel: string } | undefined {
-  if (!item) return undefined;
-  if (item.kind === 'chapterRequest') {
-    const target = item.payload.target && typeof item.payload.target === 'object' ? item.payload.target as Record<string, unknown> : null;
-    const documentId = typeof target?.documentId === 'string' ? target.documentId : null;
-    const title = documentId ? documents.find(document => document.head.documentId === documentId)?.title : null;
-    const scope = item.payload.scope && typeof item.payload.scope === 'object' ? item.payload.scope as Record<string, unknown> : null;
-    const quote = typeof scope?.quote === 'string' && scope.quote.trim() ? scope.quote.trim() : '';
-    return {
-      surface: 'chapterWriting',
-      targetLabel: `Chapter · ${title ?? documentId ?? 'captured chapter'}`,
-      scopeLabel: quote ? `Captured selection · “${quote.length > 96 ? `${quote.slice(0, 93)}…` : quote}”` : 'Captured chapter scope',
-    };
-  }
-  const sources = Array.isArray(item.payload.sourceRefs) ? item.payload.sourceRefs.length : 0;
-  const drafts = Array.isArray(item.payload.taskDraftRefs) ? item.payload.taskDraftRefs.length : 0;
-  const scopeLabel = [sources ? `${sources} exact source${sources === 1 ? '' : 's'}` : '', drafts ? `${drafts} task draft${drafts === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') || 'No additional sources attached';
-  return { surface: 'authorRoom', targetLabel: 'Project conversation', scopeLabel };
-}
-
-function reasonMessage(reason: unknown, fallback: string): string {
-  if (reason && typeof reason === 'object') {
-    const value = reason as Record<string, unknown>;
-    if (typeof value.detail === 'string' && value.detail.trim()) return value.detail;
-    if (typeof value.message === 'string' && value.message.trim()) return value.message;
-  }
-  return reason instanceof Error && reason.message ? reason.message : fallback;
-}
-
-function reasonCode(reason: unknown): string | null {
-  if (!reason || typeof reason !== 'object') return null;
-  const code = (reason as Record<string, unknown>).code;
-  return typeof code === 'string' ? code : null;
-}
-
-function isStaleAdoptionError(reason: unknown): boolean {
-  return ['DraftChanged', 'PreviewMismatch', 'ContextChanged', 'VersionConflict', 'Stale', 'PreviewStale'].includes(reasonCode(reason) ?? '');
-}
-
-function ResponseDispositionControls({ referenceId, expectedVersion, runId, isAssumption, assumptionText, savedDisposition, documents, activeDocument, onDisposition, onStageAssumptionCorrection }: { referenceId: string; expectedVersion: string; runId: string; isAssumption?: boolean; assumptionText?: string; savedDisposition?: SavedDisposition | null; documents: DocumentRecord[]; activeDocument: DocumentRecord | null; onDisposition: (referenceId: string, version: string, value: string, options?: ChatDispositionOptions, rationale?: string) => void; onStageAssumptionCorrection?: (originalText: string, revisedText: string) => boolean | void }) {
-  const chapter = activeDocument?.kind === 'chapter' ? activeDocument : documents.find(document => document.kind === 'chapter' && (document.role ?? 'ordinary') === 'ordinary');
-  const document = activeDocument ?? documents.find(item => (item.role ?? 'ordinary') === 'ordinary');
-  const availableScopeKinds = new Set<ChatDispositionScope['kind']>(['project', 'task', ...(chapter ? ['chapter' as const] : []), ...(document ? ['document' as const] : [])]);
-  const savedScopeKind = savedDisposition?.scope?.kind;
-  const initialScopeKind = savedScopeKind && availableScopeKinds.has(savedScopeKind) ? savedScopeKind : 'project';
-  const [scopeKind, setScopeKind] = useState<ChatDispositionScope['kind']>(initialScopeKind);
-  const [scopeEdited, setScopeEdited] = useState(false);
-  const [unknownTo, setUnknownTo] = useState<ChatUnknownTo>(savedDisposition?.unknownTo ?? 'reader');
-  const [editingAssumption, setEditingAssumption] = useState(false);
-  const [editedAssumption, setEditedAssumption] = useState(assumptionText ?? '');
-  useEffect(() => {
-    const nextKind = savedDisposition?.scope?.kind;
-    setScopeKind(nextKind && availableScopeKinds.has(nextKind) ? nextKind : 'project');
-    setScopeEdited(false);
-    setUnknownTo(savedDisposition?.unknownTo ?? 'reader');
-  }, [savedDisposition?.scope?.kind, savedDisposition?.scope?.referenceId, savedDisposition?.unknownTo, chapter?.head.documentId, document?.head.documentId]);
-  useEffect(() => {
-    if (!editingAssumption) setEditedAssumption(assumptionText ?? '');
-  }, [assumptionText, editingAssumption]);
-  const scope: ChatDispositionScope = !scopeEdited && savedDisposition?.scope && savedDisposition.scope.kind === scopeKind
-    ? savedDisposition.scope
-    : scopeKind === 'project' ? { kind: 'project' } : scopeKind === 'task' ? { kind: 'task', referenceId: runId } : scopeKind === 'chapter' && chapter ? { kind: 'chapter', referenceId: chapter.head.documentId } : document ? { kind: 'document', referenceId: document.head.documentId } : { kind: 'project' };
-  const submit = (value: string) => onDisposition(referenceId, expectedVersion, value, { scope, unknownTo: value === 'keepMysterious' && !isAssumption ? unknownTo : undefined });
-  const beginAssumptionEdit = () => { setEditedAssumption(assumptionText ?? ''); setEditingAssumption(true); };
-  const cancelAssumptionEdit = () => { setEditedAssumption(assumptionText ?? ''); setEditingAssumption(false); };
-  const stageAssumptionCorrection = () => {
-    if (!assumptionText?.trim() || !editedAssumption.trim() || !onStageAssumptionCorrection) return;
-    const staged = onStageAssumptionCorrection(assumptionText, editedAssumption);
-    if (staged !== false) setEditingAssumption(false);
-  };
-  return <div className="chat-question-actions">
-    <label className="chat-disposition-scope">Scope<select value={scopeKind} disabled={!!isAssumption} onChange={event => { setScopeKind(event.target.value as ChatDispositionScope['kind']); setScopeEdited(true); }}><option value="project">Project</option><option value="task">This request</option>{chapter && <option value="chapter">Chapter · {chapter.title}</option>}{document && <option value="document">Open document · {document.title}</option>}</select></label>
-    {!isAssumption && <label className="chat-disposition-scope">Keep unknown to<select value={unknownTo} onChange={event => setUnknownTo(event.target.value as ChatUnknownTo)}><option value="author">Author</option><option value="reader">Reader</option><option value="both">Author and reader</option></select></label>}
-    {isAssumption && onStageAssumptionCorrection && <button type="button" onClick={beginAssumptionEdit}>Edit assumption</button>}
-    {isAssumption && editingAssumption && <div className="chat-assumption-correction"><label>Correction for the next draft<textarea aria-label="Correct proposed assumption" value={editedAssumption} onChange={event => setEditedAssumption(event.target.value)} /></label><button type="button" disabled={!editedAssumption.trim()} onClick={stageAssumptionCorrection}>Use correction for next draft</button><button type="button" onClick={cancelAssumptionEdit}>Cancel</button></div>}
-    {isAssumption ? <><button type="button" onClick={() => submit('assumptionReject')}>Reject assumption</button><button type="button" onClick={() => submit('reconsider')}>Reconsider</button></> : <><button type="button" onClick={() => submit('notNow')}>Not now</button><button type="button" onClick={() => submit('notRelevant')}>Not relevant</button><button type="button" onClick={() => submit('keepMysterious')}>Keep mysterious</button><button type="button" onClick={() => submit('reconsider')}>Reconsider</button></>}
-  </div>;
-}
-
-function Transcript({ store, documents, activeDocument, onDisposition, onStageAssumptionCorrection, onOpenDocument, onOpenDraft, onOpenChapterResult, onAdaptBrief, onPrepareHandoff, onBrowseDocuments, onCreateChapter, onCreateNote, anchor, onAnchorChange }: { store: ProjectConversationStore; documents: DocumentRecord[]; activeDocument: DocumentRecord | null; onDisposition: (referenceId: string, version: string, value: string, options?: ChatDispositionOptions, rationale?: string) => void; onStageAssumptionCorrection?: (originalText: string, revisedText: string) => boolean | void; onOpenDocument?: (document: DocumentRecord) => Promise<void> | void; onOpenDraft?: (draft: AssistantDraft) => Promise<void> | void; onOpenChapterResult?: (run: DiscussionRun) => Promise<void> | void; onAdaptBrief?: (messageId: string, text: string) => void; onPrepareHandoff?: (proposal: ChapterHandoffProposal, messageId: string, targetId: string | null, title: string) => Promise<void>; onBrowseDocuments?: () => void; onCreateChapter?: () => Promise<void> | void; onCreateNote?: () => Promise<void> | void; anchor?: string | null; onAnchorChange?: (itemId: string) => void }) {
-  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  const items = conversationItems(state.view);
-  const hasItems = items.length > 0 || !!state.activeRun;
-  const transcriptRef = useRef<HTMLDivElement>(null);
-  const replyEntries = useMemo(() => items.flatMap(item => {
-    if (item.kind === 'request' || item.kind === 'chapterRequest') {
-      const run = runPayload(item.payload);
-      if (run && ['completed', 'failed', 'interrupted'].includes(String(run.status))) {
-        const replyId = `${item.id}:assistant`;
-        return [{ id: replyId, key: `${replyId}:${String(run.status)}:${String(run.updatedAt ?? run.id ?? '')}` }];
-      }
-    }
-    return [];
-  }), [items]);
-  const { unseenReplyCount, jumpToLatest } = useTranscriptScroll({ containerRef: transcriptRef, itemCount: items.length, replyKeys: replyEntries.map(entry => entry.key), latestReplyId: replyEntries.at(-1)?.id ?? null, olderLoading: state.olderLoading });
-  useEffect(() => {
-    if (!anchor) return;
-    const timer = setTimeout(() => {
-      const element = [...(transcriptRef.current?.querySelectorAll<HTMLElement>('[data-conversation-item-id]') ?? [])].find(item => item.dataset.conversationItemId === anchor);
-      element?.scrollIntoView?.({ block: 'start' });
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [anchor]);
-  const rememberAnchor = (event: UIEvent<HTMLDivElement>) => {
-    if (!onAnchorChange) return;
-    const top = event.currentTarget.getBoundingClientRect().top;
-    const visible = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-conversation-item-id]')].find(item => item.getBoundingClientRect().bottom >= top + 6);
-    if (visible?.dataset.conversationItemId) onAnchorChange(visible.dataset.conversationItemId);
-  };
-  return <div className="chat-transcript-shell">
-    <div ref={transcriptRef} className="chat-transcript" aria-label="Project conversation" onScroll={rememberAnchor}>
-      <DocumentSaveRecap access={store.access} saves={state.view?.documentSaves ?? []} documents={documents} onOpenDocument={onOpenDocument} />
-      {(state.view?.olderBefore || state.olderLoading || state.olderError) && <div className="chat-older-timeline"><button type="button" disabled={state.olderLoading || !state.view?.olderBefore} onClick={() => void store.loadOlder()}>{state.olderLoading ? 'Loading earlier messages…' : 'Load earlier messages'}</button>{state.olderError && <span role="alert">{state.olderError}</span>}</div>}
-    {!hasItems && <div className="chat-empty chat-welcome"><h1>What are you writing?</h1><p>Start with an idea, a character, a scene, or a question. I’ll help shape it into material you can review.</p><p className="chat-muted">You can answer one question, keep something mysterious, or ask me to draft a first version without completing a form.</p><div className="chat-empty-actions">{onCreateNote && <button type="button" onClick={() => void onCreateNote()}>Bring a note</button>}{onBrowseDocuments && <button type="button" onClick={onBrowseDocuments}>Browse documents</button>}{onCreateChapter && <button type="button" onClick={() => void onCreateChapter()}>Blank chapter</button>}</div></div>}
-    {items.map(item => {
-      const run = runPayload(item.payload);
-      const output = run ? outputOf(run) : null;
-      if ((item.kind === 'request' || item.kind === 'chapterRequest') && run) {
-        const instruction = typeof item.payload.instruction === 'string' ? item.payload.instruction : 'Request sent.';
-        const runId = typeof run.id === 'string' ? run.id : item.referenceId ?? item.id;
-        const chapterText = item.kind === 'chapterRequest' ? chapterOutputOf(run) : null;
-        const typedRun = run as unknown as DiscussionRun;
-        const userMessageId = typeof item.payload.userMessageId === 'string' ? item.payload.userMessageId : null;
-        const assistantMessageId = typeof item.payload.assistantMessageId === 'string' ? item.payload.assistantMessageId : null;
-        const canAdapt = item.kind === 'request' && run.status === 'completed' && !!onAdaptBrief;
-        const answerText = output?.answer ?? chapterText;
-        return <div key={item.id} data-conversation-item-id={item.id} className="chat-turn">
-          <article className="chat-message chat-message-user"><div className="chat-message-meta">You · {item.kind === 'chapterRequest' ? 'Chapter task' : 'Project conversation'} <span>{item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span></div><p>{instruction}</p>{canAdapt && userMessageId && <button type="button" className="chat-adapt-brief" onClick={() => onAdaptBrief?.(userMessageId, instruction)}>Adapt as writing brief</button>}</article>
-          <article className="chat-message chat-message-assistant" data-assistant-reply-id={`${item.id}:assistant`}><div className="chat-message-meta">Assistant <span>{typeof run.status === 'string' ? run.status : ''}</span></div>
-            {output ? <><p>{output.answer}</p>{output.assumptions.length > 0 && <div className="chat-assumptions"><strong>Proposed assumptions · this request</strong>{output.assumptions.map(assumption => { const reference = `${runId}:${assumption.key}`; return <div className="chat-assumption" key={assumption.key}><p>{assumption.text}</p><ResponseDispositionControls referenceId={reference} expectedVersion={dispositionVersion(items, reference)} runId={runId} isAssumption assumptionText={assumption.text} savedDisposition={latestDisposition(items, reference)} documents={documents} activeDocument={activeDocument} onDisposition={onDisposition} onStageAssumptionCorrection={onStageAssumptionCorrection} /></div>; })}</div>}{output.questions.map(question => { const reference = `${runId}:${question.key}`; return <div className="chat-question" key={question.key}><p><strong>Question</strong> {question.text}</p><ResponseDispositionControls referenceId={reference} expectedVersion={dispositionVersion(items, reference)} runId={runId} savedDisposition={latestDisposition(items, reference)} documents={documents} activeDocument={activeDocument} onDisposition={onDisposition} /></div>; })}</> : chapterText ? <p className="chat-prose">{chapterText}</p> : run.status === 'queued' || run.status === 'running' || run.status === 'stopping' ? <p className="chat-muted">The assistant is preparing a response…</p> : <p className="chat-warning" role="alert">The response was saved but did not match the project response format. No draft was created.</p>}
-            {item.kind === 'chapterRequest' && onOpenChapterResult && run.status === 'completed' && <button type="button" className="chat-open-chapter-result" onClick={() => void onOpenChapterResult(typedRun)}>Open chapter result</button>}
-            {canAdapt && assistantMessageId && answerText && <button type="button" className="chat-adapt-brief" onClick={() => onAdaptBrief?.(assistantMessageId, answerText)}>Adapt answer as writing brief</button>}
-            {item.kind === 'request' && typedRun.status === 'completed' && output?.chapterHandoff && assistantMessageId && onPrepareHandoff && <ChapterHandoff proposal={output.chapterHandoff} documents={documents} onPrepare={(targetId, title) => onPrepareHandoff(output.chapterHandoff!, assistantMessageId, targetId, title)} />}
-            {typedRun.packetId && <details className="chat-context-inspection"><summary>Inspect supplied context</summary><ContextInspector access={store.access} packetId={typedRun.packetId} delivered={typedRun.dispatchState === 'delivered'} appServerDelivery={typedRun.providerResult?.appServer ?? undefined} refreshKey={`${typedRun.id}:${typedRun.updatedAt}`} showVersionLinks /></details>}
-          </article>
-        </div>;
-      }
-      if (item.kind === 'materializeChatResult') {
-        const valid = item.payload.outputValid === true;
-        const drafts = Array.isArray(item.payload.draftRefs) ? item.payload.draftRefs.length : 0;
-        const reviewDrafts = materializedDraftIds(item).flatMap(documentId => {
-          const draft = state.view?.drafts.find(candidate => candidate.document.head.documentId === documentId);
-          return draft ? [draft] : [];
-        });
-        return <article className="chat-message chat-message-assistant" data-conversation-item-id={item.id} key={item.id}>
-          <div className="chat-message-meta">Assistant result</div>
-          <p>{valid ? drafts ? `${drafts} isolated draft${drafts === 1 ? '' : 's'} saved for review.` : 'Answer saved. No draft was requested.' : 'The response was retained, but no reviewable draft was created.'}</p>
-          {reviewDrafts.length > 0 && <div className="chat-inline-drafts" aria-label="Drafts ready to review">
-            <span className="chat-inline-drafts-label">Drafts ready to review</span>
-            {reviewDrafts.map(draft => <button type="button" className="chat-inline-draft" key={draft.document.head.documentId} onClick={() => void onOpenDraft?.(draft)}>
-              <span>{draft.document.title}</span>
-              <small>{draft.document.kind} · Draft v{draft.document.head.version} · {draft.disposition === 'pending' ? 'Not adopted' : draft.disposition}</small>
-            </button>)}
-          </div>}
-        </article>;
-      }
-      if (item.kind === 'chatDisposition') {
-        const value = typeof item.payload.disposition === 'string' ? item.payload.disposition : 'updated';
-        const reference = item.referenceId ?? (typeof item.payload.referenceId === 'string' ? item.payload.referenceId : '');
-        const draft = reference && !reference.includes(':') ? state.view?.drafts.find(candidate => candidate.document.head.documentId === reference) : null;
-        const saved = dispositionOf(item);
-        const unknownTo = dispositionUnknownToLabel(saved?.unknownTo);
-        const canReconsider = !!reference && reference.includes(':') && value !== 'reconsider' && isLatestDisposition(items, item, reference) && !!onDisposition;
-        return <article className="chat-message chat-message-event" data-conversation-item-id={item.id} key={item.id}><p className="chat-muted">{dispositionLabel(value, draft)}</p><div className="chat-disposition-details"><span>Response version {saved?.version ?? '0'}</span><span>Scope: {dispositionScopeLabel(saved?.scope)}</span>{unknownTo && <span>Unknown to: {unknownTo}</span>}{saved?.rationale && <span>Rationale: {saved.rationale}</span>}</div>{draft && onOpenDraft && <button type="button" onClick={() => void onOpenDraft(draft)}>Open affected draft</button>}{canReconsider && <button type="button" onClick={() => onDisposition(reference, saved?.version ?? '0', 'reconsider', saved?.scope ? { scope: saved.scope } : undefined)}>Reconsider this response</button>}</article>;
-      }
-      if (item.kind === 'adoptionDecision') {
-        const ids = Array.isArray(item.payload.documentIds) ? item.payload.documentIds.filter((id): id is string => typeof id === 'string') : [];
-        return <article className="chat-message chat-message-event chat-adoption-decision" data-conversation-item-id={item.id} key={item.id}><p><strong>Drafts adopted</strong> · {ids.length || 'The reviewed'} document{ids.length === 1 ? '' : 's'} were applied to the working story.</p>{onOpenDocument && ids.map(id => { const document = documents.find(candidate => candidate.head.documentId === id); return document ? <button type="button" key={id} onClick={() => void onOpenDocument(document)}>Open {document.title}</button> : null; })}</article>;
-      }
-      return null;
-    })}
-    </div>
-    <NewReplyAffordance count={unseenReplyCount} onJump={jumpToLatest} />
-  </div>;
-}
 
 export const ProjectConversation = forwardRef<ProjectConversationHandle, ProjectConversationProps>(function ProjectConversation({ project, activeDocument = null, onOpenDocument, onPrepareSource, onPrepareChapter, onDocumentsChanged, onEarlierWorkshop, onBeforeAdoption, onAdoptionFailure, onCreateChapter, onCreateNote, onOpenChapterResult, onAccessChanged, editor, reviewRunId = null, budget = defaultBudget }, ref) {
   const provider = useProviders();
