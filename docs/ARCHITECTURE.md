@@ -60,7 +60,9 @@ The project, document, context, Workshop and work facades share the actor handle
 They do not introduce independent queues or writers. Core implements host traits
 for its `OwnedProject`, connecting sibling concerns without a sibling Cargo edge.
 The actor owns the live connection; domain operations own their existing
-transaction scopes and uncertain-outcome handling.
+transaction scopes and uncertain-outcome handling. `OwnedProject` lives in
+`projects/owned.rs` with its connection and recovery plumbing; `projects/` keeps
+the module index, façade re-exports and the remaining session/API surface.
 
 For save and adoption, optimistic source/version validation, mutations and
 receipts stay in their existing transaction. A helper taking `&Connection` can use a caller's
