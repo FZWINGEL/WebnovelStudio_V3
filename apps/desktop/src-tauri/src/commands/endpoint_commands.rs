@@ -315,12 +315,11 @@ pub async fn discover_endpoint_models(
     profile_id: String,
     config_revision: String,
     discovery_id: String,
-    discovery: State<'_, crate::commands::endpoint_discovery::EndpointDiscovery>,
     state: State<'_, AppState>,
 ) -> CoreResult<EndpointSettingsView> {
     let app = &*state;
     let state = &app.library;
-    let read = discovery.begin(discovery_id)?;
+    let read = app.endpoint_discovery.begin(discovery_id)?;
     let state = state.clone();
     let read_state = state.clone();
     let profile_id_copy = profile_id.clone();

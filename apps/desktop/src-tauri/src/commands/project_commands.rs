@@ -345,12 +345,11 @@ pub async fn rename_project(
     expected_metadata_version: String,
     title: String,
     state: State<'_, AppState>,
-    library: State<'_, crate::commands::library_commands::DesktopLibrary>,
 ) -> CoreResult<ProjectMetadataResult> {
     let app = &*state;
     let state = &app.projects;
     let project = state.project(&access.project_id)?;
-    let library = library.inner().clone();
+    let library = app.library.clone();
     execute(move || {
         let metadata = project
             .project()
