@@ -11,7 +11,7 @@ use webnovel_core::projects::discussions::{
     ProviderOutcomeStatus,
 };
 use webnovel_core::projects::memory::{
-    CompleteMemory, MemoryDispatch, MemoryJob, MemoryJobStatus, MemoryOwner, StartMemory,
+    CompleteMemory, MemoryDispatch, MemoryJob, MemoryJobStatus, StartMemory,
 };
 use webnovel_core::projects::{CoreError, CoreResult, ProjectSession};
 use webnovel_core::providers::adapter::{

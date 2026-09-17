@@ -77,6 +77,7 @@ impl ProtocolFailureCode {
         }
     }
 
+    #[cfg(windows)]
     pub(crate) fn from_detail(detail: &str) -> Option<Self> {
         match detail {
             "The Codex app-server returned invalid UTF-8." => Some(Self::InvalidUtf8),

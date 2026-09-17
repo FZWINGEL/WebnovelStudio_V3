@@ -295,6 +295,7 @@ pub fn worker_unavailable(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_runtime::prefix;
     use webnovel_core::context::packet::MockContextBudget;
     use webnovel_core::projects::{CreateDocument, ProjectAccess};
 
