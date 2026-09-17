@@ -186,7 +186,8 @@ async function connectApp() {
     }
   }, 'WebView2 CDP startup');
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-  page = browser.contexts()[0].pages()[0];
+  const context = browser.contexts()[0];
+  page = context.pages()[0] ?? await context.waitForEvent('page', { timeout: 10_000 });
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   markOwnedReady(app);
