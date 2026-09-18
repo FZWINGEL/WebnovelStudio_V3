@@ -1111,6 +1111,28 @@ mod tests {
     }
 
     #[test]
+    fn admission_and_worker_counts_release_when_a_worker_exits_by_unwind() {
+        let runtime = DesktopProviders::default();
+        let active = runtime.track_local_worker().unwrap();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _admission = runtime.admit_request().unwrap();
+            let _worker = runtime.track_local_worker().unwrap();
+            panic!("worker exit");
+        }));
+        assert!(panicked.is_err());
+        drop(active);
+        runtime.begin_close("close").unwrap();
+        assert_eq!(
+            runtime.close_activity("close").unwrap(),
+            CloseActivity {
+                starting_requests: 0,
+                active_workers: 0,
+                stopping: false
+            }
+        );
+    }
+
+    #[test]
     fn an_old_close_response_cannot_cancel_or_authorize_a_new_close() {
         let runtime = DesktopProviders::default();
         runtime.begin_close("old").unwrap();
