@@ -60,12 +60,14 @@ jobs:
       - run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Lower dependency optimization in CI only
         # The manifest keeps opt-level=2 for dependencies so local debug runs
-        # stay fast. On a cold CI cache, dependency codegen dominates; at 0 the
-        # same crates compile much faster while debug assertions, overflow
-        # checks, and the release profile are unchanged. Scoped to this
-        # checkout's .cargo/config.toml; cargo resolves config files by walking
-        # up from every invocation directory, so this also reaches the cargo
-        # build spawned by the Tauri CLI.
+        # stay fast. On a cold CI cache, dependency codegen dominates; opt-level
+        # 1 keeps most of that compile saving while leaving the debug app's
+        # dependency code much closer to opt-2 runtime speed (opt-level 0 made
+        # consumer-side write/read races measurably more likely). Debug
+        # assertions, overflow checks, and the release profile are unchanged.
+        # Scoped to this checkout's .cargo/config.toml; cargo resolves config
+        # files by walking up from every invocation directory, so this also
+        # reaches the cargo build spawned by the Tauri CLI.
         # Must run before rust-cache: .cargo/config.toml is part of the action's
         # hashed lockfile set, so the override gets its own cache entry instead
         # of colliding with an opt-level=2 one. skip-worktree keeps
@@ -74,7 +76,7 @@ jobs:
         shell: bash
         run: |
           git update-index --skip-worktree .cargo/config.toml
-          printf '\n[profile.dev.package."*"]\nopt-level = 0\n\n[profile.test.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
+          printf '\n[profile.dev.package."*"]\nopt-level = 1\n\n[profile.test.package."*"]\nopt-level = 1\n' >> .cargo/config.toml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # cache-on-failure must stay off: GitHub cache entries are immutable,
@@ -135,7 +137,7 @@ jobs:
         shell: bash
         run: |
           git update-index --skip-worktree .cargo/config.toml
-          printf '\n[profile.dev.package."*"]\nopt-level = 0\n\n[profile.test.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
+          printf '\n[profile.dev.package."*"]\nopt-level = 1\n\n[profile.test.package."*"]\nopt-level = 1\n' >> .cargo/config.toml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # See the contracts job above: immutable entries + cache-on-failure
