@@ -68,9 +68,13 @@ jobs:
         # build spawned by the Tauri CLI.
         # Must run before rust-cache: .cargo/config.toml is part of the action's
         # hashed lockfile set, so the override gets its own cache entry instead
-        # of colliding with an opt-level=2 one.
+        # of colliding with an opt-level=2 one. skip-worktree keeps
+        # `git status` clean for the native-artifact checkout-integrity gate
+        # while leaving the appended content in place (and hashed).
         shell: bash
-        run: printf '\n[profile.dev.package."*"]\nopt-level = 0\n\n[profile.test.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
+        run: |
+          git update-index --skip-worktree .cargo/config.toml
+          printf '\n[profile.dev.package."*"]\nopt-level = 0\n\n[profile.test.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # cache-on-failure must stay off: GitHub cache entries are immutable,
@@ -126,9 +130,12 @@ jobs:
       - run: rustup toolchain install 1.98.1 --profile minimal --component clippy
       - name: Lower dependency optimization in CI only
         # Same override as contracts; see that step for the rationale and the
-        # ordering requirement relative to rust-cache.
+        # ordering requirement relative to rust-cache. skip-worktree keeps
+        # `git status` clean for the native-artifact checkout-integrity gate.
         shell: bash
-        run: printf '\n[profile.dev.package."*"]\nopt-level = 0\n\n[profile.test.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
+        run: |
+          git update-index --skip-worktree .cargo/config.toml
+          printf '\n[profile.dev.package."*"]\nopt-level = 0\n\n[profile.test.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # See the contracts job above: immutable entries + cache-on-failure
