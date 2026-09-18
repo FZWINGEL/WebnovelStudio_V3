@@ -98,6 +98,16 @@ Status: proposed | measured | adopted | not adopted | superseded
 - **Decision**: Rejected for production CI and default development flows due to reliability requirements.
 - **Reopening Condition**: Reopening requires 100% pass reliability across at least 20 consecutive runs on Windows, seamless doc-test integration, and demonstrated end-to-end wall-time savings.
 
+### 6. CI Dependency `opt-level = 0` and Producer Cache Repair
+- **Status**: `adopted` (CI only; local defaults unchanged)
+- **Question**: Should hosted CI compile dependencies at the manifest's `opt-level = 2`, and could the truncated `rust-cache` entry be republished without changing verification?
+- **Context**: The restored warm entry contained only check-level artifacts: `cargo clippy` finished in seconds while `cargo test` and `desktop:spike` recompiled every dependency (feature variant included) on each run. GitHub cache entries are immutable, so the partial entry exact-matched permanently.
+- **Procedure**: Staged hosted-runner runs on the PR branch — cold `opt-level = 2` populate under a bumped `shared-key`, warm `opt-level = 2` with a source edit, cold `opt-level = 0` populate via a checkout-scoped `.cargo/config.toml` override, then warm `opt-level = 0` with a source edit. Numbers are GitHub step timestamps, not `Compiling` line gaps.
+- **Results**: `windows-native` producer — cold opt2 `34m55s`, warm opt2 `8m23s`, cold opt0 `TBD`, warm opt0 `TBD`; end-to-end fully green run `TBD` vs the `~35m` poisoned-cache baseline.
+- **Decision**: Adopted both repairs. `cache-on-failure: false` plus a `shared-key` generation bump restored a complete cache; CI appends a dependency `opt-level = 0` override to `.cargo/config.toml` before the cache step (self-invalidating through the lockfile hash, skipped in the index so the artifact gate still sees a clean checkout). sccache was evaluated and rejected: with a warm dependency cache the compile surface is already near zero, so a second cache layer adds only maintenance cost.
+- **Reopening Condition**: Reopening requires hosted-runner timing data showing the `opt-level = 0` override increases time-to-green (e.g. slower native test execution outweighing codegen savings) or evidence the override leaks into release builds.
+- **Evidence**: workflow runs `35397231323` (cold opt2), `35400445360` (warm opt2), `35401371299` (cold opt0), `TBD` (warm opt0) on `FZWINGEL/WebnovelStudio_V3`; `cargo-timings-windows-*` artifacts on each run.
+
 ---
 
 ## Measurement Traps

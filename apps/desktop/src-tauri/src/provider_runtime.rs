@@ -87,6 +87,8 @@ impl Drop for LocalWorkerRegistration {
     }
 }
 
+/// Drain snapshot for one close request: in-flight admissions plus registered
+/// workers still running, and whether shutdown cancellation already fired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CloseActivity {
     pub starting_requests: u32,

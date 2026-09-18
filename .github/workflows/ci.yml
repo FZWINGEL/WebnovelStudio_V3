@@ -150,6 +150,9 @@ jobs:
         run: node scripts/prepare-cargo.mjs
       - run: cargo clippy --workspace --all-targets ${{ env.CARGO_NETWORK_FLAG }} --timings -- -D warnings
       - run: cargo test --workspace ${{ env.CARGO_NETWORK_FLAG }} --timings
+      # tauri build enables the `custom-protocol` feature, so the spike
+      # legitimately compiles a second dependency variant set; the producer
+      # cache holds both instead of unifying them.
       - run: npm run desktop:spike -- -- ${{ env.CARGO_NETWORK_FLAG }} --timings
         working-directory: apps/desktop
       - name: Prepare exact native executable artifact
