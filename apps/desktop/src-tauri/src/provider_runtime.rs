@@ -73,6 +73,8 @@ impl Drop for RequestAdmission {
     }
 }
 
+/// Counts a live local worker for close-drain; the decrement runs on Drop so
+/// unwinding worker exits release the slot exactly once.
 pub struct LocalWorkerRegistration(DesktopProviders);
 impl Drop for LocalWorkerRegistration {
     fn drop(&mut self) {
