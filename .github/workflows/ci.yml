@@ -63,11 +63,12 @@ jobs:
           # cache-on-failure must stay off: GitHub cache entries are immutable,
           # so an entry written by a run that failed before building every
           # required variant full-matches forever and can never be republished.
-          # Only a fully green producer may publish. The key suffix escapes the
-          # stale check-only entry; bump it when CI-only cargo configuration
-          # changes (it is not part of the computed key otherwise).
-          key: ci-opt2-v2
-          shared-key: v3-core-contract-ubuntu-latest-rust-1.98.1
+          # Only a fully green producer may publish.
+          # shared-key carries the cache generation: -g2 escaped the stale
+          # check-only entry. Bump it when CI-only cargo configuration changes
+          # (repo config files do not enter the computed key; CARGO_*/RUST*
+          # environment variables do via the environment hash).
+          shared-key: v3-core-contract-ubuntu-latest-rust-1.98.1-g2
           cache-on-failure: false
           cache-bin: false
       - name: Prepare locked dependencies only when missing
@@ -113,8 +114,7 @@ jobs:
         with:
           # See the contracts job above: immutable entries + cache-on-failure
           # pinned a partial check-level cache that exact-matched on every run.
-          key: ci-opt2-v2
-          shared-key: v3-native-${{ runner.os }}-rust-1.98.1
+          shared-key: v3-native-${{ runner.os }}-rust-1.98.1-g2
           cache-on-failure: false
           cache-bin: false
       - run: npm ci --prefer-offline --no-audit
