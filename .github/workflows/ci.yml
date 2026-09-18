@@ -58,16 +58,30 @@ jobs:
       - run: npm test
         working-directory: apps/desktop
       - run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+      - name: Lower dependency optimization in CI only
+        # The manifest keeps opt-level=2 for dependencies so local debug runs
+        # stay fast. On a cold CI cache, dependency codegen dominates; at 0 the
+        # same crates compile much faster while debug assertions, overflow
+        # checks, and the release profile are unchanged. Scoped to this
+        # checkout's .cargo/config.toml; cargo resolves config files by walking
+        # up from every invocation directory, so this also reaches the cargo
+        # build spawned by the Tauri CLI.
+        # Must run before rust-cache: .cargo/config.toml is part of the action's
+        # hashed lockfile set, so the override gets its own cache entry instead
+        # of colliding with an opt-level=2 one.
+        shell: bash
+        run: printf '\n[profile.dev.package."*"]\nopt-level = 0\n\n[profile.test.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # cache-on-failure must stay off: GitHub cache entries are immutable,
           # so an entry written by a run that failed before building every
           # required variant full-matches forever and can never be republished.
           # Only a fully green producer may publish.
-          # shared-key carries the cache generation: -g2 escaped the stale
-          # check-only entry. Bump it when CI-only cargo configuration changes
-          # (repo config files do not enter the computed key; CARGO_*/RUST*
-          # environment variables do via the environment hash).
+          # shared-key carries the cache generation (-g2 escaped the stale
+          # check-only entry). Bump it when CI cargo configuration that is NOT
+          # already hashed changes; .cargo/config.toml, every Cargo.toml,
+          # Cargo.lock, and rust-toolchain.toml already feed the key, and
+          # CARGO_*/RUST* environment variables do via the environment hash.
           shared-key: v3-core-contract-ubuntu-latest-rust-1.98.1-g2
           cache-on-failure: false
           cache-bin: false
@@ -110,6 +124,11 @@ jobs:
       - name: Check product versions, tooling, and native preflight
         run: node scripts/run-tooling-tests.mjs --profile=all
       - run: rustup toolchain install 1.98.1 --profile minimal --component clippy
+      - name: Lower dependency optimization in CI only
+        # Same override as contracts; see that step for the rationale and the
+        # ordering requirement relative to rust-cache.
+        shell: bash
+        run: printf '\n[profile.dev.package."*"]\nopt-level = 0\n\n[profile.test.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # See the contracts job above: immutable entries + cache-on-failure
