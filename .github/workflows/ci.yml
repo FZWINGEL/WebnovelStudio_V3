@@ -107,9 +107,10 @@ jobs:
           include-hidden-files: true
   windows-native:
     runs-on: windows-latest
-    # A cold dependency build and cache upload exceeded 25 minutes even with
-    # every test passing. Keep the test harness timeouts independently bounded.
-    timeout-minutes: 35
+    # A cold dependency build plus cache upload runs ~32 minutes at dep
+    # opt-level 1 (~35 at 2); a timeout then also forfeits the cache save.
+    # Keep the test harness timeouts independently bounded.
+    timeout-minutes: 40
     env:
       # Keep line information for failures; CI does not need local variable/type
       # debug data. Assertions and the Tauri development surface stay enabled.
