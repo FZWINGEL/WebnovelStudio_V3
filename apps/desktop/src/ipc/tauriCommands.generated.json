@@ -27,7 +27,7 @@
     },
     {
       "path": "apps/desktop/src-tauri/src/commands/endpoint_commands.rs",
-      "sha256": "a45ab8d9f6188a274e747a4dbf7b8081608ad33c118e66739a457010d8ad274d"
+      "sha256": "10e2cf5e5906aac346cbda104171535713d55b9226d58641b6ec51585d381d47"
     },
     {
       "path": "apps/desktop/src-tauri/src/commands/endpoint_discovery.rs",
@@ -59,7 +59,7 @@
     },
     {
       "path": "apps/desktop/src-tauri/src/commands/project_commands.rs",
-      "sha256": "f1641e8576f618667215308a097d07a11be36d3a4d182bc3d020a672c215c663"
+      "sha256": "5792bc8d02165871963facf6784e31345567bcd9c63ad653bf40fce7ab2b21a0"
     },
     {
       "path": "apps/desktop/src-tauri/src/commands/provider_commands.rs",

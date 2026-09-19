@@ -928,6 +928,9 @@ try {
   assert.equal(adoptedPreferences.length, preferencesBefore.length + 1);
   assert(adoptedPreferences.some(item => item.scope === 'project' && item.confirmed && item.polarity === 'avoid' && item.strength === 'hard' && item.label === preset.preferences[0].label));
 
+  const preferenceContextClose = page.getByRole('button', { name: 'Close working story', exact: true });
+  if (await preferenceContextClose.isVisible()) await preferenceContextClose.click();
+  else await page.getByRole('button', { name: 'Hide working story', exact: true }).click();
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await page.getByRole('button', { name: new RegExp(`^${title} Last opened`) }).click();
@@ -976,6 +979,9 @@ try {
   recordCheck(checks, 'native-workshop-smoke:28', 'A conflicting local Want is visibly refused without changing a hard project exclusion or generating');
 
   const firstProjectState = workshopState().state;
+  const reopenedContextClose = page.getByRole('button', { name: 'Close working story', exact: true });
+  if (await reopenedContextClose.isVisible()) await reopenedContextClose.click();
+  else await page.getByRole('button', { name: 'Hide working story', exact: true }).click();
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Your stories', exact: true }).waitFor();
   await page.getByRole('button', { name: 'New project', exact: true }).click();

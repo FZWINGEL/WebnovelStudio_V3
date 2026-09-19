@@ -338,3 +338,25 @@ impl DiscussionRecovery {
         Ok(self.view(project.read_discussion(access, document_id)?))
     }
 }
+
+/// Save a terminal provider outcome: the run copy is refreshed first so a
+/// later committed chunk is not lost, and a failed attempt is retained for
+/// explicit local retry.
+pub(crate) fn save_report(
+    project: &ProjectSession,
+    recovery: &DiscussionRecovery,
+    run: DiscussionRun,
+    report: ProviderTerminalReport,
+) {
+    let mut pending = PendingSave {
+        outcome: SaveOutcome::Provider(Box::new(report)),
+        run,
+    };
+    // Reading this owner cannot redirect a late result after project switching.
+    if let Ok(current) = project.read_discussion_run(pending.run.owner.clone()) {
+        pending.run = current;
+    }
+    if pending.attempt(project, &pending.run).is_err() {
+        recovery.retain(pending);
+    }
+}

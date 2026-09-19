@@ -337,6 +337,11 @@ async function qualifyDirtyFlush() {
     assert.equal(await secondPage.getByRole('textbox', { name: 'Manuscript', exact: true }).innerText(),
       'This text exists only in the live editor until normal close flushes it.');
     await capture(secondPage, 'dirty-flush-reopened.png');
+    // The reopened app must also leave by normal close: a teardown kill counts
+    // as a forced stop against this suite's process-cleanliness audit.
+    await requestNativeClose(second.app, data);
+    await waitForExit(second.app);
+    await second.browser.close(); second = undefined;
     return {
       summary: 'Normal WM_CLOSE flushes a verified dirty live manuscript before a no-job close and the exact prose survives a fresh native reopen.',
       dataDirectory: data,

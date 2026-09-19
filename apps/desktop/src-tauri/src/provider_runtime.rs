@@ -73,6 +73,8 @@ impl Drop for RequestAdmission {
     }
 }
 
+/// Counts a live local worker for close-drain; the decrement runs on Drop so
+/// unwinding worker exits release the slot exactly once.
 pub struct LocalWorkerRegistration(DesktopProviders);
 impl Drop for LocalWorkerRegistration {
     fn drop(&mut self) {
@@ -85,6 +87,8 @@ impl Drop for LocalWorkerRegistration {
     }
 }
 
+/// Drain snapshot for one close request: in-flight admissions plus registered
+/// workers still running, and whether shutdown cancellation already fired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CloseActivity {
     pub starting_requests: u32,
@@ -1001,6 +1005,64 @@ impl DesktopProviders {
     }
 }
 
+/// Byte-prefix at a limit, never splitting a UTF-8 boundary.
+pub(crate) fn prefix(text: &str, limit: usize) -> &str {
+    let mut end = text.len().min(limit);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// Registered worker slot released when the worker ends or unwinds.
+pub(crate) struct WorkerRegistration {
+    runtime: DesktopProviders,
+    owner: WorkerOwner,
+}
+
+enum WorkerOwner {
+    #[cfg(windows)]
+    Discussion(RunOwner),
+    #[cfg(windows)]
+    Memory(MemoryOwner),
+    HttpMemory(MemoryOwner),
+}
+
+impl WorkerRegistration {
+    #[cfg(windows)]
+    pub(crate) fn discussion(runtime: DesktopProviders, owner: RunOwner) -> Self {
+        Self {
+            runtime,
+            owner: WorkerOwner::Discussion(owner),
+        }
+    }
+    #[cfg(windows)]
+    pub(crate) fn memory(runtime: DesktopProviders, owner: MemoryOwner) -> Self {
+        Self {
+            runtime,
+            owner: WorkerOwner::Memory(owner),
+        }
+    }
+    pub(crate) fn http_memory(runtime: DesktopProviders, owner: MemoryOwner) -> Self {
+        Self {
+            runtime,
+            owner: WorkerOwner::HttpMemory(owner),
+        }
+    }
+}
+
+impl Drop for WorkerRegistration {
+    fn drop(&mut self) {
+        match &self.owner {
+            #[cfg(windows)]
+            WorkerOwner::Discussion(owner) => self.runtime.release(owner),
+            #[cfg(windows)]
+            WorkerOwner::Memory(owner) => self.runtime.release_memory(owner),
+            WorkerOwner::HttpMemory(owner) => self.runtime.release_http_memory(owner),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1050,6 +1112,28 @@ mod tests {
         );
         runtime.cancel_close("close-one").unwrap();
         assert!(runtime.admit_request().is_ok());
+    }
+
+    #[test]
+    fn admission_and_worker_counts_release_when_a_worker_exits_by_unwind() {
+        let runtime = DesktopProviders::default();
+        let active = runtime.track_local_worker().unwrap();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _admission = runtime.admit_request().unwrap();
+            let _worker = runtime.track_local_worker().unwrap();
+            panic!("worker exit");
+        }));
+        assert!(panicked.is_err());
+        drop(active);
+        runtime.begin_close("close").unwrap();
+        assert_eq!(
+            runtime.close_activity("close").unwrap(),
+            CloseActivity {
+                starting_requests: 0,
+                active_workers: 0,
+                stopping: false
+            }
+        );
     }
 
     #[test]

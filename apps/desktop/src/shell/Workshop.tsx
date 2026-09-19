@@ -1,7 +1,8 @@
 import { explorationRequest } from '../workshop';
+import { useWorkshopAdoption } from './workshopAdoption';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState } from 'react';
 import { readDocument, type DocumentRecord, type OpenedProject } from '../ipc/projects';
-import { adoptWorkshop, previewWorkshopAdoption, startWorkshop, workshopHistory, type CandidateChoice, type WorkshopAdoptionPreview, type WorkshopAdoptionTarget, type WorkshopCandidate, type WorkshopImpactDraft, type WorkshopRelationship, type WorkshopResult, type WorkshopSession, type WorkshopSnapshot, type WorkshopState } from '../ipc/workshop';
+import { startWorkshop, workshopHistory, type CandidateChoice, type WorkshopCandidate, type WorkshopRelationship, type WorkshopResult, type WorkshopSession, type WorkshopSnapshot, type WorkshopState } from '../ipc/workshop';
 import { retryDiscussionSave, stopDiscussion } from '../ipc/discussions';
 import { useProviders } from '../providers';
 import { sameModel, type ModelSelection } from '../ipc/providers';
@@ -10,10 +11,10 @@ import { CandidateBoard } from '../workshop';
 import { Preferences, applicablePreferences, preferenceLabel } from '../workshop';
 import { ACTIONS, LENSES, NOTES_ORGANIZATION_BRIEF, NOTES_ORGANIZATION_SCOPE, SUBVERSIONS, WORLD_QUESTIONS, type WorkshopLens } from '../workshop';
 import { describeWorkshopError, newSession, WorkshopStore } from '../workshop';
-import { appendText, plainText, textDocument } from '../workshop';
+import { plainText } from '../workshop';
 import { Relationships } from '../workshop';
 import { DocumentAliases } from '../story';
-import { AdoptionLinks, adoptionParticipants, validAdoptionLinks, type AdoptionMaterialDraft, type AdoptionLinkDraft } from '../workshop';
+import { AdoptionLinks, validAdoptionLinks } from '../workshop';
 import { AdoptionImpacts, IMPACT_LABELS } from '../workshop';
 import { AdoptionPreview } from '../workshop';
 import { WorkshopRecap } from '../workshop';
@@ -23,7 +24,6 @@ import { BranchComparison } from '../workshop';
 import { WorkshopContextPanel } from '../workshop';
 import { StoryPossibilities, POSSIBILITY_KINDS } from '../workshop';
 import { nextWorkshopQuestion } from '../workshop';
-import { selectedBranchCandidates } from '../workshop';
 import '../workshop/workshop.css';
 
 export interface WorkshopHandle { flush(): Promise<void> }
@@ -35,14 +35,10 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
   const store = useMemo(() => new WorkshopStore(access), [access.projectId, access.operationNamespace, access.session, access.writerLease]);
   const [, redraw] = useReducer(value => value + 1, 0);
   const [loadingError, setLoadingError] = useState(''); const [notice, setNotice] = useState('');
-  const [requestBusy, setRequestBusy] = useState(false); const [adopting, setAdopting] = useState(false);
+  const [requestBusy, setRequestBusy] = useState(false);
   const [contextOpen, setContextOpen] = useState(() => window.innerWidth >= 1190); const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [action, setAction] = useState('directions'); const [subversion, setSubversion] = useState('');
-  const [capture, setCapture] = useState<Capture | null>(null); const [preview, setPreview] = useState<WorkshopAdoptionPreview | null>(null);
-  const [adoptionForm, setAdoptionForm] = useState(false); const [targets, setTargets] = useState<AdoptionMaterialDraft[]>([]);
-  const [adoptionLinks, setAdoptionLinks] = useState<AdoptionLinkDraft[]>([]);
-  const [impactDrafts, setImpactDrafts] = useState<WorkshopImpactDraft[]>([]);
-  const [rationale, setRationale] = useState(''); const adoptionOperation = useRef<string | null>(null); const previewGeneration = useRef(0);
+  const [capture, setCapture] = useState<Capture | null>(null);
   const pendingRequest = useRef<{ operationId: string; exploration: Parameters<typeof startWorkshop>[2]; selection: ModelSelection } | null>(null);
   const requestStarting = useRef(false);
   const [history, setHistory] = useState<WorkshopSnapshot[] | null>(null); const [notesOpen, setNotesOpen] = useState(false);
@@ -69,7 +65,12 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
   const activeRelationship = session?.relationshipId ? state.relationships.find(item => item.id === session.relationshipId) : null;
   const relationshipUnavailable = !!session?.relationshipId && (!activeRelationship || activeRelationship.status === 'archived');
   const reviewableImpacts = state.impacts.filter(impact => !impact.documentId.startsWith('workshop-'));
-  const participants = adoptionParticipants(material, targets);
+  const { adopting, preview, adoptionForm, targets, adoptionLinks, impactDrafts, rationale,
+    adoptionOperation, previewGeneration, participants,
+    setAdoptionForm, setPreview, setTargets, setAdoptionLinks, setImpactDrafts, setRationale,
+    beginAdoption, prepareAdoption, commitAdoption } = useWorkshopAdoption({
+    access, session, state, store, material, composing, setNotice, report, onDocumentsChanged,
+  });
   store.setInteractionLocked(adopting || adoptionOperation.current !== null);
 
   useImperativeHandle(ref, () => ({ flush: async () => {
@@ -316,23 +317,6 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
     store.edit(current => ({ ...current, sessions: [...current.sessions, next], currentSessionId: next.id, preferences: [...current.preferences, ...localPreferences] }));
     setNotice('An isolated what-if exploration is ready. Existing story documents are unchanged.');
   }
-  function beginAdoption() {
-    if (!session || !session.workingText.trim()) return;
-    const kind = session.lens === 'world' ? 'world' : session.lens === 'people' ? 'character' : session.lens === 'themes' ? 'theme' : session.lens === 'possibilities' ? 'hook' : 'note';
-    setTargets(session.relationshipId ? [] : [{ id: crypto.randomUUID(), documentId: session.focusDocumentId ?? '', title: session.workingTitle || session.title, kind, mode: 'add', text: session.workingText }]);
-    setAdoptionLinks([]);
-    const affected = new Map<string, WorkshopImpactDraft>();
-    for (const { candidate } of selectedBranchCandidates(state, session, store.results)) {
-      for (const target of candidate.affectedTargets) {
-        // The blank request anchor is internal bookkeeping, not story material.
-        if (target.documentId.startsWith('workshop-')) continue;
-        const prior = affected.get(target.documentId);
-        affected.set(target.documentId, { documentId: target.documentId, kind: 'possibleTension', reason: prior ? `${prior.reason}\n${target.reason}` : target.reason });
-      }
-    }
-    setImpactDrafts([...affected.values()]);
-    setRationale(''); setPreview(null); setAdoptionForm(true);
-  }
   function prepareVoiceGuidance() {
     setAction('voiceGuidance');
     edit(current => ({ ...current, composer: current.composer || 'Describe the voice qualities in this sample that could guide later writing. Keep its events separate.' }));
@@ -348,46 +332,6 @@ export const Workshop = forwardRef<WorkshopHandle, Props>(function Workshop({ pr
     edit(current => ({ ...current, composer: appendProvisionalInstruction(current.composer, instruction) ?? current.composer, selectedScope: 'Whole working version' }));
     setAction('subvert'); setSubversion(''); setCapture(null);
     setNotice('This direction is a provisional comparison. Name its convention and choose the transformation below, then Explore.');
-  }
-  async function prepareAdoption() {
-    if (!session || composing.current) return;
-    if (!targets.length || targets.some(target => !target.text.trim() || !target.documentId && !target.title.trim())) { setNotice('Choose where this version belongs and review its content before previewing.'); return; }
-    if (!validAdoptionLinks(adoptionLinks, participants)) { setNotice('Review the relationship participants and descriptions before previewing.'); return; }
-    setAdopting(true);
-    try {
-      await store.flush();
-      const proposalTargets: WorkshopAdoptionTarget[] = await Promise.all(targets.map(async target => {
-        const source = target.documentId ? await readDocument(access, target.documentId) : null;
-        return { documentId: source?.head.documentId ?? target.id, expected: source?.head ?? null, title: source?.title ?? target.title, kind: source?.kind ?? target.kind, mode: target.mode, body: source && target.mode === 'add' ? appendText(source.body, target.text) : textDocument(target.text) };
-      }));
-      const current = store.state.sessions.find(item => item.id === session.id)!;
-      const relationships = adoptionLinks.map(link => ({ ...link,
-        fromExpected: material.find(document => document.head.documentId === link.fromDocumentId)?.head ?? null,
-        toExpected: material.find(document => document.head.documentId === link.toDocumentId)?.head ?? null,
-      }));
-      const value = await previewWorkshopAdoption({ access, sessionId: current.id, expectedVersion: store.version, candidateIds: [...new Set(current.selectedDetails.flatMap(detail => detail.candidateId ? [detail.candidateId] : []))], targets: proposalTargets, rationale, protectedText: current.selectedDetails.filter(detail => detail.fixed).map(detail => detail.text), relationships, impactDrafts });
-      previewGeneration.current = store.generation; setPreview(value); setAdoptionForm(false);
-    } catch (reason) { report(reason); }
-    finally { setAdopting(false); }
-  }
-  async function commitAdoption() {
-    if (!preview || composing.current) return;
-    setAdopting(true);
-    try {
-      if (!adoptionOperation.current) {
-        await store.flush();
-        if (store.version !== preview.expectedVersion) throw new Error('Your exploration changed after preview. Prepare the adoption again.');
-        adoptionOperation.current = crypto.randomUUID();
-      }
-      const ack = await adoptWorkshop(access, adoptionOperation.current, preview.id);
-      store.acceptAdoption(ack.snapshot, previewGeneration.current); adoptionOperation.current = null; store.setInteractionLocked(false);
-      onDocumentsChanged(ack.documents); setPreview(null); setNotice('Version chosen. Its source and rationale are saved; writing access remains author only.');
-    } catch (reason) {
-      const code = reason && typeof reason === 'object' && 'code' in reason ? String(reason.code) : '';
-      if (code && !['UncertainOutcome', 'PersistenceUnavailable', 'ActorUnavailable'].includes(code)) { adoptionOperation.current = null; store.setInteractionLocked(false); }
-      report(reason);
-    }
-    finally { setAdopting(false); }
   }
   function questionStatus(status: 'notNow' | 'notRelevant' | 'keepMysterious') {
     if (!session) return;

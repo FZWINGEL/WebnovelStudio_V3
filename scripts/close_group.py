@@ -1,7 +1,7 @@
 """Close a bindings group's name list against the frontend compiler."""
 import io, os, re, shutil, subprocess
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CARGO = shutil.which('cargo') or os.path.expanduser('~/.cargo/bin/cargo.exe')
 ENV = dict(os.environ, CARGO_TARGET_DIR='/d/WebnovelStudio_V3/target',
            PATH=os.path.expanduser('~/.cargo/bin') + ':' + os.environ.get('PATH', ''))

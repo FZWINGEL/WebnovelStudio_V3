@@ -32,7 +32,13 @@ function version(value: string): bigint {
 function errorOf(reason: unknown): SessionError {
   if (reason instanceof SessionError) return reason;
   if (reason && typeof reason === 'object' && 'code' in reason && 'detail' in reason) return new SessionError(String(reason.code), String(reason.detail));
-  return new SessionError('UncertainOutcome', 'The save response was lost. Your local text is retained; reconnect to check the saved version.');
+  let detail = '';
+  try { detail = reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : JSON.stringify(reason); }
+  catch { detail = String(reason); }
+  const error = new SessionError('UncertainOutcome', `The save response was lost. Your local text is retained; reconnect to check the saved version.${detail ? ` (${detail})` : ''}`);
+  error.cause = reason;
+  console.error('Session operation failed with an unexpected exception', reason);
+  return error;
 }
 export function logicalSaveJson(request: SaveSnapshot): string {
   const { session: _session, writerLease: _lease, ...access } = request.access;
